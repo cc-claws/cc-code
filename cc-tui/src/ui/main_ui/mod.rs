@@ -8,7 +8,7 @@ mod status_bar;
 pub(crate) use status_bar::{format_token_count, truncate_spans_to_width};
 mod sticky_header;
 mod viewport_layout;
-pub use viewport_layout::{RequiredRows, prepare_width, required_rows};
+pub use viewport_layout::{prepare_width, required_rows};
 
 pub(crate) use message_area::highlight_line_spans;
 

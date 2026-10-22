@@ -50,11 +50,19 @@ hint 弹窗高度不应永久撑大 `allocated_rows`。可选方案：
 2. **回收 popup 贡献的高度**：跟踪 `allocated_rows` 中由 popup 贡献的部分，popup 消失时回收
 3. **popup 不参与 `required_rows`**：改为 hint 弹窗始终覆盖在已有视口上绘制（浮层语义），不改变布局
 
-方案 1 最小侵入：将 `required_rows` 中 popup 的计算单独返回，`prepare()` 只用 `required_rows - popup_extra` 做 `allocated_rows` 的决策。
+方案 1 存在严重物理缺陷（0c619369 实装后依然复现）：
+- 浮层 12 行使 `frame_rows` 在标准 24 行终端下达到 27 行，`frame_rows >= size.height` 假性击穿并永久锁死全屏，删除 `/` 后留白 9 行；
+- 原生滚屏不可逆，即使逻辑收缩，终端滚屏上移也会导致底部悬空留白；
+- Ratatui Fixed Viewport `resize` 缩小时不清理下方释放的区域，造成幽灵残影。
+
+**最终采纳方案 3**：
+浮层（Hints 和 @-mention）作为 Overlay 覆盖在输入框上方已有空间自适应渲染，本身代码已具备 `available` 边界自适应。浮层完全不参与 `required_rows`，视口高度不随浮层展开/关闭抖动，彻底杜绝留白与误切全屏。
 
 ## 六、状态变更记录
 
 | 日期 | 从 | 到 | 操作人 | 说明 |
 |------|-----|-----|--------|------|
 | 2026-10-21 | — | Open | agent | 用户截图报告，代码分析确认 |
-| 2026-10-21 | Open | Fixed | agent | `required_rows` 拆分 `total`/`persistent`；`prepare_persistent` 只用 `persistent` 记忆 `allocated_rows` |
+| 2026-10-21 | Open | Fixed | agent | `required_rows` 拆分 `total`/`persistent`；（方案 1，后证实依然复现） |
+| 2026-10-22 | Fixed | Reopen | user | 用户反馈最新版本依然复现留白（0c619369 方案 1 缺陷） |
+| 2026-10-22 | Reopen | Fixed | agent | 彻底移除 `required_rows` 中浮层高度，浮层作为 Overlay 视口内自适应（方案 3） |

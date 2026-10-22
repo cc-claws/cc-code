@@ -61,32 +61,17 @@ impl ViewportState {
     }
 
     pub fn prepare(&mut self, required_rows: u16, size: Size) -> ViewportPlan {
-        self.prepare_persistent(required_rows, required_rows, size)
-    }
-
-    /// 与 `prepare` 相同，但 `persistent_rows` 替代 `required_rows` 参与
-    /// `allocated_rows` 的单调递增记忆。临时浮层（`/` 命令提示、`@` 候选）
-    /// 贡献的高度只影响当帧 `area` 大小，不被持久记忆——否则浮层消失后
-    /// 消息区底部会残留空白。
-    pub fn prepare_persistent(
-        &mut self,
-        required_rows: u16,
-        persistent_rows: u16,
-        size: Size,
-    ) -> ViewportPlan {
         self.terminal_size = size;
         let mut scroll_rows = 0;
         let was_fullscreen = self.fullscreen_latched;
-        // 当帧面积取含浮层的总高度；allocated_rows 只记不含浮层的持久高度。
-        let frame_rows = self.allocated_rows.max(required_rows).max(1);
-        let next_rows = self.allocated_rows.max(persistent_rows).max(1);
+        let next_rows = self.allocated_rows.max(required_rows).max(1);
         if !self.fullscreen_latched {
             self.origin_row = self.origin_row.min(size.height.saturating_sub(1));
-            if frame_rows < size.height {
+            if next_rows < size.height {
                 // 每次增长都只滚动缺少的行，把应用起点上移；应用本身长满
                 // 宿主高度后才切全屏，不因启动位置靠近屏底提前锁定。
                 // 先减再比较，避免 origin + next_rows 在极大尺寸下溢出。
-                let last_origin = size.height - frame_rows;
+                let last_origin = size.height - next_rows;
                 scroll_rows = self.origin_row.saturating_sub(last_origin);
                 self.origin_row = self.origin_row.saturating_sub(scroll_rows);
                 self.available_rows = size.height.saturating_sub(self.origin_row);
@@ -99,17 +84,24 @@ impl ViewportState {
             self.allocated_rows = size.height;
             Rect::new(0, 0, size.width, size.height)
         } else {
-            // allocated_rows 只记持久高度，浮层撑大的部分不记忆。
             self.allocated_rows = next_rows;
-            // 但当帧面积必须足够大以容纳浮层，否则浮层被裁掉。
-            let area_rows = frame_rows.min(size.height);
-            Rect::new(0, self.origin_row, size.width, area_rows)
+            Rect::new(0, self.origin_row, size.width, next_rows)
         };
         ViewportPlan {
             area,
             scroll_rows,
             enter_fullscreen: !was_fullscreen && self.fullscreen_latched,
         }
+    }
+
+    /// 向后兼容接口：临时浮层不再计入 `required_rows`，直接委托给 `prepare`。
+    pub fn prepare_persistent(
+        &mut self,
+        required_rows: u16,
+        _persistent_rows: u16,
+        size: Size,
+    ) -> ViewportPlan {
+        self.prepare(required_rows, size)
     }
 }
 

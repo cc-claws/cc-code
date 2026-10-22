@@ -19,43 +19,6 @@ enum HintItem<'a> {
 
 const MAX_VIEWPORT: usize = 10;
 
-pub(crate) fn desired_height(app: &App) -> u16 {
-    let session = app.session_mgr.current();
-    let text = session
-        .ui
-        .textarea
-        .lines()
-        .first()
-        .map(String::as_str)
-        .unwrap_or("");
-    if !text.starts_with('/') || session.ui.hint_dismissed_for.as_deref() == Some(text) {
-        return 0;
-    }
-    let prefix = text.trim_start_matches('/');
-    let count = session
-        .commands
-        .command_registry
-        .match_prefix(prefix, &app.services.lc)
-        .len()
-        + session
-            .commands
-            .skills
-            .iter()
-            .filter(|skill| prefix.is_empty() || skill.name.contains(prefix))
-            .count()
-        + session
-            .commands
-            .agent_commands
-            .iter()
-            .filter(|name| prefix.is_empty() || name.contains(prefix))
-            .count();
-    if count == 0 {
-        0
-    } else {
-        count.min(MAX_VIEWPORT) as u16 + 2
-    }
-}
-
 /// 统一提示浮层：输入 / 前缀时展示命令和 Skills 候选（前缀匹配优先，再按字母顺序排列）
 pub(crate) fn render_unified_hint(f: &mut Frame, app: &App, input_area: Rect) {
     let available = input_area.y.saturating_sub(f.area().y);

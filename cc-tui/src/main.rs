@@ -1248,11 +1248,8 @@ async fn draw_app(terminal: &mut Terminal<TuiBackend<io::Stdout>>, app: &mut App
         app.session_mgr.current().metadata.session_id,
         !app.session_mgr.current().messages.view_messages.is_empty(),
     );
-    let required = ui::main_ui::required_rows(app, Rect::new(0, 0, size.width, size.height));
-    let plan = app
-        .global_ui
-        .viewport
-        .prepare_persistent(required.total, required.persistent, size);
+    let required_rows = ui::main_ui::required_rows(app, Rect::new(0, 0, size.width, size.height));
+    let plan = app.global_ui.viewport.prepare(required_rows, size);
     if plan.enter_fullscreen {
         // 滚动条会改变正文宽度；等待重排期间继续保留旧屏，首帧就绪后再切屏。
         ui::main_ui::prepare_width(app, size.width).await;
