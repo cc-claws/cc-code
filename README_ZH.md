@@ -103,6 +103,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **事件洪泛下计时不再冻结** | v0.6.181 | 长时间运行且期间无输出的命令，`Running… (Xs)` 秒数与块首 `●` 动画不再冻结。渲染线程此前每轮循环都重新创建 200ms 的 `sleep`，任何快于 5 Hz 的事件（流式输出、每帧视口上报）都会在它到期前取消，tick 一次都执行不到；`rebuild` 也补不上——渲染键（`content_hash ⊕ detail/diff 标志`）不含流逝时间，内容不变时直接复用旧行。现改为跨事件单调推进的 `tick_deadline` + `biased` 的 `sleep_until`，事件再密也能按时触发；没有运行中的工具时重置 deadline（#683）。 |
 | **`.md` 预览不再着色** | v0.6.177 | Write 与 Edit 预览不再给 `.md` 内容上色。Claude Code 虽把 `md` 识别为 markdown，但其主题 scope 表没有 highlight.js 产出的 `section` / `strong` 映射，实际渲染输出与纯文本逐字节相同；cc-code 此前用 syntect 的 Markdown 语法，标题与粗体会明显染色。现从高亮白名单移除 markdown 扩展名，回退纯文本，与 CC 观感一致。 |
 | **统一 Bash 及工具截断提示风格** | v0.6.175 | 统一 Bash、用户 `!` 本机命令与错误摘要行的折叠提示为 `… +N lines (ctrl+o to expand)`（单数：`… +1 line`，单行超额：`… (ctrl+o to expand)`），与 diff / 新建文件代码预览风格完全对齐（#661）。同版彻底将命令/文件候选浮层从视口高度中移除，消除 24 行终端下误切全屏与留白（#659）。 |
 | **Write 文件内容预览恢复** | v0.6.174 | 修复界面通知晚于写盘时新建、覆盖预览消失，以及追加预览重复内容的问题。主、子 Agent 共用执行前快照，预览不再依赖界面读盘时序（#654）。 |
@@ -112,8 +113,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **工具结果中的 URL 链接色定稿 ANSI Cyan** | v0.6.170 | 工具结果与 `!` shell 命令输出里的 URL 此前用 `theme::cur().ide`（深色 `#4782C8`），链接色随 `/theme` 漂移，且与正文 `text_soft` 明度接近，扫读时难以快速定位。现 `style_urls()` 固定 `Color::Cyan` + 下划线，不再跟随主题，与状态栏的模型名 / 分支名同一口径。覆盖两个调用点：`format_prefixed_text()`（Bash / Read / Grep / Glob 等所有走 `⎿` 前缀的工具结果行）与 `format_shell_output_lines()`（`!命令` 输出）。识别口径沿用 CC `OutputLine.tsx::URL_IN_JSON` 并切掉句末 `)` `]` `}` `,` `;` `.` `:`；仍为视觉区分（非 OSC 8——ratatui cell 塞不了转义序列，`sanitize_display_text()` 会剥 `\x1b`），点击由终端自身 URL 识别提供。Markdown 链接（`[text](url)` → `theme.link()` = SAGE `#4EBA65`）是另一条路径，不受影响（#649）。 |
 | **长会话详情按视口渲染** | v0.6.169 | `/config` →「详情渲染」可选 `auto`（默认）、`cache`、`virtual`，即时生效并保存为 `config.detail_render_strategy`。虚拟路径仅物化当前窗口，不同变体共用 16 MiB 成品预算；原始历史、元数据和视口内巨型消息仍有独立内存开销。完整行为及边界见 [CHANGELOG](./CHANGELOG.md)（#629，PR #648）。 |
 | **Bash 输出 JSON 逐行美化（OutputLine 装饰器）** | v0.6.168 | Bash / MCP 工具结果统一经过对齐 CC 的 `OutputLine` 装饰器：单行 JSON 展开为 2 空格缩进的美化输出，并带精度守卫（紧凑重序列化与原文不一致即保留原文，大整数、`1.10` 这类字面量永不被改写），非 JSON 行走快速路径，整段超过 10,000 字符跳过美化；折行与截断共用同一把尺——按显示宽度预折行、折叠态只显示 3 个视觉行 + `… +N lines (ctrl+o to expand)` 提示。同批：diff 删除行改三档底色、工具路径按 CC 口径显示、状态栏 Edit 命名修正（#642）。 |
-| **工具结果与 `!` 输出的 URL 链接色** | v0.6.167 | 工具结果与 `!` shell 命令输出中的 URL 由手写前缀扫描识别（不引正则依赖，句末 `)` / `]` / `}` 等标点自动切除），以主题链接色 + 下划线呈现；`!` 输出先按既有 ANSI 着色切段再逐段着色，命令自带颜色不丢。此为视觉区分（非 OSC 8），点击仍由终端自身的 URL 识别提供（#640）。 |
-> 更早版本（v0.6.0 – v0.6.166）见 [CHANGELOG](./CHANGELOG.md)。
+> 更早版本（v0.6.0 – v0.6.167）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---
 

@@ -8,6 +8,7 @@ Perihelion Agent 版本变更记录。
 
 ### Fixes
 
+- **运行中 Bash 的计时与指示器不再被事件流饿死（#683）**：长时间运行且期间无输出的命令，`Running… (Xs)` 秒数会停在某个值不再增长，块首 `●` 动画同时冻结，只有按 `Ctrl+O` 这类改变渲染键的操作才让它跳一次。根因是渲染线程每轮循环都重新创建 200ms 的 `sleep`：只要事件间隔短于 200ms（流式输出、每帧视口上报），sleep 就在到期前被 `rx.recv()` 抢先并丢弃，tick 一次都执行不到；而 `rebuild` 补不上这个洞——渲染键 = `content_hash ⊕ detail/diff 标志`，不含流逝时间，内容不变时直接复用旧行。现改为跨事件单调推进的 `tick_deadline` + `sleep_until`，`select!` 加 `biased` 保证 deadline 到期时 tick 分支优先被选中；`live` 转 false 时重置 deadline，避免积压后连发。新增回归用例 `test_worker_tick_not_starved_by_viewport_flood`，在 50ms 间隔的视口事件下断言秒数持续刷新。
 - **Bash 执行状态 L1（#675）**：工具块使用显式执行阶段，空输出完成后显示 `Done`（详细模式为 `(No output)`），不再保留运行指示。显式 timeout 以 `Running… (Ns · timeout Nm)` 展示，并在完成结果底部保留尾注；后台化提示使用悬挂缩进，子 Agent 不显示该快捷键。历史恢复一律为完成态。
 
 ---
