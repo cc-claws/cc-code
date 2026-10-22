@@ -329,12 +329,25 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           for platform in win32-x64 darwin-x64 darwin-arm64 linux-x64 linux-arm64; do
             cd "platform-packages/${platform}"
-            if npm view "@cc-claw/code-${platform}@${VERSION}" version >/dev/null 2>&1; then
-              echo "::warning::@cc-claw/code-${platform}@${VERSION} already published, skipping"
-              cd ../..
-              continue
+            # A freshly published package answers 404 on the read API for a few
+            # minutes ("being processed and may take a few minutes to become
+            # available"), so `npm view` cannot tell "already published" from
+            # "not yet published". Publish unconditionally and treat the
+            # version-conflict error as the already-published case instead.
+            if npm publish --access public; then
+              :
+            else
+              status=$?
+              # npm 对重复版本返回 403 + "cannot publish over the previously
+              # published versions"；重跑 workflow 时这是正常路径，不应中断。
+              echo "::warning::publish exited ${status}; checking whether ${VERSION} already exists"
+              if npm view "@cc-claw/code-${platform}@${VERSION}" version >/dev/null 2>&1; then
+                echo "  already published, continuing"
+              else
+                echo "::error::@cc-claw/code-${platform}@${VERSION} failed to publish"
+                exit 1
+              fi
             fi
-            npm publish --access public
             cd ../..
           done
         env:
@@ -365,17 +378,45 @@ jobs:
       - name: Verify platform packages are resolvable
         # Catches the ordering mistake above before the main package is pushed:
         # a missing platform package makes every install of this version fail.
+        #
+        # This must poll: a package that npm has just accepted answers 404 on
+        # the read API until its processing finishes, so a single immediate
+        # check reports a false negative on an otherwise healthy release.
         run: |
           set -euo pipefail
           VERSION="${{ steps.version.outputs.version }}"
-          for platform in win32-x64 darwin-x64 darwin-arm64 linux-x64 linux-arm64; do
-            npm view "@cc-claw/code-${platform}@${VERSION}" version >/dev/null \
-              || { echo "::error::@cc-claw/code-${platform}@${VERSION} is not on the registry"; exit 1; }
+          PLATFORMS=(win32-x64 darwin-x64 darwin-arm64 linux-x64 linux-arm64)
+          DEADLINE=$((SECONDS + 900))   # 15 分钟总预算，够覆盖 npm 的处理延迟
+          while :; do
+            missing=()
+            for platform in "${PLATFORMS[@]}"; do
+              if ! npm view "@cc-claw/code-${platform}@${VERSION}" version >/dev/null 2>&1; then
+                missing+=("@cc-claw/code-${platform}")
+              fi
+            done
+            if [ "${#missing[@]}" -eq 0 ]; then
+              echo "All ${#PLATFORMS[@]} platform packages resolvable at ${VERSION}."
+              break
+            fi
+            if [ "$SECONDS" -ge "$DEADLINE" ]; then
+              echo "::error::still not resolvable after $((SECONDS / 60))min: ${missing[*]}"
+              exit 1
+            fi
+            echo "  waiting on (${SECONDS}s elapsed): ${missing[*]}"
+            sleep 15
           done
 
       - name: Publish main package
         run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
           cd npm
+          # Re-running a release whose platform packages already landed must not
+          # fail on the version bump alone; treat "already published" as done.
+          if npm view "@cc-claw/code@${VERSION}" version >/dev/null 2>&1; then
+            echo "@cc-claw/code@${VERSION} already published, nothing to do."
+            exit 0
+          fi
           npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
