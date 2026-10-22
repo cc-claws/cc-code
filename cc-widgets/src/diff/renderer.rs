@@ -228,11 +228,8 @@ const EXTENSION_LANGS: &[(&str, &str)] = &[
     ("makefile", "makefile"),
     ("mk", "makefile"),
     ("mak", "makefile"),
-    // markdown
-    ("md", "md"),
-    ("markdown", "md"),
-    ("mdown", "md"),
-    ("mkdn", "md"),
+    // markdown 不做语法高亮：CC 的 hljs markdown 只产出 section/strong scope，
+    // 其主题 scope 表没有对应颜色，输出与纯文本完全一致；这里直接按未识别语言回退。
     // perl
     ("pl", "pl"),
     ("pm", "pl"),

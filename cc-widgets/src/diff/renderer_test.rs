@@ -666,7 +666,8 @@ fn test_detect_language_by_filename() {
 #[test]
 fn test_detect_language_by_extension() {
     assert_eq!(detect_language("src/main.rs", None), Some("rs".to_string()));
-    assert_eq!(detect_language("a.md", None), Some("md".to_string()));
+    // .md 不做语法高亮（对齐 CC：hljs markdown 的 section/strong 未映射主题色，实际与纯文本一致）
+    assert_eq!(detect_language("a.md", None), None);
     assert_eq!(detect_language("a.yml", None), Some("yml".to_string()));
     // .h 归为 C，避免 syntect 命中 Objective-C
     assert_eq!(detect_language("a.h", None), Some("c".to_string()));
@@ -889,6 +890,29 @@ fn test_render_new_file_code_wraps_long_line_with_blank_continuation_gutter() {
         assert_eq!(line.spans[0].content.as_ref(), "   ");
         assert!(line_display_width(line) <= 40, "折行后不得超过 width");
     }
+}
+
+/// 对齐 CC：`.md` 不做语法高亮，内容回退为无前景色，与 `.txt` 输出逐字一致
+#[cfg(feature = "markdown-highlight")]
+#[test]
+fn test_render_new_file_code_md_falls_back_to_plain_text() {
+    let content = "# 标题\n\n普通段落文字\n\n**粗体**\n";
+    let md =
+        crate::diff::render_new_file_code("notes.md", content, 80, &MonokaiTestTheme, usize::MAX);
+    for line in &md {
+        assert!(
+            content_fgs(line, true).iter().all(|fg| fg.is_none()),
+            "md 预览不应带语法前景色，实际: {:?}",
+            content_fgs(line, true)
+        );
+    }
+    let txt =
+        crate::diff::render_new_file_code("notes.txt", content, 80, &MonokaiTestTheme, usize::MAX);
+    assert_eq!(
+        md.iter().map(joined_text).collect::<Vec<_>>(),
+        txt.iter().map(joined_text).collect::<Vec<_>>(),
+        "md 与 txt 的预览输出应完全一致（都不着色）"
+    );
 }
 
 /// 一行的显示宽度（CJK 占 2 列）
