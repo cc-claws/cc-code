@@ -613,6 +613,8 @@ dependencies = [
  "pulldown-cmark",
  "rand 0.10.1",
  "ratatui",
+ "serde",
+ "serde_json",
  "similar",
  "syntect",
  "sysinfo",

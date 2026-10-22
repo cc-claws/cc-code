@@ -151,6 +151,7 @@ pub fn widgets_theme() -> cc_widgets::CustomTheme {
         warning: p.warning,
         error: p.error,
         thinking: p.thinking,
+        permission: p.permission,
         text: p.text,
         muted: p.inactive,
         dim: p.subtle,

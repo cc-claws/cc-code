@@ -23,6 +23,15 @@ pub trait Theme: Send + Sync + 'static {
     /// 推理/思考色
     fn thinking(&self) -> Color;
 
+    /// 权限/交互强调色（对应 CC 主题的 `permission`）。
+    ///
+    /// Markdown 行内代码用它着色，与 CC `color('permission', theme)` 一致。
+    /// 与 `thinking` 分开定义：两者在部分主题里色值相同，但语义与取值来源不同，
+    /// 合并会让 markdown 配色无法独立对齐 CC。
+    fn permission(&self) -> Color {
+        self.thinking()
+    }
+
     // ── 文字层级 ────────────────────────────────────────────
     /// 主文字（需要立即看到的内容）
     fn text(&self) -> Color;

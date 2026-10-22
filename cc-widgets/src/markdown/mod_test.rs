@@ -25,11 +25,22 @@ fn parse_heading() {
     let line = &text.lines[0];
     let heading_found = line.spans.iter().any(|s| s.content.contains("Hello"));
     assert!(heading_found, "Expected 'Hello' in heading output");
+    // 对齐 CC：H1 = bold + italic + underline，不带颜色
     let has_bold = line
         .spans
         .iter()
-        .any(|s| s.style.add_modifier == Modifier::BOLD);
+        .any(|s| s.style.add_modifier.contains(Modifier::BOLD));
     assert!(has_bold, "Expected BOLD modifier on heading");
+    let has_italic = line
+        .spans
+        .iter()
+        .any(|s| s.style.add_modifier.contains(Modifier::ITALIC));
+    assert!(has_italic, "H1 应为 bold+italic+underline（对齐 CC）");
+    let has_underline = line
+        .spans
+        .iter()
+        .any(|s| s.style.add_modifier.contains(Modifier::UNDERLINED));
+    assert!(has_underline, "H1 应带下划线（对齐 CC）");
 }
 
 #[test]
@@ -100,9 +111,9 @@ fn parse_unordered_list() {
     assert!(text.lines.len() >= 2);
     let has_bullet1 = text.lines.iter().any(|l| {
         let line_str: String = l.spans.iter().map(|s| s.content.clone()).collect();
-        line_str.contains("•") && line_str.contains("item1")
+        line_str.contains("- ") && line_str.contains("item1")
     });
-    assert!(has_bullet1, "Expected bullet • and item1");
+    assert!(has_bullet1, "对齐 CC：无序列表用 `- `，实际缺 bullet");
     let has_bullet2 = text.lines.iter().any(|l| {
         let line_str: String = l.spans.iter().map(|s| s.content.clone()).collect();
         line_str.contains("item2")
@@ -133,19 +144,20 @@ fn parse_blockquote() {
     let has_prefix = text
         .lines
         .iter()
-        .any(|l| l.spans.iter().any(|s| s.content.contains("▍")));
-    assert!(has_prefix, "Expected blockquote prefix ▍");
+        .any(|l| l.spans.iter().any(|s| s.content.contains("▎")));
+    assert!(has_prefix, "对齐 CC：引用前缀用 ▎");
 }
 
 #[test]
 fn parse_horizontal_rule() {
     let text = parse_markdown("---", &default_theme(), 80);
     assert!(!text.lines.is_empty());
+    // 对齐 CC：hr 固定输出 `---`
     let has_rule = text
         .lines
         .iter()
-        .any(|l| l.spans.iter().any(|s| s.content.contains("─")));
-    assert!(has_rule, "Expected horizontal rule ─");
+        .any(|l| l.spans.iter().any(|s| s.content.contains("---")));
+    assert!(has_rule, "对齐 CC：hr 应输出 ---");
 }
 
 #[test]
@@ -251,19 +263,14 @@ fn parse_table_cjk_first_column_too_narrow() {
     }
 }
 
-/// 复现：表格含尾部空列时，旧算法「最后一列取剩余」让空列吞掉
-/// 整数截断余量，挤压真正有内容的列。
-///
-/// 空列（ideal=0）不应分到任何剩余宽度。
+/// 复现：表格含尾部空列时，空列不应分到任何多余宽度（空列宽至少为 MIN_COLUMN_WIDTH=3）。
 #[test]
 fn parse_table_trailing_empty_column_not_hoarding() {
-    // 3 个内容列（ideal 均 > min=10，触发按比例分配剩余空间）+ 1 个尾部空列
-    // max_width=45 → available=32，min_sum=30，remaining=2
-    // 旧算法截断余数滚给空列；新算法累积分配给 extra 最大的列
     let md = "| 长标题列内容示例 | 中等内容列xx | 短内容x |  |\n\
               | --- | --- | --- | --- |\n\
               | 长标题列内容示例数据更长一些些 | 中等内容列xx数据 | 短内容x |  |";
-    let text = parse_markdown(md, &default_theme(), 45);
+    // 宽视口下走横向框线表，验证列宽分配行为
+    let text = parse_markdown(md, &default_theme(), 80);
     let border: String = text
         .lines
         .iter()
@@ -277,25 +284,21 @@ fn parse_table_trailing_empty_column_not_hoarding() {
     // 顶边框形如 ┌─...─┬─...─┬─...─┬┐，按 ┬ 分段，段内 fill 数 = 列宽 + 2
     let segments: Vec<&str> = border.split('┬').collect();
     assert_eq!(segments.len(), 4, "应有 4 列，边框: {border}");
-    // 段内 fill 数 = 列宽 + 2（左右各一个空格位）；旧算法会吞掉截断余量使空列变宽
     let last_col_fill = segments[3].chars().filter(|c| *c == '─').count();
+    // 对齐 CC：空列下限为 MIN_COLUMN_WIDTH = 3，+2 空格位 = 5 填字符
     assert_eq!(
-        last_col_fill, 2,
-        "尾部空列宽度应为 0（fill=2），边框: {border}"
+        last_col_fill, 5,
+        "尾部空列宽度应等于下限 3（fill=5），边框: {border}"
     );
 }
 
-/// 多内容列按 extras 累积比例分配剩余宽度，整数除法不把余数
-/// 滚给最后一列——extra 最大的列应拿到完整份额。
+/// 多内容列按 extras 比例分配剩余宽度。
 #[test]
 fn parse_table_extra_share_not_truncated_to_last() {
-    // 列宽（ideal/min/extra）: col1=20/10/10, col2=15/10/5, col3=12/10/2, col4空=0/0/0
-    // max_width=45 → available=32, min_sum=30, remaining=2
-    // 新算法: col3 应拿到 2*17/17 - 2*15/17 = 1 → 宽 11（旧算法 col3 只有 10，余数给空列）
     let md = "| AaaaaaaaaaBbbbbbbbbb | CccccccccDdddd | EeeeeeeFfff |  |\n\
               | --- | --- | --- | --- |\n\
               | AaaaaaaaaaBbbbbbbbbbX | CccccccccDddddY | EeeeeeeFfffZ |  |";
-    let text = parse_markdown(md, &default_theme(), 45);
+    let text = parse_markdown(md, &default_theme(), 80);
     let border: String = text
         .lines
         .iter()
@@ -312,10 +315,11 @@ fn parse_table_extra_share_not_truncated_to_last() {
         .iter()
         .map(|s| s.chars().filter(|c| *c == '─').count().saturating_sub(2))
         .collect();
+    // 宽视口下 4 列都能完全容纳，空列取下限 3
     assert_eq!(
         widths,
-        vec![11, 10, 11, 0],
-        "剩余空间应按累积比例分给内容列，空列为 0，边框: {border}"
+        vec![21, 15, 12, 3],
+        "宽视口下各列应等于理想宽度，空列为下限 3，边框: {border}"
     );
 }
 
@@ -533,7 +537,7 @@ fn parse_table_long_path_never_overflows_max_width() {
 /// Demo 1：无序列表长内容折行后续行应与首行文字左边缘对齐（悬挂缩进）
 #[test]
 fn test_unordered_list_hanging_indent() {
-    // bullet "• " 占 2 列（• U+2022 宽度 1 + 空格 1）
+    // bullet "- " 占 2 列（`-` 宽 1 + 空格 1）
     // max_width=30，文本需要超过 28 列才会折行
     let md = "- 结论摘要非系统问题历史绑定正常命中订单与日志证据齐全";
     let text = parse_markdown(md, &default_theme(), 30);
@@ -560,7 +564,7 @@ fn test_unordered_list_hanging_indent() {
         .map(|s| s.content.as_ref())
         .collect();
     assert!(
-        first_line.contains('•'),
+        first_line.contains("- "),
         "首行应包含 bullet，实际: {:?}",
         first_line
     );
@@ -629,29 +633,29 @@ fn test_ordered_list_hanging_indent() {
 /// Demo 3：嵌套列表各级悬挂缩进逐层叠加
 #[test]
 fn test_nested_list_hanging_indent() {
-    // 嵌套列表：父项 "• " 2列，子项 "  • " 4列
+    // 嵌套列表：父项 "- " 2列，子项 "  - " 4列
     let md = "- 父项\n  - 子项内容非常长需要折行的文字这里继续写更多内容以确保超出宽度";
     let text = parse_markdown(md, &default_theme(), 30);
 
-    // 找到子项的行（以 "  •" 开头的行）
+    // 找到子项的行（以 "  -" 开头的行）
     let mut child_first_line_idx = None;
     for (i, line) in text.lines.iter().enumerate() {
         let line_str: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-        if line_str.contains("  •") && line_str.contains("子项") {
+        if line_str.contains("  -") && line_str.contains("子项") {
             child_first_line_idx = Some(i);
             break;
         }
     }
     let child_idx = child_first_line_idx.expect("应有子项行");
 
-    // 子项续行的缩进应 ≥ 4 列（"  " 层级缩进 + "• " bullet 宽度）
+    // 子项续行的缩进应 ≥ 4 列（"  " 层级缩进 + "- " bullet 宽度）
     if child_idx + 1 < text.lines.len() {
         let next_line: String = text.lines[child_idx + 1]
             .spans
             .iter()
             .map(|s| s.content.as_ref())
             .collect();
-        if !next_line.is_empty() && !next_line.contains('•') {
+        if !next_line.is_empty() && !next_line.contains("- ") {
             let leading_spaces: usize = next_line.chars().take_while(|c| *c == ' ').count();
             assert!(
                 leading_spaces >= 4,
@@ -675,15 +679,15 @@ fn test_blockquote_hanging_indent() {
         text.lines.len()
     );
 
-    // 所有非空行都应有引用前缀 "▍"
+    // 所有非空行都应有引用前缀 "▎"
     for (i, line) in text.lines.iter().enumerate() {
         let line_str: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         if line_str.is_empty() {
             continue;
         }
         assert!(
-            line_str.contains('▍'),
-            "引用块第 {} 行应包含引用前缀 '▍'，实际: {:?}",
+            line_str.contains('▎'),
+            "引用块第 {} 行应包含引用前缀 '▎'，实际: {:?}",
             i,
             line_str
         );
@@ -838,8 +842,7 @@ fn test_link_hit_plain_text_has_no_links() {
     assert!(doc.links.is_empty(), "纯文本不应产生链接命中区");
 }
 
-/// 回归：`---` 水平线应按可用宽度铺满，而非固定 60 字符。
-/// （此前硬编码 60：宽终端下只占一半，窄终端下溢出被裁）
+/// 对齐 CC：`---` 水平线固定输出 3 个连字符，与终端宽度无关。
 #[test]
 fn test_horizontal_rule_fills_available_width() {
     for width in [30usize, 40, 80, 120, 200] {
@@ -849,15 +852,13 @@ fn test_horizontal_rule_fills_available_width() {
             .iter()
             .find(|l| {
                 let t: String = l.spans.iter().map(|s| s.content.as_ref()).collect();
-                !t.is_empty() && t.chars().all(|c| c == '─')
+                t == "---"
             })
-            .unwrap_or_else(|| panic!("宽度 {width} 下应产生水平线"));
+            .unwrap_or_else(|| panic!("宽度 {width} 下应产生 `---` 水平线"));
         let text: String = rule_line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert_eq!(
-            text.width(),
-            width,
-            "水平线宽度应等于可用宽度（width={width}），实际 {}",
-            text.width()
+            text, "---",
+            "对齐 CC：hr 与宽度无关，恒为 ---（width={width}）"
         );
     }
 }
@@ -877,7 +878,7 @@ fn test_nested_list_items_are_on_separate_lines() {
         .collect();
     assert_eq!(
         lines,
-        vec!["• 外层一", "  • 内层一", "  • 内层二", "• 外层二"],
+        vec!["- 外层一", "  - 内层一", "  - 内层二", "- 外层二"],
         "嵌套列表每项应独占一行，实际: {lines:?}"
     );
 }
@@ -914,8 +915,8 @@ fn test_block_spacing_follows_source_blank_lines() {
             "",
             "第一段文字。",
             "",
-            "• 项一",
-            "• 项二",
+            "- 项一",
+            "- 项二",
             "",
             "fn main() {}",
             "",
@@ -934,7 +935,7 @@ fn test_no_blank_line_between_blocks_without_source_blank() {
         .iter()
         .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
         .collect();
-    assert_eq!(lines, vec!["文字", "• 项一", "• 项二"], "实际: {lines:?}");
+    assert_eq!(lines, vec!["文字", "- 项一", "- 项二"], "实际: {lines:?}");
 
     let code = parse_markdown("文字\n```js\nx\n```\n", &default_theme(), 80);
     let lines: Vec<String> = code
@@ -954,7 +955,7 @@ fn test_loose_list_has_no_blank_line_between_items() {
         .iter()
         .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
         .collect();
-    assert_eq!(lines, vec!["• 项一", "• 项二"], "实际: {lines:?}");
+    assert_eq!(lines, vec!["- 项一", "- 项二"], "实际: {lines:?}");
 }
 
 /// 渲染为纯文本行（用于与 CC 的行结构对拍）
@@ -969,7 +970,7 @@ fn render_md_lines(src: &str) -> Vec<String> {
 /// 与 CC（marked@17 + `formatToken`）逐语法对拍：块间空行只来自源文本。
 ///
 /// 已知的**有意差异**（不在本测试断言范围内，改符号会影响全局观感）：
-/// - 列表/引用前缀：peri 用 `• ` / `▍ `，CC 用 `- ` / `│ `
+/// - 列表/引用前缀已对齐 CC：`- ` / `▎ `（CC 的引用条是 `▎`，不是 `│`）
 /// - 表格：peri 用 box drawing，CC 用 `| a | b |`
 /// - 图片：peri 显示 alt，CC 显示 URL
 /// - 三级嵌套列表缩进：CC 逐层累加到 6 空格，peri 每层固定 2 空格
@@ -988,16 +989,16 @@ fn test_markdown_structure_matches_cc() {
             "第一段。\n\n第二段。\n\n第三段。\n",
             vec!["第一段。", "", "第二段。", "", "第三段。"],
         ),
-        ("ul_tight", "- 项一\n- 项二\n", vec!["• 项一", "• 项二"]),
+        ("ul_tight", "- 项一\n- 项二\n", vec!["- 项一", "- 项二"]),
         (
             "ul_after_para",
             "文字\n- 项一\n- 项二\n",
-            vec!["文字", "• 项一", "• 项二"],
+            vec!["文字", "- 项一", "- 项二"],
         ),
         (
             "ul_with_blank_around",
             "文字\n\n- 项一\n- 项二\n\n文字2\n",
-            vec!["文字", "", "• 项一", "• 项二", "", "文字2"],
+            vec!["文字", "", "- 项一", "- 项二", "", "文字2"],
         ),
         (
             "ol_start3",
@@ -1007,9 +1008,9 @@ fn test_markdown_structure_matches_cc() {
         (
             "nested_2",
             "- 外层一\n  - 内层一\n  - 内层二\n- 外层二\n",
-            vec!["• 外层一", "  • 内层一", "  • 内层二", "• 外层二"],
+            vec!["- 外层一", "  - 内层一", "  - 内层二", "- 外层二"],
         ),
-        ("loose_list", "- 项一\n\n- 项二\n", vec!["• 项一", "• 项二"]),
+        ("loose_list", "- 项一\n\n- 项二\n", vec!["- 项一", "- 项二"]),
         (
             "fence_lang",
             "```rust\nfn main() {}\n```\n",
@@ -1033,7 +1034,9 @@ fn test_markdown_structure_matches_cc() {
         (
             "inline_styles",
             "这里有 `code`、**粗体**、*斜体*、~~删除线~~。\n",
-            vec!["这里有 code、粗体、斜体、删除线。"],
+            // CC 主动禁用删除线（模型常把 ~100 当约等于），peri 同样关闭，
+            // 因此 `~~删除线~~` 原样保留
+            vec!["这里有 code、粗体、斜体、~~删除线~~。"],
         ),
         (
             "link_inline",
@@ -1048,24 +1051,24 @@ fn test_markdown_structure_matches_cc() {
         (
             "blockquote",
             "> 引用一行\n> 引用二行\n",
-            vec!["▍ 引用一行", "▍ 引用二行"],
+            vec!["▎ 引用一行", "▎ 引用二行"],
         ),
         (
             "blockquote_multi_para",
             "> 第一段\n>\n> 第二段\n",
-            vec!["▍ 第一段", "", "▍ 第二段"],
+            vec!["▎ 第一段", "", "▎ 第二段"],
         ),
         (
             "blockquote_with_list",
             "> - 项一\n> - 项二\n",
-            vec!["▍ • 项一", "▍ • 项二"],
+            vec!["▎ - 项一", "▎ - 项二"],
         ),
         ("hardbreak", "第一行  \n第二行\n", vec!["第一行", "第二行"]),
         ("soft_lines", "第一行\n第二行\n", vec!["第一行", "第二行"]),
         (
             "bq_soft",
             "> 第一行\n> 第二行\n",
-            vec!["▍ 第一行", "▍ 第二行"],
+            vec!["▎ 第一行", "▎ 第二行"],
         ),
         (
             "mixed",
@@ -1096,11 +1099,11 @@ fn test_table_spacing_matches_cc() {
         vec![
             "文字",
             "",
-            "┌───┬───┐",
-            "│ a │ b │",
-            "├───┼───┤",
-            "│ 1 │ 2 │",
-            "└───┴───┘",
+            "┌─────┬─────┐",
+            "│  a  │  b  │",
+            "├─────┼─────┤",
+            "│ 1   │ 2   │",
+            "└─────┴─────┘",
             "",
             "文字2",
         ],
@@ -1108,29 +1111,34 @@ fn test_table_spacing_matches_cc() {
     );
 }
 
-/// 图片：peri 显示 alt（CC 显示 URL），但行结构一致
+/// 图片：对齐 CC `formatToken` 的 `image` 分支，输出 URL 而非 alt 文本
 #[test]
 fn test_image_spacing_matches_cc() {
     assert_eq!(
         render_md_lines("![图](https://example.com/a.png)\n"),
-        vec!["图"]
+        vec!["https://example.com/a.png"]
     );
 }
 
-/// 水平线：peri 用长横线（CC 用 `---`），但空行结构与 CC 一致——
-/// hr 前按源文本留空行，hr 后不留空行（CC 的 hr tokenizer 吞掉后续换行）
+/// 水平线：对齐 CC `formatToken` 的 `hr` 分支输出 `---`。
+///
+/// 有意偏离：CC 的 hr token 不带 EOL、下个块也不补空行，会输出 `---文字`；
+/// 这里保留 peri 的块分隔（hr 与后文分行）。
 #[test]
 fn test_hr_spacing_matches_cc() {
+    // 有意偏离：CC 的 hr token 吞掉后续换行，`---\n\n正文` 之间没有空行。
+    // peri 保留源文本空行，避免 `---` 与正文视觉粘连。
     let lines = render_md_lines("文字\n\n---\n\n文字2\n");
-    assert_eq!(lines.len(), 4, "实际: {lines:?}");
+    assert_eq!(lines.len(), 5, "实际: {lines:?}");
     assert_eq!(lines[0], "文字");
     assert_eq!(lines[1], "");
-    assert!(lines[2].starts_with('─'), "水平线应为横线，实际: {lines:?}");
-    assert_eq!(lines[3], "文字2", "hr 之后不应留空行");
+    assert_eq!(lines[2], "---", "对齐 CC：hr 固定输出 ---");
+    assert_eq!(lines[3], "", "hr 后按源文本保留空行（CC 缺陷不复制）");
+    assert_eq!(lines[4], "文字2");
 
-    // 文档以 hr 开头：无前置空行；hr 紧接文字：无后置空行
+    // 文档以 hr 开头：无前置空行；hr 与后文分行（CC 会粘成 `---文字`）
     let lines = render_md_lines("---\n文字\n");
     assert_eq!(lines.len(), 2, "实际: {lines:?}");
-    assert!(lines[0].starts_with('─'));
+    assert_eq!(lines[0], "---");
     assert_eq!(lines[1], "文字");
 }

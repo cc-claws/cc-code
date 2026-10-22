@@ -5,7 +5,10 @@ mod render_state;
 pub mod highlight;
 
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
-use ratatui::{style::Color, text::Text};
+use ratatui::{
+    style::Color,
+    text::{Line, Text},
+};
 
 use cache::MarkdownCache;
 use render_state::RenderState;
@@ -61,7 +64,8 @@ impl MarkdownTheme for ThemeMarkdownAdapter<'_> {
         self.0.muted()
     }
     fn code(&self) -> Color {
-        self.0.thinking()
+        // 对齐 CC `formatToken` 的 `codespan` 分支：`color('permission', theme)`
+        self.0.permission()
     }
     fn link(&self) -> Color {
         self.0.success()
@@ -98,8 +102,9 @@ impl MarkdownTheme for DefaultMarkdownTheme {
         Color::Rgb(153, 153, 153)
     } // MUTED #999999
     fn code(&self) -> Color {
-        Color::Rgb(162, 169, 228)
-    } // THINKING #A2A9E4（蓝紫色）
+        // 对齐 CC dark 主题的 `permission`: #B1B9F9 (177, 185, 249)
+        Color::Rgb(177, 185, 249)
+    } // PERMISSION #B1B9F9（对齐 CC dark `permission`）
     fn link(&self) -> Color {
         Color::Rgb(78, 186, 101)
     } // SAGE #4EBA65
@@ -171,6 +176,87 @@ pub fn parse_markdown(input: &str, theme: &dyn MarkdownTheme, max_width: usize) 
     parse_markdown_with_links(input, theme, max_width).text
 }
 
+/// 解析 markdown，可关闭代码块语法高亮。
+///
+/// 关闭时多行代码块不调 syntect、不套前景色，对齐 CC
+/// `settings.syntaxHighlightingDisabled → highlight=null` 的行为。
+pub fn parse_markdown_with_options(
+    input: &str,
+    theme: &dyn MarkdownTheme,
+    max_width: usize,
+    syntax_highlighting: bool,
+    hyperlinks: bool,
+) -> MarkdownDoc {
+    // 对齐 CC：空输入与纯空白输入都渲染成**一个空行**（`''.trim()` 后
+    // `<Box gap>` 仍产出 1 行），而不是 0 行。
+    if input.trim().is_empty() {
+        return MarkdownDoc {
+            text: Text::from(vec![Line::default()]),
+            links: Vec::new(),
+        };
+    }
+
+    let width_u16 = max_width.min(u16::MAX as usize) as u16;
+    // 高亮开关参与缓存 key：同一内容在两种模式下的产物不同，
+    // 复用旧条目会拿到错误样式。
+    let cache = MarkdownCache::global();
+    let fp =
+        theme_fingerprint(theme) ^ (u64::from(!syntax_highlighting) << 1) ^ u64::from(!hyperlinks);
+    if let Some(cached) = cache.get(input, width_u16, fp) {
+        return cached;
+    }
+
+    let options = Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS;
+    let parser = Parser::new_ext(input, options).into_offset_iter();
+    let mut state = RenderState::new(theme)
+        .with_max_width(max_width)
+        .with_syntax_highlighting(syntax_highlighting)
+        .with_hyperlinks(hyperlinks);
+    let mut list_depth = 0usize;
+    let mut gap = BlockGap::new();
+    for (event, range) in parser {
+        match &event {
+            Event::Rule => state.set_pending_blank(gap.take(range.start, input)),
+            Event::Start(Tag::List(_)) => {
+                if list_depth == 0 {
+                    state.set_pending_blank(gap.take(range.start, input));
+                }
+                list_depth += 1;
+            }
+            Event::End(TagEnd::List(_)) => {
+                list_depth = list_depth.saturating_sub(1);
+            }
+            Event::Start(Tag::BlockQuote(_)) => {
+                state.set_pending_blank(gap.take(range.start, input));
+            }
+            Event::Start(Tag::Paragraph)
+            | Event::Start(Tag::Heading { .. })
+            | Event::Start(Tag::CodeBlock(_))
+            | Event::Start(Tag::Table(_))
+                if list_depth == 0 =>
+            {
+                state.set_pending_blank(gap.take(range.start, input));
+            }
+            // 把源文本片段交给状态机：pulldown 会把 HTML entity 解码成字符，
+            // 而 CC（marked）保持 `&amp;` 字面量。渲染时用源片段还原。
+            _ => {}
+        }
+        state.handle_event_with_source(event, input.get(range.clone()));
+    }
+    if !state.current_spans.is_empty() {
+        state.flush_line();
+    }
+    while state.lines.last().is_some_and(|l| l.spans.is_empty()) {
+        state.lines.pop();
+    }
+    let result = MarkdownDoc {
+        text: Text::from(state.lines),
+        links: state.links,
+    };
+    cache.put(input, width_u16, fp, result.clone());
+    result
+}
+
 /// 判断两个块之间在源文本里是否有空行。
 ///
 /// 从上一个块的起点扫到当前块起点，跳过当前块的起始行前缀后，从尾部向前看：
@@ -201,37 +287,27 @@ fn has_blank_line_between(
 
 /// 块间空行判定状态机。
 ///
-/// 每个块级事件到来时调用 [`take`](Self::take)（水平线用 [`take_rule`](Self::take_rule)），
-/// 返回「该块前是否要留空行」。规则集中在这里，新增块类型只需在解析循环里
-/// 调一次，不必再复制 `last_start` / `last_was_rule` 的状态维护。
+/// 每个块级事件到来时调用 [`take`](Self::take)，返回「该块前是否要留空行」。
+/// 规则集中在这里，新增块类型只需在解析循环里调一次，不必再复制
+/// `last_start` 的状态维护。
 struct BlockGap {
     /// 上一个块的起始字节偏移
     last_start: Option<usize>,
-    /// 上一个块是否为水平线：CC 的 hr tokenizer 吞掉后续换行，hr 之后恒无空行
-    last_was_rule: bool,
 }
 
 impl BlockGap {
     fn new() -> Self {
-        Self {
-            last_start: None,
-            last_was_rule: false,
-        }
+        Self { last_start: None }
     }
 
-    /// 记录一个普通块的起点，返回它与上一块之间是否有源文本空行
+    /// 记录一个块的起点，返回它与上一块之间是否有源文本空行。
+    ///
+    /// 注意：CC 的 hr tokenizer 会吞掉后续换行，导致 `---` 与后文粘成一行。
+    /// 这是 CC 的缺陷（已在对拍测试中登记为偏离），peri 不复制——hr 后的
+    /// 块仍按源文本判定空行，因此 `---\n\n表格` 会保留一个空行。
     fn take(&mut self, start: usize, input: &str) -> bool {
-        let blank = !self.last_was_rule && has_blank_line_between(self.last_start, start, input);
-        self.last_start = Some(start);
-        self.last_was_rule = false;
-        blank
-    }
-
-    /// 记录一个水平线块。hr 前按源文本留空，且不抑制自身前置判定
-    fn take_rule(&mut self, start: usize, input: &str) -> bool {
         let blank = has_blank_line_between(self.last_start, start, input);
         self.last_start = Some(start);
-        self.last_was_rule = true;
         blank
     }
 }
@@ -242,72 +318,7 @@ pub fn parse_markdown_with_links(
     theme: &dyn MarkdownTheme,
     max_width: usize,
 ) -> MarkdownDoc {
-    if input.is_empty() {
-        return MarkdownDoc {
-            text: Text::raw(""),
-            links: Vec::new(),
-        };
-    }
-
-    // 检查缓存（key 含主题指纹：切换主题后旧配色缓存自动失效）
-    let width_u16 = max_width.min(u16::MAX as usize) as u16;
-    let cache = MarkdownCache::global();
-    if let Some(cached) = cache.get(input, width_u16, theme_fingerprint(theme)) {
-        return cached;
-    }
-
-    // 缓存未命中，执行完整解析
-    let options = Options::all() - Options::ENABLE_SMART_PUNCTUATION;
-    let parser = Parser::new_ext(input, options).into_offset_iter();
-    let mut state = RenderState::new(theme).with_max_width(max_width);
-    // 列表嵌套深度：列表项内部的块不参与「块间空行」判定（对齐 CC 的 loose list）
-    let mut list_depth = 0usize;
-    let mut gap = BlockGap::new();
-    for (event, range) in parser {
-        match &event {
-            Event::Rule => {
-                state.set_pending_blank(gap.take_rule(range.start, input));
-            }
-            Event::Start(Tag::List(_)) => {
-                if list_depth == 0 {
-                    state.set_pending_blank(gap.take(range.start, input));
-                }
-                list_depth += 1;
-            }
-            Event::End(TagEnd::List(_)) => {
-                list_depth = list_depth.saturating_sub(1);
-            }
-            Event::Start(Tag::BlockQuote(_)) => {
-                state.set_pending_blank(gap.take(range.start, input));
-            }
-            Event::Start(Tag::Paragraph)
-            | Event::Start(Tag::Heading { .. })
-            | Event::Start(Tag::CodeBlock(_))
-            | Event::Start(Tag::Table(_))
-                if list_depth == 0 =>
-            {
-                state.set_pending_blank(gap.take(range.start, input));
-            }
-            _ => {}
-        }
-        state.handle_event(event);
-    }
-    if !state.current_spans.is_empty() {
-        state.flush_line();
-    }
-    // 裁剪尾部空行，避免最后一个块级元素后多余留白
-    while state.lines.last().is_some_and(|l| l.spans.is_empty()) {
-        state.lines.pop();
-    }
-    let result = MarkdownDoc {
-        text: Text::from(state.lines),
-        links: state.links,
-    };
-
-    // 写入缓存
-    cache.put(input, width_u16, theme_fingerprint(theme), result.clone());
-
-    result
+    parse_markdown_with_options(input, theme, max_width, true, true)
 }
 
 #[cfg(test)]

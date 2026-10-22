@@ -271,11 +271,8 @@ fn all_text(text: &ratatui::text::Text) -> String {
 
 #[test]
 fn test_md_heading() {
-    use cc_widgets::markdown::{DefaultMarkdownTheme, MarkdownTheme};
-    let theme = DefaultMarkdownTheme;
-
     let text = parse_markdown_default("# Hello World");
-    // 对齐 CC：标题前不留前置空行
+    // 对齐 CC：标题前不留前置空行，H1 = bold + italic + underline（纯样式，无前景色）
     let heading_line = &text.lines[0];
     let all_content: String = heading_line
         .spans
@@ -286,26 +283,28 @@ fn test_md_heading() {
         all_content.contains("Hello World"),
         "H1 应含标题文字，实际: {all_content:?}"
     );
-    let has_heading_color = heading_line
-        .spans
-        .iter()
-        .any(|s| s.style.fg == Some(theme.heading()));
-    assert!(has_heading_color, "H1 应为 markdown 主题 heading 颜色");
+    let span = &heading_line.spans[0];
+    assert!(
+        span.style.add_modifier.contains(Modifier::BOLD)
+            && span.style.add_modifier.contains(Modifier::ITALIC)
+            && span.style.add_modifier.contains(Modifier::UNDERLINED),
+        "对齐 CC：H1 应为 bold+italic+underline，实际修饰符: {:?}",
+        span.style.add_modifier
+    );
+    assert_eq!(span.style.fg, None, "对齐 CC：标题不带前景色");
 }
 
 #[test]
 fn test_md_heading_h2() {
-    use cc_widgets::markdown::{DefaultMarkdownTheme, MarkdownTheme};
-    let theme = DefaultMarkdownTheme;
-
     let text = parse_markdown_default("## Section Title");
-    // 对齐 CC：标题前不留前置空行
+    // 对齐 CC：H2 = bold（纯样式，无前景色）
     let heading_line = &text.lines[0];
-    let has_heading_color = heading_line
-        .spans
-        .iter()
-        .any(|s| s.style.fg == Some(theme.heading()));
-    assert!(has_heading_color, "H2 应为 markdown 主题 heading 颜色");
+    let span = &heading_line.spans[0];
+    assert!(
+        span.style.add_modifier.contains(Modifier::BOLD),
+        "对齐 CC：H2 应为 bold"
+    );
+    assert_eq!(span.style.fg, None, "对齐 CC：标题不带前景色");
 }
 
 #[test]
@@ -314,7 +313,8 @@ fn test_md_inline_styles() {
     let all = all_text(&text);
     assert!(all.contains("bold"), "应含 bold 文字");
     assert!(all.contains("italic"), "应含 italic 文字");
-    assert!(all.contains("strike"), "应含 strike 文字");
+    // 对齐 CC：主动禁用删除线（模型常把 ~100 当约等于），~~strike~~ 原样保留
+    assert!(all.contains("~~strike~~"), "对齐 CC：删除线保持字面量");
 
     let has_bold = text
         .lines
@@ -328,27 +328,21 @@ fn test_md_inline_styles() {
             s.style.add_modifier.contains(Modifier::ITALIC) && s.content.contains("italic")
         });
     assert!(has_italic, "italic span 应有 ITALIC modifier");
-
-    let has_strike = text.lines.iter().flat_map(|l| l.spans.iter()).any(|s| {
-        s.style.add_modifier.contains(Modifier::CROSSED_OUT) && s.content.contains("strike")
-    });
-    assert!(has_strike, "strikethrough span 应有 CROSSED_OUT modifier");
 }
 
 #[test]
 fn test_md_inline_code() {
-    use cc_widgets::markdown::{DefaultMarkdownTheme, MarkdownTheme};
-    let theme = DefaultMarkdownTheme;
+    let widgets = crate::ui::theme::widgets_theme();
 
     let text = parse_markdown_default("`hello`");
     let has_code = text
         .lines
         .iter()
         .flat_map(|l| l.spans.iter())
-        .any(|s| s.style.fg == Some(theme.code()) && s.content.contains("hello"));
+        .any(|s| s.style.fg == Some(widgets.permission) && s.content.contains("hello"));
     assert!(
         has_code,
-        "行内代码应为 markdown 主题 code 颜色，含 hello 文字"
+        "行内代码应为 widgets 主题 permission 颜色，含 hello 文字"
     );
 }
 
@@ -391,11 +385,11 @@ fn test_md_unordered_list() {
                 .collect::<String>()
         })
         .collect();
-    let bullet_lines: Vec<&String> = all_lines.iter().filter(|l| l.contains('•')).collect();
+    let bullet_lines: Vec<&String> = all_lines.iter().filter(|l| l.starts_with("- ")).collect();
     assert_eq!(
         bullet_lines.len(),
         2,
-        "无序列表应有 2 行含 • ，实际:{all_lines:#?}"
+        "对齐 CC：无序列表应有 2 行以 `- ` 开头，实际:{all_lines:#?}"
     );
 }
 
@@ -425,8 +419,8 @@ fn test_md_blockquote() {
         .lines
         .iter()
         .flat_map(|l| l.spans.iter())
-        .any(|s| s.content.contains('▍'));
-    assert!(has_prefix, "引用块应含 ▍ 前缀");
+        .any(|s| s.content.contains('▎'));
+    assert!(has_prefix, "对齐 CC：引用块应含 ▎ 前缀");
 }
 
 #[test]
@@ -436,8 +430,8 @@ fn test_md_rule() {
         .lines
         .iter()
         .flat_map(|l| l.spans.iter())
-        .any(|s| s.content.matches('─').count() >= 10);
-    assert!(has_rule, "水平线应含多个 ─ 字符");
+        .any(|s| s.content == "---");
+    assert!(has_rule, "对齐 CC：水平线应输出 `---`");
 }
 
 #[test]
