@@ -4,6 +4,24 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.176 — 2026-10-22
+
+### UI / Style
+
+- **Markdown 渲染全面对齐 Claude Code（#666）**：此前 Markdown 的标题配色、列表编号、引用条、分隔线、行内代码与表格框线均与 Claude Code 有肉眼可见的差异，同一条回复在两边长得不像。现逐项对齐：① 标题 H1 为 `BOLD|ITALIC|UNDERLINED`、H2 及以下仅 `BOLD`，且**不再带前景色**；② 无序列表统一 `- `，有序列表按嵌套深度在「数字 / 字母 / 罗马数字」间切换；③ 引用块 `▎` 用 DIM、正文用 ITALIC，行首空格不带样式；④ 分隔线渲染为 `---` 且无颜色，删除线关闭；⑤ 行内代码改用 `Theme::permission()`（dark 下 `#B1B9F9`）作前景色；⑥ 链接在没有 OSC 8 支持时显示纯 URL 且不带样式，`mailto:` 显示为邮箱地址；图片输出其 URL。
+
+- **表格对齐 Claude Code `MarkdownTable` 框线表（#666）**：新增 `MIN_COLUMN_WIDTH=3`、`SAFETY_MARGIN=4`、`MAX_ROW_LINES=4` 三项约束，列宽由「最长单词宽（下限）/ 整格内容宽（理想）」计算后再分配，表头居中并在**每行之间**补齐 `├─┼─┤` 分隔线；单元格内折行按 grapheme 逐个保留行内样式，断点语义对齐 `wrap-ansi` 的 hard 折行。内容超出行数上限或可用宽度不足时回退为纵向键值渲染，避免窄终端下把表格挤成乱码。
+
+### Tests
+
+- **新增 Markdown 渲染对拍基线与 126 例金标准（#666）**：新增 `cc-widgets/tests/cc_markdown_parity.rs` 与 `fixtures/cc_markdown_golden.json`，逐 grapheme 比对纯文本与归一化样式标签（`b/i/u/d/s` 与 `#rrggbb`），用同一套用例验证本项目与 Claude Code 的表现一致；14 项已知偏离单独登记，并额外校验「实义字符一致」与「行宽不超过渲染宽度」两条不变式。同时新增 `examples/md_dump.rs` 与 `docs/markdown-verify.md` 便于人工比对。
+
+### Refactor
+
+- **Markdown 解析入口与主题接口调整（#666）**：`parse_markdown_with_options` 增加 `hyperlinks` 开关，解析选项收窄为 `ENABLE_TABLES | ENABLE_TASKLISTS`，避免开启 `Options::all()` 后 math、footnote 内容被静默丢弃；`Theme` 新增 `permission()`（含默认实现），`CustomTheme` 相应新增 `permission` 字段。同时修复嵌套行内样式的 `inline_style_stack` 还原问题。
+
+---
+
 ## v0.6.175 — 2026-10-22
 
 ### UI / Style
