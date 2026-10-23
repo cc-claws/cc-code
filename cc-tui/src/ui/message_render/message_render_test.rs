@@ -1299,6 +1299,51 @@ fn test_tool_call_group_detail_mode_shows_full_content() {
 }
 
 #[test]
+fn test_standalone_action_summary_capitalizes_first_char() {
+    use crate::app::MessageViewModel;
+    use crate::ui::message_view::{ToolCategory, ToolEntry};
+    // 独立成行的纯动作行：前面没有 thinking bubble，文案由 transform 层产出小写
+    // `read 1 file`。行首无符号，需在渲染时把首字母大写，与同族的
+    // `Thought for 3s` / `Brewed for 1m` 摘要行保持一致。
+    let vm = MessageViewModel::ToolCallGroup {
+        category: ToolCategory::Read,
+        tools: vec![ToolEntry {
+            tool_name: "Read".to_string(),
+            display_name: "Read".to_string(),
+            args_display: Some("foo.txt".to_string()),
+            content: String::new(),
+            is_error: false,
+        }],
+        collapsed: true,
+        content_hash: 0,
+        standalone_action: Some("read 1 file".to_string()),
+    };
+
+    let text = rendered_text(&render_view_model(&vm, Some(1), 80, false, 0));
+
+    assert!(
+        text.contains("Read 1 file"),
+        "独立成行的动作摘要首字母应大写: {text}"
+    );
+    assert!(
+        !text.contains("  read 1 file"),
+        "不应保留小写开头的动作摘要: {text}"
+    );
+}
+
+#[test]
+fn test_uppercase_first_char_preserves_rest() {
+    assert_eq!(super::uppercase_first_char("read 1 file"), "Read 1 file");
+    assert_eq!(
+        super::uppercase_first_char("read 1 file, listed 2 directories"),
+        "Read 1 file, listed 2 directories"
+    );
+    assert_eq!(super::uppercase_first_char(""), "");
+    // 首字符已是多字节大写时不应破坏
+    assert_eq!(super::uppercase_first_char("中文内容"), "中文内容");
+}
+
+#[test]
 fn test_tool_call_group_detail_mode_shows_read_args_and_summary() {
     use crate::app::MessageViewModel;
     use crate::ui::message_view::{ToolCategory, ToolEntry};

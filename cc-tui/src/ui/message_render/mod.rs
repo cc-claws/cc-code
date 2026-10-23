@@ -778,6 +778,19 @@ pub(crate) fn truncate_to_display_width(s: &str, max_width: usize) -> String {
     result
 }
 
+/// 把字符串首字符转大写，其余保持不变。
+///
+/// 用于**独立成行**的动作摘要（如 `read 1 file` → `Read 1 file`）：
+/// 同一份文案在另一处被 `", {s}"` 拼到 `Thought for 3s` 之后，
+/// 那里必须保持小写，因此大小写调整只能在渲染侧按上下文做，不能改文案产出层。
+fn uppercase_first_char(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
 fn tool_args_header(tool_name: &str, args: &str, max_width: usize) -> String {
     let sanitized_args = sanitize_display_text(args);
     let sanitized_args = if let Some(mem_path) = format_display_path_for_memory(&sanitized_args) {
@@ -2549,8 +2562,11 @@ pub fn render_view_model_with_flags(
                 // 折叠态：显示**纯动作行**（PRD §2.3，仅前面无 thinking bubble 的独立只读组）
                 // 以及出错工具的错误摘要。
                 if let Some(summary) = standalone_action {
+                    // 该行独立成行、行首无符号，首字母必须大写才与同族的
+                    // `Thought for 3s` / `Brewed for 1m` 摘要行一致；
+                    // 文案层因续写场景需要仍是小写 `read N file`，故在此处转换。
                     lines.push(Line::from(Span::styled(
-                        format!("  {summary}"),
+                        format!("  {}", uppercase_first_char(summary)),
                         Style::default().fg(theme::cur().inactive),
                     )));
                 }
