@@ -278,10 +278,9 @@ impl App {
                 let output = if source_agent_id.is_some() || name == "Bash" {
                     raw_output
                 } else if is_error {
-                    format!(
-                        "✗ {}",
-                        super::super::tool_display::truncate(&raw_output, 60)
-                    )
+                    // 失败语义由 header 的 `●` 指示器（红色）承载，正文不再重复拼 `✗` 前缀：
+                    // 两者同时出现时画面里会有两个失败符号，且 `✗` 紧贴 ⎿ 折角显得突兀。
+                    super::super::tool_display::truncate(&raw_output, 60)
                 } else {
                     super::super::tool_display::truncate(&raw_output, 200)
                 };

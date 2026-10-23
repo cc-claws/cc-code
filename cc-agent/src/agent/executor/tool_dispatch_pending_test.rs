@@ -148,7 +148,7 @@ async fn test_tool_pending_cancelled_emits_tool_end() {
             .filter(|event| {
                 matches!(event, AgentEvent::ToolEnd {
             tool_call_id, output, is_error: true, ..
-        } if tool_call_id == &call.id && output == "interrupted by user")
+        } if tool_call_id == &call.id && output == "Interrupted by user")
             })
             .count();
         assert_eq!(ends, 1, "每个排队工具应闭合一次：{}", call.id);
