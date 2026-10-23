@@ -15,13 +15,14 @@ fn test_indicator_running_blinks() {
 }
 
 #[test]
-fn test_indicator_pending() {
-    let (ch, color) = format_indicator(ToolCallStatus::Pending, 0, PENDING, DONE, FAILED);
-    assert_eq!(ch, "●");
-    assert_eq!(color, Color::Rgb(153, 153, 153));
-    // Pending 也闪烁（tick/4 为奇数时隐藏，与 Running 保持存活动画）
-    let (ch, _) = format_indicator(ToolCallStatus::Pending, 4, PENDING, DONE, FAILED);
-    assert_eq!(ch, " ");
+fn test_indicator_pending_stays_solid() {
+    // Queued / AwaitingApproval 恒亮不闪（对齐 CC：排队不是「活跃」，
+    // 等待语义由 `Waiting…` 文案承载）。逐 tick 验证始终为实心圆。
+    for tick in [0, 4, 8, 12, 100, 101] {
+        let (ch, color) = format_indicator(ToolCallStatus::Pending, tick, PENDING, DONE, FAILED);
+        assert_eq!(ch, "●", "Pending 在 tick={tick} 时不应熄灭");
+        assert_eq!(color, Color::Rgb(153, 153, 153));
+    }
 }
 
 #[test]
