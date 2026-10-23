@@ -19,6 +19,9 @@ fn test_indicator_pending() {
     let (ch, color) = format_indicator(ToolCallStatus::Pending, 0, PENDING, DONE, FAILED);
     assert_eq!(ch, "●");
     assert_eq!(color, Color::Rgb(153, 153, 153));
+    // Pending 也闪烁（tick/4 为奇数时隐藏，与 Running 保持存活动画）
+    let (ch, _) = format_indicator(ToolCallStatus::Pending, 4, PENDING, DONE, FAILED);
+    assert_eq!(ch, " ");
 }
 
 #[test]
