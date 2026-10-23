@@ -4,7 +4,26 @@ use agent_client_protocol_schema::{CreateElicitationResponse, ElicitationAction}
 use cc_acp::transport::types::RequestId;
 use cc_middlewares::hitl::BatchItem;
 
+#[cfg(test)]
+#[path = "tool_approval_phase_test.rs"]
+mod tool_approval_phase_tests;
+
 impl App {
+    fn show_tool_approval_phase(&mut self, source: Option<&str>, tool_call_id: &str) {
+        let session = self.session_mgr.current_mut();
+        if let Some(source) = source {
+            if let Some(sub) = session.subagent_sessions.get_mut(source) {
+                sub.pipeline.mark_tool_awaiting_approval(None, tool_call_id);
+                sub.rebuild();
+            }
+        }
+        session
+            .messages
+            .pipeline
+            .mark_tool_awaiting_approval(source, tool_call_id);
+        self.request_rebuild();
+    }
+
     /// 取走交互请求并生成取消回应，避免只取消任务后遗留 ACP 等待。
     pub(super) fn take_interaction_cancel_response(
         &mut self,
@@ -134,6 +153,7 @@ impl App {
             }
         };
 
+        let tool_call_id = req.tool_call.tool_call_id.to_string();
         let tool_name = req
             .tool_call
             .fields
@@ -146,6 +166,7 @@ impl App {
             .unwrap_or(serde_json::Value::Null);
 
         let batch_items = vec![BatchItem {
+            tool_call_id: tool_call_id.clone(),
             tool_name,
             input: tool_input,
         }];
@@ -155,11 +176,12 @@ impl App {
 
         // Store ACP request id for response dispatch in hitl_ops.rs
         self.session_mgr.current_mut().agent.pending_acp_request_id = Some(id);
-        self.session_mgr.current_mut().approval_source_agent_id = source_agent_id;
+        self.session_mgr.current_mut().approval_source_agent_id = source_agent_id.clone();
 
         let prompt = HitlBatchPrompt::new(batch_items, bridge_tx);
         self.session_mgr.current_mut().agent.interaction_prompt =
             Some(InteractionPrompt::Approval(prompt));
+        self.show_tool_approval_phase(source_agent_id.as_deref(), &tool_call_id);
         self.refresh_terminal_title();
 
         (true, false, false)
@@ -327,6 +349,7 @@ impl App {
                 let batch_items: Vec<BatchItem> = items
                     .iter()
                     .map(|i| BatchItem {
+                        tool_call_id: i.tool_call_id.clone(),
                         tool_name: i.tool_name.clone(),
                         input: i.tool_input.clone(),
                     })
@@ -355,6 +378,9 @@ impl App {
                 self.session_mgr.current_mut().agent.interaction_prompt = Some(
                     InteractionPrompt::Approval(HitlBatchPrompt::new(batch_items, bridge_tx)),
                 );
+                for item in &items {
+                    self.show_tool_approval_phase(None, &item.tool_call_id);
+                }
                 self.refresh_terminal_title();
                 (true, true, false) // 暂停消费，等待用户确认
             }

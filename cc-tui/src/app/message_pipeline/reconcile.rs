@@ -189,53 +189,59 @@ impl MessagePipeline {
         for tc in &self.current_ai_tool_calls {
             if let Some(pending) = self.pending_tools.get(&tc.id) {
                 if pending.name != "Agent" {
-                    tail_vms.push(self.build_tool_start_vm(
+                    let mut vm = self.build_tool_start_vm(
                         &tc.id,
                         &pending.name,
                         &pending.input,
                         pending.started_at,
-                    ));
+                    );
+                    if let MessageViewModel::ToolBlock { phase, .. } = &mut vm {
+                        *phase = pending.phase;
+                    }
+                    vm.recompute_hash();
+                    tail_vms.push(vm);
                 }
-            }
-        }
-
-        // 追加已完成但尚未进入 completed 的工具结果
-        for ct in &self.completed_tools {
-            let display = tool_display::format_tool_name_with_input(&ct.name, Some(&ct.input));
-            let args = tool_display::format_tool_args(&ct.name, &ct.input, Some(&self.cwd));
-            let diff_input = if !ct.is_error {
-                tool_display::build_diff_input(
-                    &ct.name,
-                    &ct.input,
-                    Some(&self.cwd),
-                    Some(&ct.tool_call_id),
-                )
-            } else {
-                None
-            };
-            let mut vm = MessageViewModel::ToolBlock {
-                tool_name: ct.name.clone(),
-                tool_call_id: ct.tool_call_id.clone(),
-                display_name: display,
-                args_display: args,
-                content: ct.output.clone(),
-                is_error: ct.is_error,
-                collapsed: true,
-                color: if ct.is_error {
-                    theme::cur().error
+            } else if let Some(ct) = self
+                .completed_tools
+                .iter()
+                .find(|tool| tool.tool_call_id == tc.id)
+            {
+                let display = tool_display::format_tool_name_with_input(&ct.name, Some(&ct.input));
+                let args = tool_display::format_tool_args(&ct.name, &ct.input, Some(&self.cwd));
+                let diff_input = if !ct.is_error {
+                    tool_display::build_diff_input(
+                        &ct.name,
+                        &ct.input,
+                        Some(&self.cwd),
+                        Some(&ct.tool_call_id),
+                    )
                 } else {
-                    tool_color(&ct.name)
-                },
-                diff_input,
-                phase: crate::ui::message_view::ToolPhase::Finished,
-                source_agent_id: None,
-                started_at: None,
-                timeout_ms: ct.input.get("timeout").and_then(serde_json::Value::as_u64),
-                shell_backgrounded: false,
-                content_hash: 0,
-            };
-            vm.recompute_hash();
-            tail_vms.push(vm);
+                    None
+                };
+                let mut vm = MessageViewModel::ToolBlock {
+                    tool_name: ct.name.clone(),
+                    tool_call_id: ct.tool_call_id.clone(),
+                    display_name: display,
+                    args_display: args,
+                    content: ct.output.clone(),
+                    is_error: ct.is_error,
+                    collapsed: true,
+                    color: if ct.is_error {
+                        theme::cur().error
+                    } else {
+                        tool_color(&ct.name)
+                    },
+                    diff_input,
+                    phase: crate::ui::message_view::ToolPhase::Finished,
+                    source_agent_id: None,
+                    started_at: None,
+                    timeout_ms: ct.input.get("timeout").and_then(serde_json::Value::as_u64),
+                    shell_backgrounded: false,
+                    content_hash: 0,
+                };
+                vm.recompute_hash();
+                tail_vms.push(vm);
+            }
         }
 
         // SubAgentGroup VMs

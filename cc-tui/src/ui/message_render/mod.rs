@@ -1577,8 +1577,10 @@ pub fn render_view_model_with_flags(
                 && parse_exit_code(content).is_some_and(|c| c != 0);
             let status = if *is_error || bash_failed {
                 cc_widgets::ToolCallStatus::Failed
-            } else if is_running {
+            } else if *phase == crate::ui::message_view::ToolPhase::Running {
                 cc_widgets::ToolCallStatus::Running
+            } else if is_running {
+                cc_widgets::ToolCallStatus::Pending
             } else {
                 cc_widgets::ToolCallStatus::Completed
             };
@@ -1863,6 +1865,33 @@ pub fn render_view_model_with_flags(
                     lines.push(Line::from(vec![
                         Span::raw(BranchPrefix::HANG),
                         Span::styled(timeout, Style::default().fg(theme::cur().inactive)),
+                    ]));
+                }
+            } else if tool_name == "Bash"
+                && matches!(
+                    *phase,
+                    crate::ui::message_view::ToolPhase::Queued
+                        | crate::ui::message_view::ToolPhase::AwaitingApproval
+                )
+            {
+                lines.push(Line::from(vec![
+                    BranchPrefix::span(false),
+                    Span::styled(
+                        if *phase == crate::ui::message_view::ToolPhase::AwaitingApproval {
+                            "Waiting for permission…"
+                        } else {
+                            "Waiting…"
+                        },
+                        Style::default().fg(theme::cur().inactive),
+                    ),
+                ]));
+                if source_agent_id.is_none() {
+                    lines.push(Line::from(vec![
+                        Span::raw(BranchPrefix::HANG),
+                        Span::styled(
+                            CONTROL_B_BACKGROUND_HINT,
+                            Style::default().fg(theme::cur().inactive),
+                        ),
                     ]));
                 }
             } else if tool_name == "Bash"

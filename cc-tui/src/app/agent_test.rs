@@ -3,6 +3,21 @@ use crate::app::AgentEvent;
 use cc_agent::agent::events::{AgentEvent as ExecutorEvent, TodoEntry, TodoStatus};
 
 #[test]
+fn test_map_executor_event_tool_pending_uses_session_update() {
+    let event = ExecutorEvent::ToolPending {
+        message_id: Default::default(),
+        tool_call_id: "pending-tool".into(),
+        name: "Bash".into(),
+        input: serde_json::json!({"command": "git status"}),
+        source_agent_id: None,
+    };
+    assert!(
+        map_executor_event(event, "/tmp").is_none(),
+        "排队状态只从 ACP session/update 消费，避免重复工具行"
+    );
+}
+
+#[test]
 fn test_map_executor_event_todo_update_returns_none() {
     // TodoUpdate 属于类别①，已由 session/update → handle_session_update_peri() 处理
     let event = ExecutorEvent::TodoUpdate(vec![

@@ -242,6 +242,7 @@ emit ToolPending × N
 `cc-acp/src/event/mapper.rs`：
 
 - `ToolPending` → `SessionUpdate::ToolCall(ToolCall::new(id, name).status(ToolCallStatus::Pending).raw_input(...))`。`ToolCallStatus::Pending` 在 `agent-client-protocol-schema 0.12.0` 中已定义，语义即「尚未开始运行，可能正在流式输出参数或等待审批」，无需兜底；
+- 实施兼容：该 schema 会省略默认的 `Pending` 状态，因此同时添加 `_meta.peri.toolPhase = "queued"`。TUI 识别这一标记或显式 `status: "pending"`；旧服务端无状态字段的 ToolStart 保持原有行为。
 - `ToolStart` 继续映射为 `ToolCall`/`ToolCallUpdate(status = InProgress)`；
 - 必须同步更新 `map_executor_event`（`cc-tui/src/app/agent.rs`）；`PrintCollector::handle_event` 已有 `_ => None` 通配分支，新事件默认不输出，但仍需补 `test_print_sink_ignores_tool_pending` 锁定该行为。
 

@@ -309,6 +309,10 @@ impl PrintCollector {
     fn handle_event(&mut self, event: cc_agent::agent::AgentEvent) -> Option<String> {
         use cc_agent::agent::AgentEvent as E;
 
+        // 排队是 TUI 瞬时状态，所有 print 格式都只保留既有开始/结果输出。
+        if matches!(event, E::ToolPending { .. }) {
+            return None;
+        }
         match self.fmt {
             OutputFormat::StreamJson => match event {
                 E::TextChunk { chunk, .. } => Some(

@@ -32,7 +32,10 @@ impl App {
     pub(crate) fn handle_agent_event(&mut self, event: AgentEvent) -> (bool, bool, bool) {
         // 标准 ACP 消息同样经过此守卫；不依赖全局 depth 或最后启动的任务。
         let source = match &event {
-            AgentEvent::ToolStart {
+            AgentEvent::ToolPending {
+                source_agent_id, ..
+            }
+            | AgentEvent::ToolStart {
                 source_agent_id, ..
             }
             | AgentEvent::ToolEnd {
@@ -248,6 +251,15 @@ impl App {
                 model: _model,
                 stop_reason: _,
             } => self.handle_token_usage_update(usage),
+            pending @ AgentEvent::ToolPending { .. } => {
+                self.session_mgr
+                    .current_mut()
+                    .messages
+                    .pipeline
+                    .handle_event(pending);
+                self.session_mgr.current_mut().agent.tool_status_dirty = true;
+                (true, false, false)
+            }
             AgentEvent::ToolStart {
                 tool_call_id,
                 name,
@@ -313,7 +325,9 @@ impl App {
                 for action in actions {
                     self.apply_pipeline_action(action);
                 }
-                self.request_rebuild();
+                if !self.session_mgr.current().agent.tool_status_dirty {
+                    self.request_rebuild();
+                }
                 (true, false, false)
             }
             AgentEvent::ToolEnd {
@@ -364,7 +378,9 @@ impl App {
                 for action in actions {
                     self.apply_pipeline_action(action);
                 }
-                self.request_rebuild();
+                if !self.session_mgr.current().agent.tool_status_dirty {
+                    self.request_rebuild();
+                }
                 (true, false, false)
             }
             AgentEvent::AssistantChunk {

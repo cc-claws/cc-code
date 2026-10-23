@@ -4,6 +4,7 @@ fn make_prompt(count: usize) -> HitlBatchPrompt {
     let (sender, _) = tokio::sync::oneshot::channel();
     let items = (0..count)
         .map(|index| BatchItem {
+            tool_call_id: String::new(),
             tool_name: format!("Tool{index}"),
             input: serde_json::json!({}),
         })

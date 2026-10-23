@@ -18,6 +18,7 @@ pub enum HitlDecision {
 /// 批量审批请求的单项
 #[derive(Debug, Clone)]
 pub struct BatchItem {
+    pub tool_call_id: String,
     pub tool_name: String,
     pub input: serde_json::Value,
 }

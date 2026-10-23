@@ -9,6 +9,26 @@ fn make_collector() -> PrintCollector {
     PrintCollector::new(OutputFormat::StreamJson)
 }
 
+#[test]
+fn test_print_sink_ignores_tool_pending() {
+    for format in [
+        OutputFormat::Text,
+        OutputFormat::Json,
+        OutputFormat::StreamJson,
+    ] {
+        let mut collector = PrintCollector::new(format);
+        let output = collector.handle_event(AgentEvent::ToolPending {
+            message_id: MessageId::new(),
+            tool_call_id: "pending-command".into(),
+            name: "Bash".into(),
+            input: serde_json::json!({"command": "git status"}),
+            source_agent_id: None,
+        });
+        assert!(output.is_none(), "排队状态不能污染任何 print 输出格式");
+        assert!(collector.text_buffer.is_empty(), "排队事件不写入最终文本");
+    }
+}
+
 /// ToolStart 事件必须把真实 input 转发到 JSON，而非 null（回归 #tool_use-input-null）
 #[test]
 fn test_stream_json_tool_start_forwards_input() {

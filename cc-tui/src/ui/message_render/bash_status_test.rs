@@ -89,6 +89,31 @@ fn test_ctrl_b_hint_follows_running_line() {
 }
 
 #[test]
+fn test_tui_renders_waiting_for_permission_during_hitl() {
+    let text = make_text(&make_bash(ToolPhase::AwaitingApproval, ""), false);
+    assert!(text.starts_with("● Bash"), "审批阶段圆点不应闪烁: {text}");
+    assert!(
+        text.contains("  ⎿  Waiting for permission…\n     (ctrl+b to run in background)"),
+        "审批状态应紧接后台提示: {text}"
+    );
+    assert!(!text.contains("22s"), "审批阶段不能计入执行耗时: {text}");
+}
+
+#[test]
+fn test_tui_renders_waiting_during_jev_judge() {
+    let text = make_text(&make_bash(ToolPhase::Queued, ""), false);
+    assert!(
+        text.contains("  ⎿  Waiting…\n     (ctrl+b to run in background)"),
+        "自动判定保持Queued状态: {text}"
+    );
+    assert!(
+        !text.contains("permission"),
+        "自动判定不应伪造人工审批: {text}"
+    );
+    assert!(!text.contains("22s"), "Queued不应计时: {text}");
+}
+
+#[test]
 fn test_subagent_bash_has_no_background_hint() {
     let mut vm = make_bash(ToolPhase::Running, "");
     if let MessageViewModel::ToolBlock {

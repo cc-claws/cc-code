@@ -18,6 +18,7 @@ async fn test_approval_keyboard_arrows_choose_and_tab_switches_tools() {
     let items = vec!["Bash", "Edit"]
         .into_iter()
         .map(|tool_name| BatchItem {
+            tool_call_id: String::new(),
             tool_name: tool_name.to_string(),
             input: serde_json::json!({}),
         })
@@ -49,6 +50,7 @@ async fn test_approval_keyboard_enter_submits_selected_rejection() {
     let (mut app, _) = App::new_headless(100, 30).await;
     let (sender, receiver) = tokio::sync::oneshot::channel();
     let items = vec![BatchItem {
+        tool_call_id: String::new(),
         tool_name: "Bash".to_string(),
         input: serde_json::json!({"command":"custom-build"}),
     }];
@@ -77,6 +79,7 @@ async fn test_approval_keyboard_long_script_arrows_do_not_scroll_commands() {
     app.session_mgr.current_mut().agent.interaction_prompt =
         Some(InteractionPrompt::Approval(HitlBatchPrompt::new(
             vec![BatchItem {
+                tool_call_id: String::new(),
                 tool_name: "Bash".to_string(),
                 input: serde_json::json!({"command":command}),
             }],
@@ -132,6 +135,7 @@ async fn test_approval_keyboard_enter_preserves_mixed_batch_decisions() {
     let (sender, receiver) = tokio::sync::oneshot::channel();
     let items = (0..3)
         .map(|index| BatchItem {
+            tool_call_id: String::new(),
             tool_name: "Bash".to_string(),
             input: serde_json::json!({"command":format!("printf item_{index}")}),
         })
@@ -158,6 +162,7 @@ async fn test_approval_keyboard_escape_rejects_entire_batch() {
     let (sender, receiver) = tokio::sync::oneshot::channel();
     let items = (0..3)
         .map(|index| BatchItem {
+            tool_call_id: String::new(),
             tool_name: "Bash".to_string(),
             input: serde_json::json!({"command":format!("printf item_{index}")}),
         })

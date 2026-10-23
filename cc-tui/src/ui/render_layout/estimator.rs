@@ -88,6 +88,8 @@ pub(super) fn summarize(vm: &MessageViewModel) -> LayoutSummary {
             let status_rows = if tool_name == "Bash" {
                 if *shell_backgrounded {
                     1 + usize::from(timeout_ms.is_some())
+                } else if matches!(*phase, ToolPhase::Queued | ToolPhase::AwaitingApproval) {
+                    1 + usize::from(source_agent_id.is_none())
                 } else if *phase == ToolPhase::Running
                     && started_at.is_some_and(|t| t.elapsed() >= std::time::Duration::from_secs(2))
                 {

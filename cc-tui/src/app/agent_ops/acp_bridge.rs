@@ -176,6 +176,20 @@ impl App {
                     .cloned()
                     .unwrap_or(serde_json::Value::Null);
 
+                if update.get("status").and_then(|v| v.as_str()) == Some("pending")
+                    || update
+                        .pointer("/_meta/peri/toolPhase")
+                        .and_then(|v| v.as_str())
+                        == Some("queued")
+                {
+                    return self.handle_agent_event(super::super::AgentEvent::ToolPending {
+                        tool_call_id,
+                        name,
+                        input,
+                        source_agent_id,
+                    });
+                }
+
                 if name == "Write" {
                     if let Some(snapshot) = update.pointer("/_meta/peri/fileSnapshot") {
                         if let Ok(snapshot) = serde_json::from_value::<cc_agent::tools::FileSnapshot>(
@@ -213,29 +227,40 @@ impl App {
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                let raw_output = update
-                    .get("rawOutput")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                // 无结果的进度更新不能把工具误置为完成态。
+                let status = update.get("status").and_then(|v| v.as_str());
+                if !matches!(status, Some("completed" | "failed"))
+                    && update.get("rawOutput").is_none()
+                {
+                    return (false, false, false);
+                }
+                let raw_output = match update.get("rawOutput") {
+                    Some(serde_json::Value::String(text)) => text.clone(),
+                    Some(value) => value.to_string(),
+                    None => String::new(),
+                };
                 let is_error = update
                     .get("status")
                     .and_then(|v| v.as_str())
                     .map(|s| s == "failed")
                     .unwrap_or(false);
 
-                let output = if source_agent_id.is_some() {
-                    raw_output.to_string()
-                } else if is_error {
-                    format!("✗ {}", super::super::tool_display::truncate(raw_output, 60))
-                } else {
-                    super::super::tool_display::truncate(raw_output, 200)
-                };
-
                 let name = update
                     .get("title")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
+                // Bash 结果由 OutputLine 统一折叠；提前截成字符摘要会丢掉行数与详情。
+                let output = if source_agent_id.is_some() || name == "Bash" {
+                    raw_output
+                } else if is_error {
+                    format!(
+                        "✗ {}",
+                        super::super::tool_display::truncate(&raw_output, 60)
+                    )
+                } else {
+                    super::super::tool_display::truncate(&raw_output, 200)
+                };
 
                 self.handle_agent_event(super::super::AgentEvent::ToolEnd {
                     tool_call_id,

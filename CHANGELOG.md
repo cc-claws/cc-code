@@ -9,6 +9,7 @@ Perihelion Agent 版本变更记录。
 ### Fixes
 
 - **Bash 执行状态 L1（#675）**：工具块使用显式执行阶段，空输出完成后显示 `Done`（详细模式为 `(No output)`），不再保留运行指示。显式 timeout 以 `Running… (Ns · timeout Nm)` 展示，并在完成结果底部保留尾注；后台化提示使用悬挂缩进，子 Agent 不显示该快捷键。历史恢复一律为完成态。
+- **Bash 排队与审批 L2（#675）**：工具审批前先显示 `Waiting…`，人工审批按调用 ID 精确显示 `Waiting for permission…`。取消或拒绝直接闭合工具块，并发结果保持原始调用顺序；同批排队与开始事件只发布最终阶段。增量状态不写入模型历史，print 与 stdio 忽略排队事件，Write 快照仍在批准后的 ToolStart 采集。
 
 ---
 

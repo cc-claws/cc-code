@@ -9,6 +9,141 @@
 use crate::acp_client::AcpNotification;
 use crate::app::App;
 
+fn make_tool_phase(app: &App, id: &str) -> crate::ui::message_view::ToolPhase {
+    app.session_mgr
+        .current()
+        .messages
+        .pipeline
+        .build_tail_vms()
+        .into_iter()
+        .find_map(|vm| match vm {
+            crate::ui::message_view::MessageViewModel::ToolBlock {
+                tool_call_id,
+                phase,
+                ..
+            } if tool_call_id == id => Some(phase),
+            _ => None,
+        })
+        .expect("应保留对应工具块")
+}
+
+fn make_pending_tool(app: &mut App, id: &str) {
+    let event = cc_agent::agent::AgentEvent::ToolPending {
+        message_id: cc_agent::messages::MessageId::new(),
+        tool_call_id: id.into(),
+        name: "Bash".into(),
+        input: serde_json::json!({"command": "git status", "timeout": 300000}),
+        source_agent_id: None,
+    };
+    for mapped in cc_acp::event::map_event(&event, 200_000) {
+        for update in mapped.updates {
+            app.handle_session_update_peri(&serde_json::json!({"update": update}));
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_acp_pending_and_start_update_one_tool_block() {
+    use crate::ui::message_view::{MessageViewModel, ToolPhase};
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+    make_pending_tool(&mut app, "command");
+    assert_eq!(make_tool_phase(&app, "command"), ToolPhase::Queued);
+    assert!(
+        app.session_mgr.current().agent.interaction_prompt.is_none(),
+        "自动判定中不创建审批弹窗"
+    );
+    app.handle_session_update_peri(&serde_json::json!({
+        "update": {"sessionUpdate": "tool_call", "toolCallId": "command", "title": "Bash",
+            "status": "in_progress", "rawInput": {"command": "git status", "timeout": 300000}}
+    }));
+    assert_eq!(make_tool_phase(&app, "command"), ToolPhase::Running);
+    let tools: Vec<_> = app
+        .session_mgr
+        .current()
+        .messages
+        .pipeline
+        .build_tail_vms()
+        .into_iter()
+        .filter(|vm| matches!(vm, MessageViewModel::ToolBlock { .. }))
+        .collect();
+    assert_eq!(tools.len(), 1, "同批排队与开始不能产生重复工具行");
+    assert!(matches!(
+        &tools[0],
+        MessageViewModel::ToolBlock {
+            started_at: Some(_),
+            timeout_ms: Some(300000),
+            ..
+        }
+    ));
+}
+
+#[tokio::test]
+async fn test_acp_permission_only_marks_requested_tool() {
+    use crate::ui::message_view::ToolPhase;
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+    app.session_mgr.current_mut().ui.loading = true;
+    for id in ["first", "second", "third"] {
+        make_pending_tool(&mut app, id);
+    }
+    app.handle_acp_request_permission(
+        cc_acp::transport::types::RequestId::Number(1),
+        serde_json::json!({
+            "sessionId": "main",
+            "toolCall": {"toolCallId": "second", "title": "Bash", "rawInput": {"command": "git status"}},
+            "options": [{"optionId": "allow_once", "name": "Allow", "kind": "allow_once"}]
+        }),
+    );
+    assert!(
+        app.session_mgr.current().agent.interaction_prompt.is_some(),
+        "Ask 时才创建人工审批弹窗"
+    );
+    assert_eq!(make_tool_phase(&app, "first"), ToolPhase::Queued);
+    assert_eq!(make_tool_phase(&app, "second"), ToolPhase::AwaitingApproval);
+    assert_eq!(make_tool_phase(&app, "third"), ToolPhase::Queued);
+}
+
+#[tokio::test]
+async fn test_acp_pending_rejection_finishes_without_start() {
+    use crate::ui::message_view::{MessageViewModel, ToolPhase};
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+    make_pending_tool(&mut app, "rejected");
+    app.handle_session_update_peri(&serde_json::json!({
+        "update": {"sessionUpdate": "tool_call_update", "toolCallId": "rejected", "title": "Bash",
+            "status": "failed", "rawOutput": "interrupted by user"}
+    }));
+    assert_eq!(make_tool_phase(&app, "rejected"), ToolPhase::Finished);
+    assert!(app.session_mgr.current().messages.pipeline.build_tail_vms().iter().any(|vm|
+        matches!(vm, MessageViewModel::ToolBlock { is_error: true, content, .. } if content == "interrupted by user")));
+    assert!(
+        app.session_mgr.current().agent.running_tools.is_empty(),
+        "拒绝后不能残留运行态"
+    );
+}
+
+#[tokio::test]
+async fn test_acp_bash_result_preserves_full_output_for_decorator() {
+    use crate::ui::message_view::MessageViewModel;
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+    make_pending_tool(&mut app, "long-output");
+    let output = "详细输出 https://example.com\n".repeat(20);
+    app.handle_session_update_peri(&serde_json::json!({
+        "update": {"sessionUpdate": "tool_call_update", "toolCallId": "long-output", "title": "Bash",
+            "status": "completed", "rawOutput": output}
+    }));
+    assert!(
+        app.session_mgr
+            .current()
+            .messages
+            .pipeline
+            .build_tail_vms()
+            .iter()
+            .any(
+                |vm| matches!(vm, MessageViewModel::ToolBlock { content, .. } if content == &output)
+            ),
+        "结果折叠应由 OutputLine 负责，不能提前丢失原始行"
+    );
+}
+
 async fn make_delayed_write_preview(
     old_content: Option<&str>,
     content: &str,

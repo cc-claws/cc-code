@@ -8,6 +8,35 @@ use cc_agent::tools::ToolDefinition;
 use super::*;
 
 #[test]
+fn test_mapper_tool_pending_status() {
+    let input = serde_json::json!({"command": "git status", "timeout": 300000});
+    let event = ExecutorEvent::ToolPending {
+        message_id: MessageId::new(),
+        tool_call_id: "queued-bash".into(),
+        name: "Bash".into(),
+        input: input.clone(),
+        source_agent_id: Some("child-1".into()),
+    };
+    let mapped = map_event(&event, 200_000);
+    assert_eq!(mapped.len(), 1);
+    assert!(!mapped[0].forward_to_tui, "排队状态只走标准 ACP 事件");
+    assert_eq!(mapped[0].source_agent_id.as_deref(), Some("child-1"));
+    let update = serde_json::to_value(&mapped[0].updates[0]).expect("排队事件应可序列化");
+    assert!(
+        matches!(&mapped[0].updates[0], SessionUpdate::ToolCall(call)
+        if call.status == ToolCallStatus::Pending),
+        "协议状态应为 Pending"
+    );
+    assert_eq!(update["_meta"]["peri"]["toolPhase"], "queued");
+    assert_eq!(update["toolCallId"], "queued-bash");
+    assert_eq!(update["rawInput"], input);
+    assert!(
+        update.pointer("/_meta/peri/fileSnapshot").is_none(),
+        "审批前不采集 Write 快照"
+    );
+}
+
+#[test]
 fn test_tool_start_preserves_file_snapshot_in_metadata() {
     for old_content in [None, Some("旧内容\n\"quoted\"\n".to_string())] {
         let input = serde_json::json!({"file_path": "a.txt", "content": "新内容\n"});

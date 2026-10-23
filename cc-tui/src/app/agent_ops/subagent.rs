@@ -245,8 +245,12 @@ impl App {
             return self.handle_subagent_event(&source_agent_id, *event);
         }
         // 到达子管线后去掉路由信封；它就是该管线的本地主线程。
+        let defer_rebuild = matches!(&event, AgentEvent::ToolPending { .. });
         match &mut event {
-            AgentEvent::ToolStart {
+            AgentEvent::ToolPending {
+                source_agent_id, ..
+            }
+            | AgentEvent::ToolStart {
                 source_agent_id, ..
             }
             | AgentEvent::ToolEnd {
@@ -258,42 +262,53 @@ impl App {
             _ => {}
         }
         // 前台同步 SubAgent 的事件需同时驱动主时间线 SubAgentGroup；在清空路由信封前
-        // 先克隆一份（仅这三类事件需要，避免为整个 AgentEvent 实现 Clone）。
+        // 先克隆一份（仅工具与文本事件需要，避免为整个 AgentEvent 实现 Clone）。
         let pipeline_clone = match &event {
+            AgentEvent::ToolPending {
+                tool_call_id,
+                name,
+                input,
+                ..
+            } => Some(AgentEvent::ToolPending {
+                tool_call_id: tool_call_id.clone(),
+                name: name.clone(),
+                input: input.clone(),
+                source_agent_id: Some(id.to_string()),
+            }),
             AgentEvent::ToolStart {
                 tool_call_id,
                 name,
                 display,
                 args,
                 input,
-                source_agent_id,
+                source_agent_id: _,
             } => Some(AgentEvent::ToolStart {
                 tool_call_id: tool_call_id.clone(),
                 name: name.clone(),
                 display: display.clone(),
                 args: args.clone(),
                 input: input.clone(),
-                source_agent_id: source_agent_id.clone(),
+                source_agent_id: Some(id.to_string()),
             }),
             AgentEvent::ToolEnd {
                 tool_call_id,
                 name,
                 output,
                 is_error,
-                source_agent_id,
+                source_agent_id: _,
             } => Some(AgentEvent::ToolEnd {
                 tool_call_id: tool_call_id.clone(),
                 name: name.clone(),
                 output: output.clone(),
                 is_error: *is_error,
-                source_agent_id: source_agent_id.clone(),
+                source_agent_id: Some(id.to_string()),
             }),
             AgentEvent::AssistantChunk {
                 chunk,
-                source_agent_id,
+                source_agent_id: _,
             } => Some(AgentEvent::AssistantChunk {
                 chunk: chunk.clone(),
-                source_agent_id: source_agent_id.clone(),
+                source_agent_id: Some(id.to_string()),
             }),
             _ => None,
         };
@@ -318,7 +333,9 @@ impl App {
         for action in actions {
             self.apply_pipeline_action(action);
         }
-        if focused {
+        if defer_rebuild {
+            self.session_mgr.current_mut().agent.tool_status_dirty = true;
+        } else if focused && !self.session_mgr.current().agent.tool_status_dirty {
             self.render_rebuild();
         }
         (true, false, false)

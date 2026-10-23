@@ -576,12 +576,12 @@ fn test_concurrent_subagents_route_by_source_agent_id() {
     );
 }
 
-/// 测试：source_agent_id 为 None 时回退到 last_mut()（向后兼容）
+/// 测试：无来源信封的主工具不能误投正在运行的子 Agent。
 #[test]
-fn test_subagent_source_agent_id_none_fallback_to_last_mut() {
+fn test_main_tool_without_source_stays_out_of_subagent() {
     let mut pipeline = MessagePipeline::new("/tmp".to_string());
 
-    // 启动单个 SubAgent（无 source_agent_id 时 last_mut() 回退生效）
+    // 启动子 Agent 后，主 Agent 仍可能有并发工具。
     let _ = pipeline.handle_event(AgentEvent::SubAgentStart {
         agent_id: "legacy-agent".into(),
         instance_id: "test-instance".into(),
@@ -589,7 +589,7 @@ fn test_subagent_source_agent_id_none_fallback_to_last_mut() {
         is_background: false,
         prompt: None,
     });
-    // ToolStart 无 source_agent_id → last_mut() 回退到唯一的 SubAgent
+    // ToolStart 无 source_agent_id 表示主管线，不能根据 last_mut() 猜来源。
     let _ = pipeline.handle_event(AgentEvent::ToolStart {
         tool_call_id: "tc_legacy".into(),
         name: "Bash".into(),
@@ -600,14 +600,8 @@ fn test_subagent_source_agent_id_none_fallback_to_last_mut() {
     });
 
     let sub = pipeline.subagent_stack.last().unwrap();
-    assert_eq!(
-        sub.recent_messages.len(),
-        1,
-        "source_agent_id=None 通过 last_mut() 回退路由到 SubAgent"
-    );
-    if let MessageViewModel::ToolBlock { tool_name, .. } = &sub.recent_messages[0] {
-        assert_eq!(tool_name, "Bash");
-    }
+    assert_eq!(sub.recent_messages.len(), 0, "主工具不能投递到子 Agent");
+    assert!(pipeline.pending_tools.contains_key("tc_legacy"));
 }
 
 // ─── build_tail_vms 测试 ──────────────────────────────────────────────────
