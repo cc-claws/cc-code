@@ -246,6 +246,7 @@ impl App {
         }
         // 到达子管线后去掉路由信封；它就是该管线的本地主线程。
         let defer_rebuild = matches!(&event, AgentEvent::ToolPending { .. });
+        let output_changed = matches!(&event, AgentEvent::ToolOutput { .. });
         match &mut event {
             AgentEvent::ToolPending {
                 source_agent_id, ..
@@ -353,8 +354,10 @@ impl App {
         }
         if defer_rebuild {
             self.session_mgr.current_mut().agent.tool_status_dirty = true;
+        } else if output_changed {
+            self.session_mgr.current_mut().agent.tool_output_dirty = true;
         } else if focused && !self.session_mgr.current().agent.tool_status_dirty {
-            self.render_rebuild();
+            self.request_rebuild();
         }
         (true, false, false)
     }

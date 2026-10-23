@@ -120,6 +120,9 @@ impl App {
                 mut tail_vms,
             } => {
                 let session = self.session_mgr.current_mut();
+                session
+                    .agent
+                    .finish_tool_output_refresh(std::time::Instant::now());
                 // 防御性边界检查：prefix_len 可能因 pipeline 内部 RebuildAll
                 // (如 ToolStart 的 throttle flush) 导致 view_messages 缩短后仍然
                 // 保持旧值，此时 drain 会 panic。

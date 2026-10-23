@@ -193,7 +193,7 @@ async fn test_acp_tool_output_preserves_child_source_with_same_call_id() {
         .get("streaming-child")
         .expect("子会话应存在");
     assert!(
-        child.messages.pipeline.build_tail_vms().iter().any(
+        child.pipeline.build_tail_vms().iter().any(
             |vm| matches!(vm, MessageViewModel::ToolBlock { live_output: Some(output), .. }
             if output.tail == "child progress\n")
         ),

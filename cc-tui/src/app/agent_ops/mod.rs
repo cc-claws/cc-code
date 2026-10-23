@@ -9,6 +9,7 @@
 use super::{agent_events_bg::BackgroundTaskResult, *};
 mod acp_bridge;
 mod lifecycle;
+mod output_refresh;
 mod polling;
 mod rewind;
 mod subagent;
@@ -339,9 +340,7 @@ impl App {
                     .messages
                     .pipeline
                     .handle_event(output);
-                if !self.session_mgr.current().agent.tool_status_dirty {
-                    self.request_rebuild();
-                }
+                self.session_mgr.current_mut().agent.tool_output_dirty = true;
                 (true, false, false)
             }
             AgentEvent::ToolEnd {
