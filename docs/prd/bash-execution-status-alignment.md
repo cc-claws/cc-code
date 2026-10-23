@@ -267,12 +267,12 @@ emit ToolPending × N
 
 #### 5.3.1 执行器改造
 
-`cc-middlewares/src/middleware/terminal_inline_executor.rs` 当前调用 `crate::process::output_with_input_timeout(...)`（一次性捕获 stdout/stderr，无流式回调）。改造为：
+`cc-middlewares/src/middleware/terminal_inline_executor.rs` 复用现有 `ManagedChild` 捕获链路，为 stdout/stderr 增加展示回调；TUI 的 `AgentShellExecutor` 使用同一展示通道：
 
-1. `spawn` + `Stdio::piped()`；
-2. 两个 tokio 任务分别读 stdout/stderr，按块写入共享状态；
-3. 每次写入后触发节流器（默认 1s）；
-4. 节流器通过 `tokio::sync::mpsc` 把 `OutputChunk` 交给上层执行循环。
+1. 保留现有 spawn、超时、取消、pipe drain 与完整结果收集语义；
+2. stdout/stderr 每次读取后，按到达顺序写入同一展示尾缓存；
+3. 调度器提供包含 message/call/source 身份的 `ToolOutputContext`，宿主在 spawn 前捕获；
+4. 展示流通过现有事件 handler 发布 `ToolOutput`，不写入 `AgentState`。
 
 输出缓冲：
 
@@ -298,7 +298,8 @@ ToolOutput {
 
 - 首次输出立即发一次；
 - 之后最多每 1000ms 一次；
-- 输出停止后不再发（完成由 `ToolEnd` 负责）。
+- 被节流的 burst 必须在下一次到期时补发最新尾部，即使之后没有新 chunk；
+- 没有新增内容时不重复发送；完成、取消或移交后台时取消定时器（完成由 `ToolEnd` 负责）。
 
 #### 5.3.3 ACP 传输
 
@@ -326,9 +327,9 @@ ToolCallUpdate {
 
 #### 5.3.4 TUI 渲染
 
-- `pending_tools` 增加 `tail: String`、`total_lines`、`total_bytes`、`elapsed_ms`；
-- `Running` 且 `tail` 非空：显示最后 5 行（`tail.lines().rev().take(5).rev()`），底部状态行：
-  - `+N lines`（`total_lines - 5 > 0`）
+- `pending_tools` 增加独立的 `ToolOutputPreview`，包含 `tail`、`total_lines`、`total_bytes`、`elapsed_ms`；
+- `Running` 且 `tail` 非空：按 §6 详细规格显示装饰、折行后的最后 5 个视觉行，底部状态行：
+  - `+N lines`（含已被尾缓存丢弃的行；普通单行日志为 `total_lines - 5`）
   - `(22s · timeout 5m)`
   - 字节数（`formatFileSize` 等价实现）
 - 渲染路径复用 `transform_bash_output_lines`（现有 ANSI 处理），避免二次实现；
@@ -342,10 +343,20 @@ ToolCallUpdate {
 
 #### 5.3.5 降级开关
 
-`settings.json` 增加 `tool_output_streaming: bool`（默认 `true`）。关闭后：
+`settings.json` 的 `config` 中增加 `tool_output_streaming: bool`（省略时默认 `true`，项目配置可以覆盖全局配置）：
+
+```json
+{
+  "config": {
+    "tool_output_streaming": false
+  }
+}
+```
+
+关闭后：
 
 - 执行器不发 `ToolOutput`；
-- TUI 回到 L1 行为（仅 `Running… (Xs)` + 完成后输出）。
+- TUI 保留 L1/L2 的排队、审批与运行阶段，只关闭运行中输出尾部。
 
 目的：出现性能或兼容问题时无需回滚版本。
 
@@ -1116,7 +1127,7 @@ cc-agent/agent/executor/tool_dispatch.rs（collect_tool_results）
 12. 运行中输出尾部与完成态使用同一 OutputLine 装饰器（ANSI / URL / JSON / 折行口径一致）；
 13. 非 Bash 工具不新增运行态行，仅修正空输出转圈；
 14. 完成且显式传了 `timeout` 时，结果块底部显示独立 `⎿  (timeout Nm)` 行；
-15. 关闭 `tool_output_streaming` 后行为回到第 1-8 条，无残留状态行；
+15. 关闭 `tool_output_streaming` 后保留第 1-7 条阶段与计时行为，不显示运行中输出尾部；
 16. `-p` 模式 stdout 不出现运行态文本；
 17. 子 Agent 的 Bash 运行态在抽屉中表现一致，不显示 Ctrl+B，不串到主消息区；
 18. 历史恢复的会话不出现任何运行中指示；

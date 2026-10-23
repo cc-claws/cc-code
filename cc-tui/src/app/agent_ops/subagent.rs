@@ -253,6 +253,9 @@ impl App {
             | AgentEvent::ToolStart {
                 source_agent_id, ..
             }
+            | AgentEvent::ToolOutput {
+                source_agent_id, ..
+            }
             | AgentEvent::ToolEnd {
                 source_agent_id, ..
             }
@@ -288,6 +291,21 @@ impl App {
                 display: display.clone(),
                 args: args.clone(),
                 input: input.clone(),
+                source_agent_id: Some(id.to_string()),
+            }),
+            AgentEvent::ToolOutput {
+                tool_call_id,
+                tail,
+                total_lines,
+                total_bytes,
+                elapsed_ms,
+                ..
+            } => Some(AgentEvent::ToolOutput {
+                tool_call_id: tool_call_id.clone(),
+                tail: tail.clone(),
+                total_lines: *total_lines,
+                total_bytes: *total_bytes,
+                elapsed_ms: *elapsed_ms,
                 source_agent_id: Some(id.to_string()),
             }),
             AgentEvent::ToolEnd {

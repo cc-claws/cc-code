@@ -180,6 +180,9 @@ pub struct AppConfig {
     /// 流式渲染模式：streaming / block / none
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub streaming_mode: Option<String>,
+    /// Bash 运行中输出流（缺省启用）；只控制界面进度，不改变最终工具结果。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_output_streaming: Option<bool>,
     /// 是否启用 spinner tips（缺省 = 启用；对齐 CC 的 spinnerTipsEnabled）
     #[serde(
         default,
@@ -236,6 +239,10 @@ pub enum SpinnerTipEntry {
 }
 
 impl AppConfig {
+    pub fn tool_output_streaming_enabled(&self) -> bool {
+        self.tool_output_streaming.unwrap_or(true)
+    }
+
     /// 用 workspace 配置覆盖全局配置。
     /// workspace 中出现的字段替换全局对应字段，未出现的保留全局值。
     pub fn merge_overrides(&mut self, workspace: AppConfig) {
@@ -298,6 +305,9 @@ impl AppConfig {
         // streaming_mode: Option<String>
         if workspace.streaming_mode.is_some() {
             self.streaming_mode = workspace.streaming_mode;
+        }
+        if workspace.tool_output_streaming.is_some() {
+            self.tool_output_streaming = workspace.tool_output_streaming;
         }
         // 保留未知字段
         self.extra.extend(workspace.extra);

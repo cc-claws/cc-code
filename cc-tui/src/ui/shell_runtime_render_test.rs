@@ -107,3 +107,138 @@ fn test_shell_runtime_ticker_refreshes_nested_and_main_bash_with_deadline() {
         }
     }
 }
+
+fn make_streaming_bash() -> MessageViewModel {
+    let mut vm = make_bash();
+    if let MessageViewModel::ToolBlock { live_output, .. } = &mut vm {
+        *live_output = Some(crate::ui::message_view::ToolOutputPreview::new(
+            "one\ntwo\nthree\nfour\nfive\nsix\nseven".into(),
+            7,
+            2048,
+            1000,
+        ));
+    }
+    vm.recompute_hash();
+    vm
+}
+
+#[test]
+fn test_streamed_bash_tick_reveals_cached_tail_after_threshold_and_refreshes_wrap() {
+    for nested in [false, true] {
+        let mut task = make_task();
+        let mut vm = make_streaming_bash();
+        if nested {
+            if let MessageViewModel::ToolBlock {
+                source_agent_id, ..
+            } = &mut vm
+            {
+                *source_agent_id = Some("child".into());
+            }
+            let mut group = MessageViewModel::subagent_group("child".into(), "task".into());
+            if let MessageViewModel::SubAgentGroup {
+                recent_messages,
+                collapsed,
+                ..
+            } = &mut group
+            {
+                *collapsed = false;
+                recent_messages.push(vm);
+            }
+            group.recompute_hash();
+            vm = group;
+        }
+        task.rebuild(vec![vm]);
+        assert!(
+            !task
+                .cache
+                .read()
+                .lines
+                .iter()
+                .any(|line| line.to_string().contains("three")),
+            "不足两秒不显示缓存尾部"
+        );
+        for seconds in [3, 10] {
+            set_elapsed(&mut task.last_messages[0], seconds);
+            assert!(
+                task.refresh_running_tool_indicators(4),
+                "无新输出也应跨阈值并更新计时"
+            );
+            let cache = task.cache.read();
+            let text = cache
+                .lines
+                .iter()
+                .map(Line::to_string)
+                .collect::<Vec<_>>()
+                .join("\n");
+            assert!(
+                text.contains("three") && text.contains("seven") && text.contains("… +2 lines")
+            );
+            assert!(
+                text.contains(&format!("({seconds}s · timeout 5m · 2.0 KB)")),
+                "输出下方状态尾注需要逐秒更新: {text}"
+            );
+            assert!(!text.contains("Running…"));
+            assert_eq!(text.contains(CONTROL_B_BACKGROUND_HINT), !nested);
+            assert_eq!(cache.lines.len(), cache.wrap_map.len());
+            for (line, wrap) in cache.lines.iter().zip(&cache.wrap_map) {
+                assert_eq!(
+                    line.to_string(),
+                    wrap.plain_text,
+                    "行内刷新后wrap快照必须同步"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn test_streamed_bash_detail_toggle_and_finish_invalidate_both_render_variants() {
+    let mut task = make_task();
+    let mut vm = make_streaming_bash();
+    set_elapsed(&mut vm, 3);
+    task.rebuild(vec![vm]);
+    let (_, mut receiver) = mpsc::channel(1);
+    task.handle_event(RenderEvent::ToggleDetail(true), &mut receiver);
+    let text = task
+        .cache
+        .read()
+        .lines
+        .iter()
+        .map(Line::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        text.contains("one") && !text.contains("… +2 lines"),
+        "详细模式应读取全量保留尾部"
+    );
+    let mut finished = task.last_messages[0].clone();
+    if let MessageViewModel::ToolBlock {
+        phase,
+        content,
+        live_output,
+        started_at,
+        ..
+    } = &mut finished
+    {
+        *phase = ToolPhase::Finished;
+        *content = "final-result".into();
+        *live_output = None;
+        *started_at = None;
+    }
+    finished.recompute_hash();
+    task.rebuild(vec![finished]);
+    task.handle_event(RenderEvent::ToggleDetail(false), &mut receiver);
+    let text = task
+        .cache
+        .read()
+        .lines
+        .iter()
+        .map(Line::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("final-result"));
+    assert!(
+        !text.contains("seven") && !text.contains("ctrl+b") && !text.contains("2.0 KB"),
+        "完成后普通/详细缓存均不得残留运行输出"
+    );
+}

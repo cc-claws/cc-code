@@ -5,6 +5,8 @@ use tokio::{
     process::{ChildStderr, ChildStdin, ChildStdout, Command},
 };
 
+pub(crate) type OutputObserver = std::sync::Arc<dyn Fn(&[u8]) + Send + Sync>;
+
 #[cfg(windows)]
 mod windows_job;
 
@@ -112,9 +114,19 @@ impl Drop for ManagedChild {
 /// (via `ManagedChild`'s Drop → killpg) and the entire job on Windows.
 /// This deliberately does not retry failed commands, which may have side effects.
 pub(crate) async fn output_with_input_timeout(
+    command: Command,
+    input: &[u8],
+    execution_timeout: Duration,
+) -> io::Result<std::process::Output> {
+    output_with_input_timeout_observed(command, input, execution_timeout, None).await
+}
+
+/// 与普通捕获共用进程/管道生命周期；观察者只接收到达的字节，不改变最终结果。
+pub(crate) async fn output_with_input_timeout_observed(
     mut command: Command,
     input: &[u8],
     execution_timeout: Duration,
+    observer: Option<OutputObserver>,
 ) -> io::Result<std::process::Output> {
     command
         .stdin(Stdio::piped())
@@ -140,8 +152,12 @@ pub(crate) async fn output_with_input_timeout(
         let io = async {
             tokio::join!(
                 async { written = write_input.await },
-                async { stdout_result = read_pipe(stdout, &mut stdout_bytes).await },
-                async { stderr_result = read_pipe(stderr, &mut stderr_bytes).await },
+                async {
+                    stdout_result = read_pipe(stdout, &mut stdout_bytes, observer.as_ref()).await
+                },
+                async {
+                    stderr_result = read_pipe(stderr, &mut stderr_bytes, observer.as_ref()).await
+                },
             );
         };
         tokio::pin!(io);
@@ -187,9 +203,24 @@ pub(crate) async fn output_with_input_timeout(
     })
 }
 
-async fn read_pipe(pipe: Option<impl AsyncRead + Unpin>, output: &mut Vec<u8>) -> io::Result<()> {
+async fn read_pipe(
+    pipe: Option<impl AsyncRead + Unpin>,
+    output: &mut Vec<u8>,
+    observer: Option<&OutputObserver>,
+) -> io::Result<()> {
     if let Some(mut pipe) = pipe {
-        pipe.read_to_end(output).await?;
+        let mut buffer = [0; 8192];
+        loop {
+            let len = pipe.read(&mut buffer).await?;
+            if len == 0 {
+                break;
+            }
+            let chunk = &buffer[..len];
+            output.extend_from_slice(chunk);
+            if let Some(observer) = observer {
+                observer(chunk);
+            }
+        }
     }
     Ok(())
 }

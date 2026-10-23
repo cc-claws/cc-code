@@ -39,12 +39,22 @@ impl ShellExecutor for InlineShellExecutor {
         let exit_signal_clone = Arc::clone(&exit_signal);
         // 在 spawn 外创建，任务尚未首次 poll 就取消时也能报告终态。
         let cancel_guard = FinishCancelledOnDrop(Arc::clone(&exit_signal));
+        let observer = cc_agent::tools::ToolOutputContext::current().map(|context| {
+            let stream = std::sync::Mutex::new(context.stream());
+            Arc::new(move |bytes: &[u8]| {
+                stream
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .push(bytes);
+            }) as crate::process::OutputObserver
+        });
         let join = tokio::spawn(async move {
             let _cancel_guard = cancel_guard;
-            let result = crate::process::output_with_input_timeout(
+            let result = crate::process::output_with_input_timeout_observed(
                 command,
                 &[],
                 std::time::Duration::from_millis(req.execution_timeout_ms),
+                observer,
             )
             .await;
             let timed_out = result

@@ -1,6 +1,46 @@
 use super::*;
 use std::collections::HashMap;
 
+#[test]
+fn test_tool_output_streaming_defaults_to_enabled() {
+    let config: PeriConfig = serde_json::from_str("{}").expect("旧配置应可读取");
+    assert!(
+        config.config.tool_output_streaming_enabled(),
+        "旧配置默认启用输出流"
+    );
+    assert!(
+        serde_json::to_value(config).expect("配置应可序列化")["config"]
+            .get("tool_output_streaming")
+            .is_none(),
+        "缺省字段不应被写回全局配置"
+    );
+}
+
+#[test]
+fn test_tool_output_streaming_workspace_false_overrides_global_true() {
+    let mut config = AppConfig {
+        tool_output_streaming: Some(true),
+        ..Default::default()
+    };
+    let workspace: AppConfig =
+        serde_json::from_value(serde_json::json!({"tool_output_streaming": false}))
+            .expect("工作区配置应可读取");
+    config.merge_overrides(workspace);
+    assert!(
+        !config.tool_output_streaming_enabled(),
+        "显式 false 必须覆盖全局 true"
+    );
+    config.merge_overrides(AppConfig::default());
+    assert!(
+        !config.tool_output_streaming_enabled(),
+        "未填写时保留已有开关"
+    );
+    assert_eq!(
+        serde_json::to_value(config).expect("配置应可序列化")["tool_output_streaming"],
+        false
+    );
+}
+
 fn make_global() -> AppConfig {
     AppConfig {
         active_alias: "sonnet".to_string(),

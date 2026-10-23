@@ -5,6 +5,7 @@ use ratatui::{
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 pub mod decorators;
+mod streaming_bash;
 use decorators::{
     ask_user::parse_ask_user_qa_items,
     bash::{parse_exit_code, strip_exit_code_suffix, transform_bash_output_lines},
@@ -12,6 +13,8 @@ use decorators::{
     read::{format_display_path_for_memory, read_summary},
     ToolDisplayLine,
 };
+pub(crate) use streaming_bash::render_live_output;
+pub(crate) use streaming_bash::shell_output_status_text;
 
 use super::{
     branch_prefix::BranchPrefix,
@@ -85,8 +88,12 @@ pub(crate) const SHELL_RUNNING_TEXT_PREFIX: &str = "Running…";
 /// 折成多行，状态行下标不再固定为 1（issue：固定写下标 1 会覆盖命令续行）。
 pub(crate) fn is_shell_running_status_line(line: &Line<'static>) -> bool {
     line.spans.len() >= 2
-        && BranchPrefix::is_branch_line(line)
-        && line.spans[1].content.starts_with(SHELL_RUNNING_TEXT_PREFIX)
+        && ((BranchPrefix::is_branch_line(line)
+            && line.spans[1].content.starts_with(SHELL_RUNNING_TEXT_PREFIX))
+            || (line.spans[0].content == BranchPrefix::HANG
+                && line.spans[1].content.starts_with('(')
+                && line.spans[1].content.ends_with("B)")
+                && line.spans[1].style.fg == Some(theme::cur().inactive)))
 }
 
 /// 非详细模式下错误摘要的最大显示行数（避免长错误污染页面）
@@ -1554,6 +1561,7 @@ pub fn render_view_model_with_flags(
             shell_backgrounded,
             phase,
             source_agent_id,
+            live_output,
             ..
         } => {
             // AskUserQuestion 专用渲染路径
@@ -1717,6 +1725,37 @@ pub fn render_view_model_with_flags(
                 // 实时、历史重建和子 Agent 展开都共用此渲染入口。
                 // 不改 content，因此模型仍能使用完整的任务 ID 和输出路径。
                 return (lines, link_hits);
+            }
+            if tool_name == "Bash"
+                && *phase == crate::ui::message_view::ToolPhase::Running
+                && !*is_error
+                && !*shell_backgrounded
+                && started_at
+                    .is_some_and(|start| start.elapsed() >= std::time::Duration::from_secs(2))
+            {
+                if let Some(output) = live_output
+                    .as_ref()
+                    .filter(|output| !output.tail.is_empty())
+                {
+                    lines.extend(render_live_output(output, width, detail_mode));
+                    lines.push(Line::from(vec![
+                        Span::raw(BranchPrefix::HANG),
+                        Span::styled(
+                            shell_output_status_text(started_at.unwrap(), *timeout_ms, output),
+                            Style::default().fg(theme::cur().inactive),
+                        ),
+                    ]));
+                    if source_agent_id.is_none() {
+                        lines.push(Line::from(vec![
+                            Span::raw(BranchPrefix::HANG),
+                            Span::styled(
+                                CONTROL_B_BACKGROUND_HINT,
+                                Style::default().fg(theme::cur().inactive),
+                            ),
+                        ]));
+                    }
+                    return (lines, link_hits);
+                }
             }
             let empty_output = content.trim().is_empty()
                 || (tool_name == "Bash"

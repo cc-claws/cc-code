@@ -184,7 +184,8 @@ pub fn build_agent(
     // 同一实例同时用于 parent_tools 构造和中间件链，保证 BashTool 与链共享同一 executor。
     let terminal_middleware = shell_executor
         .map(TerminalMiddleware::with_executor)
-        .unwrap_or_else(TerminalMiddleware::new);
+        .unwrap_or_else(TerminalMiddleware::new)
+        .with_output_streaming(peri_config.config.tool_output_streaming_enabled());
 
     // 应用 agent overrides 到系统提示词
     let system_prompt = agent_overrides.as_ref().map_or_else(

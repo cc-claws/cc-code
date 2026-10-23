@@ -28,7 +28,8 @@ use super::theme;
 use super::{
     markdown::{ensure_rendered_flush, ensure_rendered_incremental},
     message_render::{
-        is_shell_running_status_line, render_view_model_with_flags, shell_running_text,
+        is_shell_running_status_line, render_view_model_with_flags, shell_output_status_text,
+        shell_running_text,
     },
     message_view::{MessageViewModel, ToolPhase},
 };
@@ -745,6 +746,7 @@ impl RenderTask {
                             is_error,
                             started_at: Some(start),
                             timeout_ms,
+                            live_output,
                             shell_backgrounded,
                             ..
                         } if tool_name == "Bash"
@@ -753,7 +755,11 @@ impl RenderTask {
                             && !is_error
                             && start.elapsed() >= Duration::from_secs(2) =>
                         {
-                            let expected = shell_running_text(*start, *timeout_ms);
+                            let expected = live_output
+                                .as_ref()
+                                .filter(|output| !output.tail.is_empty())
+                                .map(|output| shell_output_status_text(*start, *timeout_ms, output))
+                                .unwrap_or_else(|| shell_running_text(*start, *timeout_ms));
                             !lines
                                 .iter()
                                 .flat_map(|line| &line.spans)
@@ -826,6 +832,8 @@ impl RenderTask {
                 is_error,
                 started_at,
                 timeout_ms,
+                live_output,
+                shell_backgrounded,
                 ..
             } = vm
             else {
@@ -856,12 +864,19 @@ impl RenderTask {
             // 必须按内容定位；旧代码写死 `lines[1]` 会覆盖命令续行，
             // 同时真正的状态行因不在下标 1 而被冻结（时间不刷新）。
             if *tool_name == "Bash"
+                && !shell_backgrounded
                 && started_at.is_some_and(|t| t.elapsed() >= Duration::from_secs(2))
             {
-                let new_running_text = shell_running_text(started_at.unwrap(), *timeout_ms);
+                let new_running_text = live_output
+                    .as_ref()
+                    .filter(|output| !output.tail.is_empty())
+                    .map(|output| {
+                        shell_output_status_text(started_at.unwrap(), *timeout_ms, output)
+                    })
+                    .unwrap_or_else(|| shell_running_text(started_at.unwrap(), *timeout_ms));
 
                 if let Some(running_line) =
-                    lines.iter_mut().find(|l| is_shell_running_status_line(l))
+                    lines.iter_mut().rfind(|l| is_shell_running_status_line(l))
                 {
                     if running_line.spans[1].content.as_ref() != new_running_text {
                         running_line.spans[1].content = new_running_text.into();

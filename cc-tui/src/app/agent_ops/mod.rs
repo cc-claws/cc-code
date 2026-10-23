@@ -38,6 +38,9 @@ impl App {
             | AgentEvent::ToolStart {
                 source_agent_id, ..
             }
+            | AgentEvent::ToolOutput {
+                source_agent_id, ..
+            }
             | AgentEvent::ToolEnd {
                 source_agent_id, ..
             }
@@ -325,6 +328,17 @@ impl App {
                 for action in actions {
                     self.apply_pipeline_action(action);
                 }
+                if !self.session_mgr.current().agent.tool_status_dirty {
+                    self.request_rebuild();
+                }
+                (true, false, false)
+            }
+            output @ AgentEvent::ToolOutput { .. } => {
+                self.session_mgr
+                    .current_mut()
+                    .messages
+                    .pipeline
+                    .handle_event(output);
                 if !self.session_mgr.current().agent.tool_status_dirty {
                     self.request_rebuild();
                 }

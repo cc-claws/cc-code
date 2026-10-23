@@ -1,6 +1,49 @@
 use super::*;
 use crate::ui::render_thread::{spawn_render_thread, RenderEvent};
 
+#[tokio::test]
+async fn test_virtual_streaming_output_json_and_cjk_height_matches_real_renderer() {
+    use crate::ui::message_view::{ToolOutputPreview, ToolPhase};
+    for tail in [
+        "{\"items\":[\"a\",\"b\",\"c\",\"d\"],\"ok\":true}".to_owned(),
+        "很长的构建日志需要折行以避免输出被裁剪。".repeat(40),
+    ] {
+        let mut vm = make_tool(0, 0);
+        if let MessageViewModel::ToolBlock {
+            phase,
+            live_output,
+            started_at,
+            ..
+        } = &mut vm
+        {
+            *phase = ToolPhase::Running;
+            *live_output = Some(ToolOutputPreview::new(tail.clone(), 1, tail.len(), 3000));
+            *started_at = Some(std::time::Instant::now() - std::time::Duration::from_secs(3));
+        }
+        vm.recompute_hash();
+        let mut renderer = VirtualRenderer::default();
+        for detail in [false, true, false] {
+            let source = vec![vm.clone()];
+            let (reference, wrap) = make_reference(&source, detail);
+            let cache = make_complete(&mut renderer, source, detail).await;
+            assert_eq!(
+                cache.lines[1..],
+                reference[1..],
+                "虚拟视口应发布完整真实行，不能按原始行数裁剪JSON或长行"
+            );
+            assert_eq!(
+                cache.total_lines,
+                wrap.last().map_or(0, |line| line.visual_row_end)
+            );
+            assert_eq!(
+                renderer.metadata[0].measured,
+                Some(cache.total_lines),
+                "高度索引应被实际装饰器结果修正"
+            );
+        }
+    }
+}
+
 fn make_mode(detail: bool) -> LayoutMode {
     LayoutMode {
         width: 80,

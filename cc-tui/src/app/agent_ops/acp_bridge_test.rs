@@ -42,6 +42,165 @@ fn make_pending_tool(app: &mut App, id: &str) {
     }
 }
 
+fn make_routed_tool_event(app: &mut App, event: &cc_agent::agent::AgentEvent) {
+    for mapped in cc_acp::event::map_event(event, 200_000) {
+        for update in mapped.updates {
+            let params = cc_acp::session::subagent_protocol::session_update_payload(
+                "streaming-session",
+                &update,
+                mapped.source_agent_id.as_deref(),
+            )
+            .expect("真实 ACP 映射应可序列化");
+            app.handle_session_update_peri(&params);
+        }
+    }
+}
+
+fn make_live_tool_output(
+    app: &App,
+    id: &str,
+) -> Option<crate::ui::message_view::ToolOutputPreview> {
+    app.session_mgr
+        .current()
+        .messages
+        .pipeline
+        .build_tail_vms()
+        .into_iter()
+        .find_map(|vm| match vm {
+            crate::ui::message_view::MessageViewModel::ToolBlock {
+                tool_call_id,
+                live_output,
+                ..
+            } if tool_call_id == id => Some(live_output),
+            _ => None,
+        })
+        .expect("应存在对应工具块")
+}
+
+#[tokio::test]
+async fn test_acp_tool_output_updates_running_preview_and_final_result_clears_it() {
+    use crate::ui::message_view::{MessageViewModel, ToolPhase};
+    use cc_agent::agent::AgentEvent;
+    use cc_agent::messages::MessageId;
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+    let message_id = MessageId::new();
+    make_routed_tool_event(
+        &mut app,
+        &AgentEvent::ToolStart {
+            message_id,
+            tool_call_id: "live-command".into(),
+            name: "Bash".into(),
+            input: serde_json::json!({"command": "echo progress", "timeout": 300000}),
+            file_snapshot: None,
+            source_agent_id: None,
+        },
+    );
+    let output = AgentEvent::ToolOutput {
+        message_id,
+        tool_call_id: "live-command".into(),
+        tail: "progress\n".into(),
+        total_lines: 1,
+        total_bytes: 9,
+        elapsed_ms: 2100,
+        source_agent_id: None,
+    };
+    make_routed_tool_event(&mut app, &output);
+    let preview = make_live_tool_output(&app, "live-command").expect("进度应写入展示缓存");
+    assert_eq!(preview.tail, "progress\n");
+    assert_eq!(preview.total_lines, 1);
+    assert_eq!(preview.total_bytes, 9);
+    assert_eq!(preview.elapsed_ms, 2100);
+    assert_eq!(make_tool_phase(&app, "live-command"), ToolPhase::Running);
+    make_routed_tool_event(
+        &mut app,
+        &AgentEvent::ToolEnd {
+            message_id,
+            tool_call_id: "live-command".into(),
+            name: "Bash".into(),
+            output: "complete result\n".into(),
+            is_error: false,
+            source_agent_id: None,
+        },
+    );
+    assert_eq!(make_tool_phase(&app, "live-command"), ToolPhase::Finished);
+    assert!(
+        make_live_tool_output(&app, "live-command").is_none(),
+        "完成结果应清除临时尾缓存"
+    );
+    make_routed_tool_event(&mut app, &output);
+    assert!(
+        make_live_tool_output(&app, "live-command").is_none(),
+        "迟到进度不能恢复已完成缓存"
+    );
+    assert!(app.session_mgr.current().messages.pipeline.build_tail_vms().iter().any(|vm|
+        matches!(vm, MessageViewModel::ToolBlock { content, phase: ToolPhase::Finished, .. }
+            if content == "complete result\n")), "最终工具结果必须独立保留");
+}
+
+#[tokio::test]
+async fn test_acp_tool_output_preserves_child_source_with_same_call_id() {
+    use crate::ui::message_view::MessageViewModel;
+    use cc_agent::agent::AgentEvent;
+    use cc_agent::messages::MessageId;
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+    app.handle_acp_notification(AcpNotification::Peri {
+        session_id: "streaming-session".into(),
+        method: "peri/subagent_lifecycle".into(),
+        params: serde_json::json!({
+            "event": "started", "instanceId": "streaming-child",
+            "agentType": "general-purpose", "taskPreview": "输出隔离", "isBackground": true,
+        }),
+    });
+    for (source, tail) in [
+        (None, "main progress\n"),
+        (Some("streaming-child"), "child progress\n"),
+    ] {
+        let message_id = MessageId::new();
+        make_routed_tool_event(
+            &mut app,
+            &AgentEvent::ToolStart {
+                message_id,
+                tool_call_id: "same-command".into(),
+                name: "Bash".into(),
+                input: serde_json::json!({"command": "echo progress"}),
+                file_snapshot: None,
+                source_agent_id: source.map(String::from),
+            },
+        );
+        make_routed_tool_event(
+            &mut app,
+            &AgentEvent::ToolOutput {
+                message_id,
+                tool_call_id: "same-command".into(),
+                tail: tail.into(),
+                total_lines: 1,
+                total_bytes: tail.len(),
+                elapsed_ms: 2100,
+                source_agent_id: source.map(String::from),
+            },
+        );
+    }
+    assert_eq!(
+        make_live_tool_output(&app, "same-command")
+            .expect("主缓存应存在")
+            .tail,
+        "main progress\n"
+    );
+    let child = app
+        .session_mgr
+        .current()
+        .subagent_sessions
+        .get("streaming-child")
+        .expect("子会话应存在");
+    assert!(
+        child.messages.pipeline.build_tail_vms().iter().any(
+            |vm| matches!(vm, MessageViewModel::ToolBlock { live_output: Some(output), .. }
+            if output.tail == "child progress\n")
+        ),
+        "真实 ACP 来源扩展应精确路由到子会话"
+    );
+}
+
 #[tokio::test]
 async fn test_acp_pending_and_start_update_one_tool_block() {
     use crate::ui::message_view::{MessageViewModel, ToolPhase};

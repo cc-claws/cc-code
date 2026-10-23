@@ -40,6 +40,7 @@ pub struct BashTool {
     /// 默认为 [`InlineShellExecutor`]（仅前台，并发捕获 stdout/stderr），
     /// cc-tui 会注入真正的实现。
     pub executor: Arc<dyn ShellExecutor>,
+    output_streaming: bool,
 }
 
 impl BashTool {
@@ -55,7 +56,13 @@ impl BashTool {
         Self {
             cwd: cwd.into(),
             executor,
+            output_streaming: true,
         }
+    }
+
+    pub fn with_output_streaming(mut self, enabled: bool) -> Self {
+        self.output_streaming = enabled;
+        self
     }
 }
 
@@ -241,7 +248,14 @@ impl BaseTool for BashTool {
             execution_timeout_ms,
             run_in_background,
         };
-        let handle = self.executor.execute(req).await?;
+        let output_context = if self.output_streaming && !run_in_background {
+            cc_agent::tools::ToolOutputContext::current()
+        } else {
+            None
+        };
+        let handle =
+            cc_agent::tools::ToolOutputContext::scope(output_context, self.executor.execute(req))
+                .await?;
 
         // run_in_background=true：立即转后台，返回 task_id 占位串。
         // 真实输出靠后续 <background-task-completed> 通知注入下一轮对话。
@@ -323,18 +337,28 @@ pub struct TerminalMiddleware {
     /// Shell 执行器，注入到 BashTool 以支持 Ctrl+B 后台化。
     /// None 时使用默认 [`InlineShellExecutor`]（仅前台执行）。
     executor: Option<Arc<dyn ShellExecutor>>,
+    output_streaming: bool,
 }
 
 impl TerminalMiddleware {
     pub fn new() -> Self {
-        Self { executor: None }
+        Self {
+            executor: None,
+            output_streaming: true,
+        }
     }
 
     /// 创建注入自定义 [`ShellExecutor`] 的 middleware。
     pub fn with_executor(executor: Arc<dyn ShellExecutor>) -> Self {
         Self {
             executor: Some(executor),
+            output_streaming: true,
         }
+    }
+
+    pub fn with_output_streaming(mut self, enabled: bool) -> Self {
+        self.output_streaming = enabled;
+        self
     }
 
     /// 构造 BashTool。executor 为 None 时使用默认 InlineShellExecutor。
@@ -343,7 +367,9 @@ impl TerminalMiddleware {
             .executor
             .clone()
             .unwrap_or_else(|| Arc::new(InlineShellExecutor));
-        vec![Box::new(BashTool::with_executor(cwd, executor))]
+        vec![Box::new(
+            BashTool::with_executor(cwd, executor).with_output_streaming(self.output_streaming),
+        )]
     }
 
     pub fn tool_names() -> Vec<&'static str> {
@@ -375,3 +401,7 @@ pub use terminal_inline_executor::InlineShellExecutor;
 #[cfg(test)]
 #[path = "terminal_test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "terminal_output_test.rs"]
+mod output_tests;

@@ -2,6 +2,31 @@ use super::*;
 use cc_agent::messages::MessageId;
 
 #[test]
+fn test_stdio_sink_ignores_main_and_subagent_tool_output() {
+    let event = ExecutorEvent::ToolOutput {
+        message_id: MessageId::new(),
+        tool_call_id: "streamed".into(),
+        tail: "private running output".into(),
+        total_lines: 1,
+        total_bytes: 22,
+        elapsed_ms: 1000,
+        source_agent_id: None,
+    };
+    assert!(
+        map_stdio_event(&event, 200_000).is_empty(),
+        "stdio 不输出瞬时尾部"
+    );
+    let child = ExecutorEvent::SubagentEvent {
+        source_agent_id: "child".into(),
+        event: Box::new(event),
+    };
+    assert!(
+        map_stdio_event(&child, 200_000).is_empty(),
+        "子 Agent 输出同样不污染 stdout"
+    );
+}
+
+#[test]
 fn test_stdio_sink_ignores_main_and_subagent_tool_pending() {
     let event = ExecutorEvent::ToolPending {
         message_id: MessageId::new(),

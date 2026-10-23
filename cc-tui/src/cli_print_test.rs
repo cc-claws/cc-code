@@ -10,6 +10,31 @@ fn make_collector() -> PrintCollector {
 }
 
 #[test]
+fn test_print_sink_ignores_tool_output() {
+    for format in [
+        OutputFormat::Text,
+        OutputFormat::Json,
+        OutputFormat::StreamJson,
+    ] {
+        let mut collector = PrintCollector::new(format);
+        let event = AgentEvent::ToolOutput {
+            message_id: MessageId::new(),
+            tool_call_id: "running-command".into(),
+            tail: "running tail".into(),
+            total_lines: 1,
+            total_bytes: 12,
+            elapsed_ms: 1000,
+            source_agent_id: None,
+        };
+        assert!(
+            collector.handle_event(event).is_none(),
+            "增量输出不能污染任何 print 格式"
+        );
+        assert!(collector.text_buffer.is_empty(), "增量输出不写入最终文本");
+    }
+}
+
+#[test]
 fn test_print_sink_ignores_tool_pending() {
     for format in [
         OutputFormat::Text,
