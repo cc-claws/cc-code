@@ -813,15 +813,35 @@ impl RenderTask {
                 }
             }
             if Self::is_running_bash_past_threshold(vm) {
-                // 跨越 2 秒阈值后必须已有 Running… 状态行。不能再用固定行数
-                // （旧假设 header 恒 1 行 → 共 3 行）：详细模式下超长命令会让
-                // header 折成多行，行数早已 ≥ 3，固定判定会漏掉首次渲染，
-                // 导致状态行永远不出现。改为按内容定位状态行是否已渲染。
-                let has_running_line = self
-                    .message_lines
-                    .get(idx)
-                    .is_some_and(|lines| lines.iter().any(is_shell_running_status_line));
-                if !has_running_line {
+                // 跨越 2 秒阈值后必须已有**带耗时**的 Running… 状态行（以及 ctrl+b 提示行）。
+                // 不能只判断「是否已是 Running 行」：状态行在执行一开始就以裸 `Running…`
+                // 出现了，那个判定会永远为真，导致本分支再不重建、秒数与提示永不出现。
+                // 也不能用固定行数（旧假设 header 恒 1 行 → 共 3 行）：详细模式下超长
+                // 命令会让 header 折成多行，固定判定会漏掉，状态行永远不出现。
+                // 因此按「期望文本是否已存在于缓存行」定位。
+                let expected = {
+                    let MessageViewModel::ToolBlock {
+                        started_at: Some(start),
+                        timeout_ms,
+                        live_output,
+                        ..
+                    } = vm
+                    else {
+                        continue;
+                    };
+                    live_output
+                        .as_ref()
+                        .filter(|output| !output.tail.is_empty())
+                        .map(|output| shell_output_status_text(*start, *timeout_ms, output))
+                        .unwrap_or_else(|| shell_running_text(*start, *timeout_ms))
+                };
+                let has_full_status = self.message_lines.get(idx).is_some_and(|lines| {
+                    lines
+                        .iter()
+                        .flat_map(|line| &line.spans)
+                        .any(|span| span.content == expected)
+                });
+                if !has_full_status {
                     needs_rebuild = true;
                     // 只失效该条消息的 hash，触发 rebuild 从该处增量重建
                     if let Some(h) = self.message_hashes.get_mut(idx) {

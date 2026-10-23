@@ -3,10 +3,13 @@ use ratatui::style::Color;
 
 /// 返回 (指示器字符, 颜色)
 ///
-/// - Pending: 灰色 ● 闪烁（排队 / 等待审批中，提示用户系统存活而非卡死）
+/// - Pending: 灰色 ● 恒亮（排队 / 等待审批，对齐 CC `isQueued` 分支）
 /// - Running: 灰色 ● 闪烁（执行中）
 /// - Completed: 绿色 ●
 /// - Failed: 红色 ●
+///
+/// 节奏：`tick` 由渲染线程按 200ms 推进，闪烁周期 800ms 亮 / 800ms 灭
+/// （`tick / 4` 每 4 个 tick 即 800ms 翻转一次）。
 pub fn format_indicator(
     status: ToolCallStatus,
     tick: u64,
@@ -15,9 +18,11 @@ pub fn format_indicator(
     failed: Color,
 ) -> (&'static str, Color) {
     match status {
-        // Pending（Queued / AwaitingApproval）与 Running 共用闪烁动画：
-        // 消除「看看见 ⎿ Waiting… 但指示器不闪、误以为进程卡死」的混淆。
-        ToolCallStatus::Pending | ToolCallStatus::Running => {
+        // Queued / AwaitingApproval 恒亮：排队不是「活跃」，不该伪装成执行中。
+        // 等待语义由同屏的 `Waiting…` / `Waiting for permission…` 文案承载
+        // （对齐 CC `AssistantToolUseMessage`：isQueued 走独立分支，不进 ToolUseLoader）。
+        ToolCallStatus::Pending => ("●", pending),
+        ToolCallStatus::Running => {
             let visible = (tick / 4).is_multiple_of(2);
             let ch = if visible { "●" } else { " " };
             (ch, pending)

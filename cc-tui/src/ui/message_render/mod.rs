@@ -1904,16 +1904,25 @@ pub fn render_view_model_with_flags(
                 }
             } else if tool_name == "Bash"
                 && *phase == crate::ui::message_view::ToolPhase::Running
-                && started_at.is_some_and(|t| t.elapsed() >= std::time::Duration::from_secs(2))
+                && started_at.is_some()
             {
+                // 执行一开始就占住状态行，消除 Queued→Running 时「上一分支已退出、
+                // 本分支尚未进入」的空档。但耗时秒数与 ctrl+b 提示仍等满 2 秒才出现：
+                // 前 2 秒只显示裸 `Running…`，让用户知道命令确实在跑。
+                let past_threshold =
+                    started_at.is_some_and(|t| t.elapsed() >= std::time::Duration::from_secs(2));
                 lines.push(Line::from(vec![
                     BranchPrefix::span(false),
                     Span::styled(
-                        shell_running_text(started_at.unwrap(), *timeout_ms),
+                        if past_threshold {
+                            shell_running_text(started_at.unwrap(), *timeout_ms)
+                        } else {
+                            SHELL_RUNNING_TEXT_PREFIX.to_string()
+                        },
                         Style::default().fg(theme::cur().inactive),
                     ),
                 ]));
-                if source_agent_id.is_none() {
+                if past_threshold && source_agent_id.is_none() {
                     lines.push(Line::from(vec![
                         Span::raw(BranchPrefix::HANG),
                         Span::styled(

@@ -95,17 +95,15 @@ fn test_ctrl_b_hint_follows_running_line() {
 #[test]
 fn test_tui_renders_waiting_for_permission_during_hitl() {
     let bash = make_bash(ToolPhase::AwaitingApproval, "");
-    let text_visible = make_text_with_tick(&bash, false, 0);
-    assert!(
-        text_visible.starts_with("● Bash"),
-        "审批阶段亮起半周期应显示圆点: {text_visible}"
-    );
+    // 审批等待期恒亮不闪（对齐 CC）：任意 tick 都应显示实心圆。
+    for tick in [0, 4, 8] {
+        let text = make_text_with_tick(&bash, false, tick);
+        assert!(
+            text.starts_with("● Bash"),
+            "审批阶段圆点应恒亮（tick={tick}）: {text}"
+        );
+    }
     let text = make_text(&bash, false);
-    // 审批等待与运行状态统一节奏呼吸闪烁（tick=4 处于熄灭半周期）
-    assert!(
-        text.starts_with("  Bash") || text.starts_with(" Bash"),
-        "审批阶段圆点应统一参与闪烁动画: {text}"
-    );
     assert!(
         text.contains("  ⎿  Waiting for permission…\n     (ctrl+b to run in background)"),
         "审批状态应紧接后台提示: {text}"
@@ -116,16 +114,15 @@ fn test_tui_renders_waiting_for_permission_during_hitl() {
 #[test]
 fn test_tui_renders_waiting_during_jev_judge() {
     let bash = make_bash(ToolPhase::Queued, "");
-    let text_visible = make_text_with_tick(&bash, false, 0);
-    assert!(
-        text_visible.starts_with("● Bash"),
-        "Queued阶段亮起半周期应显示圆点: {text_visible}"
-    );
+    // Queued 恒亮不闪（对齐 CC）：排队不是「活跃」，等待语义由文案承载。
+    for tick in [0, 4, 8] {
+        let text = make_text_with_tick(&bash, false, tick);
+        assert!(
+            text.starts_with("● Bash"),
+            "Queued 阶段圆点应恒亮（tick={tick}）: {text}"
+        );
+    }
     let text = make_text(&bash, false);
-    assert!(
-        text.starts_with("  Bash") || text.starts_with(" Bash"),
-        "Queued阶段圆点应统一参与闪烁动画: {text}"
-    );
     assert!(
         text.contains("  ⎿  Waiting…\n     (ctrl+b to run in background)"),
         "自动判定保持Queued状态: {text}"
