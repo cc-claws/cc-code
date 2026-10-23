@@ -721,7 +721,7 @@ impl RenderTask {
                     phase,
                     is_error,
                     ..
-                } => tool_name != "AskUserQuestion" && *phase == ToolPhase::Running && !*is_error,
+                } => tool_name != "AskUserQuestion" && *phase != ToolPhase::Finished && !*is_error,
                 _ => RenderTask::visible_subagent_messages(vm)
                     .iter()
                     .any(running),
@@ -865,7 +865,8 @@ impl RenderTask {
             else {
                 continue;
             };
-            if *tool_name == "AskUserQuestion" || *phase != ToolPhase::Running || *is_error {
+            // 所有灰色/未完成的工具块（Queued/AwaitingApproval/Running）都参与统一频率的闪烁刷新
+            if *tool_name == "AskUserQuestion" || *phase == ToolPhase::Finished || *is_error {
                 continue;
             }
 
@@ -885,11 +886,12 @@ impl RenderTask {
                 }
             }
 
-            // Bash 已超 2 秒：增量更新 Running… (Xs) 秒数行。
+            // Bash 运行中且已超 2 秒：增量更新 Running… (Xs) 秒数行（等待/审批阶段不计执行耗时）。
             // 状态行下标**不固定**（详细模式下超长命令会让 header 折成多行），
             // 必须按内容定位；旧代码写死 `lines[1]` 会覆盖命令续行，
             // 同时真正的状态行因不在下标 1 而被冻结（时间不刷新）。
             if *tool_name == "Bash"
+                && *phase == ToolPhase::Running
                 && !shell_backgrounded
                 && started_at.is_some_and(|t| t.elapsed() >= Duration::from_secs(2))
             {

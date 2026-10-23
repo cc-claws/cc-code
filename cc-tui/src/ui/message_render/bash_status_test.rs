@@ -25,8 +25,8 @@ fn make_bash(phase: ToolPhase, output: &str) -> MessageViewModel {
     vm
 }
 
-fn make_text(vm: &MessageViewModel, detail: bool) -> String {
-    render_view_model(vm, None, 100, detail, 4)
+fn make_text_with_tick(vm: &MessageViewModel, detail: bool, tick: u64) -> String {
+    render_view_model(vm, None, 100, detail, tick)
         .iter()
         .map(|line| {
             line.spans
@@ -36,6 +36,10 @@ fn make_text(vm: &MessageViewModel, detail: bool) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn make_text(vm: &MessageViewModel, detail: bool) -> String {
+    make_text_with_tick(vm, detail, 4)
 }
 
 #[test]
@@ -90,8 +94,18 @@ fn test_ctrl_b_hint_follows_running_line() {
 
 #[test]
 fn test_tui_renders_waiting_for_permission_during_hitl() {
-    let text = make_text(&make_bash(ToolPhase::AwaitingApproval, ""), false);
-    assert!(text.starts_with("● Bash"), "审批阶段圆点不应闪烁: {text}");
+    let bash = make_bash(ToolPhase::AwaitingApproval, "");
+    let text_visible = make_text_with_tick(&bash, false, 0);
+    assert!(
+        text_visible.starts_with("● Bash"),
+        "审批阶段亮起半周期应显示圆点: {text_visible}"
+    );
+    let text = make_text(&bash, false);
+    // 审批等待与运行状态统一节奏呼吸闪烁（tick=4 处于熄灭半周期）
+    assert!(
+        text.starts_with("  Bash") || text.starts_with(" Bash"),
+        "审批阶段圆点应统一参与闪烁动画: {text}"
+    );
     assert!(
         text.contains("  ⎿  Waiting for permission…\n     (ctrl+b to run in background)"),
         "审批状态应紧接后台提示: {text}"
@@ -101,7 +115,17 @@ fn test_tui_renders_waiting_for_permission_during_hitl() {
 
 #[test]
 fn test_tui_renders_waiting_during_jev_judge() {
-    let text = make_text(&make_bash(ToolPhase::Queued, ""), false);
+    let bash = make_bash(ToolPhase::Queued, "");
+    let text_visible = make_text_with_tick(&bash, false, 0);
+    assert!(
+        text_visible.starts_with("● Bash"),
+        "Queued阶段亮起半周期应显示圆点: {text_visible}"
+    );
+    let text = make_text(&bash, false);
+    assert!(
+        text.starts_with("  Bash") || text.starts_with(" Bash"),
+        "Queued阶段圆点应统一参与闪烁动画: {text}"
+    );
     assert!(
         text.contains("  ⎿  Waiting…\n     (ctrl+b to run in background)"),
         "自动判定保持Queued状态: {text}"
