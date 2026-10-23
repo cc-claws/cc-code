@@ -1,7 +1,7 @@
 //! Event mapping from ExecutorEvent to ACP SessionUpdate and peri/agent_event routing.
 //!
 //! Produces [`MappedEvent`] structs with three categories:
-//! - **Category ①** (Enriched SessionUpdate): TextChunk, AiReasoning, ToolStart, ToolEnd, TodoUpdate,
+//! - **Category ①** (Enriched SessionUpdate): TextChunk, AiReasoning, ToolPending, ToolStart, ToolEnd, TodoUpdate,
 //!   LlmCallEnd(usage) → `updates` only, `forward_to_tui: false`
 //! - **Category ③** (TUI-only): StateSnapshot, Subagent*, Compact*, ContextWarning, LlmRetrying, etc.
 //!   → `forward_to_tui: true` only
@@ -114,6 +114,27 @@ pub fn map_event(event: &ExecutorEvent, context_window: u32) -> Vec<MappedEvent>
                 ))),
             ])]
         }
+
+        ExecutorEvent::ToolPending {
+            tool_call_id,
+            name,
+            input,
+            source_agent_id,
+            ..
+        } => vec![MappedEvent::standard_with_src(
+            vec![SessionUpdate::ToolCall(
+                ToolCall::new(tool_call_id.clone(), name.clone())
+                    .kind(infer_tool_kind(name))
+                    .status(ToolCallStatus::Pending)
+                    .raw_input(Some(input.clone()))
+                    // Pending 是 schema 默认值，序列化时省略；标记用于区分旧无状态 Start。
+                    .meta(serde_json::Map::from_iter([(
+                        "peri".into(),
+                        serde_json::json!({"toolPhase": "queued"}),
+                    )])),
+            )],
+            source_agent_id.clone(),
+        )],
 
         ExecutorEvent::ToolStart {
             tool_call_id,

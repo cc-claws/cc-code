@@ -88,6 +88,14 @@ pub enum AgentEvent {
         chunk: String,
         source_agent_id: Option<String>,
     },
+    /// 工具已排队，审批与语义门尚未完成；仅更新展示，不写入 AgentState。
+    ToolPending {
+        message_id: crate::messages::MessageId,
+        tool_call_id: String,
+        name: String,
+        input: serde_json::Value,
+        source_agent_id: Option<String>,
+    },
     /// 工具调用开始（工具名 + 参数），携带所属 AI 消息的 message_id
     ToolStart {
         message_id: crate::messages::MessageId,

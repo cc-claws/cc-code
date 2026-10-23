@@ -720,7 +720,7 @@ impl RenderTask {
                     phase,
                     is_error,
                     ..
-                } => tool_name != "AskUserQuestion" && *phase != ToolPhase::Finished && !*is_error,
+                } => tool_name != "AskUserQuestion" && *phase == ToolPhase::Running && !*is_error,
                 _ => RenderTask::visible_subagent_messages(vm)
                     .iter()
                     .any(running),
@@ -857,7 +857,7 @@ impl RenderTask {
             else {
                 continue;
             };
-            if *tool_name == "AskUserQuestion" || *phase == ToolPhase::Finished || *is_error {
+            if *tool_name == "AskUserQuestion" || *phase != ToolPhase::Running || *is_error {
                 continue;
             }
 

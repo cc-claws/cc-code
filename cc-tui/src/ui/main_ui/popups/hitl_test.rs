@@ -18,6 +18,7 @@ async fn make_headless_hitl(
 
 fn make_bash_item(command: &str) -> BatchItem {
     BatchItem {
+        tool_call_id: String::new(),
         tool_name: "Bash".to_string(),
         input: serde_json::json!({"command": command}),
     }
@@ -270,6 +271,7 @@ async fn test_hitl_long_header_stays_on_one_line_and_command_remains_complete() 
 #[tokio::test]
 async fn test_hitl_edit_diff_displays_context_deletions_and_additions() {
     let item = BatchItem {
+        tool_call_id: String::new(),
         tool_name: "Edit".to_string(),
         input: serde_json::json!({
             "file_path": "src/main.rs",
@@ -305,6 +307,7 @@ async fn test_hitl_edit_diff_displays_context_deletions_and_additions() {
 #[tokio::test]
 async fn test_hitl_edit_diff_only_expands_for_current_tool() {
     let edit = BatchItem {
+        tool_call_id: String::new(),
         tool_name: "Edit".to_string(),
         input: serde_json::json!({
             "file_path": "src/approval.rs",
@@ -357,6 +360,7 @@ async fn test_hitl_edit_diff_only_expands_for_current_tool() {
 #[tokio::test]
 async fn test_hitl_other_tools_display_all_parameters() {
     let item = BatchItem {
+        tool_call_id: String::new(),
         tool_name: "Grep".to_string(),
         input: serde_json::json!({
             "pattern": "needle_pattern",
@@ -392,6 +396,7 @@ async fn test_hitl_session_descriptions_match_command_and_file_in_both_languages
             ),
             (
                 BatchItem {
+                    tool_call_id: String::new(),
                     tool_name: "Edit".to_string(),
                     input: serde_json::json!({"file_path":"a.rs", "old_string":"old", "new_string":"new"}),
                 },
@@ -399,6 +404,7 @@ async fn test_hitl_session_descriptions_match_command_and_file_in_both_languages
             ),
             (
                 BatchItem {
+                    tool_call_id: String::new(),
                     tool_name: "Grep".to_string(),
                     input: serde_json::json!({"pattern":"target", "path":"src", "glob":"*.rs"}),
                 },
@@ -638,6 +644,7 @@ async fn test_hitl_tall_edit_diff_reports_omitted_additions_explicitly() {
         .collect::<Vec<_>>()
         .join("\n");
     let item = BatchItem {
+        tool_call_id: String::new(),
         tool_name: "Edit".to_string(),
         input: serde_json::json!({
             "file_path": "src/long.rs",

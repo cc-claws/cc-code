@@ -951,29 +951,49 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
     let mut ready_calls: Vec<ToolCall> = Vec::with_capacity(original_calls.len());
     let mut settled_results: Vec<(ToolCall, ToolResult)> = Vec::new();
 
+    // 所有工具先进入排队态；审批期间不把本轮 AI 消息写入 state。
+    for call in &original_calls {
+        agent.emit(AgentEvent::ToolPending {
+            message_id: ai_msg_id,
+            tool_call_id: call.id.clone(),
+            name: call.name.clone(),
+            input: call.input.clone(),
+            source_agent_id: None,
+        });
+    }
+    // before_tool 出错或被取消时，尚未执行的工具也必须闭合，不能残留 Waiting。
+    // 已拒绝的调用有自己的 ToolEnd，避免重复发送终态。
+    let close_pending = |output: &str, settled: &[(ToolCall, ToolResult)]| {
+        for call in &original_calls {
+            if settled.iter().any(|(closed, _)| closed.id == call.id) {
+                continue;
+            }
+            agent.emit(AgentEvent::ToolEnd {
+                message_id: ai_msg_id,
+                tool_call_id: call.id.clone(),
+                name: call.name.clone(),
+                output: output.to_string(),
+                is_error: true,
+                source_agent_id: None,
+            });
+        }
+    };
+
     // 阶段一：批量 before_tool
     let before_results = tokio::select! {
         biased;
         // 审批可能一直等待用户回应，取消必须能打断 before_tool；此时尚未写入 state。
-        _ = cancel.cancelled() => return Err(AgentError::Interrupted),
+        _ = cancel.cancelled() => {
+            close_pending("interrupted by user", &settled_results);
+            return Err(AgentError::Interrupted);
+        },
         results = agent.chain.run_before_tools_batch(state, original_calls.clone()) => results,
     };
 
     for (tool_call, before_result) in original_calls.iter().zip(before_results) {
         // before_tool 阶段也检查取消
         if cancel.is_cancelled() {
-            // 为已 emit ToolStart 的 ready_calls 补发 ToolEnd，
-            // 避免 TUI 的 pending_tools 短暂残留
-            for tc in &ready_calls {
-                agent.emit(AgentEvent::ToolEnd {
-                    message_id: ai_msg_id,
-                    tool_call_id: tc.id.clone(),
-                    name: tc.name.clone(),
-                    output: "interrupted by user".to_string(),
-                    is_error: true,
-                    source_agent_id: None,
-                });
-            }
+            close_pending("interrupted by user", &settled_results);
             return Err(AgentError::Interrupted);
         }
         match before_result {
@@ -997,14 +1017,6 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
             Err(AgentError::ToolRejected { ref reason, .. }) => {
                 let rejection_result =
                     ToolResult::error(&tool_call.id, &tool_call.name, reason.clone());
-                agent.emit(AgentEvent::ToolStart {
-                    message_id: ai_msg_id,
-                    tool_call_id: tool_call.id.clone(),
-                    name: tool_call.name.clone(),
-                    input: tool_call.input.clone(),
-                    file_snapshot: None,
-                    source_agent_id: None,
-                });
                 agent.emit(AgentEvent::ToolEnd {
                     message_id: ai_msg_id,
                     tool_call_id: tool_call.id.clone(),
@@ -1016,18 +1028,8 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                 settled_results.push((tool_call.clone(), rejection_result));
             }
             Err(e) => {
+                close_pending(&e.to_string(), &settled_results);
                 let _ = agent.chain.run_on_error(state, &e).await;
-                // 为已 emit ToolStart 的 ready_calls 补发 ToolEnd
-                for tc in &ready_calls {
-                    agent.emit(AgentEvent::ToolEnd {
-                        message_id: ai_msg_id,
-                        tool_call_id: tc.id.clone(),
-                        name: tc.name.clone(),
-                        output: e.to_string(),
-                        is_error: true,
-                        source_agent_id: None,
-                    });
-                }
                 return Err(e);
             }
         }
@@ -1249,3 +1251,7 @@ mod tests;
 #[cfg(test)]
 #[path = "tool_dispatch_identity_test.rs"]
 mod identity_tests;
+
+#[cfg(test)]
+#[path = "tool_dispatch_pending_test.rs"]
+mod pending_tests;

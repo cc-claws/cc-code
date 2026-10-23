@@ -9,7 +9,7 @@ use cc_agent::agent::events::AgentEvent as ExecutorEvent;
 /// 将 ExecutorEvent 映射为 TUI AgentEvent。
 ///
 /// 仅处理 session/update 无法映射的事件（类别②③）。
-/// 类别①事件（TextChunk, AiReasoning, ToolStart, ToolEnd, TodoUpdate）
+/// 类别①事件（TextChunk, AiReasoning, ToolPending, ToolStart, ToolEnd, TodoUpdate）
 /// 已通过 session/update → handle_session_update_peri() 处理，此处返回 None。
 pub(crate) fn map_executor_event(event: ExecutorEvent, _cwd: &str) -> Option<AgentEvent> {
     Some(match event {
@@ -129,6 +129,7 @@ pub(crate) fn map_executor_event(event: ExecutorEvent, _cwd: &str) -> Option<Age
         // ── 类别① + 已过滤：已由 session/update → handle_session_update_peri() 处理或无需转发 ──
         ExecutorEvent::TextChunk { .. }
         | ExecutorEvent::AiReasoning(_)
+        | ExecutorEvent::ToolPending { .. }
         | ExecutorEvent::ToolStart { .. }
         | ExecutorEvent::ToolEnd { .. }
         | ExecutorEvent::TodoUpdate(_)

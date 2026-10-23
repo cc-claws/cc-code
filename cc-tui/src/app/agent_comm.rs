@@ -123,6 +123,8 @@ pub struct AgentComm {
     pub session_start_time: Option<std::time::Instant>,
     /// 会话级工具调用次数（统计 ToolStart 事件数）
     pub tool_call_count: u32,
+    /// 工具排队状态在同一 poll 批次结束后统一提交，避免 Pending → Start 中间帧。
+    pub tool_status_dirty: bool,
     /// 后台任务全部完成后的待提交 continuation（结构化结果，用于注入合成 tool_use + tool_result）
     pub pending_bg_continuation: Option<Vec<BgTaskResult>>,
     /// Agent 已完成（Done/Error）但仍有后台任务在运行
@@ -182,6 +184,7 @@ impl Default for AgentComm {
             subagent_depth: 0,
             session_start_time: None,
             tool_call_count: 0,
+            tool_status_dirty: false,
             pending_bg_continuation: None,
             agent_done_pending_bg: false,
             pre_done_bg_completions: Vec::new(),

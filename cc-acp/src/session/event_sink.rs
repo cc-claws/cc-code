@@ -176,6 +176,22 @@ impl StdioEventSink {
     }
 }
 
+/// stdio 仅传输既有开始/结果协议，TUI 瞬时状态不写 stdout。
+fn map_stdio_event(event: &ExecutorEvent, context_window: u32) -> Vec<crate::event::MappedEvent> {
+    fn is_ui_tool_progress(event: &ExecutorEvent) -> bool {
+        match event {
+            ExecutorEvent::SubagentEvent { event, .. } => is_ui_tool_progress(event),
+            ExecutorEvent::ToolPending { .. } => true,
+            _ => false,
+        }
+    }
+    if is_ui_tool_progress(event) {
+        Vec::new()
+    } else {
+        map_event(event, context_window)
+    }
+}
+
 #[async_trait]
 impl EventSink for StdioEventSink {
     async fn push_event(&self, session_id: &str, event: &ExecutorEvent, context_window: u32) {
@@ -194,7 +210,7 @@ impl EventSink for StdioEventSink {
         {
             let _ = sender.send(result.clone());
         }
-        let mapped = map_event(event, context_window);
+        let mapped = map_stdio_event(event, context_window);
         for m in mapped {
             for update in m.updates {
                 let payload =
@@ -229,3 +245,7 @@ impl EventSink for StdioEventSink {
         // No explicit done signal in standard ACP protocol.
     }
 }
+
+#[cfg(test)]
+#[path = "event_sink_test.rs"]
+mod tests;

@@ -309,7 +309,7 @@ async fn test_subagent_group_basic() {
 
 #[tokio::test]
 async fn test_subagent_group_sliding_window() {
-    // SubAgentStart → 6×ToolCall → SubAgentEnd → 只保留 4 条，总步数为 6
+    // SubAgentStart → 6×已完成工具 → SubAgentEnd → 只保留 4 条，总步数为 6
     let (mut app, _handle) = App::new_headless(120, 30).await;
 
     app.push_agent_event(AgentEvent::SubAgentStart {
@@ -326,6 +326,13 @@ async fn test_subagent_group_sliding_window() {
             display: "ReadFile".into(),
             args: format!("file{}.rs", i),
             input: serde_json::json!({"path": format!("file{}.rs", i)}),
+            source_agent_id: Some("test-instance".into()),
+        });
+        app.push_agent_event(AgentEvent::ToolEnd {
+            tool_call_id: format!("t{}", i),
+            name: "Read".into(),
+            output: format!("file{} content", i),
+            is_error: false,
             source_agent_id: Some("test-instance".into()),
         });
     }

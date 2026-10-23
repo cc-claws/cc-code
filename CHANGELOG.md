@@ -6,6 +6,10 @@ Perihelion Agent 版本变更记录。
 
 ## Unreleased
 
+### Fixes
+
+- **Bash 排队与审批 L2（#675）**：工具审批前先显示 `Waiting…`，人工审批按调用 ID 精确显示 `Waiting for permission…`。取消或拒绝直接闭合工具块，并发结果保持原始调用顺序；同批排队与开始事件只发布最终阶段。增量状态不写入模型历史，print 与 stdio 忽略排队事件，Write 快照仍在批准后的 ToolStart 采集。
+
 ## v0.6.182 — 2026-10-22
 
 ### Fixes

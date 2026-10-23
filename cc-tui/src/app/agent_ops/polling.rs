@@ -96,6 +96,10 @@ impl App {
             .is_some();
 
         if !has_acp {
+            if std::mem::take(&mut self.session_mgr.current_mut().agent.tool_status_dirty) {
+                self.request_rebuild();
+                return true;
+            }
             return steering_updated || drawer_updated || bg_shell_updated;
         }
 
@@ -141,6 +145,11 @@ impl App {
             break;
         }
 
+        // Pending 先留在规范状态；同批 Start 到达后只发布最终阶段。
+        if std::mem::take(&mut self.session_mgr.current_mut().agent.tool_status_dirty) {
+            self.request_rebuild();
+            updated = true;
+        }
         // 当 loading=true 时（如 compact 中），即使没有新事件也返回 true，
         // 确保 spinner 动画持续渲染而非冻结
         let loading = self.session_mgr.current_mut().ui.loading;

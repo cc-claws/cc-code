@@ -26,8 +26,8 @@ use std::{
 use cc_agent::messages::{BaseMessage, ToolCallRequest};
 
 use crate::app::{events::AgentEvent, tool_display};
-use crate::ui::message_view::MessageViewModel;
 use crate::ui::message_view::{instance_hash, parse_bg_hash};
+use crate::ui::message_view::{MessageViewModel, ToolPhase};
 
 mod reconcile;
 mod shell_runtime;
@@ -206,6 +206,7 @@ pub(crate) struct PendingTool {
     tool_call_id: String,
     name: String,
     input: serde_json::Value,
+    phase: ToolPhase,
     /// ToolStart 的单调时钟起点，审批等待不计入执行耗时。
     started_at: Option<Instant>,
 }
@@ -401,6 +402,47 @@ impl MessagePipeline {
                 }
                 vec![PipelineAction::None]
             }
+            AgentEvent::ToolPending {
+                tool_call_id,
+                name,
+                input,
+                source_agent_id,
+            } => {
+                self.adaptive_policy.drain();
+                self.force_flush_block();
+                if let Some(ref aid) = source_agent_id {
+                    let cwd = self.cwd.clone();
+                    if let Some(sub) = self.find_running_subagent_mut(aid) {
+                        Self::push_tool_to_subagent(
+                            sub,
+                            &tool_call_id,
+                            &name,
+                            &input,
+                            &cwd,
+                            ToolPhase::Queued,
+                        );
+                    }
+                } else if !self.pending_tools.contains_key(&tool_call_id)
+                    && !self
+                        .completed_tools
+                        .iter()
+                        .any(|tool| tool.tool_call_id == tool_call_id)
+                {
+                    self.finalize_current_ai();
+                    self.register_tool_call(&tool_call_id, &name, &input);
+                    self.pending_tools.insert(
+                        tool_call_id.clone(),
+                        PendingTool {
+                            tool_call_id,
+                            name,
+                            input,
+                            phase: ToolPhase::Queued,
+                            started_at: None,
+                        },
+                    );
+                }
+                vec![PipelineAction::None]
+            }
             AgentEvent::ToolStart {
                 tool_call_id,
                 name,
@@ -417,33 +459,43 @@ impl MessagePipeline {
                 self.adaptive_policy.drain();
                 self.force_flush_block();
 
+                if source_agent_id.is_none()
+                    && (self
+                        .pending_tools
+                        .get(&tool_call_id)
+                        .is_some_and(|tool| tool.phase == ToolPhase::Running)
+                        || self
+                            .completed_tools
+                            .iter()
+                            .any(|tool| tool.tool_call_id == tool_call_id))
+                {
+                    return vec![PipelineAction::None];
+                }
                 if let Some(ref aid) = source_agent_id {
                     let cwd = self.cwd.clone();
                     if let Some(sub) = self.find_running_subagent_mut(aid) {
-                        Self::push_tool_start_to_subagent(sub, &tool_call_id, &name, &input, &cwd);
-                    }
-                } else if self.in_subagent() {
-                    // 顺序执行时 last() 就是当前 subagent
-                    let cwd = self.cwd.clone();
-                    if let Some(sub) = self.subagent_stack.last_mut() {
-                        Self::push_tool_start_to_subagent(sub, &tool_call_id, &name, &input, &cwd);
+                        Self::push_tool_to_subagent(
+                            sub,
+                            &tool_call_id,
+                            &name,
+                            &input,
+                            &cwd,
+                            ToolPhase::Running,
+                        );
                     }
                 } else if name == "Agent" {
                     // 父 Agent 调用 Agent 工具：只注册 tool_call 和 pending_tool，
                     // 不创建 SubAgentState（SubAgentStart 事件会处理）。
                     // 避免与 SubAgentStart 的 tool_start_internal 产生重复条目。
                     self.finalize_current_ai();
-                    self.current_ai_tool_calls.push(ToolCallRequest::new(
-                        &tool_call_id,
-                        &name,
-                        input.clone(),
-                    ));
+                    self.register_tool_call(&tool_call_id, &name, &input);
                     self.pending_tools.insert(
                         tool_call_id.to_string(),
                         PendingTool {
                             tool_call_id: tool_call_id.to_string(),
                             name: name.to_string(),
                             input,
+                            phase: ToolPhase::Running,
                             started_at: Some(Instant::now()),
                         },
                     );
@@ -464,11 +516,6 @@ impl MessagePipeline {
                 self.force_flush_block();
                 if let Some(ref aid) = source_agent_id {
                     if let Some(sub) = self.find_running_subagent_mut(aid) {
-                        Self::update_tool_end_in_subagent(sub, &tool_call_id, &output, is_error);
-                    }
-                } else if self.in_subagent() {
-                    // 顺序执行时 last() 就是当前 subagent
-                    if let Some(sub) = self.subagent_stack.last_mut() {
                         Self::update_tool_end_in_subagent(sub, &tool_call_id, &output, is_error);
                     }
                 } else {
@@ -654,6 +701,63 @@ impl MessagePipeline {
         self.inside_code_fence = false;
     }
 
+    /// 按首次出现的顺序登记工具，Start 只更新 Pending 已登记的参数。
+    fn register_tool_call(&mut self, id: &str, name: &str, input: &serde_json::Value) {
+        let request = ToolCallRequest::new(id, name, input.clone());
+        if let Some(existing) = self
+            .current_ai_tool_calls
+            .iter_mut()
+            .find(|tool| tool.id == id)
+        {
+            *existing = request;
+        } else {
+            self.current_ai_tool_calls.push(request);
+        }
+    }
+
+    /// 审批仅推进精确匹配的调用，迟到的弹窗不能把 Running/Finished 回退。
+    pub(crate) fn mark_tool_awaiting_approval(&mut self, source: Option<&str>, id: &str) -> bool {
+        if let Some(source) = source {
+            if let Some(sub) = self.find_running_subagent_mut(source) {
+                for vm in &mut sub.recent_messages {
+                    if let MessageViewModel::ToolBlock {
+                        tool_call_id,
+                        phase,
+                        ..
+                    } = vm
+                    {
+                        if tool_call_id == id && *phase == ToolPhase::Queued {
+                            *phase = ToolPhase::AwaitingApproval;
+                            vm.recompute_hash();
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+        if let Some(pending) = self.pending_tools.get_mut(id) {
+            if pending.phase == ToolPhase::Queued {
+                pending.phase = ToolPhase::AwaitingApproval;
+                return true;
+            }
+        }
+        false
+    }
+
+    fn trim_subagent_preview(sub: &mut SubAgentState, target_len: usize) {
+        while sub.recent_messages.len() > target_len {
+            // 未完成工具必须保留，不能为了预览上限丢掉随后到达的状态与结果。
+            if let Some(index) = sub.recent_messages.iter().position(|vm| {
+                !matches!(vm, MessageViewModel::ToolBlock { phase, .. } if *phase != ToolPhase::Finished)
+            }) {
+                sub.recent_messages.remove(index);
+            } else {
+                break;
+            }
+        }
+    }
+
     /// 工具调用开始（内部版本，只更新状态，不返回 PipelineAction）
     fn tool_start_internal(
         &mut self,
@@ -663,8 +767,7 @@ impl MessagePipeline {
         is_background: bool,
     ) {
         self.finalize_current_ai();
-        self.current_ai_tool_calls
-            .push(ToolCallRequest::new(tool_call_id, name, input.clone()));
+        self.register_tool_call(tool_call_id, name, &input);
 
         if name == "Agent" {
             // 与 message_view 的恢复路径共用同一套标签规则，避免重放时名字跳变
@@ -718,6 +821,7 @@ impl MessagePipeline {
                 tool_call_id: tool_call_id.to_string(),
                 name: name.to_string(),
                 input,
+                phase: ToolPhase::Running,
                 started_at: Some(Instant::now()),
             },
         );
@@ -785,15 +889,39 @@ impl MessagePipeline {
     }
 
     /// SubAgent 内部工具调用（路由进指定 SubAgentGroup）
-    fn push_tool_start_to_subagent(
+    fn push_tool_to_subagent(
         sub: &mut SubAgentState,
         tool_call_id: &str,
         name: &str,
         input: &serde_json::Value,
         cwd: &str,
+        next_phase: ToolPhase,
     ) {
         let display = tool_display::format_tool_name(name);
         let args = tool_display::format_tool_args(name, input, Some(cwd));
+        if let Some(vm) = sub.recent_messages.iter_mut().find(|vm| {
+            matches!(vm, MessageViewModel::ToolBlock { tool_call_id: id, .. } if id == tool_call_id)
+        }) {
+            if let MessageViewModel::ToolBlock {
+                phase,
+                started_at,
+                timeout_ms,
+                args_display,
+                ..
+            } = vm
+            {
+                if next_phase == ToolPhase::Running
+                    && matches!(*phase, ToolPhase::Queued | ToolPhase::AwaitingApproval)
+                {
+                    *phase = ToolPhase::Running;
+                    *started_at = Some(Instant::now());
+                    *timeout_ms = input.get("timeout").and_then(serde_json::Value::as_u64);
+                    *args_display = args;
+                    vm.recompute_hash();
+                }
+            }
+            return;
+        }
         let mut vm = MessageViewModel::tool_block_with_id(
             tool_call_id.to_string(),
             name.to_string(),
@@ -809,16 +937,14 @@ impl MessagePipeline {
             ..
         } = &mut vm
         {
-            *phase = crate::ui::message_view::ToolPhase::Running;
+            *phase = next_phase;
             *source_agent_id = Some(sub.instance_id.clone());
-            *started_at = Some(Instant::now());
+            *started_at = (next_phase == ToolPhase::Running).then(Instant::now);
             *timeout_ms = input.get("timeout").and_then(serde_json::Value::as_u64);
         }
         vm.recompute_hash();
         sub.total_steps += 1;
-        if sub.recent_messages.len() >= 4 {
-            sub.recent_messages.remove(0);
-        }
+        Self::trim_subagent_preview(sub, 3);
         sub.recent_messages.push(vm);
     }
 
@@ -828,9 +954,7 @@ impl MessagePipeline {
             Some(m) if m.is_assistant() => m.append_chunk(chunk),
             _ => {
                 sub.total_steps += 1;
-                if sub.recent_messages.len() >= 4 {
-                    sub.recent_messages.remove(0);
-                }
+                Self::trim_subagent_preview(sub, 3);
                 let mut bubble = MessageViewModel::assistant();
                 bubble.append_chunk(chunk);
                 sub.recent_messages.push(bubble);
@@ -863,6 +987,7 @@ impl MessagePipeline {
                 }
             }
         }
+        Self::trim_subagent_preview(sub, 4);
     }
 
     /// 根据 instance_id 查找 subagent_stack 中正在运行的 SubAgent
@@ -1115,6 +1240,10 @@ impl MessagePipeline {
 #[cfg(test)]
 #[path = "message_pipeline_test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "tool_status_test.rs"]
+mod tool_status_tests;
 
 #[cfg(test)]
 #[path = "real_session_replay_test.rs"]
