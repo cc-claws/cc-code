@@ -17,6 +17,26 @@
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
+# Enable modern TLS protocols (TLS 1.2 = 3072, TLS 1.3 = 12288)
+try {
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072 -bor 12288
+} catch {}
+
+# Configure DefaultWebProxy from environment if present (HTTP/HTTPS proxies)
+$script:EnvProxy = if ($env:HTTPS_PROXY) { $env:HTTPS_PROXY }
+                   elseif ($env:https_proxy) { $env:https_proxy }
+                   elseif ($env:HTTP_PROXY) { $env:HTTP_PROXY }
+                   elseif ($env:http_proxy) { $env:http_proxy }
+                   elseif ($env:ALL_PROXY) { $env:ALL_PROXY }
+                   elseif ($env:all_proxy) { $env:all_proxy }
+                   else { $null }
+
+if ($script:EnvProxy -and ($script:EnvProxy -notmatch '^socks5h?://')) {
+    try {
+        [System.Net.WebRequest]::DefaultWebProxy = New-Object System.Net.WebProxy($script:EnvProxy)
+    } catch {}
+}
+
 # --- Logging ---
 function info  { Write-Host "[INFO]  $args" -ForegroundColor Green }
 function warn  { Write-Host "[WARN]  $args" -ForegroundColor Yellow }
@@ -58,15 +78,58 @@ function Get-DownloadUrl {
     return $Url
 }
 
-# --- GitHub API request (with optional token) ---
+# --- Reliable File Download (curl.exe with Invoke-WebRequest fallback) ---
+function Download-File {
+    param(
+        [string]$Url,
+        [string]$OutFile
+    )
+    # Prefer Windows built-in curl.exe (available on Win10 1803+ and Win11).
+    # curl natively honors HTTP(S)_PROXY/ALL_PROXY, handles 302 redirects,
+    # TLS 1.3, and supports automatic retries.
+    $curl = Get-Command "curl.exe" -ErrorAction SilentlyContinue
+    if ($curl) {
+        $curlArgs = @("-fL", "--retry", "3", "--connect-timeout", "15", "-o", $OutFile, $Url)
+        try {
+            & $curl.Source @curlArgs 2>$null
+            if ($LASTEXITCODE -eq 0 -and (Test-Path $OutFile)) {
+                return
+            }
+        } catch {}
+    }
+
+    # Fallback to Invoke-WebRequest
+    Invoke-WebRequest -Uri $Url -OutFile $OutFile
+}
+
+# --- GitHub API request (with optional token & curl fallback) ---
 function Invoke-GitHubApi {
     param([string]$Url)
     $headers = @{}
     if ($env:GITHUB_TOKEN) {
         $headers["Authorization"] = "Bearer $env:GITHUB_TOKEN"
     }
-    $response = Invoke-RestMethod -Uri $Url -Headers $headers -ErrorAction SilentlyContinue
-    return $response
+
+    try {
+        $response = Invoke-RestMethod -Uri $Url -Headers $headers -ErrorAction Stop
+        return $response
+    } catch {
+        $curl = Get-Command "curl.exe" -ErrorAction SilentlyContinue
+        if ($curl) {
+            $curlArgs = @("-fsSL", "--retry", "2", "--connect-timeout", "10")
+            if ($env:GITHUB_TOKEN) {
+                $curlArgs += @("-H", "Authorization: Bearer $env:GITHUB_TOKEN")
+            }
+            $curlArgs += $Url
+            try {
+                $json = & $curl.Source @curlArgs 2>$null
+                if ($LASTEXITCODE -eq 0 -and $json) {
+                    return ($json | ConvertFrom-Json)
+                }
+            } catch {}
+        }
+        throw $_
+    }
 }
 
 # --- SHA256 Verification ---
@@ -237,7 +300,7 @@ function Main {
 
     step "Downloading..."
     try {
-        Invoke-WebRequest -Uri $FinalUrl -OutFile $ZipPath
+        Download-File -Url $FinalUrl -OutFile $ZipPath
     } catch {
         error "Download failed: $_"
         exit 1
@@ -255,7 +318,7 @@ function Main {
 
     $ChecksumsPath = Join-Path $VersionDir "checksums.txt"
     try {
-        Invoke-WebRequest -Uri (Get-DownloadUrl $ChecksumsAsset.browser_download_url) -OutFile $ChecksumsPath
+        Download-File -Url (Get-DownloadUrl $ChecksumsAsset.browser_download_url) -OutFile $ChecksumsPath
     } catch {
         Remove-Item -Force $ZipPath -ErrorAction SilentlyContinue
         Remove-Item -Force $ChecksumsPath -ErrorAction SilentlyContinue
