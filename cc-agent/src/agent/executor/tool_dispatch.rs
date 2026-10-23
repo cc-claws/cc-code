@@ -987,7 +987,7 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
         biased;
         // 审批可能一直等待用户回应，取消必须能打断 before_tool；此时尚未写入 state。
         _ = cancel.cancelled() => {
-            close_pending("interrupted by user", &settled_results);
+            close_pending("Interrupted by user", &settled_results);
             return Err(AgentError::Interrupted);
         },
         results = agent.chain.run_before_tools_batch(state, original_calls.clone()) => results,
@@ -996,7 +996,7 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
     for (tool_call, before_result) in original_calls.iter().zip(before_results) {
         // before_tool 阶段也检查取消
         if cancel.is_cancelled() {
-            close_pending("interrupted by user", &settled_results);
+            close_pending("Interrupted by user", &settled_results);
             return Err(AgentError::Interrupted);
         }
         match before_result {
@@ -1113,7 +1113,7 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                         _ = cancel.cancelled() => {
                             Err(AgentError::ToolExecutionFailed {
                                 tool: tool_name,
-                                reason: "interrupted by user".to_string(),
+                                reason: "Interrupted by user".to_string(),
                             })
                         }
                         result = invoke_fut => result,
