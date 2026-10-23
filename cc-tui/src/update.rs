@@ -90,10 +90,12 @@ async fn run_update_unix() -> Result<String> {
 async fn run_update_windows() -> Result<String> {
     println!("  Running remote install script...");
 
-    // 先强制子进程控制台输出为 UTF-8：在非英文 Windows 上默认代码页（如 GBK）
-    // 会把中文（错误信息等）写成非 UTF-8 字节，见 `stream_lines_lossy`。
+    // 先强制子进程控制台输出为 UTF-8 并开启 TLS 1.2/1.3：在非英文 Windows 上默认代码页（如 GBK）
+    // 会把中文（错误信息等）写成非 UTF-8 字节，老旧系统默认未启用 TLS 1.2 会导致 irm 握手失败。
     let ps_command = format!(
-        "try {{ [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 }} catch {{}}; irm {SCRIPT_URL_PS1} | iex"
+        "try {{ [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 }} catch {{}}; \
+         try {{ [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072 -bor 12288 }} catch {{}}; \
+         irm {SCRIPT_URL_PS1} | iex"
     );
 
     let mut child = Command::new("powershell")
