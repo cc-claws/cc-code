@@ -227,6 +227,30 @@ impl App {
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
+                if let Some(progress) = update.pointer("/_meta/peri/toolOutput") {
+                    let Some(tail) = progress.get("tail").and_then(serde_json::Value::as_str)
+                    else {
+                        return (false, false, false);
+                    };
+                    let count = |field: &str| {
+                        progress
+                            .get(field)
+                            .and_then(serde_json::Value::as_u64)
+                            .and_then(|value| usize::try_from(value).ok())
+                            .unwrap_or(0)
+                    };
+                    return self.handle_agent_event(super::super::AgentEvent::ToolOutput {
+                        tool_call_id,
+                        tail: tail.to_string(),
+                        total_lines: count("totalLines"),
+                        total_bytes: count("totalBytes"),
+                        elapsed_ms: progress
+                            .get("elapsedMs")
+                            .and_then(serde_json::Value::as_u64)
+                            .unwrap_or(0),
+                        source_agent_id,
+                    });
+                }
                 // 无结果的进度更新不能把工具误置为完成态。
                 let status = update.get("status").and_then(|v| v.as_str());
                 if !matches!(status, Some("completed" | "failed"))

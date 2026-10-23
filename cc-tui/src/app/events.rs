@@ -38,6 +38,15 @@ pub enum AgentEvent {
         input: serde_json::Value,
         source_agent_id: Option<String>,
     },
+    /// Bash 的有界运行中输出快照，仅供 UI 展示，不进入消息历史。
+    ToolOutput {
+        tool_call_id: String,
+        tail: String,
+        total_lines: usize,
+        total_bytes: usize,
+        elapsed_ms: u64,
+        source_agent_id: Option<String>,
+    },
     /// 工具调用结果
     ToolEnd {
         tool_call_id: String,

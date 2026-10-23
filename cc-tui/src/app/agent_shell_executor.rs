@@ -204,6 +204,9 @@ impl ShellExecutor for AgentShellExecutor {
             !self.registration_tx.is_closed(),
             "Background command host is no longer available; no command was executed"
         );
+        // task-local 不会随 tokio::spawn 传播，必须在工具调用作用域内捕获。
+        let output_stream =
+            cc_agent::tools::ToolOutputContext::current().map(|context| context.stream());
         let ShellRequest {
             owner_session_id,
             invocation,
@@ -234,12 +237,11 @@ impl ShellExecutor for AgentShellExecutor {
             std::time::Duration::from_millis(execution_timeout_ms),
         )?;
 
-        // output_rx 全程写磁盘（agent 路径不显示在 UI 输出流，仅写磁盘供详情面板 / 通知读取）。
-        // 与 !command 路径不同：那条路径 output_rx 由 App drain 丢弃；本路径交给 DiskOutput。
-        let output_writer = cc_agent::task_output::DiskOutput::spawn_writer(
-            output_path.clone(),
-            execution.output_rx,
-        );
+        let handoff = Arc::new(ShellHandoff::new(true, run_in_background));
+        // 保留同一份完整磁盘输出，仅在前台采样 UI 尾部；移交后继续原样写盘。
+        let output_rx = output_for_disk(execution.output_rx, Arc::clone(&handoff), output_stream);
+        let output_writer =
+            cc_agent::task_output::DiskOutput::spawn_writer(output_path.clone(), output_rx);
         let started_instant = execution.started_instant;
         let process_abort = execution.abort.clone();
 
@@ -249,7 +251,6 @@ impl ShellExecutor for AgentShellExecutor {
         let (result_tx, result_rx) = oneshot::channel::<anyhow::Result<ShellCommandOutput>>();
         let exit_signal = Arc::new(ExitSignal::new());
         let exit_signal_clone = Arc::clone(&exit_signal);
-        let handoff = Arc::new(ShellHandoff::new(true, run_in_background));
 
         let real_result = execution.result;
         tokio::spawn(async move {
@@ -320,6 +321,56 @@ impl ShellExecutor for AgentShellExecutor {
         })
     }
 }
+
+fn output_for_disk(
+    mut receiver: mpsc::Receiver<Vec<u8>>,
+    handoff: Arc<ShellHandoff>,
+    stream: Option<cc_agent::tools::ToolOutputStream>,
+) -> mpsc::Receiver<Vec<u8>> {
+    let Some(stream) = stream.filter(|_| !handoff.is_backgrounded()) else {
+        return receiver;
+    };
+    let (sender, disk_receiver) = mpsc::channel(256);
+    tokio::spawn(async move {
+        let mut stream = Some(stream);
+        loop {
+            let chunk = tokio::select! {
+                biased;
+                _ = handoff.wait_for_background(), if stream.is_some() => {
+                    // 安静期间同样立刻 Drop，撤销尚未发布的 trailing timer。
+                    stream.take();
+                    continue;
+                }
+                chunk = receiver.recv() => chunk,
+            };
+            let Some(chunk) = chunk else { break };
+            if handoff.is_backgrounded() {
+                stream.take();
+            }
+            if let Some(stream) = &mut stream {
+                stream.push(&chunk);
+            }
+            let send = sender.send(chunk);
+            tokio::pin!(send);
+            let sent = tokio::select! {
+                biased;
+                _ = handoff.wait_for_background(), if stream.is_some() => {
+                    stream.take();
+                    send.await
+                }
+                sent = &mut send => sent,
+            };
+            if sent.is_err() {
+                break;
+            }
+        }
+    });
+    disk_receiver
+}
+
+#[cfg(test)]
+#[path = "agent_shell_output_test.rs"]
+mod output_tests;
 
 #[cfg(test)]
 #[path = "agent_shell_contract_test.rs"]

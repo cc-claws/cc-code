@@ -1,4 +1,7 @@
-use std::collections::{HashMap, VecDeque};
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::Arc,
+};
 
 use tokio_util::sync::CancellationToken;
 
@@ -1052,6 +1055,14 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                     tool_call_id: call_id.clone(),
                     source_agent_id: state.get_context("source_agent_id").map(str::to_string),
                 };
+                let output_context = agent.event_handler.as_ref().map(|handler| {
+                    crate::tools::ToolOutputContext::new(
+                        ai_msg_id,
+                        call_id.clone(),
+                        invocation.source_agent_id.clone(),
+                        Arc::clone(handler),
+                    )
+                });
                 async move {
                     let span = tracing::info_span!(
                         "agent.tool_call",
@@ -1084,7 +1095,10 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                                         ),
                                     });
                                 }
-                                invocation.scope(t.invoke_content(input)).await.map_err(|e| {
+                                crate::tools::ToolOutputContext::scope_invocation(
+                                    output_context,
+                                    invocation.scope(t.invoke_content(input)),
+                                ).await.map_err(|e| {
                                     AgentError::ToolExecutionFailed {
                                         tool: tool_name.clone(),
                                         reason: e.to_string(),
@@ -1255,3 +1269,7 @@ mod identity_tests;
 #[cfg(test)]
 #[path = "tool_dispatch_pending_test.rs"]
 mod pending_tests;
+
+#[cfg(test)]
+#[path = "tool_dispatch_output_test.rs"]
+mod output_tests;

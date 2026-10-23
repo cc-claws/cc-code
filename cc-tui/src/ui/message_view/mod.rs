@@ -30,6 +30,41 @@ pub enum ToolPhase {
     Finished,
 }
 
+/// 与最终工具结果分开的展示缓存；只保留最近 64 KiB 的完整 UTF-8 字符。
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ToolOutputPreview {
+    pub tail: String,
+    pub total_lines: usize,
+    pub total_bytes: usize,
+    pub elapsed_ms: u64,
+}
+
+impl ToolOutputPreview {
+    pub(crate) fn new(
+        tail: String,
+        total_lines: usize,
+        total_bytes: usize,
+        elapsed_ms: u64,
+    ) -> Self {
+        let tail = if tail.len() > 64 * 1024 {
+            let minimum = tail.len() - 64 * 1024;
+            let start = tail
+                .char_indices()
+                .find_map(|(index, _)| (index >= minimum).then_some(index))
+                .unwrap_or(tail.len());
+            tail.get(start..).unwrap_or_default().to_owned()
+        } else {
+            tail
+        };
+        Self {
+            tail,
+            total_lines,
+            total_bytes,
+            elapsed_ms,
+        }
+    }
+}
+
 /// 渲染层的视图模型，从 BaseMessage/AgentEvent 转换而来。
 #[derive(Debug, Clone)]
 pub enum MessageViewModel {
@@ -71,6 +106,7 @@ pub enum MessageViewModel {
         /// 内嵌 diff 视图输入（Write/Edit 工具执行成功后填充，由 render_thread 按当前 width 渲染）
         diff_input: Option<cc_widgets::DiffInput>,
         phase: ToolPhase,
+        live_output: Option<ToolOutputPreview>,
         /// 子 Agent 工具没有前台后台化快捷键。
         source_agent_id: Option<String>,
         /// ToolStart 的单调时钟起点；排队、审批和历史恢复不计时。
@@ -189,6 +225,7 @@ impl PartialEq for MessageViewModel {
                     timeout_ms: a_timeout,
                     shell_backgrounded: a_backgrounded,
                     phase: a_phase,
+                    live_output: a_output,
                     source_agent_id: a_source,
                     ..
                 },
@@ -203,6 +240,7 @@ impl PartialEq for MessageViewModel {
                     timeout_ms: b_timeout,
                     shell_backgrounded: b_backgrounded,
                     phase: b_phase,
+                    live_output: b_output,
                     source_agent_id: b_source,
                     ..
                 },
@@ -217,6 +255,7 @@ impl PartialEq for MessageViewModel {
                     && a_timeout == b_timeout
                     && a_backgrounded == b_backgrounded
                     && a_phase == b_phase
+                    && a_output == b_output
                     && a_source == b_source
             }
             (
@@ -364,6 +403,7 @@ impl Hash for MessageViewModel {
                 timeout_ms,
                 shell_backgrounded,
                 phase,
+                live_output,
                 source_agent_id,
                 ..
             } => {
@@ -380,6 +420,7 @@ impl Hash for MessageViewModel {
                 timeout_ms.hash(state);
                 shell_backgrounded.hash(state);
                 phase.hash(state);
+                live_output.hash(state);
                 source_agent_id.hash(state);
             }
             MessageViewModel::ShellCommand {
@@ -830,6 +871,7 @@ impl MessageViewModel {
                     color,
                     diff_input,
                     phase: ToolPhase::Finished,
+                    live_output: None,
                     source_agent_id: None,
                     started_at: None,
                     timeout_ms: input.get("timeout").and_then(serde_json::Value::as_u64),
@@ -1003,6 +1045,7 @@ impl MessageViewModel {
             color,
             diff_input: None,
             phase: ToolPhase::Finished,
+            live_output: None,
             source_agent_id: None,
             started_at: None,
             timeout_ms: None,

@@ -195,8 +195,12 @@ impl MessagePipeline {
                         &pending.input,
                         pending.started_at,
                     );
-                    if let MessageViewModel::ToolBlock { phase, .. } = &mut vm {
+                    if let MessageViewModel::ToolBlock {
+                        phase, live_output, ..
+                    } = &mut vm
+                    {
                         *phase = pending.phase;
+                        *live_output = pending.live_output.clone();
                     }
                     vm.recompute_hash();
                     tail_vms.push(vm);
@@ -233,6 +237,7 @@ impl MessagePipeline {
                     },
                     diff_input,
                     phase: crate::ui::message_view::ToolPhase::Finished,
+                    live_output: None,
                     source_agent_id: None,
                     started_at: None,
                     timeout_ms: ct.input.get("timeout").and_then(serde_json::Value::as_u64),

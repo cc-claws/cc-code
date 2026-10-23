@@ -1,6 +1,27 @@
 use super::*;
 
 #[test]
+fn test_tool_output_serde_preserves_counters_and_source_identity() {
+    let event = AgentEvent::ToolOutput {
+        message_id: crate::messages::MessageId::new(),
+        tool_call_id: "stream-call".into(),
+        tail: "中文\r\nlast".into(),
+        total_lines: 3,
+        total_bytes: 128,
+        elapsed_ms: 1200,
+        source_agent_id: Some("child-instance".into()),
+    };
+    let value = serde_json::to_value(&event).expect("展示事件可序列化");
+    let decoded: AgentEvent = serde_json::from_value(value.clone()).expect("展示事件可恢复");
+    assert_eq!(
+        value,
+        serde_json::to_value(decoded).expect("可重新序列化"),
+        "输出载荷必须完整往返"
+    );
+    assert_eq!(value["type"], "tool_output");
+}
+
+#[test]
 fn test_tool_start_deserializes_legacy_event_without_file_snapshot() {
     let value = serde_json::json!({"type": "tool_start", "value": {
         "message_id": crate::messages::MessageId::new(),

@@ -3,6 +3,23 @@ use crate::app::AgentEvent;
 use cc_agent::agent::events::{AgentEvent as ExecutorEvent, TodoEntry, TodoStatus};
 
 #[test]
+fn test_map_executor_event_tool_output_uses_session_update() {
+    let event = ExecutorEvent::ToolOutput {
+        message_id: Default::default(),
+        tool_call_id: "running-tool".into(),
+        tail: "output".into(),
+        total_lines: 1,
+        total_bytes: 6,
+        elapsed_ms: 1000,
+        source_agent_id: None,
+    };
+    assert!(
+        map_executor_event(event, "/tmp").is_none(),
+        "输出只从 ACP session/update 消费"
+    );
+}
+
+#[test]
 fn test_map_executor_event_tool_pending_uses_session_update() {
     let event = ExecutorEvent::ToolPending {
         message_id: Default::default(),

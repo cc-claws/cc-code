@@ -125,6 +125,9 @@ pub struct AgentComm {
     pub tool_call_count: u32,
     /// 工具排队状态在同一 poll 批次结束后统一提交，避免 Pending → Start 中间帧。
     pub tool_status_dirty: bool,
+    /// 多个工具的展示输出合并为当前视口每秒一次刷新。
+    pub tool_output_dirty: bool,
+    pub last_tool_output_rebuild_at: Option<std::time::Instant>,
     /// 后台任务全部完成后的待提交 continuation（结构化结果，用于注入合成 tool_use + tool_result）
     pub pending_bg_continuation: Option<Vec<BgTaskResult>>,
     /// Agent 已完成（Done/Error）但仍有后台任务在运行
@@ -185,6 +188,8 @@ impl Default for AgentComm {
             session_start_time: None,
             tool_call_count: 0,
             tool_status_dirty: false,
+            tool_output_dirty: false,
+            last_tool_output_rebuild_at: None,
             pending_bg_continuation: None,
             agent_done_pending_bg: false,
             pre_done_bg_completions: Vec::new(),
@@ -209,6 +214,20 @@ impl Default for AgentComm {
 }
 
 impl AgentComm {
+    pub(crate) fn tool_output_refresh_due(&self, now: std::time::Instant) -> bool {
+        self.tool_output_dirty
+            && self.last_tool_output_rebuild_at.is_none_or(|last| {
+                now.saturating_duration_since(last) >= std::time::Duration::from_secs(1)
+            })
+    }
+
+    /// 强制状态重建也会携带最新尾部，不再为同一批输出补发一帧。
+    pub(crate) fn finish_tool_output_refresh(&mut self, now: std::time::Instant) {
+        if std::mem::take(&mut self.tool_output_dirty) {
+            self.last_tool_output_rebuild_at = Some(now);
+        }
+    }
+
     /// 请求清除系统提示：未满最短可见时长则保留。
     ///
     /// 清除意图来自 `ToolStart`/`Done`/`Error` 这类"提示该收起来了"的事件，

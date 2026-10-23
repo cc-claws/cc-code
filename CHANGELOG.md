@@ -6,6 +6,12 @@ Perihelion Agent 版本变更记录。
 
 ## Unreleased
 
+## v0.6.184 — 2026-10-23
+
+### Features
+
+- **Bash 实时输出 L3（#675）**：前台命令首次输出立即采样，后续每秒最多一次，并补发静默前被节流的尾部。stdout/stderr 共用 64 KiB 展示缓存，运行两秒后显示最后五个视觉行、剩余行数、耗时、显式 timeout 与字节数，详细模式展开保留尾部；复用完成态 ANSI、URL、JSON 与折行规则。新增 `config.tool_output_streaming`（默认 `true`，支持项目配置覆盖），关闭后保留排队、审批与运行阶段。完成、取消和后台移交清理展示缓存及定时器，主/子 Agent 按调用来源隔离；增量输出不写模型历史，完整最终结果与磁盘输出保持原有语义，print/stdio 忽略展示事件。
+
 ### Fixes
 
 - **Bash 排队与审批 L2（#675）**：工具审批前先显示 `Waiting…`，人工审批按调用 ID 精确显示 `Waiting for permission…`。取消或拒绝直接闭合工具块，并发结果保持原始调用顺序；同批排队与开始事件只发布最终阶段。增量状态不写入模型历史，print 与 stdio 忽略排队事件，Write 快照仍在批准后的 ToolStart 采集。

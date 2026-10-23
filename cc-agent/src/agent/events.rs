@@ -107,6 +107,16 @@ pub enum AgentEvent {
         file_snapshot: Option<crate::tools::FileSnapshot>,
         source_agent_id: Option<String>,
     },
+    /// 工具运行中的有界输出快照，仅供展示，不进入消息历史。
+    ToolOutput {
+        message_id: crate::messages::MessageId,
+        tool_call_id: String,
+        tail: String,
+        total_lines: usize,
+        total_bytes: usize,
+        elapsed_ms: u64,
+        source_agent_id: Option<String>,
+    },
     /// 工具调用结束（结果或错误），携带所属 AI 消息的 message_id
     ToolEnd {
         message_id: crate::messages::MessageId,

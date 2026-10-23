@@ -27,10 +27,11 @@ use cc_agent::messages::{BaseMessage, ToolCallRequest};
 
 use crate::app::{events::AgentEvent, tool_display};
 use crate::ui::message_view::{instance_hash, parse_bg_hash};
-use crate::ui::message_view::{MessageViewModel, ToolPhase};
+use crate::ui::message_view::{MessageViewModel, ToolOutputPreview, ToolPhase};
 
 mod reconcile;
 mod shell_runtime;
+mod streaming_output;
 mod transform;
 
 pub use crate::ui::message_view::aggregate_batch_groups;
@@ -207,6 +208,7 @@ pub(crate) struct PendingTool {
     name: String,
     input: serde_json::Value,
     phase: ToolPhase,
+    live_output: Option<ToolOutputPreview>,
     /// ToolStart 的单调时钟起点，审批等待不计入执行耗时。
     started_at: Option<Instant>,
 }
@@ -437,6 +439,7 @@ impl MessagePipeline {
                             name,
                             input,
                             phase: ToolPhase::Queued,
+                            live_output: None,
                             started_at: None,
                         },
                     );
@@ -496,6 +499,7 @@ impl MessagePipeline {
                             name: name.to_string(),
                             input,
                             phase: ToolPhase::Running,
+                            live_output: None,
                             started_at: Some(Instant::now()),
                         },
                     );
@@ -503,6 +507,21 @@ impl MessagePipeline {
                     self.tool_start_internal(&tool_call_id, &name, input, false);
                 }
 
+                vec![PipelineAction::None]
+            }
+            AgentEvent::ToolOutput {
+                tool_call_id,
+                tail,
+                total_lines,
+                total_bytes,
+                elapsed_ms,
+                source_agent_id,
+            } => {
+                self.update_tool_output(
+                    &tool_call_id,
+                    ToolOutputPreview::new(tail, total_lines, total_bytes, elapsed_ms),
+                    source_agent_id.as_deref(),
+                );
                 vec![PipelineAction::None]
             }
             AgentEvent::ToolEnd {
@@ -822,6 +841,7 @@ impl MessagePipeline {
                 name: name.to_string(),
                 input,
                 phase: ToolPhase::Running,
+                live_output: None,
                 started_at: Some(Instant::now()),
             },
         );
@@ -975,6 +995,7 @@ impl MessagePipeline {
                 content,
                 is_error: err,
                 phase,
+                live_output,
                 ..
             } = vm
             {
@@ -982,6 +1003,7 @@ impl MessagePipeline {
                     *content = output.to_string();
                     *err = is_error;
                     *phase = crate::ui::message_view::ToolPhase::Finished;
+                    *live_output = None;
                     vm.recompute_hash();
                     break;
                 }

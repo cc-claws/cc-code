@@ -1,7 +1,7 @@
 //! Event mapping from ExecutorEvent to ACP SessionUpdate and peri/agent_event routing.
 //!
 //! Produces [`MappedEvent`] structs with three categories:
-//! - **Category ①** (Enriched SessionUpdate): TextChunk, AiReasoning, ToolPending, ToolStart, ToolEnd, TodoUpdate,
+//! - **Category ①** (Enriched SessionUpdate): TextChunk, AiReasoning, ToolPending, ToolStart, ToolOutput, ToolEnd, TodoUpdate,
 //!   LlmCallEnd(usage) → `updates` only, `forward_to_tui: false`
 //! - **Category ③** (TUI-only): StateSnapshot, Subagent*, Compact*, ContextWarning, LlmRetrying, etc.
 //!   → `forward_to_tui: true` only
@@ -159,6 +159,31 @@ pub fn map_event(event: &ExecutorEvent, context_window: u32) -> Vec<MappedEvent>
                 source_agent_id.clone(),
             )]
         }
+
+        ExecutorEvent::ToolOutput {
+            tool_call_id,
+            tail,
+            total_lines,
+            total_bytes,
+            elapsed_ms,
+            source_agent_id,
+            ..
+        } => vec![MappedEvent::standard_with_src(
+            vec![SessionUpdate::ToolCallUpdate(
+                ToolCallUpdate::new(tool_call_id.clone(), ToolCallUpdateFields::new()).meta(
+                    serde_json::Map::from_iter([(
+                        "peri".into(),
+                        serde_json::json!({"toolOutput": {
+                            "tail": tail,
+                            "totalLines": total_lines,
+                            "totalBytes": total_bytes,
+                            "elapsedMs": elapsed_ms,
+                        }}),
+                    )]),
+                ),
+            )],
+            source_agent_id.clone(),
+        )],
 
         ExecutorEvent::ToolEnd {
             tool_call_id,

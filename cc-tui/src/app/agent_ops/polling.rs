@@ -100,7 +100,8 @@ impl App {
                 self.request_rebuild();
                 return true;
             }
-            return steering_updated || drawer_updated || bg_shell_updated;
+            let output_updated = self.flush_tool_output_refresh();
+            return steering_updated || drawer_updated || bg_shell_updated || output_updated;
         }
 
         let mut updated = steering_updated || drawer_updated || bg_shell_updated;
@@ -150,6 +151,7 @@ impl App {
             self.request_rebuild();
             updated = true;
         }
+        updated |= self.flush_tool_output_refresh();
         // 当 loading=true 时（如 compact 中），即使没有新事件也返回 true，
         // 确保 spinner 动画持续渲染而非冻结
         let loading = self.session_mgr.current_mut().ui.loading;

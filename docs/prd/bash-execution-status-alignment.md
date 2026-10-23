@@ -269,12 +269,12 @@ emit ToolPending × N
 
 #### 5.3.1 执行器改造
 
-`cc-middlewares/src/middleware/terminal_inline_executor.rs` 当前调用 `crate::process::output_with_input_timeout(...)`（一次性捕获 stdout/stderr，无流式回调）。改造为：
+`cc-middlewares/src/middleware/terminal_inline_executor.rs` 复用现有 `ManagedChild` 捕获链路，为 stdout/stderr 增加展示回调；TUI 的 `AgentShellExecutor` 使用同一展示通道：
 
-1. `spawn` + `Stdio::piped()`；
-2. 两个 tokio 任务分别读 stdout/stderr，按块写入共享状态；
-3. 每次写入后触发节流器（默认 1s）；
-4. 节流器通过 `tokio::sync::mpsc` 把 `OutputChunk` 交给上层执行循环。
+1. 保留现有 spawn、超时、取消、pipe drain 与完整结果收集语义；
+2. stdout/stderr 每次读取后，按到达顺序写入同一展示尾缓存；
+3. 调度器提供包含 message/call/source 身份的 `ToolOutputContext`，宿主在 spawn 前捕获；
+4. 展示流通过现有事件 handler 发布 `ToolOutput`，不写入 `AgentState`。
 
 输出缓冲：
 
@@ -300,7 +300,8 @@ ToolOutput {
 
 - 首次输出立即发一次；
 - 之后最多每 1000ms 一次；
-- 输出停止后不再发（完成由 `ToolEnd` 负责）。
+- 被节流的 burst 必须在下一次到期时补发最新尾部，即使之后没有新 chunk；
+- 没有新增内容时不重复发送；完成、取消或移交后台时取消定时器（完成由 `ToolEnd` 负责）。
 
 #### 5.3.3 ACP 传输
 
@@ -328,9 +329,9 @@ ToolCallUpdate {
 
 #### 5.3.4 TUI 渲染
 
-- `pending_tools` 增加 `tail: String`、`total_lines`、`total_bytes`、`elapsed_ms`；
-- `Running` 且 `tail` 非空：显示最后 5 行（`tail.lines().rev().take(5).rev()`），底部状态行：
-  - `+N lines`（`total_lines - 5 > 0`）
+- `pending_tools` 增加独立的 `ToolOutputPreview`，包含 `tail`、`total_lines`、`total_bytes`、`elapsed_ms`；
+- `Running` 且 `tail` 非空：按 §6 详细规格显示装饰、折行后的最后 5 个视觉行，底部状态行：
+  - `+N lines`（含已被尾缓存丢弃的行；普通单行日志为 `total_lines - 5`）
   - `(22s · timeout 5m)`
   - 字节数（`formatFileSize` 等价实现）
 - 渲染路径复用 `transform_bash_output_lines`（现有 ANSI 处理），避免二次实现；
@@ -344,10 +345,20 @@ ToolCallUpdate {
 
 #### 5.3.5 降级开关
 
-`settings.json` 增加 `tool_output_streaming: bool`（默认 `true`）。关闭后：
+`settings.json` 的 `config` 中增加 `tool_output_streaming: bool`（省略时默认 `true`，项目配置可以覆盖全局配置）：
+
+```json
+{
+  "config": {
+    "tool_output_streaming": false
+  }
+}
+```
+
+关闭后：
 
 - 执行器不发 `ToolOutput`；
-- TUI 回到 L1 行为（仅 `Running… (Xs)` + 完成后输出）。
+- TUI 保留 L1/L2 的排队、审批与运行阶段，只关闭运行中输出尾部。
 
 目的：出现性能或兼容问题时无需回滚版本。
 
@@ -980,7 +991,7 @@ L3 的 `tail` 必须经过与完成态相同的 `OutputLine` 装饰器：
 
 Ctrl+O 切换时：
 
-- 运行中输出立即在「最后 5 行」与「全量」之间切换；
+- 运行中输出立即在「最后 5 个视觉行」与「完整保留尾部（最多 64 KiB）」之间切换；
 - `phase`、计时不重置；
 - 切回非详细模式后恢复最后 5 行 + `+N lines`。
 
@@ -1011,7 +1022,7 @@ cc-agent/agent/executor/tool_dispatch.rs（collect_tool_results）
   ├─ chain.run_before_tools_batch     │  ← HITL 批量弹窗 / jev 逐个判定
   ├─ emit ToolStart（已批准）          │
   ├─ join_all 并发执行 ───────────────┤
-  │    └─ middlewares/terminal.rs → 每秒 ToolOutput
+  │    └─ Inline / AgentShellExecutor → ToolOutputContext → 每秒 ToolOutput
   └─ emit ToolEnd × N ───────────────┘
                                     ↓
                     cc-acp/event/mapper.rs
@@ -1019,7 +1030,9 @@ cc-agent/agent/executor/tool_dispatch.rs（collect_tool_results）
         ToolCallUpdate(_meta.peri.toolOutput)
         ToolCallUpdate(Completed)
                                     ↓
-                    cc-tui/app/agent.rs map_executor_event
+              session/update（含 _peri.sourceAgentId）
+                                    ↓
+            cc-tui/app/agent_ops/acp_bridge.rs
                                     ↓
               pending_tools（phase/tail/计时）→ MessagePipeline
                                     ↓
@@ -1035,7 +1048,7 @@ cc-agent/agent/executor/tool_dispatch.rs（collect_tool_results）
 | `-p` / stdio 模式 | ToolPending/ToolOutput 不输出到 stdout；`PrintEventSink` 显式忽略 |
 | 子 Agent | 事件携带 `source_agent_id`，沿用现有归属逻辑 |
 | 历史恢复 / rewind | VM 一律 `Finished`，无运行态残留 |
-| 关闭 streaming | 走 L1 行为 |
+| 关闭 streaming | 保留 L1/L2 阶段和计时，不发送运行中输出尾部 |
 
 ## 8. 风险
 
@@ -1118,7 +1131,7 @@ cc-agent/agent/executor/tool_dispatch.rs（collect_tool_results）
 12. 运行中输出尾部与完成态使用同一 OutputLine 装饰器（ANSI / URL / JSON / 折行口径一致）；
 13. 非 Bash 工具不新增运行态行，仅修正空输出转圈；
 14. 完成且显式传了 `timeout` 时，结果块底部显示独立 `⎿  (timeout Nm)` 行；
-15. 关闭 `tool_output_streaming` 后行为回到第 1-8 条，无残留状态行；
+15. 关闭 `tool_output_streaming` 后保留第 1-7 条阶段与计时行为，不显示运行中输出尾部；
 16. `-p` 模式 stdout 不出现运行态文本；
 17. 子 Agent 的 Bash 运行态在抽屉中表现一致，不显示 Ctrl+B，不串到主消息区；
 18. 历史恢复的会话不出现任何运行中指示；
@@ -1130,3 +1143,20 @@ cc-agent/agent/executor/tool_dispatch.rs（collect_tool_results）
 - 不引入 stdout/stderr 分栏展示；
 - 不做运行中输出的持久化；
 - 不调整后台任务（`Running in the background (↓ to manage)`）现有行为。
+
+## 13. 实现验收覆盖
+
+L1 由 PR #676 交付；L2、L3 分别由 PR #690 和后续输出流 PR 交付。以下列出实际回归入口，测试计划中的示例命名不作为唯一入口。
+
+| 验收项 | 回归入口与覆盖范围 |
+|---|---|
+| 1-4、13-14、18 | `cc-tui/src/ui/message_render/message_render_test.rs`、`shell_runtime_render_test.rs`：阶段、显式 timeout、空输出、提示缩进和历史恢复 |
+| 5-7、10-11 | `cc-agent/src/agent/executor/tool_dispatch_pending_test.rs`、`tool_dispatch_identity_test.rs`、`cc-tui/src/app/agent_ops/acp_bridge_test.rs`：排队、精确审批归属、同批阶段合并、拒绝与取消闭合 |
+| 8、12 | `cc-tui/src/ui/message_render/streaming_bash_test.rs`：五个视觉行、缓存外省略计数、详细模式及 ANSI/URL/JSON/折行共用装饰器 |
+| 8-9 | `cc-agent/src/tools/output_test.rs`、`agent/executor/tool_dispatch_output_test.rs`：首块即时、每工具一秒节流、静默补发、64 KiB 边界、结束取消和不写 AgentState |
+| 8、11、17 | `cc-tui/src/app/agent_ops/output_refresh_test.rs`：并发工具与子视口共享刷新窗口、静默补发、完成立即发布及主视图缓存同步 |
+| 9-10、15 | `cc-middlewares/src/middleware/terminal_output_test.rs`、`cc-tui/src/app/agent_shell_output_test.rs`：两种真实执行器的 stdout/stderr、最终结果保留、开关、硬超时、取消及后台移交 |
+| 15-16 | `cc-acp/src/provider/config_test.rs`、`session/event_sink_test.rs`、`cc-tui/src/cli_print_test.rs`：工作区覆盖与非交互协议降级 |
+| 17 | `cc-tui/src/app/message_pipeline/streaming_output_test.rs`、`ui/render_layout/layout_test.rs`：source 隔离、迟到事件、缓存释放、布局与重建 |
+
+构建、workspace 测试和 Clippy 的三平台结果记录在对应 PR 中。真实 Windows 交互终端的人工视觉验收，以及 `seq 1 100000` / `/gc` 的 RSS 对照仍需单独执行；有界尾缓存与无头渲染断言不代表这些检查已经通过。

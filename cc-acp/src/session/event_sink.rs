@@ -181,7 +181,7 @@ fn map_stdio_event(event: &ExecutorEvent, context_window: u32) -> Vec<crate::eve
     fn is_ui_tool_progress(event: &ExecutorEvent) -> bool {
         match event {
             ExecutorEvent::SubagentEvent { event, .. } => is_ui_tool_progress(event),
-            ExecutorEvent::ToolPending { .. } => true,
+            ExecutorEvent::ToolPending { .. } | ExecutorEvent::ToolOutput { .. } => true,
             _ => false,
         }
     }

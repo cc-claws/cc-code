@@ -72,6 +72,7 @@ pub(super) fn summarize(vm: &MessageViewModel) -> LayoutSummary {
             args_display,
             is_error,
             phase,
+            live_output,
             source_agent_id,
             started_at,
             timeout_ms,
@@ -102,10 +103,26 @@ pub(super) fn summarize(vm: &MessageViewModel) -> LayoutSummary {
             } else {
                 usize::from(*phase == ToolPhase::Finished && content.is_empty())
             };
+            let preview = live_output.as_ref().filter(|output| {
+                tool_name == "Bash"
+                    && *phase == ToolPhase::Running
+                    && !shell_backgrounded
+                    && !output.tail.is_empty()
+                    && started_at.is_some_and(|t| t.elapsed() >= std::time::Duration::from_secs(2))
+            });
+            let (detail_output, compact_output) =
+                preview.map_or((output, output.min(3)), |preview| {
+                    (
+                        super::super::message_render::render_live_output(preview, 80, true).len(),
+                        super::super::message_render::render_live_output(preview, 80, false).len(),
+                    )
+                });
             (
-                header + output + status_rows,
-                header.min(3) + output.min(3) + status_rows,
-                content.len() + args.len(),
+                header + detail_output + status_rows,
+                header.min(3) + compact_output + status_rows,
+                content.len()
+                    + args.len()
+                    + live_output.as_ref().map_or(0, |output| output.tail.len()),
                 true,
             )
         }

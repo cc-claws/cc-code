@@ -8,6 +8,41 @@ use cc_agent::tools::ToolDefinition;
 use super::*;
 
 #[test]
+fn test_mapper_tool_output_preserves_metadata_without_final_result() {
+    let event = ExecutorEvent::ToolOutput {
+        message_id: MessageId::new(),
+        tool_call_id: "streamed-bash".into(),
+        tail: "第一行\nhttps://example.com\n".into(),
+        total_lines: 42,
+        total_bytes: 102400,
+        elapsed_ms: 2500,
+        source_agent_id: Some("child-1".into()),
+    };
+    let mapped = map_event(&event, 200_000);
+    assert_eq!(mapped.len(), 1);
+    assert!(
+        !mapped[0].forward_to_tui,
+        "输出只从 ACP session/update 消费一次"
+    );
+    assert_eq!(mapped[0].source_agent_id.as_deref(), Some("child-1"));
+    let update = serde_json::to_value(&mapped[0].updates[0]).expect("输出事件应可序列化");
+    assert_eq!(update["sessionUpdate"], "tool_call_update");
+    assert_eq!(update["toolCallId"], "streamed-bash");
+    assert_eq!(
+        update["_meta"]["peri"]["toolOutput"],
+        serde_json::json!({
+            "tail": "第一行\nhttps://example.com\n", "totalLines": 42,
+            "totalBytes": 102400, "elapsedMs": 2500,
+        })
+    );
+    assert!(update.get("status").is_none(), "增量输出不能改变执行阶段");
+    assert!(
+        update.get("rawOutput").is_none(),
+        "增量输出不能冒充最终结果"
+    );
+}
+
+#[test]
 fn test_mapper_tool_pending_status() {
     let input = serde_json::json!({"command": "git status", "timeout": 300000});
     let event = ExecutorEvent::ToolPending {

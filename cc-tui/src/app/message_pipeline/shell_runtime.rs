@@ -11,6 +11,12 @@ pub(super) struct ShellRuntime {
 }
 
 impl MessagePipeline {
+    pub(super) fn shell_runtime_is_backgrounded(&self, source: Option<&str>, id: &str) -> bool {
+        self.shell_runtimes
+            .get(&(source.map(str::to_owned), id.to_owned()))
+            .is_some_and(|runtime| runtime.backgrounded)
+    }
+
     pub(crate) fn remove_shell_runtime(
         &mut self,
         source_agent_id: Option<&str>,
@@ -41,7 +47,7 @@ impl MessagePipeline {
         backgrounded: bool,
     ) -> bool {
         let key = (source_agent_id.map(str::to_owned), tool_call_id.to_owned());
-        if let Some(runtime) = self.shell_runtimes.get_mut(&key) {
+        let changed = if let Some(runtime) = self.shell_runtimes.get_mut(&key) {
             let changed = runtime.started_at != started_at
                 || runtime.timeout_ms != timeout_ms
                 || runtime.backgrounded != backgrounded;
@@ -50,17 +56,20 @@ impl MessagePipeline {
                 runtime.timeout_ms = timeout_ms;
                 runtime.backgrounded = backgrounded;
             }
-            return changed;
-        }
-        self.shell_runtimes.insert(
-            key,
-            ShellRuntime {
-                started_at,
-                timeout_ms,
-                backgrounded,
-            },
-        );
-        true
+            changed
+        } else {
+            self.shell_runtimes.insert(
+                key,
+                ShellRuntime {
+                    started_at,
+                    timeout_ms,
+                    backgrounded,
+                },
+            );
+            true
+        };
+        let cleared = backgrounded && self.clear_tool_output(source_agent_id, tool_call_id);
+        changed || cleared
     }
 
     #[cfg(test)]
@@ -103,6 +112,7 @@ impl MessagePipeline {
                     phase,
                     started_at,
                     shell_backgrounded,
+                    live_output,
                     ..
                 } if tool_name == "Bash"
                     && !*is_error
@@ -115,13 +125,17 @@ impl MessagePipeline {
                         .get(&(source_agent_id.map(str::to_owned), tool_call_id.clone()))
                     {
                         // ToolStart 已有起点；spawn 注册仅给旧路径和后台恢复补元数据。
-                        let changed =
-                            started_at.is_none() || *shell_backgrounded != runtime.backgrounded;
+                        let changed = started_at.is_none()
+                            || *shell_backgrounded != runtime.backgrounded
+                            || (runtime.backgrounded && live_output.is_some());
                         if started_at.is_none() {
                             *started_at = Some(runtime.started_at);
                         }
                         // timeout 只来自模型显式入参，不能把执行器默认期限显示出来。
                         *shell_backgrounded = runtime.backgrounded;
+                        if runtime.backgrounded {
+                            *live_output = None;
+                        }
                         changed
                     } else {
                         false
