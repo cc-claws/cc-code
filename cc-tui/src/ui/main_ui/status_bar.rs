@@ -771,9 +771,12 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
     // （对齐 CC `BackgroundTaskStatus`：底部只反映当前会话的后台任务）
     let has_bg_tasks = app.running_background_shell_task_count() > 0
         || !app.session_mgr.current().background_agents.is_empty();
-    if !has_bg_tasks && app.agent_center_navigation_available() {
+    // 计数为 0 时不渲染：`← 0 agents` 信息量为零，只会挤占本已紧张的状态栏宽度
+    // （同文件其他条件段如后台任务胶囊、LSP 诊断都以「有值」为前提，此处对齐）。
+    let ready_agents = app.current_project_ready_count();
+    if !has_bg_tasks && ready_agents > 0 && app.agent_center_navigation_available() {
         left_spans.push(Span::styled(
-            format!(" · ← {} agents", app.current_project_ready_count()),
+            format!(" · ← {ready_agents} agents"),
             Style::default().fg(colors.muted),
         ));
     }
