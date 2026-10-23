@@ -1,9 +1,9 @@
-# [peri-agent] 工具参数 Schema 校验可读性优化与工具错选启发式诊断（对齐 Claude Code formatZodValidationError）
+# [cc-agent] 工具参数 Schema 校验可读性优化与工具错选启发式诊断（对齐 参考实现 formatZodValidationError）
 
 **状态**：Open  
 **优先级**：P0 / P1  
 **创建日期**：2026-09-24  
-**模块**：Agent 核心执行器 (`peri-agent` / `tool_dispatch`)  
+**模块**：Agent 核心执行器 (`cc-agent` / `tool_dispatch`)  
 **GitHub Issue**：[cc-claws/cc-code#234](https://github.com/cc-claws/cc-code/issues/234)  
 
 ---
@@ -15,9 +15,9 @@
 - 想要执行终端命令，却向 `Grep` 误传了 `command` 参数；
 - 想要分发子任务调用 `Agent`，但遗漏了必选的 `subagent_type` 且未声明 `fork: true`。
 
-当前 `peri-agent` 的工具参数校验逻辑主要存在以下缺陷：
+当前 `cc-agent` 的工具参数校验逻辑主要存在以下缺陷：
 1. **未显式区分与拦截多余字段（Unexpected / Unrecognized keys）**：当模型传入了完全不存在于 properties 中的非法参数时，校验逻辑默认忽略或缺乏明确的报错分类，未提示合法可用字段列表。
-2. **错误可读性与引导不足**：遇到参数错误时直接早退（fail-fast），未汇总所有错误项；错误文本未对齐 Claude Code 的 `formatZodValidationError` 标准模式，引导性弱，模型难以在一次反馈中完整纠偏。
+2. **错误可读性与引导不足**：遇到参数错误时直接早退（fail-fast），未汇总所有错误项；错误文本未对齐 参考实现 的 `formatZodValidationError` 标准模式，引导性弱，模型难以在一次反馈中完整纠偏。
 3. **缺少启发式推断（Heuristics）**：当入参具有鲜明特征（如 `url` + `prompt` 或 `command`）时，系统没有基于特征指纹给出潜在的正确工具推荐，导致模型容易陷入反复试错的盲目重试循环。
 4. **连续失败缺乏强阻断机制**：针对相同工具的 Schema 校验失败缺乏低阈值（如连续 ≥2 次）熔断拦截，导致模型在错误入参上空耗轮次。
 
@@ -27,7 +27,7 @@
 
 ### P0 - 结构化错误消息 (Structured Schema Validation Errors)
 
-重构 `validate_against_schema`，支持批量汇总所有校验问题并进行结构化分项格式化，对齐 Claude Code 的 `formatZodValidationError` 风格：
+重构 `validate_against_schema`，支持批量汇总所有校验问题并进行结构化分项格式化，对齐 参考实现 的 `formatZodValidationError` 风格：
 
 1. **缺失必填字段**：
    `"The required parameter '<field>' is missing (expected <type>)"`
@@ -57,8 +57,8 @@
 
 ## 3. 涉及核心文件
 
-- `peri-agent/src/agent/executor/tool_dispatch.rs`
-- `peri-agent/src/agent/executor/tool_dispatch_test.rs`
+- `cc-agent/src/agent/executor/tool_dispatch.rs`
+- `cc-agent/src/agent/executor/tool_dispatch_test.rs`
 
 ---
 
@@ -243,4 +243,4 @@ Carefully review the tool's parameter definitions and fix the call format.
 ## 6. 关联链接
 
 - GitHub Issue: https://github.com/cc-claws/cc-code/issues/234
-- 对齐规范：Claude Code `formatZodValidationError` 模式
+- 对齐规范：参考实现 `formatZodValidationError` 模式

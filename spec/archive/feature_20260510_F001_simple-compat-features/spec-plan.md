@@ -39,7 +39,7 @@
 ### Task 1: PeriConfig 字段扩展（C2 + C6）
 
 **背景:**
-对齐 Claude Code 的 settings.json 格式，新增 `$schema`（passthrough）和 `claudeMdExcludes`（CLAUDE.md 排除 glob）。excludes 需从 PeriConfig 传入 AgentsMdMiddleware，通过 builder 方法避免 workspace 分层违规。
+对齐 参考实现 的 settings.json 格式，新增 `$schema`（passthrough）和 `claudeMdExcludes`（CLAUDE.md 排除 glob）。excludes 需从 PeriConfig 传入 AgentsMdMiddleware，通过 builder 方法避免 workspace 分层违规。
 
 **涉及文件:**
 - 修改: `peri-tui/src/config/types.rs`
@@ -121,7 +121,7 @@
 ### Task 2: CLAUDE.local.md 支持（C1）
 
 **背景:**
-Claude Code 支持 `./CLAUDE.local.md` 作为不入库的个人项目配置。当前 AgentsMdMiddleware 的 `find_file()` 只返回第一个存在的文件，需要额外读取 CLAUDE.local.md 并追加到主文件内容末尾。
+参考实现 支持 `./CLAUDE.local.md` 作为不入库的个人项目配置。当前 AgentsMdMiddleware 的 `find_file()` 只返回第一个存在的文件，需要额外读取 CLAUDE.local.md 并追加到主文件内容末尾。
 
 **涉及文件:**
 - 修改: `peri-middlewares/src/agents_md.rs`

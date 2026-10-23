@@ -6,37 +6,37 @@
 
 **Architecture:** 机械替换。Task 1 替换 import 和调用；Task 2 在 3 个 Session 构建点插入 build_frozen_session_data() 调用（与 session/new 相同的模式）。
 
-**Tech Stack:** Rust 2021, peri-acp 共享模块, parking_lot::RwLock
+**Tech Stack:** Rust 2021, cc-acp 共享模块, parking_lot::RwLock
 
 ---
 
 ## File Structure
 
 ### 修改文件
-- `peri-tui/src/acp_server/requests.rs` — 替换 4 处 `build_config_options` 调用 + 3 处 `frozen: None` 改为构建
-- `peri-tui/src/acp_stdio.rs` — 3 处 `frozen: None` 改为构建
+- `cc-tui/src/acp_server/requests.rs` — 替换 4 处 `build_config_options` 调用 + 3 处 `frozen: None` 改为构建
+- `cc-tui/src/acp_stdio.rs` — 3 处 `frozen: None` 改为构建
 
 ### 不动的文件
-- `peri-acp/src/session/frozen.rs` — 共享函数不变
-- `peri-acp/src/dispatch/config_update.rs` — 共享函数不变
-- `peri-tui/src/acp_server/notify.rs` — 已使用共享模块
+- `cc-acp/src/session/frozen.rs` — 共享函数不变
+- `cc-acp/src/dispatch/config_update.rs` — 共享函数不变
+- `cc-tui/src/acp_server/notify.rs` — 已使用共享模块
 
 ---
 
 ## Task 1: 迁移 requests.rs 中 build_config_options 到共享模块
 
 **Files:**
-- Modify: `peri-tui/src/acp_server/requests.rs`
+- Modify: `cc-tui/src/acp_server/requests.rs`
 
 - [ ] **Step 1: 替换 import**
 
 将 `requests.rs` 顶部的：
 ```rust
-use peri_acp::session::state_builders::build_config_options;
+use cc_acp::session::state_builders::build_config_options;
 ```
 替换为：
 ```rust
-use peri_acp::dispatch::config_update::make_config_options;
+use cc_acp::dispatch::config_update::make_config_options;
 ```
 
 - [ ] **Step 2: 替换 4 处调用**
@@ -61,13 +61,13 @@ make_config_options(&c, &p, cfg.permission_mode.load())
 
 - [ ] **Step 3: 验证编译**
 
-Run: `cargo build -p peri-tui 2>&1 | grep -E '^error' | head -5`
+Run: `cargo build -p cc-tui 2>&1 | grep -E '^error' | head -5`
 Expected: 无 error
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/acp_server/requests.rs
+git add cc-tui/src/acp_server/requests.rs
 git commit -m "refactor: migrate requests.rs to dispatch::config_update::make_config_options
 
 Replace direct build_config_options import with shared make_config_options,
@@ -79,7 +79,7 @@ consistent with notify.rs and acp_stdio.rs."
 ## Task 2: 为 load/resume/fork 构建 frozen data（TUI 路径）
 
 **Files:**
-- Modify: `peri-tui/src/acp_server/requests.rs`
+- Modify: `cc-tui/src/acp_server/requests.rs`
 
 在 session/new 的处理模式中，先 insert SessionState（frozen: None），然后构建 frozen data，最后 `state.frozen = Some(frozen_data)` 补回。其他 3 个路径也用相同模式。
 
@@ -91,7 +91,7 @@ consistent with notify.rs and acp_stdio.rs."
 // Freeze session data for loaded session
 let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
 let frozen_language = cfg.peri_config.read().config.language.clone();
-let frozen_data = peri_acp::session::frozen::build_frozen_session_data(
+let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
     cwd,
     frozen_language.as_deref(),
     &cfg.plugin_skill_dirs,
@@ -111,7 +111,7 @@ if let Some(s) = sessions.get_mut(&req_session_id.to_string()) {
 // Freeze session data for resumed session
 let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
 let frozen_language = cfg.peri_config.read().config.language.clone();
-let frozen_data = peri_acp::session::frozen::build_frozen_session_data(
+let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
     &cwd,  // 确认 cwd 来源
     frozen_language.as_deref(),
     &cfg.plugin_skill_dirs,
@@ -131,7 +131,7 @@ if let Some(s) = sessions.get_mut(&req_session_id.to_string()) {
 // Freeze session data for forked session
 let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
 let frozen_language = cfg.peri_config.read().config.language.clone();
-let frozen_data = peri_acp::session::frozen::build_frozen_session_data(
+let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
     &cwd,  // fork 继承父 session 的 cwd
     frozen_language.as_deref(),
     &cfg.plugin_skill_dirs,
@@ -145,13 +145,13 @@ if let Some(s) = sessions.get_mut(&new_session_id) {
 
 - [ ] **Step 4: 验证编译**
 
-Run: `cargo build -p peri-tui 2>&1 | grep -E '^error' | head -5`
+Run: `cargo build -p cc-tui 2>&1 | grep -E '^error' | head -5`
 Expected: 无 error
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-tui/src/acp_server/requests.rs
+git add cc-tui/src/acp_server/requests.rs
 git commit -m "fix: build frozen data for load/resume/fork in TUI path
 
 load/resume/fork sessions now freeze system prompt at load time,
@@ -163,7 +163,7 @@ ensuring stable prompts across turns (same guarantee as session/new)."
 ## Task 3: 为 load/resume/fork 构建 frozen data（Stdio 路径）
 
 **Files:**
-- Modify: `peri-tui/src/acp_stdio.rs`
+- Modify: `cc-tui/src/acp_stdio.rs`
 
 与 Task 2 相同模式，但在 Stdio 的 SessionInfo 构建中。
 
@@ -175,7 +175,7 @@ ensuring stable prompts across turns (same guarantee as session/new)."
 // Freeze session data for resumed session
 let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
 let frozen_language = ctx.peri_config.read().config.language.clone();
-let frozen_data = peri_acp::session::frozen::build_frozen_session_data(
+let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
     &cwd,  // 确认 cwd 来源
     frozen_language.as_deref(),
     &ctx.plugin_skill_dirs,
@@ -200,13 +200,13 @@ let frozen_data = peri_acp::session::frozen::build_frozen_session_data(
 
 - [ ] **Step 4: 验证编译**
 
-Run: `cargo build -p peri-tui 2>&1 | grep -E '^error' | head -5`
+Run: `cargo build -p cc-tui 2>&1 | grep -E '^error' | head -5`
 Expected: 无 error
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-tui/src/acp_stdio.rs
+git add cc-tui/src/acp_stdio.rs
 git commit -m "fix: build frozen data for load/resume/fork in Stdio path
 
 Symmetric with TUI path — ensures frozen system prompt for all

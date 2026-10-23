@@ -4,7 +4,7 @@
 
 **Goal:** Add a unified `process` module that wraps shell command spawning for Windows (`cmd /C`) and Unix (`bash -c`), then refactor 3 existing call sites to use it.
 
-**Architecture:** New `peri-middlewares/src/process.rs` exposes two functions: `shell_command()` (returns `Command` for custom config) and `spawn_shell()` (pre-configured shortcut). Three call sites (MCP, Bash tool, Hook executor) are refactored to use these functions, replacing their inline platform-specific code.
+**Architecture:** New `cc-middlewares/src/process.rs` exposes two functions: `shell_command()` (returns `Command` for custom config) and `spawn_shell()` (pre-configured shortcut). Three call sites (MCP, Bash tool, Hook executor) are refactored to use these functions, replacing their inline platform-specific code.
 
 **Tech Stack:** `tokio::process::Command`, `cfg!(target_os = "windows")`, `std::process::Stdio`
 
@@ -14,25 +14,25 @@
 
 | Action | File | Responsibility |
 |--------|------|---------------|
-| Create | `peri-middlewares/src/process.rs` | `shell_command()` + `spawn_shell()` + `spawn_shell_with_env()` |
-| Create | `peri-middlewares/src/process_test.rs` | Unit tests for the process module |
-| Modify | `peri-middlewares/src/lib.rs` | Add `pub mod process;` |
-| Modify | `peri-middlewares/src/mcp/client.rs:345-382` | Replace `Command::new(command)` with `shell_command()` |
-| Modify | `peri-middlewares/src/middleware/terminal.rs:160-178` | Replace inline `cfg!` with `shell_command()` |
-| Modify | `peri-middlewares/src/hooks/executor.rs:29-76` | Replace `Command::new(&shell)` with `shell_command()` |
+| Create | `cc-middlewares/src/process.rs` | `shell_command()` + `spawn_shell()` + `spawn_shell_with_env()` |
+| Create | `cc-middlewares/src/process_test.rs` | Unit tests for the process module |
+| Modify | `cc-middlewares/src/lib.rs` | Add `pub mod process;` |
+| Modify | `cc-middlewares/src/mcp/client.rs:345-382` | Replace `Command::new(command)` with `shell_command()` |
+| Modify | `cc-middlewares/src/middleware/terminal.rs:160-178` | Replace inline `cfg!` with `shell_command()` |
+| Modify | `cc-middlewares/src/hooks/executor.rs:29-76` | Replace `Command::new(&shell)` with `shell_command()` |
 
 ---
 
 ### Task 1: Create `process` module with tests
 
 **Files:**
-- Create: `peri-middlewares/src/process.rs`
-- Create: `peri-middlewares/src/process_test.rs`
-- Modify: `peri-middlewares/src/lib.rs`
+- Create: `cc-middlewares/src/process.rs`
+- Create: `cc-middlewares/src/process_test.rs`
+- Modify: `cc-middlewares/src/lib.rs`
 
 - [ ] **Step 1: Write failing tests for `shell_command`**
 
-Create `peri-middlewares/src/process_test.rs`:
+Create `cc-middlewares/src/process_test.rs`:
 
 ```rust
 use crate::process::shell_command;
@@ -94,18 +94,18 @@ fn test_shell_command_multi_args() {
 
 - [ ] **Step 2: Register module in lib.rs and run tests to verify they fail**
 
-Add to `peri-middlewares/src/lib.rs` (after `pub mod plugin;` line, ~line 36):
+Add to `cc-middlewares/src/lib.rs` (after `pub mod plugin;` line, ~line 36):
 
 ```rust
 pub mod process;
 ```
 
-Run: `cargo test -p peri-middlewares --lib -- process 2>&1 | head -30`
+Run: `cargo test -p cc-middlewares --lib -- process 2>&1 | head -30`
 Expected: Compilation error — `process` module not found
 
 - [ ] **Step 3: Implement `process.rs`**
 
-Create `peri-middlewares/src/process.rs`:
+Create `cc-middlewares/src/process.rs`:
 
 ```rust
 pub fn shell_command(command: &str, args: &[&str]) -> tokio::process::Command {
@@ -137,12 +137,12 @@ This is the final implementation — use this code, not the `shell_words` versio
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cargo test -p peri-middlewares --lib -- process 2>&1`
+Run: `cargo test -p cc-middlewares --lib -- process 2>&1`
 Expected: 3 tests PASS
 
 - [ ] **Step 5: Add `spawn_shell` and `spawn_shell_with_env` functions**
 
-Add to `peri-middlewares/src/process.rs` after `shell_command`:
+Add to `cc-middlewares/src/process.rs` after `shell_command`:
 
 ```rust
 /// Spawn a command through the platform shell with common defaults:
@@ -181,7 +181,7 @@ pub fn spawn_shell_with_env(
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-middlewares/src/process.rs peri-middlewares/src/process_test.rs peri-middlewares/src/lib.rs
+git add cc-middlewares/src/process.rs cc-middlewares/src/process_test.rs cc-middlewares/src/lib.rs
 git commit -m "feat(middlewares): add cross-platform process spawn module
 
 Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
@@ -192,11 +192,11 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 ### Task 2: Refactor MCP `spawn_stdio_transport`
 
 **Files:**
-- Modify: `peri-middlewares/src/mcp/client.rs:345-382`
+- Modify: `cc-middlewares/src/mcp/client.rs:345-382`
 
 - [ ] **Step 1: Refactor `spawn_stdio_transport` to use `shell_command`**
 
-In `peri-middlewares/src/mcp/client.rs`, replace the function body at line 345-382:
+In `cc-middlewares/src/mcp/client.rs`, replace the function body at line 345-382:
 
 **Before:**
 ```rust
@@ -232,13 +232,13 @@ Only the first 2 lines inside the function change. Lines 356-382 (TokioChildProc
 
 - [ ] **Step 2: Build to verify compilation**
 
-Run: `cargo build -p peri-middlewares 2>&1 | tail -5`
+Run: `cargo build -p cc-middlewares 2>&1 | tail -5`
 Expected: BUILD SUCCEEDED
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-middlewares/src/mcp/client.rs
+git add cc-middlewares/src/mcp/client.rs
 git commit -m "refactor(mcp): use cross-platform shell_command for spawn_stdio_transport
 
 Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
@@ -249,11 +249,11 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 ### Task 3: Refactor Bash tool (TerminalMiddleware)
 
 **Files:**
-- Modify: `peri-middlewares/src/middleware/terminal.rs:160-178`
+- Modify: `cc-middlewares/src/middleware/terminal.rs:160-178`
 
 - [ ] **Step 1: Replace inline `cfg!` with `shell_command`**
 
-In `peri-middlewares/src/middleware/terminal.rs`, replace lines 160-178:
+In `cc-middlewares/src/middleware/terminal.rs`, replace lines 160-178:
 
 **Before:**
 ```rust
@@ -295,13 +295,13 @@ In `peri-middlewares/src/middleware/terminal.rs`, replace lines 160-178:
 
 - [ ] **Step 2: Build to verify compilation**
 
-Run: `cargo build -p peri-middlewares 2>&1 | tail -5`
+Run: `cargo build -p cc-middlewares 2>&1 | tail -5`
 Expected: BUILD SUCCEEDED
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-middlewares/src/middleware/terminal.rs
+git add cc-middlewares/src/middleware/terminal.rs
 git commit -m "refactor(terminal): use cross-platform shell_command in Bash tool
 
 Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
@@ -312,11 +312,11 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 ### Task 4: Refactor Hook executor
 
 **Files:**
-- Modify: `peri-middlewares/src/hooks/executor.rs:29-76`
+- Modify: `cc-middlewares/src/hooks/executor.rs:29-76`
 
 - [ ] **Step 1: Replace `Command::new(&shell)` with `shell_command`**
 
-In `peri-middlewares/src/hooks/executor.rs`, change lines 29-76:
+In `cc-middlewares/src/hooks/executor.rs`, change lines 29-76:
 
 **Before (lines 29-76):**
 ```rust
@@ -371,13 +371,13 @@ Key change: Remove `shell.clone().unwrap_or_else(|| "bash".to_string())` usage. 
 
 - [ ] **Step 2: Build to verify compilation**
 
-Run: `cargo build -p peri-middlewares 2>&1 | tail -5`
+Run: `cargo build -p cc-middlewares 2>&1 | tail -5`
 Expected: BUILD SUCCEEDED
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-middlewares/src/hooks/executor.rs
+git add cc-middlewares/src/hooks/executor.rs
 git commit -m "refactor(hooks): use cross-platform shell_command in hook executor
 
 Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
@@ -394,12 +394,12 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 Run: `cargo build 2>&1 | tail -10`
 Expected: BUILD SUCCEEDED
 
-- [ ] **Step 2: Run peri-middlewares tests**
+- [ ] **Step 2: Run cc-middlewares tests**
 
-Run: `cargo test -p peri-middlewares 2>&1 | tail -20`
+Run: `cargo test -p cc-middlewares 2>&1 | tail -20`
 Expected: ALL TESTS PASS
 
 - [ ] **Step 3: Run clippy**
 
-Run: `cargo clippy -p peri-middlewares 2>&1 | tail -10`
+Run: `cargo clippy -p cc-middlewares 2>&1 | tail -10`
 Expected: NO WARNINGS (or only pre-existing ones)

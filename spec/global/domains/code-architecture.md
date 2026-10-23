@@ -32,7 +32,7 @@
 
 | 维度 | 选型 |
 |------|------|
-| Workspace 结构 | 3 crate → 移除 relay 后维持 3+cc-widgets |
+| Workspace 结构 | 7 个 workspace 成员：cc-agent、cc-middlewares、cc-acp、cc-tui、cc-widgets、cc-lsp、langfuse-client（Relay 已移除） |
 | 配置兼容 | serde 忽略旧字段，无需主动清理 |
 | 遗留文件 | 已全部清理（`Dockerfile.relay` 等亦已删除，不再保留） |
 

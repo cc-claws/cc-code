@@ -10,35 +10,35 @@
 
 ## 架构方案
 
-**方案 A：TUI 层配对 ToolStart/ToolEnd + peri-widgets 纯渲染**
+**方案 A：TUI 层配对 ToolStart/ToolEnd + cc-widgets 纯渲染**
 
 数据流：
 ```
 ToolStart(name="Edit", input={file_path, old_string, new_string})
 ToolEnd(name="Edit", output="Added 3 lines...", is_error=false)
      ↓ TUI 配对事件，构造 DiffInput
-     ↓ peri-widgets diff 模块
+     ↓ cc-widgets diff 模块
 similar::TextDiff::from_lines(old_string, new_string)
      ↓
 DiffHunk[] → render_diff() → Vec<Line<'static>>
      ↓ 内嵌到 ToolBlock 渲染
 ```
 
-不选择方案 B（改 ToolEnd 事件携带 diff payload）的原因：影响面大，改 peri-agent 核心事件类型 + executor + TUI 事件映射。
+不选择方案 B（改 ToolEnd 事件携带 diff payload）的原因：影响面大，改 cc-agent 核心事件类型 + executor + TUI 事件映射。
 不选择方案 C（中间件拦截）的原因：diff 是显示关注点不是中间件关注点，且中间件需额外文件 I/O。
 
-## 1. Diff 计算层（peri-widgets）
+## 1. Diff 计算层（cc-widgets）
 
 ### 新增依赖
 
-`similar` crate 加在 `peri-widgets/Cargo.toml`（已在项目 Cargo.lock 中）。
+`similar` crate 加在 `cc-widgets/Cargo.toml`（已在项目 Cargo.lock 中）。
 
 ### 新增文件
 
-- `peri-widgets/src/diff/mod.rs` — 类型定义 + 计算入口
-- `peri-widgets/src/diff/renderer.rs` — 渲染逻辑
-- `peri-widgets/src/diff/mod_test.rs` — 计算测试
-- `peri-widgets/src/diff/renderer_test.rs` — 渲染测试
+- `cc-widgets/src/diff/mod.rs` — 类型定义 + 计算入口
+- `cc-widgets/src/diff/renderer.rs` — 渲染逻辑
+- `cc-widgets/src/diff/mod_test.rs` — 计算测试
+- `cc-widgets/src/diff/renderer_test.rs` — 渲染测试
 
 ### 核心类型
 
@@ -84,7 +84,7 @@ pub struct WordDiff {
 - 上下文行数：3 行
 - 大文件保护：`old_content.len() + new_content.len() > 1MB` 或变更行超过 400 行时，返回截断摘要
 
-## 2. Diff 渲染层（peri-widgets）
+## 2. Diff 渲染层（cc-widgets）
 
 ### 渲染格式
 
@@ -193,19 +193,19 @@ Write 的 ToolStart.input 只有 `file_path` + `content`（新文件内容），
 
 | 层级 | 内容 |
 |------|------|
-| peri-widgets diff 单元测试 | DiffInput→DiffHunk 正确性；单词级 diff；大文件截断；新文件全绿；空内容 |
-| peri-widgets 渲染测试 | DiffInput→Vec\<Line\> span 颜色/文本；gutter 宽度；hunk 头部格式 |
+| cc-widgets diff 单元测试 | DiffInput→DiffHunk 正确性；单词级 diff；大文件截断；新文件全绿；空内容 |
+| cc-widgets 渲染测试 | DiffInput→Vec\<Line\> span 颜色/文本；gutter 宽度；hunk 头部格式 |
 | TUI 集成测试 | ToolStart+ToolEnd → diff_view 注入；非 Write/Edit 不受影响；错误路径降级 |
 
 ## 涉及文件
 
 | 文件 | 变更类型 | 说明 |
 |------|----------|------|
-| `peri-widgets/Cargo.toml` | 修改 | 添加 `similar` 依赖 |
-| `peri-widgets/src/diff/mod.rs` | 新增 | Diff 类型 + 计算逻辑 |
-| `peri-widgets/src/diff/renderer.rs` | 新增 | 渲染逻辑 |
-| `peri-widgets/src/lib.rs` | 修改 | 导出 `diff` 模块 |
-| `peri-tui/src/ui/message_view/mod.rs` | 修改 | ToolBlock 新增 `diff_view` 字段 |
-| `peri-tui/src/app/agent_ops/` | 修改 | ToolStart/ToolEnd 配对 + diff 缓存 |
-| `peri-tui/src/ui/message_render.rs` | 修改 | ToolBlock 渲染时调用 diff 组件 |
-| `peri-widgets/src/message_block/blocks.rs` | 修改 | BlockRenderStrategy 支持 diff 渲染 |
+| `cc-widgets/Cargo.toml` | 修改 | 添加 `similar` 依赖 |
+| `cc-widgets/src/diff/mod.rs` | 新增 | Diff 类型 + 计算逻辑 |
+| `cc-widgets/src/diff/renderer.rs` | 新增 | 渲染逻辑 |
+| `cc-widgets/src/lib.rs` | 修改 | 导出 `diff` 模块 |
+| `cc-tui/src/ui/message_view/mod.rs` | 修改 | ToolBlock 新增 `diff_view` 字段 |
+| `cc-tui/src/app/agent_ops/` | 修改 | ToolStart/ToolEnd 配对 + diff 缓存 |
+| `cc-tui/src/ui/message_render.rs` | 修改 | ToolBlock 渲染时调用 diff 组件 |
+| `cc-widgets/src/message_block/blocks.rs` | 修改 | BlockRenderStrategy 支持 diff 渲染 |

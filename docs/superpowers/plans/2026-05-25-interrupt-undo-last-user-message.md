@@ -14,21 +14,21 @@
 
 | File | Action | Responsibility |
 |------|--------|---------------|
-| `peri-tui/src/acp_server/prompt.rs` | Modify | Roll back `state.history` to pre-submit length on cancel |
-| `peri-tui/src/app/agent_ops/lifecycle.rs` | Modify | Unify interrupt handler: always rollback + restore textarea |
+| `cc-tui/src/acp_server/prompt.rs` | Modify | Roll back `state.history` to pre-submit length on cancel |
+| `cc-tui/src/app/agent_ops/lifecycle.rs` | Modify | Unify interrupt handler: always rollback + restore textarea |
 
 ---
 
 ### Task 1: ACP Server — Roll back history on cancel
 
 **Files:**
-- Modify: `peri-tui/src/acp_server/prompt.rs:151-169`
+- Modify: `cc-tui/src/acp_server/prompt.rs:151-169`
 
 **Context:** After `execute_prompt` returns, `state.history = result.messages` always runs, even on cancel. This means the cancelled round's user message + partial AI response stay in the ACP server's conversation state. The next `session/prompt` will include these stale messages. On cancel, we must truncate back to the pre-submit history length.
 
 - [ ] **Step 1: Modify `prompt.rs` — truncate history on cancel**
 
-In `peri-tui/src/acp_server/prompt.rs`, find this block (around line 151-169):
+In `cc-tui/src/acp_server/prompt.rs`, find this block (around line 151-169):
 
 ```rust
     // Persist new messages to ThreadStore and update in-memory state.
@@ -86,13 +86,13 @@ Key change: `state.history = result.messages` now only runs on success. On failu
 
 - [ ] **Step 2: Build and verify**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: Clean build, no errors.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/acp_server/prompt.rs
+git add cc-tui/src/acp_server/prompt.rs
 git commit -m "fix(acp): roll back state.history on agent execution failure/cancel
 
 Previously, state.history was always replaced with result.messages
@@ -106,13 +106,13 @@ Now truncate back to pre-submit history length on failure/cancel."
 ### Task 2: TUI — Always remove user message + restore textarea on interrupt
 
 **Files:**
-- Modify: `peri-tui/src/app/agent_ops/lifecycle.rs:145-236`
+- Modify: `cc-tui/src/app/agent_ops/lifecycle.rs:145-236`
 
 **Context:** Currently `handle_interrupted()` has two branches: `!agent_replied` (full rollback + restore textarea) and `agent_replied` (just show notification, leave message in history). The user wants rollback + restore to happen regardless of `agent_replied`. The change unifies both branches.
 
 - [ ] **Step 1: Rewrite `handle_interrupted()` in `lifecycle.rs`**
 
-In `peri-tui/src/app/agent_ops/lifecycle.rs`, replace the entire `handle_interrupted()` method (lines 145-236) with:
+In `cc-tui/src/app/agent_ops/lifecycle.rs`, replace the entire `handle_interrupted()` method (lines 145-236) with:
 
 ```rust
     pub(super) fn handle_interrupted(&mut self) -> (bool, bool, bool) {
@@ -207,13 +207,13 @@ Key changes from original:
 
 - [ ] **Step 2: Build and verify**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: Clean build, no errors.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/app/agent_ops/lifecycle.rs
+git add cc-tui/src/app/agent_ops/lifecycle.rs
 git commit -m "feat(tui): always restore user text to textarea on Ctrl+C interrupt
 
 Previously, interrupt rollback (remove message from history +

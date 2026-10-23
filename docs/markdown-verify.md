@@ -6,7 +6,7 @@
 
 ## 1. 一键跑对拍测试（推荐先做这个）
 
-这是最有说服力的验证：**126 个用例逐 grapheme（含样式）与 Claude Code 真实源码对拍**。
+这是最有说服力的验证：**126 个用例逐 grapheme（含样式）与参考实现真实源码对拍**。
 
 ```bash
 cd /d/code/peri
@@ -52,14 +52,14 @@ cargo test -p cc-widgets --features markdown-highlight --test cc_markdown_parity
 1. 内容不丢失（剔除双方各自的边框字符后，实义字符必须完全一致）
 2. 不越界（每行宽度 ≤ 渲染宽度）
 
-偏离全部是 CC 自身的可读性缺陷，例如：
+偏离全部是参考实现自身的可读性缺陷，例如：
 
-- loose list 丢 bullet（`- a\n\n- b` 在 CC 里输出 `a` / `b`，没有 `-`）
+- loose list 丢 bullet（`- a\n\n- b` 在参考实现里输出 `a` / `b`，没有 `-`）
 - 折行后续行丢悬挂缩进 / 丢 `▎ ` 前缀
 - 深层嵌套缩进变成 0/2/6/10
 - `---` 吞掉后文换行，粘成 `---文字`
 
-要改某一条为「严格照搬 CC」，只需从 `cc-widgets/tests/cc_markdown_parity.rs` 的 `DIVERGENCES` 里删掉对应条目，测试立刻会把它变成失败项。
+要改某一条为「严格照搬参考实现」，只需从 `cc-widgets/tests/cc_markdown_parity.rs` 的 `DIVERGENCES` 里删掉对应条目，测试立刻会把它变成失败项。
 
 ---
 
@@ -141,7 +141,7 @@ cargo run -p cc-widgets --features markdown-highlight --example md_dump -- \
 说明: more text
 ```
 
-触发条件是 CC 的 `MAX_ROW_LINES = 4`：任一单元格折行超过 4 行，或整表宽度超出「终端宽度 − 4」的安全边距，就切换为纵向格式。
+触发条件是参考实现的 `MAX_ROW_LINES = 4`：任一单元格折行超过 4 行，或整表宽度超出「终端宽度 − 4」的安全边距，就切换为纵向格式。
 
 ### 2.4 验证你自己的 markdown
 
@@ -172,9 +172,9 @@ cargo run -p cc-tui --release
 
 ---
 
-## 与 Claude Code 本身的对比（可选）
+## 与参考实现本身的对比（可选）
 
-如果你想拿真实的 Claude Code 并排比，需要一套参考环境（`marked@17` + CC 的 `formatToken` / `MarkdownTable` 源码）：
+如果你想拿真实的参考实现并排比，需要一套参考环境（`marked@17` + 参考实现的 `formatToken` / `MarkdownTable` 源码）：
 
 ```bash
 # 1. 建目录并装依赖
@@ -182,7 +182,7 @@ mkdir -p ~/.cache/cc-md-ref && cd ~/.cache/cc-md-ref
 bun init -y
 bun add marked@17 chalk strip-ansi wrap-ansi emoji-regex get-east-asian-width
 
-# 2. 把 CC 的渲染源码拷过来（路径按你的 cc 源码位置调整）
+# 2. 把参考实现的渲染源码拷过来（路径按你的参考源码位置调整）
 CC_SRC=/d/code/cc-best-src
 mkdir -p cc/src/utils cc/node_modules/@anthropic/ink
 cp $CC_SRC/src/utils/markdown.ts   cc/src/utils/
@@ -198,7 +198,7 @@ cp $CC_SRC/packages/@ant/ink/src/core/utils/grapheme.ts       cc/node_modules/@a
 bun cc-dump.ts /path/to/your.md 80
 ```
 
-对拍测试里的 `cc-widgets/tests/fixtures/cc_markdown_golden.json` 就是这样生成的——它是 126 个用例的 CC 真值快照，已经随代码库提交，所以**日常验证不需要重建参考环境**，跑 `cargo test` 就够。
+对拍测试里的 `cc-widgets/tests/fixtures/cc_markdown_golden.json` 就是这样生成的——它是 126 个用例的参考实现真值快照，已经随代码库提交，所以**日常验证不需要重建参考环境**，跑 `cargo test` 就够。
 
 ---
 

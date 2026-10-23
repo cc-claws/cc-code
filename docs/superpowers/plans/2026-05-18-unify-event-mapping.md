@@ -6,7 +6,7 @@
 
 **Architecture:** 当前 ACP server 将 ExecutorEvent 分为两条路径发送——有 `peri/*` 映射的事件走自定义通知，其余走 `notifications/agent_event`。TUI 端需要在 `agent_ops.rs` 中再次按 method string 将 `peri/*` 通知转回 AgentEvent。本次重构将所有 ExecutorEvent 统一通过 `notifications/agent_event` 发送，`peri/*` 通知仅用于 TUI 不直接处理的辅助事件（Compact、SessionEnded）。`map_executor_event` 成为唯一的映射入口。
 
-**Tech Stack:** Rust, tokio async, serde_json, peri-agent/peri-acp/peri-tui workspace crates
+**Tech Stack:** Rust, tokio async, serde_json, cc-agent/cc-acp/cc-tui workspace crates
 
 ---
 
@@ -57,17 +57,17 @@ for (method, payload) in peri_notifs {
 
 | 文件 | 操作 | 职责变更 |
 |------|------|----------|
-| `peri-tui/src/acp_server.rs:236-264` | 修改 | pump 任务：移除 peri/agent_event 互斥，所有事件都发 agent_event |
-| `peri-acp/src/event/mapper.rs:141-204` | 修改 | `map_executor_to_peri_notifications`：移除 4 个事件映射，保留 3 个 |
-| `peri-tui/src/app/agent_ops.rs:41-91` | 修改 | `handle_acp_notification` Peri 分支：移除 4 个事件处理，保留 Compact/Session 忽略 |
-| `peri-tui/src/acp_client/client.rs:152-162` | 修改 | `run_pump`：简化 peri/* 路由（移除已不需要的变体） |
+| `cc-tui/src/acp_server.rs:236-264` | 修改 | pump 任务：移除 peri/agent_event 互斥，所有事件都发 agent_event |
+| `cc-acp/src/event/mapper.rs:141-204` | 修改 | `map_executor_to_peri_notifications`：移除 4 个事件映射，保留 3 个 |
+| `cc-tui/src/app/agent_ops.rs:41-91` | 修改 | `handle_acp_notification` Peri 分支：移除 4 个事件处理，保留 Compact/Session 忽略 |
+| `cc-tui/src/acp_client/client.rs:152-162` | 修改 | `run_pump`：简化 peri/* 路由（移除已不需要的变体） |
 
 ---
 
 ### Task 1: 修改 ACP Server pump 逻辑 — 移除互斥发送
 
 **Files:**
-- Modify: `peri-tui/src/acp_server.rs:236-264`
+- Modify: `cc-tui/src/acp_server.rs:236-264`
 
 - [ ] **Step 1: 修改 pump 事件循环，所有事件都发送 agent_event**
 
@@ -120,13 +120,13 @@ for (method, mut payload) in peri_notifs {
 
 - [ ] **Step 2: 验证编译通过**
 
-Run: `cargo build -p peri-tui 2>&1 | head -30`
+Run: `cargo build -p cc-tui 2>&1 | head -30`
 Expected: 无错误
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/acp_server.rs
+git add cc-tui/src/acp_server.rs
 git commit -m "refactor(acp): send all ExecutorEvents via agent_event path, remove mutual exclusion with peri/* notifications"
 ```
 
@@ -135,7 +135,7 @@ git commit -m "refactor(acp): send all ExecutorEvents via agent_event path, remo
 ### Task 2: 精简 `map_executor_to_peri_notifications` — 移除已有 agent_event 映射的事件
 
 **Files:**
-- Modify: `peri-acp/src/event/mapper.rs:141-204`
+- Modify: `cc-acp/src/event/mapper.rs:141-204`
 
 - [ ] **Step 1: 从 `map_executor_to_peri_notifications` 中移除 4 个事件映射**
 
@@ -184,13 +184,13 @@ pub fn map_executor_to_peri_notifications(
 
 - [ ] **Step 2: 验证编译通过**
 
-Run: `cargo build -p peri-acp 2>&1 | head -30`
+Run: `cargo build -p cc-acp 2>&1 | head -30`
 Expected: 无错误
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-acp/src/event/mapper.rs
+git add cc-acp/src/event/mapper.rs
 git commit -m "refactor(acp): remove redundant peri/* notifications for events handled by map_executor_event"
 ```
 
@@ -199,7 +199,7 @@ git commit -m "refactor(acp): remove redundant peri/* notifications for events h
 ### Task 3: 精简 TUI `handle_acp_notification` Peri 分支
 
 **Files:**
-- Modify: `peri-tui/src/app/agent_ops.rs:41-91`
+- Modify: `cc-tui/src/app/agent_ops.rs:41-91`
 
 - [ ] **Step 1: 移除 Peri 分支中已由 agent_event 处理的 4 个事件**
 
@@ -217,7 +217,7 @@ git commit -m "refactor(acp): remove redundant peri/* notifications for events h
 
 - [ ] **Step 2: 验证编译通过**
 
-Run: `cargo build -p peri-tui 2>&1 | head -30`
+Run: `cargo build -p cc-tui 2>&1 | head -30`
 Expected: 无错误（可能有 unused warning 关于 `_` 绑定，但不应有错误）
 
 - [ ] **Step 3: 如果 Step 2 中有 unused variable warning，调整代码**
@@ -234,7 +234,7 @@ Expected: 无错误（可能有 unused warning 关于 `_` 绑定，但不应有�
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/app/agent_ops.rs
+git add cc-tui/src/app/agent_ops.rs
 git commit -m "refactor(tui): remove redundant Peri notification handling, events now via agent_event"
 ```
 
@@ -243,8 +243,8 @@ git commit -m "refactor(tui): remove redundant Peri notification handling, event
 ### Task 4: 清理 AcpNotification Peri 变体（可选简化）
 
 **Files:**
-- Modify: `peri-tui/src/acp_client/client.rs:152-162`
-- Modify: `peri-tui/src/acp_client/client.rs:32-37`
+- Modify: `cc-tui/src/acp_client/client.rs:152-162`
+- Modify: `cc-tui/src/acp_client/client.rs:32-37`
 
 - [ ] **Step 1: 确认 Peri 变体是否仍需保留**
 
@@ -273,7 +273,7 @@ git commit -m "refactor(tui): remove redundant Peri notification handling, event
 - [ ] **Step 3: Commit（如有修改）**
 
 ```bash
-git add peri-tui/src/acp_client/client.rs
+git add cc-tui/src/acp_client/client.rs
 git commit -m "refactor(tui): simplify peri/* notification handling in AcpClient pump"
 ```
 
@@ -290,10 +290,10 @@ Expected: 成功
 
 - [ ] **Step 2: 运行相关 crate 测试**
 
-Run: `cargo test -p peri-acp 2>&1 | tail -20`
+Run: `cargo test -p cc-acp 2>&1 | tail -20`
 Expected: 所有测试通过
 
-Run: `cargo test -p peri-tui 2>&1 | tail -20`
+Run: `cargo test -p cc-tui 2>&1 | tail -20`
 Expected: 所有测试通过
 
 - [ ] **Step 3: 运行 pre-commit hooks**
@@ -303,7 +303,7 @@ Expected: 全部通过
 
 - [ ] **Step 4: 手动集成测试**
 
-启动 TUI（`cargo run -p peri-tui`），发送一个消息触发 SubAgent 工具调用，验证：
+启动 TUI（`cargo run -p cc-tui`），发送一个消息触发 SubAgent 工具调用，验证：
 - SubAgent 启动/停止事件正常显示
 - 后台任务完成通知正常显示
 - LSP 诊断信息正常显示

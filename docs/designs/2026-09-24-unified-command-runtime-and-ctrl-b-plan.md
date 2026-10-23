@@ -35,17 +35,17 @@
 
 | 位置 | 已确认的问题/约束 |
 | --- | --- |
-| [terminal.rs](../../peri-middlewares/src/middleware/terminal.rs) | fallback 位于前台完成分支，直接 spawn；直接后台、Ctrl+B、超时返回走不到同一策略；剩余超时最少补 10 秒会延长预算 |
-| [process/mod.rs](../../peri-middlewares/src/process/mod.rs) | 短 stderr 不证明命令没有产生副作用；通用默认 shell 还服务 Hook，不能全局改成 Bash |
-| [shell/mod.rs](../../peri-agent/src/shell/mod.rs) | ShellRequest 缺少稳定调用身份、明确解释器；退出信号只提供 bool |
-| [agent_shell_executor.rs](../../peri-tui/src/app/agent_shell_executor.rs) | 每次 execute 新建任务；前台延迟注册；UI 拥有控制通道；注册数据未携带所属会话 |
-| [shell_command.rs](../../peri-tui/src/app/shell_command.rs) | 注册到当前会话；按 command 文本关联计时；`!` 和 Agent 各有执行池；Ctrl+B 会批量处理前台 Agent 命令 |
-| [message_pipeline/mod.rs](../../peri-tui/src/app/message_pipeline/mod.rs) | 通过 Bash 名称和原始 command 精确匹配，改写命令、相同命令并发均不可靠 |
-| [shell_exec.rs](../../peri-tui/src/shell_exec.rs) | 流式输出要求消费者持续 drain；已有输出上限和管道收尾超时，应复用而非丢弃 |
-| [terminal_inline_executor.rs](../../peri-middlewares/src/middleware/terminal_inline_executor.rs) | 默认宿主没有后台输出服务；不能返回不存在的可用后台任务；stdout/stderr 顺序读取有阻塞风险 |
-| [08_windows.md](../../peri-tui/prompts/sections/08_windows.md) | 同时要求 CMD 执行和 POSIX 语法；工具描述还宣称 cwd 持久化，实际每次使用配置 cwd |
-| [tool_dispatch.rs](../../peri-agent/src/agent/executor/tool_dispatch.rs) | 已有 tool_call_id；调用上下文应该从这里传入，而不是让模型生成 |
-| [event_sink.rs](../../peri-acp/src/session/event_sink.rs) | 两种 transport 的事件映射不同，扩展需明确协商和降级 |
+| [terminal.rs](../../cc-middlewares/src/middleware/terminal.rs) | fallback 位于前台完成分支，直接 spawn；直接后台、Ctrl+B、超时返回走不到同一策略；剩余超时最少补 10 秒会延长预算 |
+| [process/mod.rs](../../cc-middlewares/src/process/mod.rs) | 短 stderr 不证明命令没有产生副作用；通用默认 shell 还服务 Hook，不能全局改成 Bash |
+| [shell/mod.rs](../../cc-agent/src/shell/mod.rs) | ShellRequest 缺少稳定调用身份、明确解释器；退出信号只提供 bool |
+| [agent_shell_executor.rs](../../cc-tui/src/app/agent_shell_executor.rs) | 每次 execute 新建任务；前台延迟注册；UI 拥有控制通道；注册数据未携带所属会话 |
+| [shell_command.rs](../../cc-tui/src/app/shell_command.rs) | 注册到当前会话；按 command 文本关联计时；`!` 和 Agent 各有执行池；Ctrl+B 会批量处理前台 Agent 命令 |
+| [message_pipeline/mod.rs](../../cc-tui/src/app/message_pipeline/mod.rs) | 通过 Bash 名称和原始 command 精确匹配，改写命令、相同命令并发均不可靠 |
+| [shell_exec.rs](../../cc-tui/src/shell_exec.rs) | 流式输出要求消费者持续 drain；已有输出上限和管道收尾超时，应复用而非丢弃 |
+| [terminal_inline_executor.rs](../../cc-middlewares/src/middleware/terminal_inline_executor.rs) | 默认宿主没有后台输出服务；不能返回不存在的可用后台任务；stdout/stderr 顺序读取有阻塞风险 |
+| [08_windows.md](../../cc-tui/prompts/sections/08_windows.md) | 同时要求 CMD 执行和 POSIX 语法；工具描述还宣称 cwd 持久化，实际每次使用配置 cwd |
+| [tool_dispatch.rs](../../cc-agent/src/agent/executor/tool_dispatch.rs) | 已有 tool_call_id；调用上下文应该从这里传入，而不是让模型生成 |
+| [event_sink.rs](../../cc-acp/src/session/event_sink.rs) | 两种 transport 的事件映射不同，扩展需明确协商和降级 |
 
 相关问题：[Hook shell](../../spec/issues/2026-09-24-windows-hook-executor-cmd-fallback-and-shell-abstraction.md)、[后台等待协议](../../spec/issues/2026-09-23-background-task-handle-repolling-and-wait-contract.md)、[后台标记泄露](../../spec/issues/2026-09-23-background-task-started-marker-leaks-into-tui.md)。这些文档提供问题背景，不直接采用其中未经验证的候选实现。
 
@@ -90,10 +90,10 @@ middlewares::process（解释器构造、进程树、并发读写、输出存储
 
 分层安排：
 
-- `peri-agent` 定义请求、身份、状态、能力、控制结果等契约，不依赖 TUI。
-- `peri-middlewares` 提供执行实现，复用进程构造与输出基础设施；BashTool 不得自行 spawn 用户命令。
-- `peri-acp` 在 session 级持有运行时，跨 execute_prompt 重建仍保留任务；正常/后台/fork 子 Agent 使用相同服务但不同 origin。
-- `peri-tui` 只投影状态和发送 ACP 控制请求，不通过新的共享 KillHandle/channel 直连后台运行时。现有注入 ShellExecutor 作为迁移桥，不继续扩张。
+- `cc-agent` 定义请求、身份、状态、能力、控制结果等契约，不依赖 TUI。
+- `cc-middlewares` 提供执行实现，复用进程构造与输出基础设施；BashTool 不得自行 spawn 用户命令。
+- `cc-acp` 在 session 级持有运行时，跨 execute_prompt 重建仍保留任务；正常/后台/fork 子 Agent 使用相同服务但不同 origin。
+- `cc-tui` 只投影状态和发送 ACP 控制请求，不通过新的共享 KillHandle/channel 直连后台运行时。现有注入 ShellExecutor 作为迁移桥，不继续扩张。
 
 不同时保留两套任务池作为长期真相源；迁移期间必须明确每个生产入口的唯一 owner。
 
@@ -243,7 +243,7 @@ Rust trait 不能禁止同一 crate 中开发者重新写 Command；真正约束
 
 ### P1：移除本次绕路与重复执行风险
 
-范围：`peri-agent/src/shell`、`middlewares/terminal*`、`process`、TUI shell adapter、Windows 提示词及相应测试。
+范围：`cc-agent/src/shell`、`middlewares/terminal*`、`process`、TUI shell adapter、Windows 提示词及相应测试。
 
 - 明确 Bash 请求的解释器；inline/TUI 都从请求选择 shell。
 - 删除执行后 CMD→Bash fallback 和 Bash 路径的 CMD quoting workaround。
@@ -314,14 +314,14 @@ Rust trait 不能禁止同一 crate 中开发者重新写 Command；真正约束
 
 | 命令/检查 | 结果 |
 | --- | --- |
-| `cargo test -p peri-middlewares --lib middleware::terminal` | 32 通过 |
-| `cargo test -p peri-middlewares --lib process::` | 22 通过 |
-| `cargo test -p peri-middlewares --lib hooks::executor::` | 29 通过，包含原 Hook 修复回归 |
-| `cargo test -p peri-tui --lib ui::message_render::` | 54 通过，包含 4 个新增后台展示测试 |
-| `cargo test -p peri-tui --lib agent_shell` | 21 通过，包含真实 Bash 进程、后台化信号、同任务输出及启动失败测试 |
-| `cargo test -p peri-tui --lib shell_exec::` | 8 通过 |
-| `cargo test -p peri-acp --lib prompt::` | 29 通过 |
-| `cargo clippy -p peri-agent -p peri-middlewares -p peri-acp -p peri-tui --lib --tests -- -D warnings` | 通过 |
+| `cargo test -p cc-middlewares --lib middleware::terminal` | 32 通过 |
+| `cargo test -p cc-middlewares --lib process::` | 22 通过 |
+| `cargo test -p cc-middlewares --lib hooks::executor::` | 29 通过，包含原 Hook 修复回归 |
+| `cargo test -p cc-tui --lib ui::message_render::` | 54 通过，包含 4 个新增后台展示测试 |
+| `cargo test -p cc-tui --lib agent_shell` | 21 通过，包含真实 Bash 进程、后台化信号、同任务输出及启动失败测试 |
+| `cargo test -p cc-tui --lib shell_exec::` | 8 通过 |
+| `cargo test -p cc-acp --lib prompt::` | 29 通过 |
+| `cargo clippy -p cc-agent -p cc-middlewares -p cc-acp -p cc-tui --lib --tests -- -D warnings` | 通过 |
 | 改动 Rust 文件的 `rustfmt --check`、`git diff --check` | 通过 |
 | 本文 14 个本地链接存在性检查 | 通过 |
 
@@ -365,7 +365,7 @@ Rust trait 不能禁止同一 crate 中开发者重新写 Command；真正约束
 | 子任务 | 合并结果与主要文件 |
 | --- | --- |
 | `fix_shell_ui` | 身份映射、嵌套计时、单任务后台化及真实完成通知；`app/message_pipeline/shell_runtime.rs`、`app/shell_command.rs`、`app/background_tasks_panel.rs`、`ui/render_thread.rs` |
-| `fix_process_tree` | Windows Job 所有权及 I/O 取消回收；`peri-middlewares/src/process/capture.rs`、`peri-tui/src/shell_exec.rs`、`peri-tui/src/shell_exec_lifecycle_test.rs` |
+| `fix_process_tree` | Windows Job 所有权及 I/O 取消回收；`cc-middlewares/src/process/capture.rs`、`cc-tui/src/shell_exec.rs`、`cc-tui/src/shell_exec_lifecycle_test.rs` |
 
 测试过程说明：一次默认并发运行中，两个旧的 Bash 语义测试超过各自设定的 5 秒等待期限；保持生产代码和测试期限不变，串行全组及随后三轮默认并发全组均通过。记录为本机时序波动，不以放大超时掩盖。构建曾因 D 盘耗尽失败，仅清理本仓库两个 TUI 增量构建缓存目录后重跑，后续验证使用 `CARGO_INCREMENTAL=0`；未清理源码或替换运行中的程序。
 
@@ -377,15 +377,15 @@ TUI 首轮全库回归为 956 通过、1 失败、8 跳过；失败的面板输�
 
 | 命令 / 检查 | 最终结果 |
 | --- | --- |
-| `cargo test -p peri-tui --lib -- --test-threads=4 --quiet` | 961 通过，0 失败，8 跳过（含交接竞态补测） |
-| `cargo test -p peri-agent --lib tools::invocation::` | 2 通过 |
-| `cargo test -p peri-agent --lib tool_dispatch` | 36 通过，含并发身份隔离及不丢 tool_result 回归 |
-| `cargo test -p peri-middlewares --lib middleware::terminal::tests -- --test-threads=4` | 40 通过（此前 36 项及新增 4 项交接测试） |
-| `cargo test -p peri-middlewares --lib process:: -- --test-threads=1` | 22 通过 |
-| `cargo test -p peri-middlewares --lib hooks::executor:: -- --test-threads=1` | 29 通过 |
-| `cargo test -p peri-middlewares --lib subagent::tool::` | 33 通过 |
-| `cargo test -p peri-acp --lib prompt::` | 29 通过 |
-| `cargo clippy -p peri-agent -p peri-middlewares -p peri-acp -p peri-tui --lib --tests -- -D warnings` | 最终通过 |
+| `cargo test -p cc-tui --lib -- --test-threads=4 --quiet` | 961 通过，0 失败，8 跳过（含交接竞态补测） |
+| `cargo test -p cc-agent --lib tools::invocation::` | 2 通过 |
+| `cargo test -p cc-agent --lib tool_dispatch` | 36 通过，含并发身份隔离及不丢 tool_result 回归 |
+| `cargo test -p cc-middlewares --lib middleware::terminal::tests -- --test-threads=4` | 40 通过（此前 36 项及新增 4 项交接测试） |
+| `cargo test -p cc-middlewares --lib process:: -- --test-threads=1` | 22 通过 |
+| `cargo test -p cc-middlewares --lib hooks::executor:: -- --test-threads=1` | 29 通过 |
+| `cargo test -p cc-middlewares --lib subagent::tool::` | 33 通过 |
+| `cargo test -p cc-acp --lib prompt::` | 29 通过 |
+| `cargo clippy -p cc-agent -p cc-middlewares -p cc-acp -p cc-tui --lib --tests -- -D warnings` | 最终通过 |
 | 触达 Rust 模块的 `rustfmt --check`、`git diff --check` | 通过；`include!` 测试保留父模块原有格式，未扩散重排无关代码 |
 
 以上去重共 1152 项通过、8 项跳过，不代表全 workspace 测试通过。交接竞态修复后重跑了 TUI 全库、终端模块和严格 Clippy；其他模块记录来自本轮之前已完成的验证。TUI 全库结果已经包含前期各过滤测试组，不重复累加。
@@ -405,7 +405,7 @@ TUI 首轮全库回归为 956 通过、1 失败、8 跳过；失败的面板输�
 
 ### 2026-09-29：本地可执行文件交付
 
-- `cargo build -p peri-tui --bin cc-code` 构建成功；Windows PowerShell 下通过 `$env:CARGO_INCREMENTAL = '0'` 关闭本次增量缓存。
+- `cargo build -p cc-tui --bin cc-code` 构建成功；Windows PowerShell 下通过 `$env:CARGO_INCREMENTAL = '0'` 关闭本次增量缓存。
 - 产物：`D:\code\peri\target\debug\cc-code.exe`，66,398,208 字节；`--version` 与 `--help` 均退出 0，版本输出为 `cc-code 0.2.0`（沿用 workspace 版本，未修改 npm 发版号）。
 - SHA-256：`F18E042E31854A99072E7EACEF1B00DBE5B005F173056F31B0B6369A4C98C683`。
 - 当前发现的运行实例来自 npm 安装目录以及 `D:\code\cc-code\target\debug\cc-code.exe`，并非本工作区；没有覆盖、停止或重启它们。

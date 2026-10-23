@@ -16,7 +16,7 @@
 
 ## 根因定位
 
-1. **直接触发点**：`peri-tui/src/main.rs:1114`
+1. **直接触发点**：`cc-tui/src/main.rs:1114`
    ```rust
    #[cfg(windows)]
    if terminal.backend_mut().refresh_widths() {
@@ -27,7 +27,7 @@
    }
    ```
 2. **深层原因（子进程与宿主控制台未隔离）**：
-   - `peri-tui/src/shell_exec.rs` 及 `peri-middlewares/src/process/mod.rs` 中使用 `tokio::process::Command` 启动 Windows 子进程时，未显式指定 `cmd.creation_flags(0x08000000)`（`CREATE_NO_WINDOW`），子进程与父进程 TUI 共享同一个控制台会话（Console Session）。
+   - `cc-tui/src/shell_exec.rs` 及 `cc-middlewares/src/process/mod.rs` 中使用 `tokio::process::Command` 启动 Windows 子进程时，未显式指定 `cmd.creation_flags(0x08000000)`（`CREATE_NO_WINDOW`），子进程与父进程 TUI 共享同一个控制台会话（Console Session）。
    - Windows 平台下的 `php.exe`（及其依赖的 `php7.dll` / `php8.dll` 的 `win32/console.c` 与 `readline` 扩展）在启动和执行过程中，会显式调用 Win32 API `SetConsoleOutputCP` / `SetConsoleCP` 修改控制台代码页。
    - 父进程 TUI 主循环在每一帧 `draw_app` 时通过 `refresh_widths()` 检测到控制台代码页发生变化（`ConsoleFingerprint` 不一致），判定终端配置被篡改，触发自愈保护机制调用 `terminal.clear()` 物理清屏（`\x1b[2J`），导致整屏瞬间黑白闪烁。
    - 而 Python 在 Windows 下的运行时库不包含此类侵入式控制台代码页修改逻辑，因此 Python 执行时完全平稳。
@@ -45,10 +45,10 @@
 
 ## 涉及文件
 
-- `peri-tui/src/main.rs` —— `draw_app` 中的 `terminal.clear()` 物理清屏调用
-- `peri-tui/src/terminal_backend/windows.rs` —— `ConsoleFingerprint::read()` 与 `refresh_widths()`
-- `peri-tui/src/shell_exec.rs` —— Windows 子进程 spawn 缺少 `CREATE_NO_WINDOW` 隔离标志
-- `peri-middlewares/src/process/mod.rs` —— `shell_command_cmd` 子进程参数与属性设置
+- `cc-tui/src/main.rs` —— `draw_app` 中的 `terminal.clear()` 物理清屏调用
+- `cc-tui/src/terminal_backend/windows.rs` —— `ConsoleFingerprint::read()` 与 `refresh_widths()`
+- `cc-tui/src/shell_exec.rs` —— Windows 子进程 spawn 缺少 `CREATE_NO_WINDOW` 隔离标志
+- `cc-middlewares/src/process/mod.rs` —— `shell_command_cmd` 子进程参数与属性设置
 
 ## 状态变更记录
 

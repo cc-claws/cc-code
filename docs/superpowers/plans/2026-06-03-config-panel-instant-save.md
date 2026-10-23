@@ -13,7 +13,7 @@
 ### Task 1: Extract `is_text_row` helper + `save_config_now` free function
 
 **Files:**
-- Modify: `peri-tui/src/app/config_panel.rs`
+- Modify: `cc-tui/src/app/config_panel.rs`
 
 - [ ] **Step 1: Add `is_text_row` function**
 
@@ -37,15 +37,15 @@ fn save_config_now(panel: &mut ConfigPanel, ctx: &mut PanelContext<'_>) {
 }
 ```
 
-- [ ] **Step 2: Run `cargo check -p peri-tui` 确认编译通过**
+- [ ] **Step 2: Run `cargo check -p cc-tui` 确认编译通过**
 
-Run: `cargo check -p peri-tui 2>&1 | tail -5`
+Run: `cargo check -p cc-tui 2>&1 | tail -5`
 Expected: 编译成功（新函数尚未被调用）
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/app/config_panel.rs
+git add cc-tui/src/app/config_panel.rs
 git commit -m "refactor(tui): extract is_text_row + save_config_now helpers"
 ```
 
@@ -54,7 +54,7 @@ git commit -m "refactor(tui): extract is_text_row + save_config_now helpers"
 ### Task 2: Rewrite `handle_key` — toggle rows save immediately
 
 **Files:**
-- Modify: `peri-tui/src/app/config_panel.rs`
+- Modify: `cc-tui/src/app/config_panel.rs`
 
 - [ ] **Step 1: 改造 Space 分支 — 布尔/选择字段切换后立即保存**
 
@@ -144,15 +144,15 @@ Input {
 }
 ```
 
-- [ ] **Step 4: Run `cargo check -p peri-tui` 确认编译通过**
+- [ ] **Step 4: Run `cargo check -p cc-tui` 确认编译通过**
 
-Run: `cargo check -p peri-tui 2>&1 | tail -5`
+Run: `cargo check -p cc-tui 2>&1 | tail -5`
 Expected: 编译成功
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-tui/src/app/config_panel.rs
+git add cc-tui/src/app/config_panel.rs
 git commit -m "feat(tui): config panel toggle fields save immediately"
 ```
 
@@ -161,7 +161,7 @@ git commit -m "feat(tui): config panel toggle fields save immediately"
 ### Task 3: Rewrite `handle_key` — Up/Down blur-save, Esc save-and-close, Enter no-op
 
 **Files:**
-- Modify: `peri-tui/src/app/config_panel.rs`
+- Modify: `cc-tui/src/app/config_panel.rs`
 
 - [ ] **Step 1: 改造 Up 分支 — 离开文本字段时先保存**
 
@@ -214,15 +214,15 @@ Input { key: Key::Esc, .. } => {
 }
 ```
 
-- [ ] **Step 5: Run `cargo check -p peri-tui` 确认编译通过**
+- [ ] **Step 5: Run `cargo check -p cc-tui` 确认编译通过**
 
-Run: `cargo check -p peri-tui 2>&1 | tail -5`
+Run: `cargo check -p cc-tui 2>&1 | tail -5`
 Expected: 编译成功
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-tui/src/app/config_panel.rs
+git add cc-tui/src/app/config_panel.rs
 git commit -m "feat(tui): config panel blur-save on Up/Down/Esc, Enter is no-op"
 ```
 
@@ -231,7 +231,7 @@ git commit -m "feat(tui): config panel blur-save on Up/Down/Esc, Enter is no-op"
 ### Task 4: Mouse click blur-save
 
 **Files:**
-- Modify: `peri-tui/src/app/config_panel.rs`
+- Modify: `cc-tui/src/app/config_panel.rs`
 
 - [ ] **Step 1: 在 `handle_mouse` 中，点击新行之前先保存当前文本字段**
 
@@ -274,15 +274,15 @@ fn handle_mouse(
 
 注意：`handle_mouse` 的签名中 `ctx` 参数名是 `_ctx`，保持不变。
 
-- [ ] **Step 2: Run `cargo check -p peri-tui` 确认编译通过**
+- [ ] **Step 2: Run `cargo check -p cc-tui` 确认编译通过**
 
-Run: `cargo check -p peri-tui 2>&1 | tail -5`
+Run: `cargo check -p cc-tui 2>&1 | tail -5`
 Expected: 编译成功
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/app/config_panel.rs
+git add cc-tui/src/app/config_panel.rs
 git commit -m "feat(tui): config panel mouse click triggers blur-save"
 ```
 
@@ -295,12 +295,12 @@ git commit -m "feat(tui): config panel mouse click triggers blur-save"
 
 - [ ] **Step 1: 运行 config_panel 单元测试**
 
-Run: `cargo test -p peri-tui --lib config_panel_test 2>&1`
+Run: `cargo test -p cc-tui --lib config_panel_test 2>&1`
 Expected: 全部 PASS（现有测试不依赖 handle_key，测试的是 `ConfigPanel` struct 方法）
 
 - [ ] **Step 2: 运行 clippy**
 
-Run: `cargo clippy -p peri-tui 2>&1 | tail -10`
+Run: `cargo clippy -p cc-tui 2>&1 | tail -10`
 Expected: 无新 warning
 
 - [ ] **Step 3: Commit（如有修复）**

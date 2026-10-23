@@ -55,9 +55,9 @@
 |------|------|--------------|----------|
 | A | `D:\code\peri\CLAUDE.md`（存在） | 无 | ✅ 正常返回文件内容 |
 | B | `D:\code\peri\not_exist_at_all.txt`（不存在） | 无 | ✅ 正常报 `Error: File not found at ...` |
-| C | `D:\code\peri\peri-widgets\src\markdown\render_state.rs`（存在） | offset=460, limit=220 | ❌ `clean — nothing to commit` |
+| C | `D:\code\peri\cc-widgets\src\markdown\render_state.rs`（存在） | offset=460, limit=220 | ❌ `clean — nothing to commit` |
 | D | 同 C 文件（重试，参数 offset=460, limit=200） | 有 | ❌ `clean — nothing to commit` |
-| E | `D:\code\peri\peri-tui\src\ui\message_render.rs`（存在） | offset=660, limit=100 | ❌ `clean — nothing to commit` |
+| E | `D:\code\peri\cc-tui\src\ui\message_render.rs`（存在） | offset=660, limit=100 | ❌ `clean — nothing to commit` |
 | F | C 文件（会话后期再次复测 offset=460, limit=60） | 有 | ❌ `clean — nothing to commit` |
 
 ### 现象特征
@@ -71,7 +71,7 @@
 
 以下为排查过程中可直接观察到的事实，供定位参考（不含根因结论）：
 
-1. **调用参数与 peri 源码 schema 一致**：`peri-middlewares/src/tools/filesystem/read.rs` 中 Read 工具 schema 为 `file_path`(string, REQUIRED) + `offset`(integer) + `limit`(integer)；实测调用传参名称、类型与之严格一致（file_path 为真实存在的绝对路径，offset/limit 为正整数）
+1. **调用参数与 peri 源码 schema 一致**：`cc-middlewares/src/tools/filesystem/read.rs` 中 Read 工具 schema 为 `file_path`(string, REQUIRED) + `offset`(integer) + `limit`(integer)；实测调用传参名称、类型与之严格一致（file_path 为真实存在的绝对路径，offset/limit 为正整数）
 2. **Read 工具实现代码中不存在产生该文案的分支**：`read.rs` 的 invoke 实现正常路径返回 `cat -n` 格式文本、错误路径返回 `Err(message)`，无任何路径输出 `clean — nothing to commit`
 3. **该文案在 peri 全仓库源码中不存在**：全仓库搜索 `nothing to commit` 仅 `output_filter.rs:31` 一处（`filter_git_status` 过滤器，作用是把 `nothing to commit, working tree clean` 从 git status 输出中**剔除**，属 Bash 命令输出路径），与 Read 工具返回通道无代码交集
 4. **当前 agent 运行时与 peri 同源**：会话中 Read 工具的英文描述与 `read.rs` 的 `READ_FILE_DESCRIPTION` 逐字一致
@@ -82,7 +82,7 @@
 
 原「现象特征」第 1 条写「确定性触发条件：Read + offset/limit 组合，100% 复现」，原「复现条件」第 2 步写「offset + limit（**任意正整数取值**）」。2026-09-23 在另一会话复测，两条描述均不准确，修正如下。
 
-**实验矩阵（同一文件 `peri-tui/src/event/mod.rs`，1266 行）**
+**实验矩阵（同一文件 `cc-tui/src/event/mod.rs`，1266 行）**
 
 | offset | limit | 结果 |
 |--------|-------|------|
@@ -116,7 +116,7 @@
 
 原观察称「全仓库搜索 `nothing to commit` 仅 `output_filter.rs:31` 一处」，并据此将该过滤器与异常关联。2026-09-23 复核结果一致，但**文案形态不同**：
 
-- `peri-middlewares/src/tools/output_filter.rs:31`：`"nothing to commit, working tree clean"`（逗号分隔）
+- `cc-middlewares/src/tools/output_filter.rs:31`：`"nothing to commit, working tree clean"`（逗号分隔）
 - 异常返回：`"clean — nothing to commit"`（破折号分隔、词序颠倒）
 
 两者不是同一字符串，不能据此认定同源。异常文案在 peri 全仓库源码中仍无出处。
@@ -136,9 +136,9 @@
 
 ## 涉及文件
 
-- `peri-middlewares/src/tools/filesystem/read.rs` —— peri 仓库中 Read 工具的实现（参数 schema + invoke）。排查时已核对：schema 与调用方传参一致；实现代码中不存在返回该文案的路径
-- `peri-middlewares/src/tools/output_filter.rs` —— 全仓库唯一包含 "nothing to commit" 字样代码的位置（git status 输出噪音过滤器，Bash 输出路径，与 Read 无交集）
-- `peri-middlewares/src/tools/filesystem/read.rs:173,226-234` —— 分页逻辑（`offset` 解析、越界判断、`start/end` 切片）。2026-09-23 复核：正常路径返回 `cat -n` 格式文本，无该文案分支
+- `cc-middlewares/src/tools/filesystem/read.rs` —— peri 仓库中 Read 工具的实现（参数 schema + invoke）。排查时已核对：schema 与调用方传参一致；实现代码中不存在返回该文案的路径
+- `cc-middlewares/src/tools/output_filter.rs` —— 全仓库唯一包含 "nothing to commit" 字样代码的位置（git status 输出噪音过滤器，Bash 输出路径，与 Read 无交集）
+- `cc-middlewares/src/tools/filesystem/read.rs:173,226-234` —— 分页逻辑（`offset` 解析、越界判断、`start/end` 切片）。2026-09-23 复核：正常路径返回 `cat -n` 格式文本，无该文案分支
 - ~~**待排查（2026-09-23 补充）**：Read 与 Bash 共用的工具结果传递/调度层；以及 `offset >= 100` 阈值所对应的分支（阈值 100 在源码中无对应常量）~~ ⚠️ 已作废（该复测观察不成立，见文首撤回说明）
 
 ## 现象边界（留给排查方向）

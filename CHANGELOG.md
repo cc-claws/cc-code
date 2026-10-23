@@ -8,10 +8,35 @@ Perihelion Agent 版本变更记录。
 
 ### Fixes
 
-- **Bash 执行状态 L1（#675）**：工具块使用显式执行阶段，空输出完成后显示 `Done`（详细模式为 `(No output)`），不再保留运行指示。显式 timeout 以 `Running… (Ns · timeout Nm)` 展示，并在完成结果底部保留尾注；后台化提示使用悬挂缩进，子 Agent 不显示该快捷键。历史恢复一律为完成态。
 - **Bash 排队与审批 L2（#675）**：工具审批前先显示 `Waiting…`，人工审批按调用 ID 精确显示 `Waiting for permission…`。取消或拒绝直接闭合工具块，并发结果保持原始调用顺序；同批排队与开始事件只发布最终阶段。增量状态不写入模型历史，print 与 stdio 忽略排队事件，Write 快照仍在批准后的 ToolStart 采集。
 
----
+## v0.6.182 — 2026-10-22
+
+### Fixes
+
+- **OSC 8 注入改到输出层，修掉「链接后面整行文字不落笔」（#671 真根因）**：`ratatui` 的 `Buffer::diff` 用 `symbol.width()` 判断一个 cell 占几列，并把后续 `width - 1` 个 cell 从差分里跳过不画。v0.6.178 把 `ESC]8;;URL BEL 文字 ESC]8;;BEL` 整段塞进 `Cell` symbol，而序列载荷（URL）是可打印字符——`width()` 因此等于 URL 长度，链接后面几十个 cell 被整段跳过。线上表现：URL 只剩首字母（`origin h`），紧随其后的文字错位或残留上一帧内容。现改为 buffer 只存纯文本，超链接在 `WidthSafeBackend` 写字节时按坐标查表包裹（`terminal_backend/hyperlink.rs`，线程局部、每帧重置）；附回归测试锁定「buffer 内不得出现转义序列」与「链接后面的 cell 必须照常落笔」。
+- **工具结果与 `!` 命令输出里的 URL 变成真超链接（#671 补全）**：v0.6.178 只给消息区的 Markdown 链接（`[文字](url)`）注入了 OSC 8，工具结果、`!` 命令输出、以及没有显示文字而退化成纯 URL 的链接仍是纯文本——终端不知道它是链接，悬停无下划线提示、Ctrl/Cmd+点击 无反应，鼠标单击也不会打开浏览器。同时这批 URL 被硬塞了 ANSI Cyan + 下划线，色号与修饰都与参考实现的 `createHyperlink`（`chalk.blue` + OSC 8、不加下划线）对不上。现在只在工具结果与 `!` 命令输出这两种消息里扫 `http(s)://` 并登记链接命中区（AI 正文、代码块与用户输入一律不参与，与参考实现的 `OutputLine` 口径一致），OSC 8 与点击命中共用同一份数据；`style_urls()` 随之删除，URL 改用亮蓝（`38;5;12`，不加人工下划线；参考实现源码为 `chalk.blue`=SGR 34，实测该终端下 34 偏深，12 号槽才与参考实现观感一致），悬停样式交给终端。识别口径不变（`find_url_ranges`，与参考实现 `OutputLine.tsx::URL_IN_JSON` 同源）。
+- **OSC 8 启用条件不再借道 ConPTY 悬停能力**：原门控用 `conpty::hover_available()`——它衡量的是「宿主是否上报 ConPTY 鼠标悬停事件」，与「终端是否支持 OSC 8」并不等价，VS Code 集成终端、tmux、SSH 远端等会被判 false，于是连正文里的 Markdown 链接也点不动。改为默认开启，仅 `DISABLE_HYPERLINKS` 显式关闭；不认 OSC 8 的终端会丢弃该序列。
+
+## v0.6.181 — 2026-10-22
+
+### Fixes
+
+- **运行中 Bash 的计时与指示器不再被事件流饿死（#683）**：长时间运行且期间无输出的命令，`Running… (Xs)` 秒数会停在某个值不再增长，块首 `●` 动画同时冻结，只有按 `Ctrl+O` 这类改变渲染键的操作才让它跳一次。根因是渲染线程每轮循环都重新创建 200ms 的 `sleep`：只要事件间隔短于 200ms（流式输出、每帧视口上报），sleep 就在到期前被 `rx.recv()` 抢先并丢弃，tick 一次都执行不到；而 `rebuild` 补不上这个洞——渲染键 = `content_hash ⊕ detail/diff 标志`，不含流逝时间，内容不变时直接复用旧行。现改为跨事件单调推进的 `tick_deadline` + `sleep_until`，`select!` 加 `biased` 保证 deadline 到期时 tick 分支优先被选中；`live` 转 false 时重置 deadline，避免积压后连发。新增回归用例 `test_worker_tick_not_starved_by_viewport_flood`，在 50ms 间隔的视口事件下断言秒数持续刷新。
+- **发版重跑时 tag 存在性改走远程判断（#682）**：重跑 release 流程时不再用本地状态判断 `npm-v*` tag 是否已存在，改查远程，避免本地残缺状态误判导致重复打 tag 或漏发。
+
+## v0.6.180 — 2026-10-22
+
+### Fixes
+
+- **Bash 执行状态 L1（#675）**：工具块使用显式执行阶段，空输出完成后显示 `Done`（详细模式为 `(No output)`），不再保留运行指示。显式 timeout 以 `Running… (Ns · timeout Nm)` 展示，并在完成结果底部保留尾注；后台化提示使用悬挂缩进，子 Agent 不显示该快捷键。历史恢复一律为完成态。
+- **npm 发布校验等待 registry 异步处理（#680）**：v0.6.179 的发布在校验环节因 registry 尚未同步完成而中断；现发布校验改为等待 registry 异步处理完成后再确认结果。
+
+## v0.6.179 — 2026-10-22
+
+### Changed
+
+- **npm 二进制改由平台可选依赖分发，去掉安装脚本（#678）**：主包 `@cc-claw/code` 不再在安装期执行脚本下载二进制。二进制拆成五个平台包（`@cc-claw/code-win32-x64`、`@cc-claw/code-darwin-x64`、`@cc-claw/code-darwin-arm64`、`@cc-claw/code-linux-x64`、`@cc-claw/code-linux-arm64`），经主包 `optionalDependencies` 引用，npm 按宿主 `os`/`cpu` 只装对应一个；`bin/cc-code` 启动器从平台包内定位并拉起二进制。安装过程除 npm registry 外不访问网络，也不执行任何安装脚本。
 
 ## v0.6.178 — 2026-10-22
 
@@ -29,7 +54,7 @@ Perihelion Agent 版本变更记录。
 
 ### Fixes
 
-- **`.md` 文件在 Write/Edit 预览中不再染色（#669）**：此前 `.md` 内容会按 Markdown 语法着色，标题与粗体出现明显颜色；而 Claude Code 对同类文件没有任何可见着色——它虽然把 `md` 识别为 markdown，但 highlight.js 对 Markdown 只产出 `section` / `strong` scope，CC 的三套主题 scope 表均未映射这两个键，颜色回退到默认前景色，`.md` 与 `.txt` 的输出逐字节相同。现从 `EXTENSION_LANGS` 移除 `md` / `markdown` / `mdown` / `mkdn`，`.md` 按未识别语言回退纯文本，同时作用于 Write 新建预览与 Edit diff。新增回归测试 `test_render_new_file_code_md_falls_back_to_plain_text`，并把 `test_detect_language_by_extension` 的 `.md` 断言改为 `None`；同步更正 `code-highlight.md` 的语言识别规则与 2026-10-20 审计报告中的旧结论。
+- **`.md` 文件在 Write/Edit 预览中不再染色（#669）**：此前 `.md` 内容会按 Markdown 语法着色，标题与粗体出现明显颜色；而 参考实现 对同类文件没有任何可见着色——它虽然把 `md` 识别为 markdown，但 highlight.js 对 Markdown 只产出 `section` / `strong` scope，参考实现的三套主题 scope 表均未映射这两个键，颜色回退到默认前景色，`.md` 与 `.txt` 的输出逐字节相同。现从 `EXTENSION_LANGS` 移除 `md` / `markdown` / `mdown` / `mkdn`，`.md` 按未识别语言回退纯文本，同时作用于 Write 新建预览与 Edit diff。新增回归测试 `test_render_new_file_code_md_falls_back_to_plain_text`，并把 `test_detect_language_by_extension` 的 `.md` 断言改为 `None`；同步更正 `code-highlight.md` 的语言识别规则与 2026-10-20 审计报告中的旧结论。
 
 ---
 
@@ -37,13 +62,13 @@ Perihelion Agent 版本变更记录。
 
 ### UI / Style
 
-- **Markdown 渲染全面对齐 Claude Code（#666）**：此前 Markdown 的标题配色、列表编号、引用条、分隔线、行内代码与表格框线均与 Claude Code 有肉眼可见的差异，同一条回复在两边长得不像。现逐项对齐：① 标题 H1 为 `BOLD|ITALIC|UNDERLINED`、H2 及以下仅 `BOLD`，且**不再带前景色**；② 无序列表统一 `- `，有序列表按嵌套深度在「数字 / 字母 / 罗马数字」间切换；③ 引用块 `▎` 用 DIM、正文用 ITALIC，行首空格不带样式；④ 分隔线渲染为 `---` 且无颜色，删除线关闭；⑤ 行内代码改用 `Theme::permission()`（dark 下 `#B1B9F9`）作前景色；⑥ 链接在没有 OSC 8 支持时显示纯 URL 且不带样式，`mailto:` 显示为邮箱地址；图片输出其 URL。
+- **Markdown 渲染全面对齐参考实现（#666）**：此前 Markdown 的标题配色、列表编号、引用条、分隔线、行内代码与表格框线均与 参考实现 有肉眼可见的差异，同一条回复在两边长得不像。现逐项对齐：① 标题 H1 为 `BOLD|ITALIC|UNDERLINED`、H2 及以下仅 `BOLD`，且**不再带前景色**；② 无序列表统一 `- `，有序列表按嵌套深度在「数字 / 字母 / 罗马数字」间切换；③ 引用块 `▎` 用 DIM、正文用 ITALIC，行首空格不带样式；④ 分隔线渲染为 `---` 且无颜色，删除线关闭；⑤ 行内代码改用 `Theme::permission()`（dark 下 `#B1B9F9`）作前景色；⑥ 链接在没有 OSC 8 支持时显示纯 URL 且不带样式，`mailto:` 显示为邮箱地址；图片输出其 URL。
 
-- **表格对齐 Claude Code `MarkdownTable` 框线表（#666）**：新增 `MIN_COLUMN_WIDTH=3`、`SAFETY_MARGIN=4`、`MAX_ROW_LINES=4` 三项约束，列宽由「最长单词宽（下限）/ 整格内容宽（理想）」计算后再分配，表头居中并在**每行之间**补齐 `├─┼─┤` 分隔线；单元格内折行按 grapheme 逐个保留行内样式，断点语义对齐 `wrap-ansi` 的 hard 折行。内容超出行数上限或可用宽度不足时回退为纵向键值渲染，避免窄终端下把表格挤成乱码。
+- **表格对齐参考实现 `MarkdownTable` 框线表（#666）**：新增 `MIN_COLUMN_WIDTH=3`、`SAFETY_MARGIN=4`、`MAX_ROW_LINES=4` 三项约束，列宽由「最长单词宽（下限）/ 整格内容宽（理想）」计算后再分配，表头居中并在**每行之间**补齐 `├─┼─┤` 分隔线；单元格内折行按 grapheme 逐个保留行内样式，断点语义对齐 `wrap-ansi` 的 hard 折行。内容超出行数上限或可用宽度不足时回退为纵向键值渲染，避免窄终端下把表格挤成乱码。
 
 ### Tests
 
-- **新增 Markdown 渲染对拍基线与 126 例金标准（#666）**：新增 `cc-widgets/tests/cc_markdown_parity.rs` 与 `fixtures/cc_markdown_golden.json`，逐 grapheme 比对纯文本与归一化样式标签（`b/i/u/d/s` 与 `#rrggbb`），用同一套用例验证本项目与 Claude Code 的表现一致；14 项已知偏离单独登记，并额外校验「实义字符一致」与「行宽不超过渲染宽度」两条不变式。同时新增 `examples/md_dump.rs` 与 `docs/markdown-verify.md` 便于人工比对。
+- **新增 Markdown 渲染对拍基线与 126 例金标准（#666）**：新增 `cc-widgets/tests/cc_markdown_parity.rs` 与 `fixtures/cc_markdown_golden.json`，逐 grapheme 比对纯文本与归一化样式标签（`b/i/u/d/s` 与 `#rrggbb`），用同一套用例验证本项目与 参考实现 的表现一致；14 项已知偏离单独登记，并额外校验「实义字符一致」与「行宽不超过渲染宽度」两条不变式。同时新增 `examples/md_dump.rs` 与 `docs/markdown-verify.md` 便于人工比对。
 
 ### Refactor
 
@@ -109,7 +134,7 @@ Perihelion Agent 版本变更记录。
 
 ### Fixes
 
-- **工具结果与 `!` 命令输出里的 URL 链接色定稿为 ANSI Cyan（#649）**：此前裸 URL 用 `theme::cur().ide`（深色 `#4782C8`），随 `/theme` 切换漂移，且与正文 `text_soft` 明度接近，扫读时难以快速定位。现 `message_render/mod.rs::style_urls()` 固定用 `Color::Cyan` + 下划线，不随主题切换，与状态栏模型名 / 分支名同一口径。覆盖两个调用点：`format_prefixed_text()`（Bash / Read / Grep / Glob 等所有走 `⎿` 前缀的工具结果行）与 `format_shell_output_lines()`（用户 `!命令` 输出）。识别口径对齐 CC `OutputLine.tsx::URL_IN_JSON`，额外切掉句末 `)` `]` `}` `,` `;` `.` `:`；仍非 OSC 8 真超链接（ratatui cell 模型塞不了转义序列，`sanitize_display_text()` 会剥 `\x1b`），点击由终端自身 URL 识别提供。注意与 Markdown 链接区分：AI 回复正文里的 `[text](url)` 走 `theme.link()` = SAGE `#4EBA65`，不受本改动影响。
+- **工具结果与 `!` 命令输出里的 URL 链接色定稿为 ANSI Cyan（#649）**：此前裸 URL 用 `theme::cur().ide`（深色 `#4782C8`），随 `/theme` 切换漂移，且与正文 `text_soft` 明度接近，扫读时难以快速定位。现 `message_render/mod.rs::style_urls()` 固定用 `Color::Cyan` + 下划线，不随主题切换，与状态栏模型名 / 分支名同一口径。覆盖两个调用点：`format_prefixed_text()`（Bash / Read / Grep / Glob 等所有走 `⎿` 前缀的工具结果行）与 `format_shell_output_lines()`（用户 `!命令` 输出）。识别口径对齐参考实现 `OutputLine.tsx::URL_IN_JSON`，额外切掉句末 `)` `]` `}` `,` `;` `.` `:`；仍非 OSC 8 真超链接（ratatui cell 模型塞不了转义序列，`sanitize_display_text()` 会剥 `\x1b`），点击由终端自身 URL 识别提供。注意与 Markdown 链接区分：AI 回复正文里的 `[text](url)` 走 `theme.link()` = SAGE `#4EBA65`，不受本改动影响。
 
 ---
 
@@ -125,11 +150,11 @@ Perihelion Agent 版本变更记录。
 
 ### Features
 
-- **Bash 输出 JSON 逐行美化（OutputLine 装饰器，对齐 CC `OutputLine`）**：新增 `cc-tui/src/ui/message_render/decorators/output_line.rs`，Bash / MCP 工具结果统一过这一层：逐行尝试 JSON 美化——单行 JSON 展开为 2 空格缩进；带精度守卫（紧凑重序列化与原文去空白后不一致即放弃美化，避免大整数被降级、`1.10` 被改写等伪造输出）；顶层非 `{` / `[` 的行走快速路径跳过解析；整段超过 10,000 字符跳过美化。折行与截断口径同步统一：按显示宽度预折行、每行 `trimEnd`、折叠态只显示前 3 行 + `… +N lines (ctrl+o to expand)`。
+- **Bash 输出 JSON 逐行美化（OutputLine 装饰器，对齐参考实现 `OutputLine`）**：新增 `cc-tui/src/ui/message_render/decorators/output_line.rs`，Bash / MCP 工具结果统一过这一层：逐行尝试 JSON 美化——单行 JSON 展开为 2 空格缩进；带精度守卫（紧凑重序列化与原文去空白后不一致即放弃美化，避免大整数被降级、`1.10` 被改写等伪造输出）；顶层非 `{` / `[` 的行走快速路径跳过解析；整段超过 10,000 字符跳过美化。折行与截断口径同步统一：按显示宽度预折行、每行 `trimEnd`、折叠态只显示前 3 行 + `… +N lines (ctrl+o to expand)`。
 
 ### Fixes
 
-- **diff 删除行三档配色、工具路径按 CC 显示、状态栏 Edit 命名**：diff 删除行改为三档深浅配色区分删除强度；工具调用中的文件路径按 CC 口径显示；状态栏把 Edit 操作显示为 `Edit`，不再误写为 `Update`。
+- **diff 删除行三档配色、工具路径按参考实现显示、状态栏 Edit 命名**：diff 删除行改为三档深浅配色区分删除强度；工具调用中的文件路径按参考实现口径显示；状态栏把 Edit 操作显示为 `Edit`，不再误写为 `Update`。
 
 ---
 
@@ -149,13 +174,13 @@ Perihelion Agent 版本变更记录。
 
 ### Features
 
-- **diff 与 markdown 渲染对齐 CC（PR #638）**：diff 渲染新增逐行语法高亮（syntect；语法集换用 bat 的 two_face 集合，语言覆盖 75 → 220；新增 Monokai Extended dark / light 主题对齐 CC diff 配色），删除行配三档底色与词级高亮；markdown 块间空行改为只来自源文本（块级元素不再无条件补空行），收敛全量重建入口。配套领域文档与审计台账见 `docs/2026-10-20-diff-highlight-alignment-audit.md`。
-- **候选浮层运行中交互对齐 CC useTypeahead（Agent 运行时浮层可操作）**：此前 Agent 运行中（loading）时斜杠命令/Skills 候选浮层只渲染不响应——`↑`/`↓`/`Tab` 被 `!loading` 守卫挡掉，「看得到列表却选不动」。现对齐 CC `useTypeahead.tsx` 语义：`↑`/`↓`/`Tab` 在候选存在时即可导航（不再按 loading 分流，`Tab` 同时避免运行中落入通用分支插入字面 Tab 字符）；`Enter` 仅在用户已通过 Tab/↑/↓ 明确选中候选时执行补全（只改输入框文本不提交），未选中时保持既有语义走 `handle_busy_input` 入队；`Esc` 分层关闭——先关候选浮层（不中断 Agent，`@` 提及弹窗关闭优先级同步前移与渲染一致），再按一次才中断运行，关闭时记录 `hint_dismissed_for` 抑制位，输入文本不变不再弹、编辑后自动恢复；`↓` 优先级调整为候选浮层导航 > 后台 shell 入口聚焦 > @ 提及导航 > 滚动消息区，解决「有后台 shell + 输入 `/xxx` 时浮层选不动」。涉及 `cc-tui/src/event/keyboard/normal_keys.rs`、`cc-tui/src/app/hint_ops.rs`、`ui_state.rs`（新增 `hint_dismissed_for`）。
+- **diff 与 markdown 渲染对齐参考实现（PR #638）**：diff 渲染新增逐行语法高亮（syntect；语法集换用 bat 的 two_face 集合，语言覆盖 75 → 220；新增 Monokai Extended dark / light 主题对齐参考实现 diff 配色），删除行配三档底色与词级高亮；markdown 块间空行改为只来自源文本（块级元素不再无条件补空行），收敛全量重建入口。配套领域文档与审计台账见 `docs/2026-10-20-diff-highlight-alignment-audit.md`。
+- **候选浮层运行中交互对齐参考实现 useTypeahead（Agent 运行时浮层可操作）**：此前 Agent 运行中（loading）时斜杠命令/Skills 候选浮层只渲染不响应——`↑`/`↓`/`Tab` 被 `!loading` 守卫挡掉，「看得到列表却选不动」。现对齐参考实现 `useTypeahead.tsx` 语义：`↑`/`↓`/`Tab` 在候选存在时即可导航（不再按 loading 分流，`Tab` 同时避免运行中落入通用分支插入字面 Tab 字符）；`Enter` 仅在用户已通过 Tab/↑/↓ 明确选中候选时执行补全（只改输入框文本不提交），未选中时保持既有语义走 `handle_busy_input` 入队；`Esc` 分层关闭——先关候选浮层（不中断 Agent，`@` 提及弹窗关闭优先级同步前移与渲染一致），再按一次才中断运行，关闭时记录 `hint_dismissed_for` 抑制位，输入文本不变不再弹、编辑后自动恢复；`↓` 优先级调整为候选浮层导航 > 后台 shell 入口聚焦 > @ 提及导航 > 滚动消息区，解决「有后台 shell + 输入 `/xxx` 时浮层选不动」。涉及 `cc-tui/src/event/keyboard/normal_keys.rs`、`cc-tui/src/app/hint_ops.rs`、`ui_state.rs`（新增 `hint_dismissed_for`）。
 - **「立即补充」（steer）遇前台命令 2 秒宽限期后自动转后台**：此前前台 Bash 命令阻塞时 steering 注入永远轮不到（只在本轮 LLM 调用前 drain）。现点「立即补充」时若恰有一条前台命令在跑，先登记 2 秒宽限期（`STEER_FOREGROUND_GRACE`，短命令如 `ls`/`git status` 自行结束即收口）；宽限期到仍在前台则自动移交后台（等价替用户按 `Ctrl+B`）并提示「前台命令已转入后台，补充信息将立即生效」（locale `queue-steer-backgrounded`）；多条前台并行不自动选择，与 `Ctrl+B` 行为一致；重复点不重置计时器。涉及 `cc-tui/src/app/shell_command.rs`、`queued_messages.rs`、`ui_state.rs`（新增 `SteerForegroundGrace`）。
 
 ### UI
 
-- **状态栏权限模式标签增加 `⏵⏵` 前缀符号**：对齐 CC `PermissionMode.ts` 的 symbol 字段，`auto`/`bypass` 标签前显示 `⏵⏵`（`cc-tui/src/ui/main_ui/status_bar.rs`）。
+- **状态栏权限模式标签增加 `⏵⏵` 前缀符号**：对齐参考实现 `PermissionMode.ts` 的 symbol 字段，`auto`/`bypass` 标签前显示 `⏵⏵`（`cc-tui/src/ui/main_ui/status_bar.rs`）。
 - **状态栏行首缩进与工具段截断收敛**，抽屉未选中行配色对齐提示行。
 
 ### Fixes
@@ -353,7 +378,7 @@ Perihelion Agent 版本变更记录。
 
 ### Features
 
-- **输入框内 `/command` 高亮对齐 Claude Code（#529）**：输入框由 tui-textarea 整块渲染且只设单一前景色，命令文本与正文同色，于是出现「从提示浮层补全命令后强调色丢失」的观感。现按 Claude Code `findSlashCommandPositions` 的同一规则扫描 `/command` token（`/` 前为行首或空白、其后首字符为 ASCII 字母、token 尾字符集 `[a-zA-Z0-9:-_]`），以 `custom_highlight` 上 suggestion 蓝（优先级低于光标与选区）；仅主输入框显示态生效，`!` shell 命令态跳过以免把 `/etc` 之类路径着色。规则与 CC 一致、不区分「已知命令」与路径，故行首的 `/usr/bin` 会把 `/usr` 着色。
+- **输入框内 `/command` 高亮对齐参考实现（#529）**：输入框由 tui-textarea 整块渲染且只设单一前景色，命令文本与正文同色，于是出现「从提示浮层补全命令后强调色丢失」的观感。现按 参考实现 `findSlashCommandPositions` 的同一规则扫描 `/command` token（`/` 前为行首或空白、其后首字符为 ASCII 字母、token 尾字符集 `[a-zA-Z0-9:-_]`），以 `custom_highlight` 上 suggestion 蓝（优先级低于光标与选区）；仅主输入框显示态生效，`!` shell 命令态跳过以免把 `/etc` 之类路径着色。规则与参考实现一致、不区分「已知命令」与路径，故行首的 `/usr/bin` 会把 `/usr` 着色。
 
 ### Fixes
 
@@ -386,7 +411,7 @@ Perihelion Agent 版本变更记录。
 
 ### Features
 
-- **Spinner tips 调度对齐 Claude Code（#511）**：原 tip 是按渲染 tick 每约 3 秒无差别轮换 18 条文案，无 id、无冷却、无历史。现整体替换为 CC 的调度模型：每条 tip 有稳定 id 与会话冷却（内置 18 条沿用既有中英双语文案，冷却 10 个会话），每轮开始挑选一条并**扣留**、轮结束时才发布展示（每轮最多一条、轮内不换），挑选在冷却已满足者中取「距上次展示间隔会话数最长」者；展示历史按会话计数持久化到 `~/.cc-code/spinner-tips.json`。本轮运行超过 30 分钟时，调度的 tip 被 /clear 时间覆盖 tip 顶替（文案与 CC 一致）。新增配置 `spinner_tips_enabled`（缺省启用）与 `spinner_tips_override`（自定义条目：字符串或 `{id, text, cooldownSessions, priority}` 对象 + `tipsFile` 外部文件 + 自定义 `label` 前缀，schema 与 CC 的 spinnerTipsOverride 对齐，同 id 只保留首条）。注：cc-code 无 `/btw` 命令，CC 的 30 秒 btw 覆盖 tip 不移植。
+- **Spinner tips 调度对齐参考实现（#511）**：原 tip 是按渲染 tick 每约 3 秒无差别轮换 18 条文案，无 id、无冷却、无历史。现整体替换为 参考实现的调度模型：每条 tip 有稳定 id 与会话冷却（内置 18 条沿用既有中英双语文案，冷却 10 个会话），每轮开始挑选一条并**扣留**、轮结束时才发布展示（每轮最多一条、轮内不换），挑选在冷却已满足者中取「距上次展示间隔会话数最长」者；展示历史按会话计数持久化到 `~/.cc-code/spinner-tips.json`。本轮运行超过 30 分钟时，调度的 tip 被 /clear 时间覆盖 tip 顶替（文案与参考实现一致）。新增配置 `spinner_tips_enabled`（缺省启用）与 `spinner_tips_override`（自定义条目：字符串或 `{id, text, cooldownSessions, priority}` 对象 + `tipsFile` 外部文件 + 自定义 `label` 前缀，schema 与参考实现的 spinnerTipsOverride 对齐，同 id 只保留首条）。注：cc-code 无 `/btw` 命令，参考实现的 30 秒 btw 覆盖 tip 不移植。
 
 ### Fixes
 
@@ -396,16 +421,16 @@ Perihelion Agent 版本变更记录。
 
 ### Features
 
-- **Spinner 变色对齐 Claude Code（#510）**：删除自研的「时间热度四档」配色（思考越久动词越黄）——经 REA 对 Claude Code 2.1.300 二进制实证，CC 并无热度分档。动词改走 CC 的成对流光机制：底色 `claude` + 流光色 `claudeShimmer`，流光为 ±1 列窄带、50ms 步进、周期 = 文本宽 + 20、自左向右扫过；compact 态底色沿用 thinking 紫、流光保持默认对。新增**停滞转红**：无新 token 超过 10s 后流光熄火，动词与字形整体向 error 色平滑插值（再 10s 渐满、每 50ms 向目标靠拢 10%、新 token 到达立即清零、工具执行期间不触发）。状态词文案阶梯保留，配色改为 CC 的 thinkingIntensity（思考段超 10s 后自 inactive 向 warning 插值）。调色板同步删除 `spinner_heat_lv1..lv4` 扩展字段。
+- **Spinner 变色对齐参考实现（#510）**：删除自研的「时间热度四档」配色（思考越久动词越黄）——经 REA 对 参考实现 2.1.300 二进制实证，参考实现并无热度分档。动词改走参考实现的成对流光机制：底色 `claude` + 流光色 `claudeShimmer`，流光为 ±1 列窄带、50ms 步进、周期 = 文本宽 + 20、自左向右扫过；compact 态底色沿用 thinking 紫、流光保持默认对。新增**停滞转红**：无新 token 超过 10s 后流光熄火，动词与字形整体向 error 色平滑插值（再 10s 渐满、每 50ms 向目标靠拢 10%、新 token 到达立即清零、工具执行期间不触发）。状态词文案阶梯保留，配色改为 参考实现的 thinkingIntensity（思考段超 10s 后自 inactive 向 warning 插值）。调色板同步删除 `spinner_heat_lv1..lv4` 扩展字段。
 
-- **`/theme` 主题命令：7 套可切换配色，6 套与 claude-code-best 逐值一致**：此前 TUI 配色是编译期常量，无法切换。现将全部 UI 颜色抽成统一调色板（69 个与 Claude Code 相同的语义字段 + cc-code 扩展字段），渲染层 900 余处引用改走当前调色板：`default` 即现行配色（升级后默认外观不变）；`dark` / `light` / `light-daltonized` / `dark-daltonized` / `light-ansi` / `dark-ansi` 六套的名称与配色与 GitHub 仓库 claude-code-best/claude-code 的 `src/utils/theme.ts` **逐值一致**，由一致性测试逐字段断言锁定防漂移。`/theme` 打开选择面板——光标移动实时预览、Enter 确认、Esc 还原，与 Claude Code 的 ThemePicker 行为一致；`/theme <name>` 可直接切换；选择持久化到配置 `theme` 字段，重启自动恢复。cc-widgets 的 markdown / diff 渲染同步注入当前调色板，切主题时代码块与 diff 一并变色。补漏对齐：markdown 正文此前走 widgets 的静态默认主题、代码块语法高亮固定暗色 syntect 主题、输入框边框与状态栏图标（模型名/分支/上下文用量）、工具状态圆点等处仍是写死颜色——现已全部纳入调色板（语法高亮随主题明暗族在 base16-ocean 暗/亮之间切换，markdown 渲染缓存 key 含主题指纹、切换即失效），生产代码全量审计无写死颜色残留。
+- **`/theme` 主题命令：7 套可切换配色，6 套与参考源码逐值一致**：此前 TUI 配色是编译期常量，无法切换。现将全部 UI 颜色抽成统一调色板（69 个与 参考实现 相同的语义字段 + cc-code 扩展字段），渲染层 900 余处引用改走当前调色板：`default` 即现行配色（升级后默认外观不变）；`dark` / `light` / `light-daltonized` / `dark-daltonized` / `light-ansi` / `dark-ansi` 六套的名称与配色与参考源码的 `src/utils/theme.ts` **逐值一致**，由一致性测试逐字段断言锁定防漂移。`/theme` 打开选择面板——光标移动实时预览、Enter 确认、Esc 还原，与 参考实现 的 ThemePicker 行为一致；`/theme <name>` 可直接切换；选择持久化到配置 `theme` 字段，重启自动恢复。cc-widgets 的 markdown / diff 渲染同步注入当前调色板，切主题时代码块与 diff 一并变色。补漏对齐：markdown 正文此前走 widgets 的静态默认主题、代码块语法高亮固定暗色 syntect 主题、输入框边框与状态栏图标（模型名/分支/上下文用量）、工具状态圆点等处仍是写死颜色——现已全部纳入调色板（语法高亮随主题明暗族在 base16-ocean 暗/亮之间切换，markdown 渲染缓存 key 含主题指纹、切换即失效），生产代码全量审计无写死颜色残留。
 
 ## v0.6.139 — 2026-10-14
 
 ### Features
 
-- **自动记忆系统（Auto-Memory）对齐 CC 规范（#507）**：模型获得跨会话持久记忆，**纯文件架构、零专有工具**——系统提示词向模型呈现项目记忆目录，模型用通用的 `Write`/`Edit` 直接维护带四类型 YAML frontmatter 的 Markdown 记忆文件，并在入口索引 `MEMORY.md` 登记单行指针。索引有界（≤200 行且 ≤25KB，超限安全截断并追加 warning），与既有 `~/.claude/projects/`、`~/.cc-code/projects/` 记忆资产**双向兼容**。安全门为自动记忆路径设 carve-out 豁免，模型可自主读写记忆目录而不被受保护目录规则拦截；会话创建时冻结索引快照并置于动态边界之后，保障 Prompt Cache 前缀稳定；记忆路径在 TUI 中脱敏渲染。
-- **系统提示词静态段落对齐 Claude Code 的行为约束（#504）**：`01_intro` 新增「信息足够即行动」与 Corrections（只在会改变用户决策时纠正）；`03_doing_tasks` 新增 **Scope discipline**（不超出请求范围加功能/抽象、优先编辑现有文件、不为不可能场景加错误处理、删除无用代码而非留兼容垫片）；`04_actions` 新增授权与影响判定框架（破坏性/难逆/影响共享状态/上传第三方四类需确认，一次授权不跨上下文）；`06_tone_style` 明确「用户只看文本输出」与结果诚实性（声称完成须基于本次会话观察到的结果）。
+- **自动记忆系统（Auto-Memory）对齐参考实现 规范（#507）**：模型获得跨会话持久记忆，**纯文件架构、零专有工具**——系统提示词向模型呈现项目记忆目录，模型用通用的 `Write`/`Edit` 直接维护带四类型 YAML frontmatter 的 Markdown 记忆文件，并在入口索引 `MEMORY.md` 登记单行指针。索引有界（≤200 行且 ≤25KB，超限安全截断并追加 warning），与既有 `~/.claude/projects/`、`~/.cc-code/projects/` 记忆资产**双向兼容**。安全门为自动记忆路径设 carve-out 豁免，模型可自主读写记忆目录而不被受保护目录规则拦截；会话创建时冻结索引快照并置于动态边界之后，保障 Prompt Cache 前缀稳定；记忆路径在 TUI 中脱敏渲染。
+- **系统提示词静态段落对齐参考实现 的行为约束（#504）**：`01_intro` 新增「信息足够即行动」与 Corrections（只在会改变用户决策时纠正）；`03_doing_tasks` 新增 **Scope discipline**（不超出请求范围加功能/抽象、优先编辑现有文件、不为不可能场景加错误处理、删除无用代码而非留兼容垫片）；`04_actions` 新增授权与影响判定框架（破坏性/难逆/影响共享状态/上传第三方四类需确认，一次授权不跨上下文）；`06_tone_style` 明确「用户只看文本输出」与结果诚实性（声称完成须基于本次会话观察到的结果）。
 - **主 Agent 可按 `task_id` 取消后台子 Agent（`Agent(action="stop")`）**：此前用户下达「取消厦门那个子agent」时，主 Agent 只能回复「我没有停止子 Agent 的能力，请你自己按 x」——把本该由 Agent 完成的协调动作推给了用户。现扩展 `Agent` 工具（**不新增独立工具**）新增 `action`（`spawn` 默认 / `stop`）与 `task_id`：`action=stop` 时按 `task_id` 精确停止，底层复用 `BackgroundTaskRegistry::cancel()`（触发执行器 `CancellationToken`，让执行器正常发终态、落库、清理，不 abort 任务）。**只接受精确 `task_id`，不做任务名/描述模糊匹配**——兄弟任务描述常高度相似（「查询广州天气」/「查询厦门天气」），模糊匹配会停错对象。停止结果回给模型可读确认（`Stopped background task bg-xxx (任务摘要).`），使其能复述「已取消负责查询厦门天气的子 Agent」。
 - **`Agent` 工具 `prompt` 不再硬编码 required**：`action=stop` 时无需 `prompt`，若 schema 强制必填，模型会为通过校验而凭空编造一个 prompt。必填性下沉到 `invoke` 内按 `action` 分支校验（`spawn` 需 `prompt`，`stop` 需 `task_id`）。
 - **停止终态独立成行并区分发起方**：时间线不再把「被停止」混入 `finished`/`failed`，改为 `● Agent "x" was stopped by main Agent`（用户按键停止则 `stopped by user`）。抽屉行同步改为**红色实心 `●`**（`theme::ERROR`）+ 红色 `stopped by user|main Agent`，取代原橙色 `✗ stopped`——红实心比橙 `✗` 更醒目，用户一眼确认已停。
@@ -426,7 +451,7 @@ Perihelion Agent 版本变更记录。
 
 ### Features
 
-- **核心工具描述对齐 Claude Code 官方措辞（边界句 / NOT 反向枚举 / Write NEVER 语义）**：参照 Claude Code 官方工具描述（Piebald-AI/claude-code-system-prompts v2.1.299），仅搬运其中**无模板函数、不依赖我方缺失能力**的静态句子。① **Bash / WebFetch 改为 NOT 反向枚举**：Bash 原抽象句「优先用专用工具」展开为 6 条映射（读→`Read` NOT `cat`/`head`/`tail`；改→`Edit` NOT `sed`/`awk`；写→`Write` NOT `echo>`/`<<EOF`；内容检索→`Grep` NOT `grep`/`rg`；文件名检索→`Glob` NOT `find`/`ls`；回复用户→直接输出文本 NOT `echo`/`printf`）；WebFetch 新增「仅用于远程 http(s)，读本地用 `Read`、检索本地用 `Grep`/`Glob`、跑命令用 `Bash`，无点主机名（如 localhost）不支持」边界。② **补齐 `Grep`/`Read`/`TodoWrite`/`AskUserQuestion` 边界**：Grep 首行禁令「ALWAYS use Grep for content search. NEVER invoke `grep`/`rg` as a Bash command」（与 Bash 描述双向引导）；Read 补「只读文件不能列目录，列目录用 Glob、搜内容用 Grep」；TodoWrite 补「同一时刻只保留一个 `in_progress`，完成即标记而非批量更新」；AskUserQuestion 补「仅用于答案会改变后续动作的决策；存在约定默认值或可从代码库验证时，选显然项直接推进」。③ **`Write` 改为 CC 的 NEVER 语义**：原「任务或项目约定需要时创建文档」与 CC 方向相反，改为「NEVER create documentation files (\*.md) or README files unless explicitly requested by the user」——**行为语义变更：默认不再主动创建 `.md`/README，仅用户明确要求时创建**（副作用：agent 不再主动落库 spec 文档，属对齐 CC 的预期行为）。仅改描述文本，无代码逻辑变更。
+- **核心工具描述对齐参考实现官方措辞（边界句 / NOT 反向枚举 / Write NEVER 语义）**：参照参考实现的工具描述（v2.1.299 参考源码），仅搬运其中**无模板函数、不依赖我方缺失能力**的静态句子。① **Bash / WebFetch 改为 NOT 反向枚举**：Bash 原抽象句「优先用专用工具」展开为 6 条映射（读→`Read` NOT `cat`/`head`/`tail`；改→`Edit` NOT `sed`/`awk`；写→`Write` NOT `echo>`/`<<EOF`；内容检索→`Grep` NOT `grep`/`rg`；文件名检索→`Glob` NOT `find`/`ls`；回复用户→直接输出文本 NOT `echo`/`printf`）；WebFetch 新增「仅用于远程 http(s)，读本地用 `Read`、检索本地用 `Grep`/`Glob`、跑命令用 `Bash`，无点主机名（如 localhost）不支持」边界。② **补齐 `Grep`/`Read`/`TodoWrite`/`AskUserQuestion` 边界**：Grep 首行禁令「ALWAYS use Grep for content search. NEVER invoke `grep`/`rg` as a Bash command」（与 Bash 描述双向引导）；Read 补「只读文件不能列目录，列目录用 Glob、搜内容用 Grep」；TodoWrite 补「同一时刻只保留一个 `in_progress`，完成即标记而非批量更新」；AskUserQuestion 补「仅用于答案会改变后续动作的决策；存在约定默认值或可从代码库验证时，选显然项直接推进」。③ **`Write` 改为 参考实现的 NEVER 语义**：原「任务或项目约定需要时创建文档」与参考实现方向相反，改为「NEVER create documentation files (\*.md) or README files unless explicitly requested by the user」——**行为语义变更：默认不再主动创建 `.md`/README，仅用户明确要求时创建**（副作用：agent 不再主动落库 spec 文档，属对齐参考实现 的预期行为）。仅改描述文本，无代码逻辑变更。
 
 ### Fixes
 
@@ -730,7 +755,7 @@ Perihelion Agent 版本变更记录。
 
 - **HITL 预审批不再执行 rtk 二进制（#288）**：`gate_effective_call()` 为判断改写效果会在审批前执行外部 `rtk`（`verify_rtk_executable` 只校验 `--version` 退出码，PATH/RTK_PATH 劫持可致审批前代码执行）。现以纯字符串预测 `process::predict_rtk_rewrite()` 替代，零子进程；存在性检查 `rtk_rewrite_likely()` 替代 `--version` 探测；审批后的真实执行路径不变。另 `YOLO_MODE=""` 视同未设置。
 - **配置目录统一到 `~/.cc-code`（#289）**：新增 `peri-agent::app_home`，新目录优先、仅旧目录存在时回退 `~/.peri`、全新安装用 `~/.cc-code`；迁移 MCP 全局配置、OAuth、threads、skills、历史、sync 共 10 处调用点；Jev `PROTECTED_DIR_SEGMENTS` 补上 `.cc-code`，新配置目录保持写保护。
-- **npm 安装包校验 + 迁移确认（#290）**：`verifyChecksum()` 对下载的 tarball 做 sha256 校验（对照 release `checksums.txt`），缺失/不匹配直接失败；Claude Code 迁移改为确认制：`CC_CODE_NO_MIGRATE=1` / `--no-migrate` 跳过，非 TTY 跳过并提示手动迁移，TTY 下 `[y/N]` 默认否。
+- **npm 安装包校验 + 迁移确认（#290）**：`verifyChecksum()` 对下载的 tarball 做 sha256 校验（对照 release `checksums.txt`），缺失/不匹配直接失败；参考实现 迁移改为确认制：`CC_CODE_NO_MIGRATE=1` / `--no-migrate` 跳过，非 TTY 跳过并提示手动迁移，TTY 下 `[y/N]` 默认否。
 - **项目 hooks 需显式信任（#18）**：`.claude/settings.local.json` 的 hooks 不再自动加载执行（防 clone 即 RCE，PoC 已验证可利用）。需 `CC_CODE_TRUST_PROJECT_HOOKS=1` 或项目列入 `~/.cc-code/trusted_projects`。
 - **插件 hooks 需信任（#17）**：未信任插件的 hooks 被过滤，不再自动执行。
 - **Sync KDF 改用随机 salt（#21）**：`derive_key(pair_code, salt)`，salt 经协议传输，防预计算攻击。
@@ -856,7 +881,7 @@ Perihelion Agent 版本变更记录。
 
 ### Features
 
-- **Thinking 状态行 + 工具动作汇总，对齐 Claude Code 非详细模式（#248, #249）**：运行中 spinner 行新增第三字段四态状态机——`· thinking` / `· thought for Ns` / `· still thinking` / `· thinking more`（英文固定输出，`still thinking` 优先于 `thinking more`，10s 阈值可调）；verb 整轮固定不再随工具逐段换词；配色随时间四档升温（5s/15s/30s，仅 verb + 状态词变色，其余 MUTED）。
+- **Thinking 状态行 + 工具动作汇总，对齐参考实现 非详细模式（#248, #249）**：运行中 spinner 行新增第三字段四态状态机——`· thinking` / `· thought for Ns` / `· still thinking` / `· thinking more`（英文固定输出，`still thinking` 优先于 `thinking more`，10s 阈值可调）；verb 整轮固定不再随工具逐段换词；配色随时间四档升温（5s/15s/30s，仅 verb + 状态词变色，其余 MUTED）。
 - **消息区思考行改为秒数 + 动作计数（#248, #249）**：`∴ Thought for N chars` → `Thought for Ns[, read N files] (ctrl+o to expand)`。秒数在 LLM 流式层计时并随消息持久化（`ContentBlock::Reasoning.duration_ms`），历史恢复后仍可用；连续多轮「思考 + 只读工具」合并为一行（秒数/计数累加，跨 Bash 不断开仅不计数）；只读工具折叠为计数文案（含单复数）；纯动作行（无 reasoning 的只读工具组）折叠显示。
 - **Bash 非详细模式展示输出摘要（#248, #249）**：显示输出前 3 行 + 截断提示 `... (N more lines) (ctrl+o to expand)`，失败必显（判定依据 `is_error` 标记而非内容前缀）。
 
@@ -922,7 +947,7 @@ Perihelion Agent 版本变更记录。
 
 ### Features
 
-- **工具参数 Schema 校验可读性优化与启发式诊断（#234, #235）**：重构 `validate_against_schema`，对齐 Claude Code `formatZodValidationError` 风格，结构化分项输出缺失参数、意外未定义参数与类型不符；基于参数特征指纹对 `WebFetch`（误传 `url`+`prompt`）、`Bash`（误传 `command`）、`Agent`（缺失子 agent 类型且未设 `fork`）提供启发式纠偏建议；新增同一工具连续 2 次参数校验失败熔断拦截（Circuit Breaker），防止模型陷入盲目重试死循环。
+- **工具参数 Schema 校验可读性优化与启发式诊断（#234, #235）**：重构 `validate_against_schema`，对齐参考实现 `formatZodValidationError` 风格，结构化分项输出缺失参数、意外未定义参数与类型不符；基于参数特征指纹对 `WebFetch`（误传 `url`+`prompt`）、`Bash`（误传 `command`）、`Agent`（缺失子 agent 类型且未设 `fork`）提供启发式纠偏建议；新增同一工具连续 2 次参数校验失败熔断拦截（Circuit Breaker），防止模型陷入盲目重试死循环。
 
 ### Fixes
 
@@ -1026,7 +1051,7 @@ Perihelion Agent 版本变更记录。
 ### Features & Improvements
 
 - **对齐本地命令块渲染样式（#182, #183）**：
-  - 将用户 `!` 本机命令展示重构为与 Claude Code 一致的命令块布局；
+  - 将用户 `!` 本机命令展示重构为与 参考实现 一致的命令块布局；
   - 标题行使用整行背景与粉色 `!` 前缀，输出内容以 `  └ ` 引导的树状缩进对齐呈现；
   - 隐藏命令块标题中冗余的 exit code 与 cwd 信息，无输出时以 `(No output)` 占位提示；
   - 保留完整底层执行、ANSI 解析、超长折叠截断与后台化控制逻辑。
@@ -1134,7 +1159,7 @@ Perihelion Agent 版本变更记录。
 ### Bug Fixes
 
 - **对齐 Spinner 完成态总结行与生命周期修复（#139）**：
-  - 对齐 Claude Code 风格的过去式总结行动词与时刻展示（`✻ {verb} for {elapsed} · done {HH:MM}`）；
+  - 对齐参考实现 风格的过去式总结行动词与时刻展示（`✻ {verb} for {elapsed} · done {HH:MM}`）；
   - 移除 loading 态多余前导空格对齐 column 0，消除任务完成瞬间的水平抖动；
   - 重构中断（Ctrl+C）与报错生命周期清理，防止异常状态误展示成功动词。
 
@@ -1209,7 +1234,7 @@ Perihelion Agent 版本变更记录。
 
 ### Bug Fixes
 
-- **npm install 配置迁移字段格式修复**：`migrateFromClaudeCode` 输出改为 Rust 配置期望的 camelCase 字段（`type`、`apiKey`、`baseUrl`），修复新用户从 Claude Code 迁移后配置无法识别的问题
+- **npm install 配置迁移字段格式修复**：`migrateFromClaudeCode` 输出改为 Rust 配置期望的 camelCase 字段（`type`、`apiKey`、`baseUrl`），修复新用户从 参考实现 迁移后配置无法识别的问题
 - **AgentShellSlot 计时器冻结**：任务结束后 `elapsed()` 不再持续增长，行为对齐 `BackgroundShell`
 
 ### Docs

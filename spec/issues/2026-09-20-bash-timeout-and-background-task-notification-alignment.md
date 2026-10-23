@@ -1,4 +1,4 @@
-# 对齐 Claude Code 耗时命令管理体系：Bash 动态超时、交互式后台化与任务通知生命周期闭环
+# 对齐 参考实现 耗时命令管理体系：Bash 动态超时、交互式后台化与任务通知生命周期闭环
 
 **状态**：Open  
 **优先级**：P1  
@@ -10,7 +10,7 @@
 
 ## 1. 背景与现象对比
 
-在真实开发调试中（如休眠等待、长时间 CI/测试检查、构建命令），Claude Code 展现了一套非常丝滑的长命令与异步任务协作能力：
+在真实开发调试中（如休眠等待、长时间 CI/测试检查、构建命令），参考实现 展现了一套非常丝滑的长命令与异步任务协作能力：
 
 1. **LLM 主动设置动态超时（Dynamic Timeout）**：
    - 面对预计耗时较长的命令（如 `powershell Start-Sleep 45; gh pr checks 159`），Agent 在调用 `Bash` 工具时能主动计算并传入 `timeout: 90000`；
@@ -25,7 +25,7 @@
 
 ### Peri 当前现状
 
-在 Peri 中，虽然底层 `peri-middlewares` 与 `peri-tui` 已经打好了 `BackgroundShell`、`Ctrl+B` 信号、`output_path` 磁盘流式落盘的基础设施，但用户在体感上**完全感受不到这一整套能力**：
+在 Peri 中，虽然底层 `cc-middlewares` 与 `cc-tui` 已经打好了 `BackgroundShell`、`Ctrl+B` 信号、`output_path` 磁盘流式落盘的基础设施，但用户在体感上**完全感受不到这一整套能力**：
 - Agent 调用 Bash 时**从不主动传 `timeout`**，永远只传一个 `command`；
 - TUI 工具调用卡片上**没有超时时长展示**；
 - 后台任务完成通知使用的是私有的 `<background-task-completed>`，且 Agent 在收到通知后不知道应该去 `Read` 输出文件并给用户反馈，导致链路无法形成闭环。
@@ -35,7 +35,7 @@
 ## 2. 根因剖析与差距分析
 
 ### 差距 1：System Prompt 严重缺失对工具参数与行为准则的认知教育（核心主因）
-- **代码定位**：`peri-tui/prompts/sections/05_using_tools.md`
+- **代码定位**：`cc-tui/prompts/sections/05_using_tools.md`
 - **现状**：当前 `05_using_tools.md` 仅有 7 行基础文本，仅提及了优先使用 Grep/Read/Write 等工具，**完全没有提及 Bash 工具的高级参数语义**：
   - 未向 LLM 说明 `timeout` 参数（毫秒，默认 120,000ms，最大 600,000ms）；
   - 未指导 LLM 在遇到长命令时应主动评估并分配足够的超时预算；
@@ -44,13 +44,13 @@
 - **后果**：即使 `terminal.rs` 的参数 schema 里声明了 `timeout` 和 `run_in_background`，LLM 也不会自发生成这些参数。
 
 ### 差距 2：TUI 工具调用卡片缺失对 `timeout` 的格式化显示
-- **代码定位**：`peri-tui/src/ui/message_view/` 及工具参数渲染逻辑
+- **代码定位**：`cc-tui/src/ui/message_view/` 及工具参数渲染逻辑
 - **现状**：
-  - Claude Code 会识别 `timeout` 字段并将其转换为 `timeout Xm Ys` 或 `timeout Xs` 渲染在工具栏 Header；
+  - 参考实现 会识别 `timeout` 字段并将其转换为 `timeout Xm Ys` 或 `timeout Xs` 渲染在工具栏 Header；
   - Peri 目前只将参数作为原始 JSON 或单行文本展示，没有对 `timeout` 这一关键执行约束做高亮解析与倒计时/超时展示。
 
 ### 差距 3：后台完成通知协议未标准化，缺少 Agent 行动指令契约
-- **代码定位**：`peri-tui/src/app/background_shell.rs:251-258` 与 `peri-agent` 的消息注入
+- **代码定位**：`cc-tui/src/app/background_shell.rs:251-258` 与 `cc-agent` 的消息注入
 - **现状**：
   - Peri 生成的是：
     ```xml
@@ -61,7 +61,7 @@
     <output>...</output>
     </background-task-completed>
     ```
-  - 对比 Claude Code 的行业成熟标准：
+  - 对比 参考实现 的行业成熟标准：
     ```xml
     <system-reminder>
     [SYSTEM NOTIFICATION - NOT USER INPUT]
@@ -77,7 +77,7 @@
     </task-notification>
     </system-reminder>
     ```
-  - **关键缺失**：Claude Code 在系统提示词中建立了强制契约：
+  - **关键缺失**：参考实现 在系统提示词中建立了强制契约：
     > *"For bash tasks: prefer using the Read tool on that output file path — it contains stdout/stderr."*
     Peri 缺失此条指令，导致 Agent 收到通知时不知道该干什么，往往产生幻觉或直接回复“收到通知”。
 
@@ -86,7 +86,7 @@
 ## 3. 详细改进方案
 
 ### 方案 1：扩充 `05_using_tools.md`，注入 Bash 工具调用规范
-在 `peri-tui/prompts/sections/05_using_tools.md` 中增加 Bash 专属章节：
+在 `cc-tui/prompts/sections/05_using_tools.md` 中增加 Bash 专属章节：
 ```markdown
 # Bash execution guidelines
 

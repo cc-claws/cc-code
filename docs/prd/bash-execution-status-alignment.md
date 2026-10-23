@@ -1,22 +1,22 @@
-# PRD：Bash 执行状态渲染对齐 CC
+# PRD：Bash 执行状态渲染对齐参考实现
 
 日期：2026-10-22
 
 版本：v1.1（实施稿）
 
-状态：分 L1 / L2 / L3 实施中，交付与验证记录见文末。GitHub Issue：[#675](https://github.com/cc-claws/cc-code/issues/675)。
+状态：L1 已实施（`ToolPhase`、状态行 ` · timeout` 格式、空输出 `Done` / `(No output)`、timeout 透传、Ctrl+B 悬挂提示均已落地）；L2 / L3 尚未实施（代码中暂无 `ToolPending` / `ToolOutput` 事件，`BatchItem` 尚无 `tool_call_id`）。GitHub Issue：[#675](https://github.com/cc-claws/cc-code/issues/675)。
 
 适用范围：`cc-tui`（渲染与事件消费）、`cc-acp`（事件映射）、`cc-agent`（事件与执行调度）、`cc-middlewares`（Bash 执行器与 HITL）。
 
-参考实现：`D:/code/cc-best-src`（CCB 重建工程）中的 Bash 工具 UI 与执行链路；行号引用以该快照为准。
+参考实现：参考源码中的 Bash 工具 UI 与执行链路；行号引用以该快照为准。
 
 视觉依据：[Bash 状态效果稿](../designs/2026-10-22-bash-status-preview.html)（逐状态与时间线 HTML mock）。
 
 ## 1. 背景与目标
 
-用户对比后发现：同一条 Bash 命令，CC 在消息流里依次给出 `⎿  Waiting…`、`⎿  Running… (22s · timeout 5m)`、运行中输出尾部、完成结果；peri 只有工具头 + 一行 `Running… (Xs)`，运行中看不到任何输出，timeout 也从不显示。
+用户对比后发现：同一条 Bash 命令，参考实现在消息流里依次给出 `⎿  Waiting…`、`⎿  Running… (22s · timeout 5m)`、运行中输出尾部、完成结果；peri 只有工具头 + 一行 `Running… (Xs)`，运行中看不到任何输出，timeout 也从不显示。
 
-目标：**Bash（以及所有工具）的执行全过程在消息流内可读**，状态、耗时、超时、输出尾部与完成结果都能就地看到，观感与 CC 对齐。
+目标：**Bash（以及所有工具）的执行全过程在消息流内可读**，状态、耗时、超时、输出尾部与完成结果都能就地看到，观感与参考实现对齐。
 
 ### 1.1 目标体验
 
@@ -71,7 +71,9 @@ jev 自动判定中（单工具，不弹窗）：
 
 ## 2. 现状与差异（代码证据）
 
-| # | 维度 | CC | peri 现状 | 代码位置 |
+> 实施注记（2026-10-22 核对）：下表为实施前现状。L1 落地后 D1–D4 已消除——证据：`cc-tui/src/ui/message_view/mod.rs:26`（`ToolPhase` 枚举）、`cc-tui/src/ui/message_render/mod.rs:68`（`shell_running_text` 使用 ` · ` 分隔）、`cc-tui/src/app/message_pipeline/transform.rs:163`（从入参读 `timeout`）、`cc-tui/src/ui/message_render/bash_status_test.rs:86`（Ctrl+B 悬挂提示断言）。D5–D7 随 L2 / L3 尚未实施。
+
+| # | 维度 | 参考实现 | peri 现状 | 代码位置 |
 |---|---|---|---|---|
 | D1 | 状态行格式 | `Running… (22s · timeout 5m)`，` · ` 分隔 | `Running… (22s)    (timeout 5m)`，4 空格 | `cc-tui/src/ui/message_render/mod.rs:68-77` |
 | D2 | timeout | 仅模型显式传 `timeout` 时显示 | `timeout_ms` 恒为 `None`，永不显示 | `message_pipeline/transform.rs:161`、`reconcile.rs:231`、`message_view/mod.rs:812` |
@@ -173,11 +175,11 @@ format!("Running… ({elapsed}{suffix})")
 - 非详细模式显示 `Done`；
 - 详细模式显示 `(No output)`。
 
-CC 的 `Done` / `(No output)` 取决于工具结果里的 `noOutputExpected` / `returnCodeInterpretation`（`BashToolResultMessage.tsx:100-112`）；peri 没有这两个字段，按详细模式二选一属于**自定义口径**，仅保证「空输出不再转圈」这一行为对齐。
+参考实现的 `Done` / `(No output)` 取决于工具结果里的 `noOutputExpected` / `returnCodeInterpretation`（`BashToolResultMessage.tsx:100-112`）；peri 没有这两个字段，按详细模式二选一属于**自定义口径**，仅保证「空输出不再转圈」这一行为对齐。
 
 #### 5.1.4 Ctrl+B 提示
 
-CC 的实际版式是：状态行（`Waiting…` / `Running…`）在前，提示在下一行，使用 **5 空格悬挂缩进**（不带 `⎿`）：
+参考实现的实际版式是：状态行（`Waiting…` / `Running…`）在前，提示在下一行，使用 **5 空格悬挂缩进**（不带 `⎿`）：
 
 ```
 ● Bash(cmd)
@@ -185,7 +187,7 @@ CC 的实际版式是：状态行（`Waiting…` / `Running…`）在前，提�
      (ctrl+b to run in background)
 ```
 
-- 显示条件：工具未后台化，且处于 `Queued` / `AwaitingApproval` / `Running`（任何「未完成」阶段）。CC 在 `Waiting…` 下也显示该提示；
+- 显示条件：工具未后台化，且处于 `Queued` / `AwaitingApproval` / `Running`（任何「未完成」阶段）。参考实现在 `Waiting…` 下也显示该提示；
 - 完成、后台化、失败后都不显示；
 - L3 有输出时，提示放在计时状态行之后（最后一行），输出尾部在它之前。
 
@@ -199,7 +201,7 @@ CC 的实际版式是：状态行（`Waiting…` / `Running…`）在前，提�
   ⎿  (timeout 1m 30s)
 ```
 
-对齐 CC `BashToolResultMessage.tsx:113-117`（`ShellTimeDisplay` 只传 `timeoutMs` 时输出 `(timeout …)`）。
+对齐参考实现 `BashToolResultMessage.tsx:113-117`（`ShellTimeDisplay` 只传 `timeoutMs` 时输出 `(timeout …)`）。
 
 ### 5.2 L2：ToolPending 事件与审批内联
 
@@ -250,7 +252,7 @@ emit ToolPending × N
 
 - ACP 事件经 `acp_bridge.rs` 映射为 `AgentEvent::ToolPending`，由 `MessagePipeline`（`cc-tui/src/app/message_pipeline/mod.rs:715`）写入 `pending_tools`，`phase = Queued`；
 - HITL 弹窗打开时（`InteractionPrompt::Approval`），按批量子项里的 `tool_call_id` 将对应 VM 置为 `AwaitingApproval`；用户拒绝直接进入 `Finished(Failed)`，**不回退到 Queued**；批准则由后续 `ToolStart` 转入 `Running`；
-- jev 语义门与普通 HITL 共用 broker，因此天然覆盖；若后续新增「分类器检查中」事件，统一映射为 `⎿  Semantic gate checking…`（对齐 CC 的 `Bash classifier checking…`，P2 可选，口径与 5.4.5 一致）。
+- jev 语义门与普通 HITL 共用 broker，因此天然覆盖；若后续新增「分类器检查中」事件，统一映射为 `⎿  Semantic gate checking…`（对齐 参考实现的 `Bash classifier checking…`，P2 可选，口径与 5.4.5 一致）。
 
 #### 5.2.4 渲染
 
@@ -332,7 +334,7 @@ ToolCallUpdate {
   - `(22s · timeout 5m)`
   - 字节数（`formatFileSize` 等价实现）
 - 渲染路径复用 `transform_bash_output_lines`（现有 ANSI 处理），避免二次实现；
-- 状态行不再显示 `Running…` 前缀（对齐 CC 有输出时的形态）。
+- 状态行不再显示 `Running…` 前缀（对齐参考实现 有输出时的形态）。
 
 性能约束：
 
@@ -368,7 +370,7 @@ before_tool 逐个处理：
 整批审批完成 → 已批准调用 emit ToolStart → join_all 并发执行
 ```
 
-这正是 CC 的观感：**正在等审批的那个显示 `Waiting for permission…`，还没轮到的显示 `Waiting…`**。
+这正是 参考实现的观感：**正在等审批的那个显示 `Waiting for permission…`，还没轮到的显示 `Waiting…`**。
 
 #### 5.4.2 渲染规则
 
@@ -417,7 +419,7 @@ before_tool 逐个处理：
 - Bypass **不人为插入 Waiting 帧**：Pending 与 Start 同批到达时直接渲染 `Running…`；跨批时自然显示一帧 `Waiting…`，不做抑制（见 5.4.3）；
 - jev 判定期间**不弹窗**、用户无需操作，因此显示 `Waiting…`，而不是 `Waiting for permission…`；
 - 判定耗时来自 LLM 往返，通常几百毫秒到数秒，这是**单工具场景下 `Waiting…` 最主要的可见来源**；
-- 若后续 jev 能在调用 judge 前上报一次状态，可把该阶段细化为 `⎿  Semantic gate checking…`（对齐 CC 的 `Bash classifier checking…`）；该细化列为 P2 可选，不阻塞本 PRD。
+- 若后续 jev 能在调用 judge 前上报一次状态，可把该阶段细化为 `⎿  Semantic gate checking…`（对齐 参考实现的 `Bash classifier checking…`）；该细化列为 P2 可选，不阻塞本 PRD。
 
 ### 5.5 展示规格（逐帧 Demo）
 
@@ -558,7 +560,7 @@ Bypass 与 Auto 共用同一套状态机；不人为延时、不强制插帧（�
 ```
 
 - 非详细模式 `Done`，详细模式 `(No output)`；
-- 对齐 CC `BashToolResultMessage.tsx:100-112`（`Done` / `(No output)` 的选择依据是 CC 的 `noOutputExpected`，peri 按详细模式二选一，见 5.1.3）；
+- 对齐参考实现 `BashToolResultMessage.tsx:100-112`（`Done` / `(No output)` 的选择依据是 参考实现的 `noOutputExpected`，peri 按详细模式二选一，见 5.1.3）；
 - 不再出现转圈指示器。
 
 **H. Finished，失败**
@@ -865,7 +867,7 @@ fn show_running_line(vm: &ToolBlock) -> bool {
 #### 5.6.2 计时起点与阈值
 
 - 起点是 **TUI 处理 `ToolStart` 的时刻**，不是模型吐出 `tool_use` 的时刻，也不是 `ToolPending`；
-- 阈值固定 `2000ms`，与 CC `PROGRESS_THRESHOLD_MS`（`BashTool.tsx:90`）一致；
+- 阈值固定 `2000ms`，与参考实现 `PROGRESS_THRESHOLD_MS`（`BashTool.tsx:90`）一致；
 - 2 秒内完成：`Running…` **一次都不会出现**，直接显示结果；
 - 恰好 2.0 秒按 `>=` 判定，出现；
 - **输出尾部的展示同样受此阈值约束**：`elapsed < 2s` 时即使已有 `ToolOutput` 也只显示 header（见 5.5.6 场景 C）。
@@ -970,7 +972,7 @@ fn show_running_line(vm: &ToolBlock) -> bool {
 L3 的 `tail` 必须经过与完成态相同的 `OutputLine` 装饰器：
 
 - ANSI 颜色保留；
-- URL 着色与完成态一致（`style_urls`）；
+- URL 呈现与完成态一致（同一批 OSC 8 链接命中区，见 `ui/osc8.rs`）；
 - 单行 JSON 美化与完成态一致；
 - 截断、折行口径一致，避免「运行中一种样子、完成后另一种样子」。
 

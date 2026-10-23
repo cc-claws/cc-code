@@ -3,16 +3,14 @@
 //! CC 的 Bash / MCP 工具结果都过这一层，它负责四件事：
 //!
 //! 1. **JSON 逐行美化** —— `tryJsonFormatContent`：单行 JSON 展开成 2 空格缩进；
-//! 2. **URL 超链接** —— `linkifyUrlsInText`（CC 用 OSC 8；peri 用链接色 + 下划线，
-//!    见 `crate::ui::message_render::style_urls`）；
+//! 2. **URL 超链接** —— `linkifyUrlsInText`（与 CC 一致：文本层不动 URL，
+//!    可点击性由消息区注入的 OSC 8 转义序列提供，见 `crate::ui::osc8`）；
 //! 3. **行数截断** —— `renderTruncatedContent`：只留前 3 行 + `… +N lines (ctrl+o to expand)`；
 //! 4. **宽度预折行 + 每行 trimEnd**。
 //!
 //! 装饰器只做**纯文本变换**（返回 `String`），不碰 ratatui 的 span/样式——
 //! 着色由调用方（`format_prefixed_text` / `format_shell_output_lines`）后续施加，
-//! 这样 JSON 美化、URL 识别、截断测算三者共享同一份文本，口径不会各自漂移。
-
-use super::super::find_url_ranges;
+//! 这样 JSON 美化、截断测算与调用方的着色共享同一份文本，口径不会各自漂移。
 
 /// CC `terminal.ts::MAX_LINES_TO_SHOW`：折叠态只显示 3 行。
 pub const MAX_LINES_TO_SHOW: usize = 3;
@@ -186,20 +184,11 @@ pub fn truncate_wrapped(
 /// 装饰器主体：把工具原始输出变成「该显示的那几行文本」。
 ///
 /// 顺序与 CC `OutputLine` 的 `useMemo` 完全一致：
-/// **JSON 美化 → URL 识别（仅着色阶段）→ 预折行 + 截断**。
-///
-/// `linkify` 只影响是否值得继续处理（URL 着色在 span 阶段做），此处保留参数
-/// 是为了对齐 CC 调用点的形状，未来若要在文本层替换 URL 可直接接入。
+/// **JSON 美化 → 预折行 + 截断**。URL 的可点击性与着色不在这里：文本层原样
+/// 保留 URL，消息区按行扫描后注入 OSC 8。
 pub fn decorate(content: &str, terminal_width: usize, max_lines: usize) -> TruncatedContent {
     let formatted = try_json_format_content(content).unwrap_or_else(|| content.to_string());
     truncate_wrapped(&formatted, terminal_width, max_lines)
-}
-
-/// 内容里是否含至少一个可识别的 URL。
-///
-/// 供调用方决定是否走 URL 着色路径——避免对绝大多数无 URL 的输出反复扫描。
-pub fn contains_url(text: &str) -> bool {
-    !find_url_ranges(text).is_empty()
 }
 
 #[cfg(test)]

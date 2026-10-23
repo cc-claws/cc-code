@@ -124,7 +124,7 @@
 
 #### - [x] 5.3 9 段结构化摘要模板存在
 - **来源:** plan-1 Task 4 §摘要 Prompt / design §结构化摘要 Prompt
-- **目的:** 确认对齐 Claude Code 的摘要质量
+- **目的:** 确认对齐 参考实现 的摘要质量
 - **操作步骤:**
   1. [A] `grep -c 'Primary Request and Intent' peri-agent/src/agent/compact/full.rs` → 期望包含: "1"
 

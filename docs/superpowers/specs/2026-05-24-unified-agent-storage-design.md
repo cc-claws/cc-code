@@ -387,24 +387,24 @@ thread 的 `title` 字段复用为 agent 显示名，子 agent 创建时从 agen
 
 | 模块 | 变更范围 |
 |------|---------|
-| `peri-agent/src/thread/` | SqliteThreadStore 新增字段 + migration + 新方法 |
-| `peri-agent/src/agent/state.rs` | 新增 `own_thread_id`，`add_message` 绑定 own thread |
-| `peri-middlewares/src/subagent/` | 重写：创建子 thread + AgentRuntime |
-| `peri-acp/src/session/` | AcpSession 新增 `active_agents`，取消传播逻辑 |
-| `peri-acp/src/session/executor.rs` | 适配多 agent，compact per-thread |
-| `peri-acp/src/session/compact_runner.rs` | compact 只压缩 own thread |
-| `peri-tui/src/app/agent_ops/` | 事件路由适配 |
-| `peri-tui/src/app/panels/` | `/tasks` 面板新增 agent threads tab |
+| `cc-agent/src/thread/` | SqliteThreadStore 新增字段 + migration + 新方法 |
+| `cc-agent/src/agent/state.rs` | 新增 `own_thread_id`，`add_message` 绑定 own thread |
+| `cc-middlewares/src/subagent/` | 重写：创建子 thread + AgentRuntime |
+| `cc-acp/src/session/` | AcpSession 新增 `active_agents`，取消传播逻辑 |
+| `cc-acp/src/session/executor.rs` | 适配多 agent，compact per-thread |
+| `cc-acp/src/session/compact_runner.rs` | compact 只压缩 own thread |
+| `cc-tui/src/app/agent_ops/` | 事件路由适配 |
+| `cc-tui/src/app/panels/` | `/tasks` 面板新增 agent threads tab |
 
 ### 不受影响
 
 | 模块 | 原因 |
 |------|------|
-| `peri-agent/src/agent/events.rs` | ExecutorEvent 结构不变 |
-| `peri-agent/src/llm/` | LLM 适配层不关心消息来源 thread |
-| `peri-agent/src/middleware/` | Middleware trait 签名不变 |
+| `cc-agent/src/agent/events.rs` | ExecutorEvent 结构不变 |
+| `cc-agent/src/llm/` | LLM 适配层不关心消息来源 thread |
+| `cc-agent/src/middleware/` | Middleware trait 签名不变 |
 | 其他中间件 | 除 subagent 外不受影响 |
-| `peri-widgets/` / `peri-lsp/` / `langfuse-client/` / `peri-cli/` | 不涉及 |
+| `cc-widgets/` / `cc-lsp/` / `langfuse-client/` / `peri-cli/` | 不涉及 |
 
 ### 事件流
 

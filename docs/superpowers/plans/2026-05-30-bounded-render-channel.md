@@ -45,20 +45,20 @@ let (tx, rx) = mpsc::unbounded_channel();
 
 | 文件 | 操作 | 职责变更 |
 |------|------|----------|
-| `peri-tui/src/ui/render_thread.rs` | 修改 | 通道创建 `channel(128)`，`run()` 接收端类型改为 `Receiver<RenderEvent>` |
-| `peri-tui/src/app/message_state.rs` | 修改 | `render_tx` 类型改为 `Sender<RenderEvent>` |
-| `peri-tui/src/app/agent_render.rs` | 修改 | `send()` 改为 `blocking_send()` |
-| `peri-tui/src/app/mod.rs` | 修改 | `send()` 改为 `blocking_send()` |
-| `peri-tui/src/app/thread_ops.rs` | 修改 | `send()` 改为 `blocking_send()` |
-| `peri-tui/src/ui/main_ui/message_area.rs` | 修改 | Resize `send()` 改为 `try_send()` |
-| `peri-tui/src/ui/render_thread_test.rs` | 修改 | `send()` 改为适应 bounded sender API |
-| `peri-tui/src/ui/headless_test.rs` | 修改 | `send()` 适应 bounded sender |
+| `cc-tui/src/ui/render_thread.rs` | 修改 | 通道创建 `channel(128)`，`run()` 接收端类型改为 `Receiver<RenderEvent>` |
+| `cc-tui/src/app/message_state.rs` | 修改 | `render_tx` 类型改为 `Sender<RenderEvent>` |
+| `cc-tui/src/app/agent_render.rs` | 修改 | `send()` 改为 `blocking_send()` |
+| `cc-tui/src/app/mod.rs` | 修改 | `send()` 改为 `blocking_send()` |
+| `cc-tui/src/app/thread_ops.rs` | 修改 | `send()` 改为 `blocking_send()` |
+| `cc-tui/src/ui/main_ui/message_area.rs` | 修改 | Resize `send()` 改为 `try_send()` |
+| `cc-tui/src/ui/render_thread_test.rs` | 修改 | `send()` 改为适应 bounded sender API |
+| `cc-tui/src/ui/headless_test.rs` | 修改 | `send()` 适应 bounded sender |
 
 ---
 
 ## Step 1: 修改通道类型和 spawn_render_thread 签名
 
-**文件**: `peri-tui/src/ui/render_thread.rs`
+**文件**: `cc-tui/src/ui/render_thread.rs`
 
 **目标**: 将 `unbounded_channel()` 改为 `channel(128)`，更新函数签名和 `run()` 接收端类型。
 
@@ -134,7 +134,7 @@ let (tx, rx) = mpsc::channel(RENDER_CHANNEL_CAPACITY);
 
 ## Step 2: 修改 MessageState 类型声明
 
-**文件**: `peri-tui/src/app/message_state.rs`
+**文件**: `cc-tui/src/app/message_state.rs`
 
 **目标**: 将 `render_tx` 类型从 `UnboundedSender` 改为 `Sender`。
 
@@ -168,7 +168,7 @@ pub fn new(
 
 ### 测试验证
 
-- [ ] `cargo build -p peri-tui` 编译失败（预期，因为 `Sender::send` 是 `async fn`）
+- [ ] `cargo build -p cc-tui` 编译失败（预期，因为 `Sender::send` 是 `async fn`）
 
 ---
 
@@ -251,7 +251,7 @@ let _ = ...render_tx.blocking_send(RenderEvent::Clear);
 
 ### 测试验证
 
-- [ ] `cargo build -p peri-tui` 编译通过
+- [ ] `cargo build -p cc-tui` 编译通过
 - [ ] 所有 render_thread_test.rs 测试通过
 - [ ] 所有 headless_test.rs 测试通过
 
@@ -259,7 +259,7 @@ let _ = ...render_tx.blocking_send(RenderEvent::Clear);
 
 ## Step 4: Resize 事件使用 try_send 非阻塞发送
 
-**文件**: `peri-tui/src/ui/main_ui/message_area.rs`
+**文件**: `cc-tui/src/ui/main_ui/message_area.rs`
 
 **目标**: Resize 事件用 `try_send()` 而非 `blocking_send()`。原因：
 
@@ -283,14 +283,14 @@ let _ = messages
 
 ### 测试验证
 
-- [ ] `cargo build -p peri-tui` 编译通过
+- [ ] `cargo build -p cc-tui` 编译通过
 - [ ] 手动拖动窗口边缘 resize，确认渲染正常响应
 
 ---
 
 ## Step 5: 更新 render_thread_test.rs 适配 bounded sender
 
-**文件**: `peri-tui/src/ui/render_thread_test.rs`
+**文件**: `cc-tui/src/ui/render_thread_test.rs`
 
 **目标**: 测试中 `tx.send()` 的调用需要适配。`Sender::send()` 返回 `Future`，但测试中需要同步发送。
 
@@ -327,13 +327,13 @@ tx.send(RenderEvent::Rebuild(vec![MessageViewModel::user("Hello".to_string())]))
 
 ### 测试验证
 
-- [ ] `cargo test -p peri-tui --lib -- ui::render_thread::tests` 全部通过
+- [ ] `cargo test -p cc-tui --lib -- ui::render_thread::tests` 全部通过
 
 ---
 
 ## Step 6: 新增背压安全测试
 
-**文件**: `peri-tui/src/ui/render_thread_test.rs`
+**文件**: `cc-tui/src/ui/render_thread_test.rs`
 
 **目标**: 验证有界通道在极端场景下不会死锁、不丢关键事件。
 
@@ -477,7 +477,7 @@ async fn test_resize_coalesce_under_pressure() {
 
 ## Step 7: 清理注释和文档
 
-**文件**: `peri-tui/src/ui/render_thread.rs`
+**文件**: `cc-tui/src/ui/render_thread.rs`
 
 更新 `spawn_render_thread` 的文档注释，说明有界通道的设计决策：
 
@@ -494,8 +494,8 @@ async fn test_resize_coalesce_under_pressure() {
 
 ### 测试验证
 
-- [ ] `cargo test -p peri-tui` 全量通过
-- [ ] `cargo clippy -p peri-tui` 无新警告
+- [ ] `cargo test -p cc-tui` 全量通过
+- [ ] `cargo clippy -p cc-tui` 无新警告
 
 ---
 

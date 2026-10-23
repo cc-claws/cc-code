@@ -2,7 +2,7 @@
 
 ## 需求背景
 
-Peri agent 目前仅使用内置工具（Filesystem、Terminal、SubAgent 等），工具集固定且有限。MCP（Model Context Protocol）生态中已有大量第三方服务器（filesystem、database、web scraper、GitHub 等），支持 MCP Client 能力可以让 Peri 无限扩展工具集，与 Claude Code、Cursor 等 AI 工具站在同一生态位。
+Peri agent 目前仅使用内置工具（Filesystem、Terminal、SubAgent 等），工具集固定且有限。MCP（Model Context Protocol）生态中已有大量第三方服务器（filesystem、database、web scraper、GitHub 等），支持 MCP Client 能力可以让 Peri 无限扩展工具集，与 参考实现、Cursor 等 AI 工具站在同一生态位。
 
 项目已有 ACP（Agent Client Protocol）实现用于 IDE-Agent 通信，但 ACP 与 MCP 是两个不同维度的协议。ACP 解决编辑器如何驱动 Agent，MCP 解决 Agent 如何连接外部工具服务器。两者互补，不重叠。
 

@@ -4,16 +4,16 @@
 
 **Goal:** 将所有面板（panels）的滚动条行为统一到消息区（message area）已有风格：▲/▼ 按钮 + 鼠标点击跳转 + 鼠标拖拽定位。
 
-**Architecture:** 增强 `peri-widgets` 的 `ScrollableArea` widget，使其在渲染滚动条时可选绘制 ▲/▼ 按钮，并返回 `ScrollbarMetrics`（包含按钮和滚动条列的几何信息）。事件循环利用这些几何信息在面板区域检测点击/拖拽，通过 `PanelComponent` trait 新增的 `set_scroll_offset` 方法同步滚动位置。
+**Architecture:** 增强 `cc-widgets` 的 `ScrollableArea` widget，使其在渲染滚动条时可选绘制 ▲/▼ 按钮，并返回 `ScrollbarMetrics`（包含按钮和滚动条列的几何信息）。事件循环利用这些几何信息在面板区域检测点击/拖拽，通过 `PanelComponent` trait 新增的 `set_scroll_offset` 方法同步滚动位置。
 
-**Tech Stack:** Rust + ratatui + peri-widgets + peri-tui
+**Tech Stack:** Rust + ratatui + cc-widgets + cc-tui
 
 ---
 
 ### Task 1: `ScrollableArea` 返回 `ScrollbarMetrics` + 渲染 ▲/▼
 
 **Files:**
-- Modify: `peri-widgets/src/scrollable.rs:75-148`
+- Modify: `cc-widgets/src/scrollable.rs:75-148`
 
 - [ ] **Step 1: 定义 `ScrollbarMetrics` 结构体，修改 `render()` 签名**
 
@@ -114,9 +114,9 @@ if needs_scrollbar {
 
 需要新增 use：`text::Span`、`widgets::Paragraph`、`style::Modifier`。
 
-- [ ] **Step 3: 编译检查 `peri-widgets`**
+- [ ] **Step 3: 编译检查 `cc-widgets`**
 
-Run: `cargo build -p peri-widgets 2>&1 | head -30`
+Run: `cargo build -p cc-widgets 2>&1 | head -30`
 
 预期：编译通过，`render()` 返回值变化会导致调用方报错（下一 Task 修复）。
 
@@ -125,7 +125,7 @@ Run: `cargo build -p peri-widgets 2>&1 | head -30`
 ### Task 2: 导出 `ScrollbarMetrics`
 
 **Files:**
-- Modify: `peri-widgets/src/lib.rs`
+- Modify: `cc-widgets/src/lib.rs`
 
 - [ ] **Step 1: 导出 `ScrollbarMetrics`**
 
@@ -137,7 +137,7 @@ pub use scrollable::{ScrollState, ScrollableArea, ScrollbarMetrics, unified_vert
 
 - [ ] **Step 2: 编译检查**
 
-Run: `cargo build -p peri-widgets 2>&1 | head -10`
+Run: `cargo build -p cc-widgets 2>&1 | head -10`
 
 预期：PASS。
 
@@ -146,12 +146,12 @@ Run: `cargo build -p peri-widgets 2>&1 | head -10`
 ### Task 3: `UiState` 新增面板滚动条状态字段
 
 **Files:**
-- Modify: `peri-tui/src/app/ui_state.rs:1-56`
+- Modify: `cc-tui/src/app/ui_state.rs:1-56`
 
 - [ ] **Step 1: 添加 import**
 
 ```rust
-use peri_widgets::ScrollbarMetrics;
+use cc_widgets::ScrollbarMetrics;
 ```
 
 - [ ] **Step 2: 新增字段**
@@ -174,14 +174,14 @@ panel_scrollbar_dragging: false,
 
 - [ ] **Step 4: 编译检查**
 
-Run: `cargo build -p peri-tui 2>&1 | head -10`
+Run: `cargo build -p cc-tui 2>&1 | head -10`
 
 ---
 
 ### Task 4: `PanelComponent` trait 新增 `set_scroll_offset` 方法
 
 **Files:**
-- Modify: `peri-tui/src/app/panel_component.rs:14-50`
+- Modify: `cc-tui/src/app/panel_component.rs:14-50`
 
 - [ ] **Step 1: 在 trait 中添加默认空实现方法**
 
@@ -197,7 +197,7 @@ fn set_scroll_offset(&mut self, _offset: u16) {}
 ### Task 5: `PanelManager` 新增 `dispatch_set_scroll_offset` 方法
 
 **Files:**
-- Modify: `peri-tui/src/app/panel_manager.rs:383-401`
+- Modify: `cc-tui/src/app/panel_manager.rs:383-401`
 
 - [ ] **Step 1: 添加 dispatch 方法**
 
@@ -229,15 +229,15 @@ pub fn dispatch_set_scroll_offset(&mut self, offset: u16, ctx: &mut PanelContext
 ### Task 6: 所有面板实现 `set_scroll_offset`
 
 **Files:**
-- Modify: `peri-tui/src/app/memory_panel.rs`
-- Modify: `peri-tui/src/app/hooks_panel.rs`
-- Modify: `peri-tui/src/app/agent_panel.rs`
-- Modify: `peri-tui/src/app/cron_state.rs`
-- Modify: `peri-tui/src/thread/browser.rs`
-- Modify: `peri-tui/src/app/mcp_panel/mod.rs`
-- Modify: `peri-tui/src/app/plugin_panel/mod.rs`
-- Modify: `peri-tui/src/app/login_panel/component.rs`
-- Modify: `peri-tui/src/app/config_panel.rs`
+- Modify: `cc-tui/src/app/memory_panel.rs`
+- Modify: `cc-tui/src/app/hooks_panel.rs`
+- Modify: `cc-tui/src/app/agent_panel.rs`
+- Modify: `cc-tui/src/app/cron_state.rs`
+- Modify: `cc-tui/src/thread/browser.rs`
+- Modify: `cc-tui/src/app/mcp_panel/mod.rs`
+- Modify: `cc-tui/src/app/plugin_panel/mod.rs`
+- Modify: `cc-tui/src/app/login_panel/component.rs`
+- Modify: `cc-tui/src/app/config_panel.rs`
 
 静态分析确认：model_panel / status_panel 无 `handle_scroll`，不需要实现（默认 no-op）。
 
@@ -349,14 +349,14 @@ fn set_scroll_offset(&mut self, offset: u16) {
 
 - [ ] **Step 10: 编译检查**
 
-Run: `cargo build -p peri-tui 2>&1 | grep error | head -20`
+Run: `cargo build -p cc-tui 2>&1 | grep error | head -20`
 
 ---
 
 ### Task 7: 事件循环添加面板滚动条交互
 
 **Files:**
-- Modify: `peri-tui/src/event/mod.rs:208-480`
+- Modify: `cc-tui/src/event/mod.rs:208-480`
 
 - [ ] **Step 1: `MouseEventKind::Down` — 面板区域增加 ▲/▼/滚动条点击检测**
 
@@ -466,24 +466,24 @@ app.session_mgr.sessions[app.session_mgr.active]
 
 - [ ] **Step 4: 编译检查**
 
-Run: `cargo build -p peri-tui 2>&1 | grep error | head -20`
+Run: `cargo build -p cc-tui 2>&1 | grep error | head -20`
 
 ---
 
 ### Task 8: 所有面板渲染接收 `ScrollbarMetrics` 并写入 `UiState`
 
 **Files:**
-- Modify: `peri-tui/src/ui/main_ui/panels/memory.rs:88-92`
-- Modify: `peri-tui/src/ui/main_ui/panels/hooks.rs:147-153`
-- Modify: `peri-tui/src/ui/main_ui/panels/agent.rs:170-176`
-- Modify: `peri-tui/src/ui/main_ui/panels/cron.rs:140-146`
-- Modify: `peri-tui/src/ui/main_ui/panels/thread_browser.rs:315-321`
-- Modify: `peri-tui/src/ui/main_ui/panels/mcp.rs:130-136 + 422-428` (2 处)
-- Modify: `peri-tui/src/ui/main_ui/popups/ask_user.rs:169-175`
-- Modify: `peri-tui/src/ui/main_ui/panels/plugin/plugin_render/detail.rs:174-180`
-- Modify: `peri-tui/src/ui/main_ui/panels/plugin/plugin_render/discover_list.rs:228-234`
-- Modify: `peri-tui/src/ui/main_ui/panels/plugin/plugin_render/discover_detail.rs:136-142`
-- Modify: `peri-tui/src/ui/main_ui/panels/plugin/plugin_render/list.rs:407-413`
+- Modify: `cc-tui/src/ui/main_ui/panels/memory.rs:88-92`
+- Modify: `cc-tui/src/ui/main_ui/panels/hooks.rs:147-153`
+- Modify: `cc-tui/src/ui/main_ui/panels/agent.rs:170-176`
+- Modify: `cc-tui/src/ui/main_ui/panels/cron.rs:140-146`
+- Modify: `cc-tui/src/ui/main_ui/panels/thread_browser.rs:315-321`
+- Modify: `cc-tui/src/ui/main_ui/panels/mcp.rs:130-136 + 422-428` (2 处)
+- Modify: `cc-tui/src/ui/main_ui/popups/ask_user.rs:169-175`
+- Modify: `cc-tui/src/ui/main_ui/panels/plugin/plugin_render/detail.rs:174-180`
+- Modify: `cc-tui/src/ui/main_ui/panels/plugin/plugin_render/discover_list.rs:228-234`
+- Modify: `cc-tui/src/ui/main_ui/panels/plugin/plugin_render/discover_detail.rs:136-142`
+- Modify: `cc-tui/src/ui/main_ui/panels/plugin/plugin_render/list.rs:407-413`
 
 - [ ] **Step 1: 批量修改面板渲染处的 `ScrollableArea` 调用**
 
@@ -512,7 +512,7 @@ app.session_mgr.sessions[app.session_mgr.active]
 
 - [ ] **Step 2: 编译检查**
 
-Run: `cargo build -p peri-tui 2>&1 | head -20`
+Run: `cargo build -p cc-tui 2>&1 | head -20`
 
 预期：PASS（所有调用方已更新）。
 

@@ -2,34 +2,34 @@
 
 > **For agentic workers:** Use superpowers:subagent-driven-development or superpowers:executing-plans to implement. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 为 `peri-widgets` 的 `parse_markdown()` 引入 LRU 缓存，避免同一内容在 resize、RebuildAll、流式输出等场景下被反复完整解析。预期收益：50-70% Markdown 解析时间减少。
+**Goal:** 为 `cc-widgets` 的 `parse_markdown()` 引入 LRU 缓存，避免同一内容在 resize、RebuildAll、流式输出等场景下被反复完整解析。预期收益：50-70% Markdown 解析时间减少。
 
-**Architecture:** 在 `peri-widgets/src/markdown/` 新增 `cache.rs` 模块，实现 `MarkdownCache` 结构体（`Mutex<LruCache<(u64, u16), Text<'static>>>`），通过全局单例（`once_cell::sync::Lazy`）暴露。修改 `parse_markdown()` 在入口处检查缓存命中，命中则直接返回克隆的 `Text<'static>`，未命中则执行解析后写入缓存。
+**Architecture:** 在 `cc-widgets/src/markdown/` 新增 `cache.rs` 模块，实现 `MarkdownCache` 结构体（`Mutex<LruCache<(u64, u16), Text<'static>>>`），通过全局单例（`once_cell::sync::Lazy`）暴露。修改 `parse_markdown()` 在入口处检查缓存命中，命中则直接返回克隆的 `Text<'static>`，未命中则执行解析后写入缓存。
 
-**Tech Stack:** Rust, lru 0.18（workspace 已有），once_cell（peri-widgets 已有依赖），parking_lot::Mutex（新增依赖），ratatui::text::Text
+**Tech Stack:** Rust, lru 0.18（workspace 已有），once_cell（cc-widgets 已有依赖），parking_lot::Mutex（新增依赖），ratatui::text::Text
 
 **Files:**
-- 修改: `peri-widgets/Cargo.toml` — 添加 `parking_lot` 依赖
-- 创建: `peri-widgets/src/markdown/cache.rs` — `MarkdownCache` 实现
-- 创建: `peri-widgets/src/markdown/cache_test.rs` — 缓存测试
-- 修改: `peri-widgets/src/markdown/mod.rs` — 注册模块、修改 `parse_markdown` 加入缓存逻辑
-- 修改: `peri-widgets/src/markdown/mod_test.rs` — 调整现有测试适配缓存（验证缓存不影响正确性）
+- 修改: `cc-widgets/Cargo.toml` — 添加 `parking_lot` 依赖
+- 创建: `cc-widgets/src/markdown/cache.rs` — `MarkdownCache` 实现
+- 创建: `cc-widgets/src/markdown/cache_test.rs` — 缓存测试
+- 修改: `cc-widgets/src/markdown/mod.rs` — 注册模块、修改 `parse_markdown` 加入缓存逻辑
+- 修改: `cc-widgets/src/markdown/mod_test.rs` — 调整现有测试适配缓存（验证缓存不影响正确性）
 
 ---
 
 ### Task 1: 添加依赖并创建 cache 模块骨架
 
-- [ ] **Step 1: 添加 parking_lot 依赖到 peri-widgets**
-  - 文件: `peri-widgets/Cargo.toml`
+- [ ] **Step 1: 添加 parking_lot 依赖到 cc-widgets**
+  - 文件: `cc-widgets/Cargo.toml`
   - 在 `[dependencies]` 中添加:
     ```toml
     parking_lot.workspace = true
     ```
-  - Run: `cargo build -p peri-widgets 2>&1 | tail -5`
+  - Run: `cargo build -p cc-widgets 2>&1 | tail -5`
   - Expected: 构建成功（parking_lot 从 workspace 继承）
 
 - [ ] **Step 2: 创建 `cache.rs` 骨架**
-  - 文件: `peri-widgets/src/markdown/cache.rs`
+  - 文件: `cc-widgets/src/markdown/cache.rs`
   - 完整代码：
     ```rust
     //! Markdown 解析结果的 LRU 缓存
@@ -120,7 +120,7 @@
     ```
 
 - [ ] **Step 3: 在 `mod.rs` 注册 cache 模块**
-  - 文件: `peri-widgets/src/markdown/mod.rs`
+  - 文件: `cc-widgets/src/markdown/mod.rs`
   - 在 `mod render_state;` 后添加:
     ```rust
     mod cache;
@@ -128,7 +128,7 @@
     ```
 
 - [ ] **Step 4: 构建验证**
-  - Run: `cargo build -p peri-widgets`
+  - Run: `cargo build -p cc-widgets`
   - Expected: 构建成功
 
 ---
@@ -136,7 +136,7 @@
 ### Task 2: TDD — 编写缓存测试（失败测试先行）
 
 - [ ] **Step 1: 创建 `cache_test.rs`**
-  - 文件: `peri-widgets/src/markdown/cache_test.rs`
+  - 文件: `cc-widgets/src/markdown/cache_test.rs`
   - 完整代码：
     ```rust
     use super::cache::MarkdownCache;
@@ -241,7 +241,7 @@
     ```
 
 - [ ] **Step 2: 在 `cache.rs` 添加测试用构造方法**
-  - 文件: `peri-widgets/src/markdown/cache.rs`
+  - 文件: `cc-widgets/src/markdown/cache.rs`
   - 在 `impl MarkdownCache` 块末尾添加：
     ```rust
     /// 创建指定容量的缓存实例（测试用）
@@ -261,7 +261,7 @@
     ```
 
 - [ ] **Step 3: 在 `mod.rs` 注册测试模块**
-  - 文件: `peri-widgets/src/markdown/mod.rs`
+  - 文件: `cc-widgets/src/markdown/mod.rs`
   - 在文件末尾（`mod tests;` 之前）添加：
     ```rust
     #[cfg(test)]
@@ -270,12 +270,12 @@
     ```
 
 - [ ] **Step 4: 运行测试确认失败**
-  - Run: `cargo test -p peri-widgets --lib -- markdown::cache_tests 2>&1 | tail -20`
+  - Run: `cargo test -p cc-widgets --lib -- markdown::cache_tests 2>&1 | tail -20`
   - Expected: 测试失败——`MarkdownCache::new_for_test` 等方法尚不存在（因为 Step 2 代码在 Step 3 之前编辑即可通过，但按 TDD 流程先运行确认方法缺失）
   - 注意：若 `new_for_test` 已在 Step 2 添加，测试应全部通过。若未添加，编译失败。此处验证的是测试文件本身的正确性。
 
 - [ ] **Step 5: 运行测试确认通过**
-  - Run: `cargo test -p peri-widgets --lib -- markdown::cache_tests 2>&1 | tail -20`
+  - Run: `cargo test -p cc-widgets --lib -- markdown::cache_tests 2>&1 | tail -20`
   - Expected: 全部 7 个测试通过
 
 ---
@@ -283,7 +283,7 @@
 ### Task 3: 修改 `parse_markdown` 加入缓存逻辑
 
 - [ ] **Step 1: 修改 `parse_markdown` 函数签名和实现**
-  - 文件: `peri-widgets/src/markdown/mod.rs`
+  - 文件: `cc-widgets/src/markdown/mod.rs`
   - 将 `parse_markdown` 函数替换为：
     ```rust
     /// 解析 markdown 文本为 ratatui Text（带 LRU 缓存）
@@ -326,11 +326,11 @@
     ```
 
 - [ ] **Step 2: 构建验证**
-  - Run: `cargo build -p peri-widgets`
+  - Run: `cargo build -p cc-widgets`
   - Expected: 构建成功
 
 - [ ] **Step 3: 运行全部现有测试确认无回归**
-  - Run: `cargo test -p peri-widgets --lib 2>&1 | tail -20`
+  - Run: `cargo test -p cc-widgets --lib 2>&1 | tail -20`
   - Expected: 全部测试通过（现有 15 个 markdown 测试 + 7 个 cache 测试）
 
 ---
@@ -338,7 +338,7 @@
 ### Task 4: 集成测试 — 验证端到端缓存命中
 
 - [ ] **Step 1: 在 `mod_test.rs` 添加缓存集成测试**
-  - 文件: `peri-widgets/src/markdown/mod_test.rs`
+  - 文件: `cc-widgets/src/markdown/mod_test.rs`
   - 在文件末尾添加：
     ```rust
     /// 集成测试：parse_markdown 多次调用应命中缓存
@@ -425,23 +425,23 @@
     ```
 
 - [ ] **Step 2: 运行集成测试**
-  - Run: `cargo test -p peri-widgets --lib -- markdown::tests::parse_markdown_cache 2>&1 | tail -20`
+  - Run: `cargo test -p cc-widgets --lib -- markdown::tests::parse_markdown_cache 2>&1 | tail -20`
   - Expected: 3 个集成测试通过
 
-- [ ] **Step 3: 运行 peri-widgets 全量测试**
-  - Run: `cargo test -p peri-widgets --lib 2>&1 | tail -10`
+- [ ] **Step 3: 运行 cc-widgets 全量测试**
+  - Run: `cargo test -p cc-widgets --lib 2>&1 | tail -10`
   - Expected: 全部测试通过
 
 ---
 
 ### Task 5: 构建下游 crate 确认无破坏
 
-- [ ] **Step 1: 构建 peri-tui**
-  - Run: `cargo build -p peri-tui 2>&1 | tail -5`
-  - Expected: 构建成功（`peri-tui/src/ui/markdown/mod.rs` 中的 `parse_markdown` 包装器无需修改，签名未变）
+- [ ] **Step 1: 构建 cc-tui**
+  - Run: `cargo build -p cc-tui 2>&1 | tail -5`
+  - Expected: 构建成功（`cc-tui/src/ui/markdown/mod.rs` 中的 `parse_markdown` 包装器无需修改，签名未变）
 
-- [ ] **Step 2: 运行 peri-tui 测试**
-  - Run: `cargo test -p peri-tui --lib 2>&1 | tail -10`
+- [ ] **Step 2: 运行 cc-tui 测试**
+  - Run: `cargo test -p cc-tui --lib 2>&1 | tail -10`
   - Expected: 全部测试通过
 
 ---
@@ -450,11 +450,11 @@
 
 - [ ] **Step 1: 提交**
   ```bash
-  git add peri-widgets/Cargo.toml \
-        peri-widgets/src/markdown/cache.rs \
-        peri-widgets/src/markdown/cache_test.rs \
-        peri-widgets/src/markdown/mod.rs \
-        peri-widgets/src/markdown/mod_test.rs
+  git add cc-widgets/Cargo.toml \
+        cc-widgets/src/markdown/cache.rs \
+        cc-widgets/src/markdown/cache_test.rs \
+        cc-widgets/src/markdown/mod.rs \
+        cc-widgets/src/markdown/mod_test.rs
   git commit -m "perf(widgets): add LRU cache for markdown parse results
 
   - Add MarkdownCache with 256-entry LRU (lru 0.18 + parking_lot::Mutex)

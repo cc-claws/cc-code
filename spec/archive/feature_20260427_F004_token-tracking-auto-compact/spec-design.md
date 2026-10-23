@@ -329,7 +329,7 @@ pub trait ReactLLM: Send + Sync {
 
 - `ReActAgent::execute()` 是一个同步循环（虽然有 async），在其中途插入"暂停当前执行、调用另一个 LLM、替换消息列表"会显著复杂化控制流
 - TUI 层天然拥有"事件循环"模式——在 `LlmCallEnd` 和下一轮用户输入之间检查阈值是最佳时机
-- CC 的做法也是在 query loop（应用层）触发，而非在底层 LLM 调用中
+- 参考实现 的做法也是在 query loop（应用层）触发，而非在底层 LLM 调用中
 - 核心层只负责**追踪**和**通知**（发出 `ContextWarning` 事件），TUI 层负责**决策**和**执行**
 
 ### 4.2 为什么使用 API 返回的 usage 而不是自行估算？
@@ -338,7 +338,7 @@ pub trait ReactLLM: Send + Sync {
 
 - API 返回的 `input_tokens` 精确反映了发送给模型的完整 prompt 大小（含 system、cache、工具定义等）
 - 自行估算需要复制模型的 tokenizer 逻辑，容易产生偏差
-- CC 同样优先使用 API usage，仅在不可用时 fallback 到估算
+- 参考实现 同样优先使用 API usage，仅在不可用时 fallback 到估算
 
 ### 4.3 为什么不把 TokenTracker 放在 AgentState 之外？
 
@@ -374,9 +374,9 @@ Micro-compact 是 full compact 的轻量级前置防线。它的设计原则：
 
 ---
 
-## 六、与 Claude Code 的差异
+## 六、与 参考实现 的差异
 
-| 方面 | Claude Code | Peri（本方案） |
+| 方面 | 参考实现 | Peri（本方案） |
 |------|------------|---------------------|
 | Token 追踪位置 | 全局 state（TS 单例） | `AgentState.token_tracker`（Rust struct） |
 | Auto-compact 触发 | query loop 中检查 | TUI 事件循环中检查 |

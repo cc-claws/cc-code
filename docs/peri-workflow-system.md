@@ -1,15 +1,17 @@
 # Perihelion Workflow 编排系统设计文档
 
+> **状态注记（2026-10-22 核对）**：本文为设计文档（v3，2026-05-29），所述系统**尚未实现**：仓库 workspace 成员中没有 `peri-workflow` / `cc-workflow` crate（根 `Cargo.toml` members 仅 cc-agent、cc-middlewares、cc-tui、cc-acp、langfuse-client、cc-widgets、cc-lsp），cc-tui CLI 无 `workflow` 子命令、无 `/workflow` 斜杠命令；仓库 `.claude/workflows/` 现仍使用 JS workflow。下文保留为设计记录。
+
 > 本文档定义 Perihelion 项目的 Workflow 编排系统——一个基于 YAML + Markdown + JSON 声明的原生 Rust 执行器，
-> 用于替代 Claude Code 的 JavaScript Workflow 脚本，提供更适合本项目的多 Agent 编排能力。
+> 用于替代参考实现的 JavaScript Workflow 脚本，提供更适合本项目的多 Agent 编排能力。
 
 ---
 
 ## 1. 概述
 
-### 1.1 为什么不用 Claude Code Workflow
+### 1.1 为什么不用参考实现的 Workflow
 
-Claude Code 的 Workflow 工具使用 JavaScript 脚本编排多 Agent 执行。但对 Perihelion 项目来说：
+参考实现的 Workflow 工具使用 JavaScript 脚本编排多 Agent 执行。但对 Perihelion 项目来说：
 
 - **项目是纯 Rust 栈**，维护 JS 脚本与项目技术栈不一致
 - **提示词混在 JS 中**，333 行的 `full-code-review.js` 中约 180 行是中文提示词文本，难以独立审查和迭代
@@ -28,15 +30,15 @@ Claude Code 的 Workflow 工具使用 JavaScript 脚本编排多 Agent 执行。
 
 ### 1.3 对比
 
-| 维度 | Claude Code JS Workflow | Perihelion YAML Workflow |
+| 维度 | 参考实现 JS Workflow | Perihelion YAML Workflow |
 |------|------------------------|--------------------------|
 | 声明语言 | JavaScript | YAML + Markdown + JSON |
-| 执行器 | Claude Code 内置 JS Runtime | `peri-workflow` Rust 执行器 |
+| 执行器 | 参考实现内置 JS Runtime | `peri-workflow` Rust 执行器 |
 | 提示词位置 | 内嵌在 JS 模板字符串中 | 独立 `.md` 文件 |
 | Schema 位置 | JS 对象字面量 | 独立 `.json` 文件 |
 | 数据变换 | JS 表达式 | JS 脚本（`run` 步骤，需 `require` 声明） |
 | Agent 创建 | Workflow Runtime 子进程 | `cc-acp::build_agent()` |
-| 跨平台 | 仅 Claude Code | Perihelion 支持的所有平台 |
+| 跨平台 | 仅参考实现 | Perihelion 支持的所有平台 |
 
 ---
 
@@ -1111,9 +1113,9 @@ require: [bun]               # 可选，声明外部运行时依赖（node/bun�
 - log: "消息 ${variable.field}"
 ```
 
-## 附录 B：与 Claude Code JS Workflow 的概念映射
+## 附录 B：与参考实现 JS Workflow 的概念映射
 
-| Claude Code JS | Perihelion YAML | 说明 |
+| 参考实现 JS | Perihelion YAML | 说明 |
 |----------------|-----------------|------|
 | `export const meta = {…}` | YAML 顶层 `name`/`description`/`phases` | 声明方式不同 |
 | `agent(prompt, {schema})` | `agent` step + `schema` 引用 | prompt 移到 .md 文件 |

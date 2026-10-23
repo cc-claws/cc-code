@@ -14,20 +14,20 @@
 
 | 操作 | 文件 | 职责 |
 |------|------|------|
-| 修改 | `peri-agent/src/agent/events.rs` | `SubagentStarted`/`SubagentStopped` 增加 `instance_id` 字段 |
-| 修改 | `peri-middlewares/src/subagent/tool/define.rs` | `invoke()`/`invoke_fork()`/`invoke_background()` 生成并传递 `instance_id` |
-| 修改 | `peri-tui/src/app/events.rs` | `SubAgentStart`/`SubAgentEnd` 增加 `instance_id` 字段 |
-| 修改 | `peri-tui/src/app/agent.rs` | 映射层：`SubagentStarted` → `SubAgentStart`（创建 SubAgentState），`ToolStart(name="Agent")` → 普通 ToolStart |
-| 修改 | `peri-tui/src/app/message_pipeline/mod.rs` | `SubAgentState` 增加 `instance_id`，路由/匹配/pending_tools 全部改用 `instance_id` |
-| 修改 | `peri-tui/src/app/agent_ops.rs` | 透传 `instance_id` 到 pipeline |
-| 修改 | `peri-tui/src/app/message_pipeline/message_pipeline_test.rs` | 更新现有测试 + 新增回归测试 |
+| 修改 | `cc-agent/src/agent/events.rs` | `SubagentStarted`/`SubagentStopped` 增加 `instance_id` 字段 |
+| 修改 | `cc-middlewares/src/subagent/tool/define.rs` | `invoke()`/`invoke_fork()`/`invoke_background()` 生成并传递 `instance_id` |
+| 修改 | `cc-tui/src/app/events.rs` | `SubAgentStart`/`SubAgentEnd` 增加 `instance_id` 字段 |
+| 修改 | `cc-tui/src/app/agent.rs` | 映射层：`SubagentStarted` → `SubAgentStart`（创建 SubAgentState），`ToolStart(name="Agent")` → 普通 ToolStart |
+| 修改 | `cc-tui/src/app/message_pipeline/mod.rs` | `SubAgentState` 增加 `instance_id`，路由/匹配/pending_tools 全部改用 `instance_id` |
+| 修改 | `cc-tui/src/app/agent_ops.rs` | 透传 `instance_id` 到 pipeline |
+| 修改 | `cc-tui/src/app/message_pipeline/message_pipeline_test.rs` | 更新现有测试 + 新增回归测试 |
 
 ---
 
-### Task 1: 扩展 `SubagentStarted`/`SubagentStopped` 事件（peri-agent）
+### Task 1: 扩展 `SubagentStarted`/`SubagentStopped` 事件（cc-agent）
 
 **Files:**
-- Modify: `peri-agent/src/agent/events.rs:84-90`
+- Modify: `cc-agent/src/agent/events.rs:84-90`
 
 - [ ] **Step 1: 给 `SubagentStarted` 和 `SubagentStopped` 增加 `instance_id` 字段**
 
@@ -52,7 +52,7 @@ SubagentStopped {
 
 - [ ] **Step 2: 搜索所有 `SubagentStarted`/`SubagentStopped` 的构造点，确认编译**
 
-Run: `cargo build -p peri-agent 2>&1 | head -40`
+Run: `cargo build -p cc-agent 2>&1 | head -40`
 
 Expected: 编译错误指向所有需要更新 `SubagentStarted`/`SubagentStopped` 构造的位置。
 
@@ -67,9 +67,9 @@ grep -rn "SubagentStopped" --include="*.rs" | grep -v "define.rs"
 
 对每个结果添加 `instance_id: String::new()` 或 `instance_id: "test".into()`。
 
-- [ ] **Step 4: 验证 `peri-agent` 编译通过**
+- [ ] **Step 4: 验证 `cc-agent` 编译通过**
 
-Run: `cargo build -p peri-agent 2>&1 | tail -5`
+Run: `cargo build -p cc-agent 2>&1 | tail -5`
 Expected: 编译成功
 
 - [ ] **Step 5: Commit**
@@ -80,13 +80,13 @@ git add -A && git commit -m "feat(agent): add instance_id field to SubagentStart
 
 ---
 
-### Task 2: `SubAgentTool::invoke()` 生成并传递 `instance_id`（peri-middlewares）
+### Task 2: `SubAgentTool::invoke()` 生成并传递 `instance_id`（cc-middlewares）
 
 **Files:**
-- Modify: `peri-middlewares/src/subagent/tool/define.rs:691-822`（invoke 普通路径）
-- Modify: `peri-middlewares/src/subagent/tool/define.rs:205-303`（invoke_fork 路径）
-- Modify: `peri-middlewares/src/subagent/tool/define.rs:305-479`（invoke_background 路径）
-- Modify: `peri-middlewares/src/subagent/tool/define.rs:481-600`（invoke_background_fork 路径）
+- Modify: `cc-middlewares/src/subagent/tool/define.rs:691-822`（invoke 普通路径）
+- Modify: `cc-middlewares/src/subagent/tool/define.rs:205-303`（invoke_fork 路径）
+- Modify: `cc-middlewares/src/subagent/tool/define.rs:305-479`（invoke_background 路径）
+- Modify: `cc-middlewares/src/subagent/tool/define.rs:481-600`（invoke_background_fork 路径）
 
 - [ ] **Step 1: 在 `invoke()` 正常路径中生成 `instance_id` 并传递**
 
@@ -211,9 +211,9 @@ handler.on_event(AgentEvent::SubagentStopped {
 对 `invoke_background_fork()`：
 - 同上模式
 
-- [ ] **Step 4: 验证 `peri-middlewares` 编译通过**
+- [ ] **Step 4: 验证 `cc-middlewares` 编译通过**
 
-Run: `cargo build -p peri-middlewares 2>&1 | tail -5`
+Run: `cargo build -p cc-middlewares 2>&1 | tail -5`
 Expected: 编译成功
 
 - [ ] **Step 5: Commit**
@@ -227,7 +227,7 @@ git add -A && git commit -m "feat(subagent): generate unique instance_id in SubA
 ### Task 3: 扩展 TUI `SubAgentStart`/`SubAgentEnd` 事件
 
 **Files:**
-- Modify: `peri-tui/src/app/events.rs:67-77`
+- Modify: `cc-tui/src/app/events.rs:67-77`
 
 - [ ] **Step 1: 给 `SubAgentStart` 和 `SubAgentEnd` 增加 `instance_id` 字段**
 
@@ -254,12 +254,12 @@ SubAgentEnd {
 
 - [ ] **Step 2: 搜索所有 `AgentEvent::SubAgentStart` 和 `AgentEvent::SubAgentEnd` 的构造/匹配点**
 
-Run: `grep -rn "SubAgentStart\|SubAgentEnd" peri-tui/src/ --include="*.rs"`
+Run: `grep -rn "SubAgentStart\|SubAgentEnd" cc-tui/src/ --include="*.rs"`
 对每个匹配点添加 `instance_id` 字段。大部分是测试文件，用 `"test-instance".into()` 或 `None` 占位。
 
 - [ ] **Step 3: 验证 TUI 编译**
 
-Run: `cargo build -p peri-tui 2>&1 | tail -10`
+Run: `cargo build -p cc-tui 2>&1 | tail -10`
 Expected: 编译成功（因为映射层和 pipeline 还没改，构造点已用占位值填充）
 
 - [ ] **Step 4: Commit**
@@ -273,8 +273,8 @@ git add -A && git commit -m "feat(tui): add instance_id to SubAgentStart/SubAgen
 ### Task 4: 重构 TUI 映射层——`SubagentStarted` 创建 `SubAgentState`
 
 **Files:**
-- Modify: `peri-tui/src/app/agent.rs:29-49`（ToolStart Agent 映射）
-- Modify: `peri-tui/src/app/agent.rs:157-170`（SubagentStarted/Stopped 映射）
+- Modify: `cc-tui/src/app/agent.rs:29-49`（ToolStart Agent 映射）
+- Modify: `cc-tui/src/app/agent.rs:157-170`（SubagentStarted/Stopped 映射）
 
 这是核心改动。当前 `ToolStart(name="Agent")` → `SubAgentStart`（创建 SubAgentState），需要改为 `SubagentStarted` → `SubAgentStart`（创建 SubAgentState）。
 
@@ -360,7 +360,7 @@ ExecutorEvent::SubagentStopped {
 
 - [ ] **Step 4: 验证编译**
 
-Run: `cargo build -p peri-tui 2>&1 | tail -10`
+Run: `cargo build -p cc-tui 2>&1 | tail -10`
 Expected: 编译成功（pipeline 层还没改，但类型已对齐）
 
 - [ ] **Step 5: Commit**
@@ -374,12 +374,12 @@ git add -A && git commit -m "refactor(tui): map SubagentStarted→SubAgentStart 
 ### Task 5: Pipeline 改用 `instance_id` 路由
 
 **Files:**
-- Modify: `peri-tui/src/app/message_pipeline/mod.rs:84-97`（`SubAgentState`）
-- Modify: `peri-tui/src/app/message_pipeline/mod.rs:286-296`（`SubAgentStart` 处理）
-- Modify: `peri-tui/src/app/message_pipeline/mod.rs:297-322`（`SubAgentEnd` 处理）
-- Modify: `peri-tui/src/app/message_pipeline/mod.rs:393-449`（`tool_start_internal`）
-- Modify: `peri-tui/src/app/message_pipeline/mod.rs:451-510`（`tool_end_internal`）
-- Modify: `peri-tui/src/app/message_pipeline/mod.rs:576-581`（`find_running_subagent_mut`）
+- Modify: `cc-tui/src/app/message_pipeline/mod.rs:84-97`（`SubAgentState`）
+- Modify: `cc-tui/src/app/message_pipeline/mod.rs:286-296`（`SubAgentStart` 处理）
+- Modify: `cc-tui/src/app/message_pipeline/mod.rs:297-322`（`SubAgentEnd` 处理）
+- Modify: `cc-tui/src/app/message_pipeline/mod.rs:393-449`（`tool_start_internal`）
+- Modify: `cc-tui/src/app/message_pipeline/mod.rs:451-510`（`tool_end_internal`）
+- Modify: `cc-tui/src/app/message_pipeline/mod.rs:576-581`（`find_running_subagent_mut`）
 
 - [ ] **Step 1: `SubAgentState` 增加 `instance_id` 字段**
 
@@ -519,7 +519,7 @@ fn find_running_subagent_mut(&mut self, instance_id: &str) -> Option<&mut SubAge
 
 - [ ] **Step 8: 验证编译**
 
-Run: `cargo build -p peri-tui 2>&1 | tail -10`
+Run: `cargo build -p cc-tui 2>&1 | tail -10`
 Expected: 编译成功
 
 - [ ] **Step 9: Commit**
@@ -533,8 +533,8 @@ git add -A && git commit -m "fix(pipeline): route SubAgent events by unique inst
 ### Task 6: 更新 `agent_ops.rs` 透传 `instance_id`
 
 **Files:**
-- Modify: `peri-tui/src/app/agent_ops.rs:199-239`（SubAgentStart 处理）
-- Modify: `peri-tui/src/app/agent_ops.rs:267-322`（SubAgentEnd 处理）
+- Modify: `cc-tui/src/app/agent_ops.rs:199-239`（SubAgentStart 处理）
+- Modify: `cc-tui/src/app/agent_ops.rs:267-322`（SubAgentEnd 处理）
 
 - [ ] **Step 1: `SubAgentStart` 处理——透传 `instance_id`**
 
@@ -592,7 +592,7 @@ AgentEvent::SubAgentEnd {
 
 - [ ] **Step 3: 验证编译**
 
-Run: `cargo build -p peri-tui 2>&1 | tail -5`
+Run: `cargo build -p cc-tui 2>&1 | tail -5`
 Expected: 编译成功
 
 - [ ] **Step 4: Commit**
@@ -606,8 +606,8 @@ git add -A && git commit -m "fix(agent_ops): pass through instance_id in SubAgen
 ### Task 7: 更新测试 + 新增回归测试
 
 **Files:**
-- Modify: `peri-tui/src/app/message_pipeline/message_pipeline_test.rs`
-- Modify: `peri-middlewares/src/subagent/tool/tool_test.rs`
+- Modify: `cc-tui/src/app/message_pipeline/message_pipeline_test.rs`
+- Modify: `cc-middlewares/src/subagent/tool/tool_test.rs`
 
 - [ ] **Step 1: 更新所有现有测试中的 `SubAgentStart` 构造**
 
@@ -616,7 +616,7 @@ git add -A && git commit -m "fix(agent_ops): pass through instance_id in SubAgen
 搜索并更新：
 
 ```bash
-grep -n "SubAgentStart {" peri-tui/src/app/message_pipeline/message_pipeline_test.rs
+grep -n "SubAgentStart {" cc-tui/src/app/message_pipeline/message_pipeline_test.rs
 ```
 
 每个构造点添加 `instance_id: "<unique-test-id>".into(),`。对于并发测试 `test_concurrent_subagents_route_by_source_agent_id`，使用不同的 `instance_id`。
@@ -790,14 +790,14 @@ fn test_concurrent_same_type_subagents_have_different_hash() {
 
 - [ ] **Step 4: 更新 headless 测试中的 `SubAgentStart` 构造**
 
-搜索 `peri-tui/src/ui/headless_test.rs` 中所有 `SubAgentStart` 构造，添加 `instance_id` 字段（用 `"test-instance".into()` 即可）。
+搜索 `cc-tui/src/ui/headless_test.rs` 中所有 `SubAgentStart` 构造，添加 `instance_id` 字段（用 `"test-instance".into()` 即可）。
 
 - [ ] **Step 5: 运行全部测试验证**
 
-Run: `cargo test -p peri-tui --lib -- message_pipeline 2>&1 | tail -20`
+Run: `cargo test -p cc-tui --lib -- message_pipeline 2>&1 | tail -20`
 Expected: 所有 pipeline 测试通过
 
-Run: `cargo test -p peri-middlewares --lib -- subagent 2>&1 | tail -10`
+Run: `cargo test -p cc-middlewares --lib -- subagent 2>&1 | tail -10`
 Expected: 所有 subagent 测试通过
 
 - [ ] **Step 6: Commit**

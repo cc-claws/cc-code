@@ -43,7 +43,7 @@ draw_app()
 
 ## 关键代码
 
-`peri-tui/src/main.rs:907-911`：
+`cc-tui/src/main.rs:907-911`：
 
 ```rust
 fn draw_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> Result<()> {
@@ -101,7 +101,7 @@ fn draw_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App
 
 | 文件 | 改动 |
 |------|------|
-| `peri-tui/src/main.rs` | `draw_app` 增加 `clear()` 调用；`flush_scrollback_history` 返回 `bool` |
+| `cc-tui/src/main.rs` | `draw_app` 增加 `clear()` 调用；`flush_scrollback_history` 返回 `bool` |
 
 ## 复现条件
 

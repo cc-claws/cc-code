@@ -7,7 +7,7 @@
 
 ## 问题描述
 
-LLM 在调用 Read/Write/Edit 文件操作工具时，有时会使用 `path` 参数名代替 `file_path`。这是因为 Claude Code 原生 schema 中 Glob/Grep 搜索工具使用 `path`（可选参数，描述搜索范围），而 Read/Write/Edit 文件操作工具使用 `file_path`（必需参数，描述操作目标文件）。LLM 在工具间切换时产生参数名混淆。
+LLM 在调用 Read/Write/Edit 文件操作工具时，有时会使用 `path` 参数名代替 `file_path`。这是因为 参考实现 原生 schema 中 Glob/Grep 搜索工具使用 `path`（可选参数，描述搜索范围），而 Read/Write/Edit 文件操作工具使用 `file_path`（必需参数，描述操作目标文件）。LLM 在工具间切换时产生参数名混淆。
 
 数据验证：158/9,058 次 Read 调用（1.74%）使用了 `path` 而非 `file_path`。一个典型案例中，用户正在反馈 "Write 工具缺少 file_path" 的 issue，agent 去读 Skill 文件时自己也用了 `path`。
 
@@ -32,7 +32,7 @@ LLM 在调用 Read/Write/Edit 文件操作工具时，有时会使用 `path` 参
 
 ### 根因
 
-Claude Code 工具 schema 存在有意的不一致（非 bug——设计决策）：
+参考实现 工具 schema 存在有意的不一致（非 bug——设计决策）：
 
 | 工具类别 | 参数名 | 语义 |
 |---------|--------|------|

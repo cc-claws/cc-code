@@ -2,13 +2,13 @@
 
 **日期**: 2026-05-19
 **状态**: 设计完成，待实施
-**目标**: 将上下文压缩（compact）的触发判断和执行从 TUI 下沉到 `peri-acp` 的 `execute_prompt`，使 TUI 和 stdio/IDE 路径共享 compact 能力。
+**目标**: 将上下文压缩（compact）的触发判断和执行从 TUI 下沉到 `cc-acp` 的 `execute_prompt`，使 TUI 和 stdio/IDE 路径共享 compact 能力。
 
 ---
 
 ## 背景与问题
 
-当前 compact 的触发判断和执行完全在 TUI 层（`peri-tui`）：
+当前 compact 的触发判断和执行完全在 TUI 层（`cc-tui`）：
 
 - `agent_ops.rs` 中 `ContextWarning` 和 `TokenUsageUpdate` 事件处理器设置 `needs_auto_compact` 标志
 - `Done` 事件处理器检查标志后调用 `start_compact()` 或 `start_micro_compact()`
@@ -26,7 +26,7 @@
 | # | 问题 | 决策 |
 |---|------|------|
 | 1 | stdio/IDE 路径 compact 结果处理 | 替换 SessionState.history + 通过 session/update 通知客户端 |
-| 2 | compact 触发位置 | 在 `peri-acp` 的 `execute_prompt` 内部 |
+| 2 | compact 触发位置 | 在 `cc-acp` 的 `execute_prompt` 内部 |
 | 3 | auto-compact 后 resubmit | executor 内部循环，最多 3 次 |
 | 4 | micro-compact | 也下沉到 executor |
 | 5 | Thread 持久化 | 不创建新 Thread，只替换 messages，持久化由调用方处理 |
@@ -135,7 +135,7 @@ pub async fn execute_prompt(...) -> PromptResult {
 ### ExecutorEvent 变体改造
 
 ```rust
-// peri-agent/src/agent/events.rs
+// cc-agent/src/agent/events.rs
 
 /// compact 文件信息摘要
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -176,7 +176,7 @@ Response: { messages: BaseMessage[], compactInfo: { summary, files, skills } }
 ### compact_runner 公共函数
 
 ```rust
-// peri-acp/src/session/compact_runner.rs（新文件）
+// cc-acp/src/session/compact_runner.rs（新文件）
 
 pub struct CompactOutput {
     pub new_messages: Vec<BaseMessage>,
@@ -207,14 +207,14 @@ pub async fn run_compact(
 
 | 文件 | 内容 |
 |------|------|
-| `peri-tui/src/app/agent.rs` | `compact_task()` 整个函数（~180 行） |
-| `peri-tui/src/app/agent_compact.rs` | 整个文件删除 |
-| `peri-tui/src/app/thread_ops.rs` | `start_compact()`、`start_micro_compact()` 方法 |
-| `peri-tui/src/app/agent_ops.rs` | ContextWarning 中的 compact 触发逻辑 |
-| `peri-tui/src/app/agent_ops.rs` | TokenUsageUpdate 中的 compact 判断逻辑 |
-| `peri-tui/src/app/agent_ops.rs` | Done 中的 auto-compact 执行逻辑 |
-| `peri-tui/src/app/agent_events_bg.rs` | 后台任务完成后的 deferred compact 触发 |
-| `peri-tui/src/app/events.rs` | 旧的 `CompactDone`/`CompactError` 变体 |
+| `cc-tui/src/app/agent.rs` | `compact_task()` 整个函数（~180 行） |
+| `cc-tui/src/app/agent_compact.rs` | 整个文件删除 |
+| `cc-tui/src/app/thread_ops.rs` | `start_compact()`、`start_micro_compact()` 方法 |
+| `cc-tui/src/app/agent_ops.rs` | ContextWarning 中的 compact 触发逻辑 |
+| `cc-tui/src/app/agent_ops.rs` | TokenUsageUpdate 中的 compact 判断逻辑 |
+| `cc-tui/src/app/agent_ops.rs` | Done 中的 auto-compact 执行逻辑 |
+| `cc-tui/src/app/agent_events_bg.rs` | 后台任务完成后的 deferred compact 触发 |
+| `cc-tui/src/app/events.rs` | 旧的 `CompactDone`/`CompactError` 变体 |
 
 ### AgentComm 删除的字段
 
@@ -258,15 +258,15 @@ auto_compact_resubmit_count: u32,
 
 ## 变更文件汇总
 
-**peri-agent**（1 文件）：
+**cc-agent**（1 文件）：
 - `src/agent/events.rs` — CompactCompleted 增加数据字段，新增 CompactFileInfo、CompactError 变体
 
-**peri-acp**（3 文件）：
+**cc-acp**（3 文件）：
 - `src/session/executor.rs` — 核心改造：execute_prompt 内部 compact 循环
 - `src/session/compact_runner.rs`（新建）— compact 公共函数
 - `src/session/mod.rs` — 注册 compact_runner 模块
 
-**peri-tui**（~8 文件）：
+**cc-tui**（~8 文件）：
 - `src/app/agent.rs` — 删除 compact_task，修改 map_executor_event
 - `src/app/agent_compact.rs` — 删除整个文件
 - `src/app/agent_comm.rs` — 删除 8 个 compact 相关字段
@@ -278,7 +278,7 @@ auto_compact_resubmit_count: u32,
 - `src/acp_server.rs` — 新增 session/compact 路由
 
 **不变**：
-- `peri-agent/src/agent/compact/` — full_compact、micro_compact、re_inject、config
-- `peri-agent/src/agent/token.rs` — TokenTracker、ContextBudget
-- `peri-acp/src/session/event_sink.rs` — EventSink trait
-- `peri-middlewares/` — hooks
+- `cc-agent/src/agent/compact/` — full_compact、micro_compact、re_inject、config
+- `cc-agent/src/agent/token.rs` — TokenTracker、ContextBudget
+- `cc-acp/src/session/event_sink.rs` — EventSink trait
+- `cc-middlewares/` — hooks

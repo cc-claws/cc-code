@@ -6,11 +6,11 @@
 
 ## 问题描述
 
-SessionEnd 钩子缺少 Claude Code 官方的 `reason` 字段，且未覆盖所有应触发场景。
+SessionEnd 钩子缺少 参考实现 官方的 `reason` 字段，且未覆盖所有应触发场景。
 
 ## 当前行为 vs 预期行为
 
-| 场景 | Claude Code (reason) | Peri | 差异 |
+| 场景 | 参考实现 (reason) | Peri | 差异 |
 |------|---------------------|------|------|
 | `/clear` 新建 thread | `clear` | 触发（无 reason） | ✗ 缺 reason |
 | 恢复其他会话（导致当前会话结束） | `resume` | 不触发 | ✗ 缺场景 |
@@ -33,7 +33,7 @@ SessionEnd 钩子缺少 Claude Code 官方的 `reason` 字段，且未覆盖所�
 2. `new_thread()` 调用时传 `reason = "clear"`
 3. TUI 退出时传 `reason = "prompt_input_exit"` 或 `"other"`
 4. 检查 resume 会话时是否需要触发当前会话的 SessionEnd（`reason = "resume"`）
-5. Claude Code 默认超时 1.5s，peri 当前无超时控制
+5. 参考实现 默认超时 1.5s，peri 当前无超时控制
 
 ## 涉及文件
 
@@ -67,4 +67,4 @@ SessionEnd 钩子缺少 Claude Code 官方的 `reason` 字段，且未覆盖所�
 
 - **resume 场景未覆盖**：恢复其他会话导致当前会话结束时，应触发 SessionEnd with `source = "resume"`。当前 TUI 层在 resume 时未调用 `fire_standalone_lifecycle_hooks`，需要单独排查 resume 路径并补触发点。
 - **/quit 与 Ctrl+C 双击区分**：当前统一传 `prompt_input_exit`，未区分 `/quit`（应为 `other`）和双击 Ctrl+C（应为 `prompt_input_exit`）。
-- **超时控制**：Claude Code 默认 1.5s 超时，Peri 当前无超时控制。
+- **超时控制**：参考实现 默认 1.5s 超时，Peri 当前无超时控制。

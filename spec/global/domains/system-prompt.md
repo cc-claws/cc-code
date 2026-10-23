@@ -7,7 +7,7 @@
 核心职责：
 - 14 个 .md 段落文件：6 个静态，8 个位于动态边界之后（按平台和功能条件注入）
 - include_str! 编译时嵌入，零运行时开销
-- PromptFeatures 从环境变量推断功能开关
+- PromptFeatures 共 6 个开关（hitl/subagent/cron/skills/channel/memory）：仅 hitl 经 YOLO_MODE 环境变量推断，其余构建时硬编码 true
 - 动态覆盖块从 AgentOverrides 生成
 
 ## 核心流程
@@ -33,7 +33,8 @@ build_system_prompt(overrides, cwd, features)
 | 动态边界后 | 07_env, 08_windows（Windows）, 14_system_reminder，覆盖块及语言设置 |
 | Feature-gated | 10_hitl, 11_subagent, 12_cron, 13_skills, 15_channel |
 | 编译嵌入 | include_str! 宏，零运行时开销 |
-| 条件注入 | PromptFeatures::detect()；HITL 使用运行时的 !is_yolo_mode()，默认启用审批说明 |
+| 条件注入 | PromptFeatures::detect()；HITL 使用运行时的 !is_yolo_mode()，默认启用审批说明；其余开关硬编码 true |
+| Auto-Memory 块 | memory_enabled 门控的代码生成提示块（非段落文件） |
 | 环境变量 | 会话创建时捕获；07 中日期为 session date，不代表实时日期 |
 
 ## 内置指令约定
@@ -55,7 +56,7 @@ build_system_prompt(overrides, cwd, features)
 - 8 个静态段落始终包含，4 个 Feature-gated 段落通过 PromptFeatures 条件注入
 - 使用 include_str! 编译时嵌入，零运行时开销
 - PromptFeatures::detect() 从环境变量推断，长期改为从中间件注册列表推断
-- 同步 claude-code 工具 description 详细版本
+- 同步参考实现的工具 description 详细版本
 - 工具名从 PascalCase 映射为 snake_case
 **归档:** [链接](../../archive/feature_20260430_F001_system-prompt-restructure/)
 **归档日期:** 2026-04-30
@@ -83,7 +84,7 @@ build_system_prompt(overrides, cwd, features)
 **归档日期:** 2026-05-14
 **关键词:** Prompt Cache, 边界标记, __SYSTEM_PROMPT_DYNAMIC_BOUNDARY__, split_system_blocks, 动态占位符
 **问题本质:** 整个 system prompt 作为单一缓存段，动态占位符（{{date}} 每日变化、{{cwd}} 跨项目变化）导致缓存前缀完全失效。边界标记方案将静态核心（01-06，~80% token）与动态内容（07_env + feature-gated + middleware，~20%）分离为独立缓存块。
-**通用模式:** 缓存前缀稳定性原则——所有参与缓存前缀的数据必须保证跨请求稳定。动态内容应通过边界标记或独立块隔离到缓存段之外。此方案仿照 Claude Code 的 splitSysPromptPrefix() 模式。
+**通用模式:** 缓存前缀稳定性原则——所有参与缓存前缀的数据必须保证跨请求稳定。动态内容应通过边界标记或独立块隔离到缓存段之外。此方案仿照参考实现的 splitSysPromptPrefix() 模式。
 **架构影响:** 引入 __SYSTEM_PROMPT_DYNAMIC_BOUNDARY__ 标记和 split_system_blocks() 方法，但不改变 ReactLLM trait 签名。后续可进一步拆分 feature-gated 静态段落为独立缓存块（需变更 trait 签名）。
 **涉及文件:** cc-tui/src/prompt.rs, cc-agent/src/llm/anthropic.rs
 **CLAUDE.md 链接:** true
@@ -143,7 +144,7 @@ build_system_prompt(overrides, cwd, features)
 **关键词:** Language instruction, system prompt, LLM language drift, frozen_language
 **问题本质:** 系统提示词中无任何语言偏好指令，LLM 在多轮对话后逐渐从中文漂移到英文。UI i18n 系统已存在但未传递给 LLM
 **通用模式:** 语言偏好与 cwd/date 同属「在 session/new 时冻结、注入系统提示词动态区域」的数据。任何影响 LLM 行为的用户偏好都应进入系统提示词
-**技术决策:** Language 段落放入 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 之后（动态区域），参考 Claude Code 的 `# Language` 格式
+**技术决策:** Language 段落放入 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 之后（动态区域），`# Language` 格式与参考实现一致
 **涉及文件:** cc-acp/src/prompt/mod.rs, cc-acp/src/provider/config.rs, cc-acp/src/session/executor.rs, cc-tui/src/acp_server/prompt.rs
 **CLAUDE.md 链接:** false
 

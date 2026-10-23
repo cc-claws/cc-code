@@ -108,10 +108,10 @@
 
 | 文件 | 变更 |
 |------|------|
-| `peri-middlewares/src/hooks/types.rs` | 新增 `message_count` 字段 + `HookInput::compact()` 构造器 |
-| `peri-middlewares/src/hooks/middleware.rs` | `fire_session_lifecycle_hooks` → `fire_standalone_lifecycle_hooks`（支持 SessionEnd/PreCompact/PostCompact/Notification） |
-| `peri-tui/src/app/agent.rs` | `compact_task` 新增 hooks 参数，在 compact 前后触发 |
-| `peri-tui/src/app/thread_ops.rs` | `start_compact` 合并 hooks 并传入 `compact_task` |
+| `cc-middlewares/src/hooks/types.rs` | 新增 `message_count` 字段 + `HookInput::compact()` 构造器 |
+| `cc-middlewares/src/hooks/middleware.rs` | `fire_session_lifecycle_hooks` → `fire_standalone_lifecycle_hooks`（支持 SessionEnd/PreCompact/PostCompact/Notification） |
+| `cc-tui/src/app/agent.rs` | `compact_task` 新增 hooks 参数，在 compact 前后触发 |
+| `cc-tui/src/app/thread_ops.rs` | `start_compact` 合并 hooks 并传入 `compact_task` |
 
 ### Notification（新增实现）
 
@@ -126,10 +126,10 @@
 
 | 文件 | 变更 |
 |------|------|
-| `peri-middlewares/src/hooks/types.rs` | 新增 `HookEvent::Notification` 枚举变体（从 Unknown 提升为一级变体） |
-| `peri-middlewares/src/hooks/middleware.rs` | `before_tool()` 和 `after_agent()` 中 PermissionRequest/Stop 后触发 Notification |
-| `peri-middlewares/src/hooks/loader.rs` | 测试断言更新 |
-| `peri-tui/src/app/hooks_panel.rs` | hooks 面板新增 Notification 条目 |
+| `cc-middlewares/src/hooks/types.rs` | 新增 `HookEvent::Notification` 枚举变体（从 Unknown 提升为一级变体） |
+| `cc-middlewares/src/hooks/middleware.rs` | `before_tool()` 和 `after_agent()` 中 PermissionRequest/Stop 后触发 Notification |
+| `cc-middlewares/src/hooks/loader.rs` | 测试断言更新 |
+| `cc-tui/src/app/hooks_panel.rs` | hooks 面板新增 Notification 条目 |
 
 ---
 

@@ -1878,3 +1878,61 @@ fn make_running_tool_block(
     vm.recompute_hash();
     vm
 }
+
+/// 裸 URL 的链接化范围对齐 CC：只有工具结果与 `!` 命令输出登记命中区。
+///
+/// 正文（含代码块）与用户输入一律不扫描——CC 的 `src/utils/markdown.ts` 只对
+/// `link` token 调 `createHyperlink`，裸 URL 在正文里是纯文本；`linkifyUrlsInText`
+/// 只挂在工具结果的 `OutputLine` 上。范围写大了就会让正文里满屏 URL 变蓝可点。
+#[test]
+fn test_bare_url_links_only_for_tool_and_shell_output() {
+    use super::RenderTask;
+    let url = "https://a.example/runs/1";
+
+    // 工具结果：裸 URL 必须登记命中区。
+    let mut tool = MessageViewModel::tool_block(
+        "Bash".to_string(),
+        "Bash".to_string(),
+        Some("gh run list".to_string()),
+        false,
+    );
+    if let MessageViewModel::ToolBlock { content, .. } = &mut tool {
+        *content = format!("Build fail 2m30s {url}");
+    }
+    tool.recompute_hash();
+    let (_, links) = RenderTask::render_one(&mut tool.clone(), 0, 100, false, false);
+    assert_eq!(links.len(), 1, "工具结果里的裸 URL 应登记命中区");
+    assert_eq!(links[0].url, url);
+
+    // `!` 命令输出：同样登记。
+    let mut shell = MessageViewModel::ShellCommand {
+        id: "shell-1".to_string(),
+        command: "gh pr checks".to_string(),
+        cwd: ".".to_string(),
+        stdin: Vec::new(),
+        stdout: format!("fail 3m2s {url}"),
+        stderr: String::new(),
+        exit_code: Some(0),
+        collapsed: true,
+        content_hash: 0,
+        started_at: None,
+        moved_to_background: false,
+    };
+    shell.recompute_hash();
+    let (_, links) = RenderTask::render_one(&mut shell.clone(), 0, 100, false, false);
+    assert_eq!(links.len(), 1, "`!` 输出里的裸 URL 应登记命中区");
+
+    // 正文（含代码块）：不得登记。
+    let mut assistant = MessageViewModel::assistant();
+    assistant.append_chunk(&format!("看这个 {url}\n\n```\ncurl {url}\n```\n"));
+    let (_, links) = RenderTask::render_one(&mut assistant.clone(), 0, 100, false, false);
+    assert!(
+        links.is_empty(),
+        "正文与代码块里的裸 URL 不得变成链接，否则就是范围越界"
+    );
+
+    // 用户输入：不得登记。
+    let user = MessageViewModel::user(format!("跑一下 echo {url}"));
+    let (_, links) = RenderTask::render_one(&mut user.clone(), 0, 100, false, false);
+    assert!(links.is_empty(), "用户输入不得变成链接");
+}

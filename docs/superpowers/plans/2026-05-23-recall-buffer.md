@@ -14,18 +14,18 @@
 
 | File | Action | Responsibility |
 |------|--------|---------------|
-| `peri-agent/src/agent/state.rs` | Modify | Add `recall_buffer` field, trait methods, impl |
-| `peri-agent/src/agent/state_test.rs` | Modify | Tests for push/drain |
-| `peri-tui/prompts/sections/14_system_reminder.md` | Create | Static prompt section explaining `<system-reminder>` |
-| `peri-tui/src/prompt.rs` | Modify | Add section 14 to static sections array |
-| `peri-acp/src/session/executor.rs` | Modify | Drain recall + construct multi-block user message |
+| `cc-agent/src/agent/state.rs` | Modify | Add `recall_buffer` field, trait methods, impl |
+| `cc-agent/src/agent/state_test.rs` | Modify | Tests for push/drain |
+| `cc-tui/prompts/sections/14_system_reminder.md` | Create | Static prompt section explaining `<system-reminder>` |
+| `cc-tui/src/prompt.rs` | Modify | Add section 14 to static sections array |
+| `cc-acp/src/session/executor.rs` | Modify | Drain recall + construct multi-block user message |
 
 ---
 
 ### Task 1: State trait — add recall methods
 
 **Files:**
-- Modify: `peri-agent/src/agent/state.rs`
+- Modify: `cc-agent/src/agent/state.rs`
 
 - [ ] **Step 1: Add `recall_buffer` field to `AgentState`**
 
@@ -68,7 +68,7 @@ After `fn messages_mut()` impl (after line 190), add:
 - [ ] **Step 4: Run tests**
 
 ```bash
-cargo test -p peri-agent --lib -- state
+cargo test -p cc-agent --lib -- state
 ```
 
 Expected: all existing tests pass (new field is `#[serde(skip)]` + `Default` = `Vec::new()`).
@@ -84,7 +84,7 @@ git commit -m "feat(state): add recall_buffer with push_recall/drain_recall meth
 ### Task 2: Tests for recall buffer
 
 **Files:**
-- Modify: `peri-agent/src/agent/state_test.rs`
+- Modify: `cc-agent/src/agent/state_test.rs`
 
 - [ ] **Step 1: Add recall tests**
 
@@ -120,7 +120,7 @@ In `state_test.rs`, add:
 - [ ] **Step 2: Run tests**
 
 ```bash
-cargo test -p peri-agent --lib -- state::tests::test_recall
+cargo test -p cc-agent --lib -- state::tests::test_recall
 ```
 
 Expected: 2 new tests PASS.
@@ -136,12 +136,12 @@ git commit -m "test(state): add recall buffer push/drain/persistence tests"
 ### Task 3: Static prompt section for `<system-reminder>`
 
 **Files:**
-- Create: `peri-tui/prompts/sections/14_system_reminder.md`
-- Modify: `peri-tui/src/prompt.rs`
+- Create: `cc-tui/prompts/sections/14_system_reminder.md`
+- Modify: `cc-tui/src/prompt.rs`
 
 - [ ] **Step 1: Create prompt section file**
 
-Create `peri-tui/prompts/sections/14_system_reminder.md`:
+Create `cc-tui/prompts/sections/14_system_reminder.md`:
 
 ```markdown
 ## System Reminders
@@ -156,7 +156,7 @@ Key rules:
 
 - [ ] **Step 2: Add to static sections in `build_system_prompt()`**
 
-In `peri-tui/src/prompt.rs`, add to the `static_sections` array (after `06_tone_style.md`):
+In `cc-tui/src/prompt.rs`, add to the `static_sections` array (after `06_tone_style.md`):
 
 ```rust
     let static_sections: &[&str] = &[
@@ -173,7 +173,7 @@ In `peri-tui/src/prompt.rs`, add to the `static_sections` array (after `06_tone_
 - [ ] **Step 3: Build and verify**
 
 ```bash
-cargo build -p peri-tui
+cargo build -p cc-tui
 ```
 
 Expected: compiles without errors.
@@ -189,14 +189,14 @@ git commit -m "feat(prompt): add static section for system-reminder semantics"
 ### Task 4: Drain recall in `execute_prompt()` and inject as multi-block
 
 **Files:**
-- Modify: `peri-acp/src/session/executor.rs`
+- Modify: `cc-acp/src/session/executor.rs`
 
 - [ ] **Step 1: Add imports**
 
 At top of `executor.rs`, ensure these are imported (check existing imports first):
 
 ```rust
-use peri_agent::messages::{ContentBlock, MessageContent};
+use cc_agent::messages::{ContentBlock, MessageContent};
 ```
 
 - [ ] **Step 2: Modify user message construction**
@@ -206,7 +206,7 @@ In `execute_prompt()`, replace lines 113-114:
 ```rust
     // Before:
     let trace_input = content.clone();
-    let agent_input = peri_agent::agent::react::AgentInput::text(content);
+    let agent_input = cc_agent::agent::react::AgentInput::text(content);
 ```
 
 With:
@@ -217,13 +217,13 @@ With:
     // Drain recall buffer and construct user message
     let agent_input = if history.is_empty() {
         // First turn: no prior state to drain from, use plain text
-        peri_agent::agent::react::AgentInput::text(content)
+        cc_agent::agent::react::AgentInput::text(content)
     } else {
         // Subsequent turns: drain recall items from AgentState built below
         // Since agent_state isn't created yet, we need a different approach.
         // The recall buffer lives on agent_state which is created at line 335.
         // We'll handle recall injection AFTER agent_state creation.
-        peri_agent::agent::react::AgentInput::text(content)
+        cc_agent::agent::react::AgentInput::text(content)
     };
 ```
 
@@ -258,13 +258,13 @@ Replace lines 113-114:
     let trace_input = content.clone();
 
     let agent_input = if recall_buffer.is_empty() {
-        peri_agent::agent::react::AgentInput::text(content)
+        cc_agent::agent::react::AgentInput::text(content)
     } else {
         let reminder_text = format!(
             "<system-reminder>\n{}\n</system-reminder>",
             recall_buffer.join("\n")
         );
-        peri_agent::agent::react::AgentInput::blocks(
+        cc_agent::agent::react::AgentInput::blocks(
             MessageContent::blocks(vec![
                 ContentBlock::text(content),
                 ContentBlock::text(reminder_text),
@@ -276,11 +276,11 @@ Replace lines 113-114:
 - [ ] **Step 4: Update callers to pass `recall_buffer`**
 
 Search for all call sites of `execute_prompt` and pass `Vec::new()` initially (recall buffer will be wired up to actual state later). Call sites are in:
-- `peri-tui/src/acp_server/prompt.rs`
-- `peri-acp/src/session/executor.rs` (auto-compact resubmit loop)
+- `cc-tui/src/acp_server/prompt.rs`
+- `cc-acp/src/session/executor.rs` (auto-compact resubmit loop)
 
 ```bash
-grep -rn "execute_prompt(" --include="*.rs" peri-acp/ peri-tui/src/acp_server/
+grep -rn "execute_prompt(" --include="*.rs" cc-acp/ cc-tui/src/acp_server/
 ```
 
 For each call site, add `vec![]` as the new argument at the correct position.
@@ -288,8 +288,8 @@ For each call site, add `vec![]` as the new argument at the correct position.
 - [ ] **Step 5: Build and test**
 
 ```bash
-cargo build -p peri-acp -p peri-tui
-cargo test -p peri-acp -p peri-tui --lib -- executor 2>/dev/null || true
+cargo build -p cc-acp -p cc-tui
+cargo test -p cc-acp -p cc-tui --lib -- executor 2>/dev/null || true
 ```
 
 Expected: compiles, all existing tests pass.
@@ -305,9 +305,9 @@ git commit -m "feat(executor): drain recall buffer into multi-block user message
 ### Task 5: Wire recall buffer through ACP session state
 
 **Files:**
-- Modify: `peri-tui/src/acp_server/mod.rs` (SessionState)
-- Modify: `peri-tui/src/acp_server/prompt.rs` (execute_prompt caller)
-- Modify: `peri-tui/src/acp_server/requests.rs` (session/new, recall access)
+- Modify: `cc-tui/src/acp_server/mod.rs` (SessionState)
+- Modify: `cc-tui/src/acp_server/prompt.rs` (execute_prompt caller)
+- Modify: `cc-tui/src/acp_server/requests.rs` (session/new, recall access)
 
 - [ ] **Step 1: Add recall_buffer to SessionState**
 
@@ -349,7 +349,7 @@ Option A: Keep `recall_buffer` on `State` trait (as in Task 1), and drain it in 
             "<system-reminder>\n{}\n</system-reminder>",
             recalls.join("\n")
         );
-        peri_agent::agent::react::AgentInput::blocks(
+        cc_agent::agent::react::AgentInput::blocks(
             MessageContent::blocks(vec![
                 ContentBlock::text(trace_input.clone()),
                 ContentBlock::text(reminder),
@@ -366,8 +366,8 @@ This is cleaner — no parameter changes, recall buffer stays on State where mid
 - [ ] **Step 4: Build and test**
 
 ```bash
-cargo build -p peri-acp -p peri-tui
-cargo test -p peri-agent -p peri-acp --lib 2>/dev/null | tail -20
+cargo build -p cc-acp -p cc-tui
+cargo test -p cc-agent -p cc-acp --lib 2>/dev/null | tail -20
 ```
 
 Expected: all pass.
@@ -383,7 +383,7 @@ git commit -m "feat(executor): drain recall from agent_state, inject as system-r
 ### Task 6: First producer — ToolSearch update notification
 
 **Files:**
-- Modify: `peri-middlewares/src/tool_search/middleware.rs`
+- Modify: `cc-middlewares/src/tool_search/middleware.rs`
 
 - [ ] **Step 1: Push recall when deferred tools change**
 
@@ -406,8 +406,8 @@ In `ToolSearchMiddleware::before_agent()`, after building the index and detectin
 - [ ] **Step 2: Build and test**
 
 ```bash
-cargo build -p peri-middlewares
-cargo test -p peri-middlewares --lib -- tool_search
+cargo build -p cc-middlewares
+cargo test -p cc-middlewares --lib -- tool_search
 ```
 
 Expected: all pass.
@@ -423,7 +423,7 @@ git commit -m "feat(tool-search): push recall notification when deferred tools c
 ### Task 7: Integration test — end-to-end recall flow
 
 **Files:**
-- Create: `peri-agent/src/agent/state_test.rs` (append)
+- Create: `cc-agent/src/agent/state_test.rs` (append)
 
 - [ ] **Step 1: Write integration test for multi-block user message with recall**
 
@@ -468,7 +468,7 @@ git commit -m "feat(tool-search): push recall notification when deferred tools c
 - [ ] **Step 2: Run test**
 
 ```bash
-cargo test -p peri-agent --lib -- state::tests::test_recall_injects_as_multiblock
+cargo test -p cc-agent --lib -- state::tests::test_recall_injects_as_multiblock
 ```
 
 Expected: PASS.

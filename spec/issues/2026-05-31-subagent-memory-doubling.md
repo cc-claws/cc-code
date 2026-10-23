@@ -15,7 +15,7 @@
 `SubAgentMiddleware::before_agent()` 在每轮 ReAct 循环中无条件执行：
 
 ```rust
-// peri-middlewares/src/subagent/mod.rs:456-457
+// cc-middlewares/src/subagent/mod.rs:456-457
 *pm.write() = state.messages().to_vec();
 ```
 
@@ -44,8 +44,8 @@ fork 执行完成后 #2 和 #3 随函数返回 drop，但 #1 跨轮次常驻。
 
 ## 涉及文件
 
-- `peri-middlewares/src/subagent/mod.rs:456-457` —— `before_agent` 每轮全量 clone
-- `peri-middlewares/src/subagent/tool/execute_fork.rs:20-21,52-54,55,64-66` —— fork 模式三重拷贝 + 重建
-- `peri-middlewares/src/subagent/tool/build_agent.rs:97,119-127` —— normal agent 路径的 LLM + system prompt 重建
-- `peri-middlewares/src/subagent/tool/execute_bg.rs:255-256` —— background fork 同样的问题
-- `peri-acp/src/agent/builder.rs:284-294,321-322` —— `system_builder` closure 和 `llm_factory` 定义
+- `cc-middlewares/src/subagent/mod.rs:456-457` —— `before_agent` 每轮全量 clone
+- `cc-middlewares/src/subagent/tool/execute_fork.rs:20-21,52-54,55,64-66` —— fork 模式三重拷贝 + 重建
+- `cc-middlewares/src/subagent/tool/build_agent.rs:97,119-127` —— normal agent 路径的 LLM + system prompt 重建
+- `cc-middlewares/src/subagent/tool/execute_bg.rs:255-256` —— background fork 同样的问题
+- `cc-acp/src/agent/builder.rs:284-294,321-322` —— `system_builder` closure 和 `llm_factory` 定义

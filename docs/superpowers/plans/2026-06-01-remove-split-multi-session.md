@@ -16,20 +16,20 @@
 
 | 操作 | 文件 | 职责 |
 |------|------|------|
-| 删除 | `peri-tui/src/command/session/split.rs` | SplitCommand 定义 |
-| 修改 | `peri-tui/src/command/session/mod.rs` | 移除 split 模块导出 |
-| 修改 | `peri-tui/src/command/mod.rs` | 移除 SplitCommand 注册 |
-| 修改 | `peri-tui/src/app/session_manager.rs` | 移除 session_areas，添加 len=1 断言 |
-| 修改 | `peri-tui/src/app/mod.rs` | 重写 new_session（先删再建），删除 switch/close_session |
-| 修改 | `peri-tui/src/ui/main_ui/mod.rs` | 删除多列布局分支，简化 render_session_column |
-| 修改 | `peri-tui/src/event/keyboard/normal_keys.rs` | 移除 Ctrl+N/P/W 处理 |
-| 修改 | `peri-tui/src/event/mod.rs` | 移除鼠标点击切换 session |
-| 修改 | `peri-tui/src/ui/main_ui/status_bar.rs` | 移除 Ctrl+N/P/W 提示 |
-| 修改 | `peri-tui/src/event/keyboard/normal_keys.rs` | 移除 session_idx 保存/恢复（/split 不再存在） |
-| 修改 | `peri-acp/src/dispatch/commands.rs` | 移除 "split" AvailableCommand |
-| 修改 | `peri-tui/locales/en/main.ftl` | 移除 command-split-description |
-| 修改 | `peri-tui/locales/zh-CN/main.ftl` | 移除 command-split-description |
-| 修改 | `peri-tui/src/ui/headless_test.rs` | 删除 split_panel_tests 模块 |
+| 删除 | `cc-tui/src/command/session/split.rs` | SplitCommand 定义 |
+| 修改 | `cc-tui/src/command/session/mod.rs` | 移除 split 模块导出 |
+| 修改 | `cc-tui/src/command/mod.rs` | 移除 SplitCommand 注册 |
+| 修改 | `cc-tui/src/app/session_manager.rs` | 移除 session_areas，添加 len=1 断言 |
+| 修改 | `cc-tui/src/app/mod.rs` | 重写 new_session（先删再建），删除 switch/close_session |
+| 修改 | `cc-tui/src/ui/main_ui/mod.rs` | 删除多列布局分支，简化 render_session_column |
+| 修改 | `cc-tui/src/event/keyboard/normal_keys.rs` | 移除 Ctrl+N/P/W 处理 |
+| 修改 | `cc-tui/src/event/mod.rs` | 移除鼠标点击切换 session |
+| 修改 | `cc-tui/src/ui/main_ui/status_bar.rs` | 移除 Ctrl+N/P/W 提示 |
+| 修改 | `cc-tui/src/event/keyboard/normal_keys.rs` | 移除 session_idx 保存/恢复（/split 不再存在） |
+| 修改 | `cc-acp/src/dispatch/commands.rs` | 移除 "split" AvailableCommand |
+| 修改 | `cc-tui/locales/en/main.ftl` | 移除 command-split-description |
+| 修改 | `cc-tui/locales/zh-CN/main.ftl` | 移除 command-split-description |
+| 修改 | `cc-tui/src/ui/headless_test.rs` | 删除 split_panel_tests 模块 |
 | 修改 | `CLAUDE.md` | 更新中间件链/TUI 描述（移除 split 相关） |
 | 修改 | `README.md` | 移除 "Built-in split screen" |
 | 修改 | `TUI-STYLE.md` | 移除 /split 条目 |
@@ -40,22 +40,22 @@
 ### Task 1: 删除 SplitCommand 命令
 
 **Files:**
-- 删除: `peri-tui/src/command/session/split.rs`
-- 修改: `peri-tui/src/command/session/mod.rs:10,20`
-- 修改: `peri-tui/src/command/mod.rs:26`
-- 修改: `peri-acp/src/dispatch/commands.rs:31`
-- 修改: `peri-tui/locales/en/main.ftl:35`
-- 修改: `peri-tui/locales/zh-CN/main.ftl:34`
+- 删除: `cc-tui/src/command/session/split.rs`
+- 修改: `cc-tui/src/command/session/mod.rs:10,20`
+- 修改: `cc-tui/src/command/mod.rs:26`
+- 修改: `cc-acp/src/dispatch/commands.rs:31`
+- 修改: `cc-tui/locales/en/main.ftl:35`
+- 修改: `cc-tui/locales/zh-CN/main.ftl:34`
 
 - [ ] **Step 1: 删除 SplitCommand 文件**
 
 ```bash
-rm peri-tui/src/command/session/split.rs
+rm cc-tui/src/command/session/split.rs
 ```
 
 - [ ] **Step 2: 从 session/mod.rs 移除 split 模块**
 
-`peri-tui/src/command/session/mod.rs` — 移除以下两行：
+`cc-tui/src/command/session/mod.rs` — 移除以下两行：
 ```rust
 pub mod split;       // 第 10 行
 pub use split::SplitCommand;  // 第 20 行
@@ -63,33 +63,33 @@ pub use split::SplitCommand;  // 第 20 行
 
 - [ ] **Step 3: 从命令注册表移除 SplitCommand**
 
-`peri-tui/src/command/mod.rs` — 移除第 26 行：
+`cc-tui/src/command/mod.rs` — 移除第 26 行：
 ```rust
 r.register(Box::new(session::split::SplitCommand));
 ```
 
 - [ ] **Step 4: 从 ACP AvailableCommands 移除 split**
 
-`peri-acp/src/dispatch/commands.rs` — 移除第 31 行：
+`cc-acp/src/dispatch/commands.rs` — 移除第 31 行：
 ```rust
 AvailableCommand::new("split", "Manage split session layouts"),
 ```
 
 - [ ] **Step 5: 移除 i18n 翻译**
 
-`peri-tui/locales/en/main.ftl` — 移除：
+`cc-tui/locales/en/main.ftl` — 移除：
 ```
 command-split-description = Create a new split session
 ```
 
-`peri-tui/locales/zh-CN/main.ftl` — 移除：
+`cc-tui/locales/zh-CN/main.ftl` — 移除：
 ```
 command-split-description = 新建分栏会话
 ```
 
 - [ ] **Step 6: 构建验证**
 
-Run: `cargo build -p peri-tui -p peri-acp`
+Run: `cargo build -p cc-tui -p cc-acp`
 Expected: 编译成功（无 unresolved import 错误）
 
 - [ ] **Step 7: Commit**
@@ -103,12 +103,12 @@ git add -A && git commit -m "refactor: remove /split command and registrations"
 ### Task 2: SessionManager 限制 len=1 + 重写 new_session
 
 **Files:**
-- 修改: `peri-tui/src/app/session_manager.rs`
-- 修改: `peri-tui/src/app/mod.rs:295-371`
+- 修改: `cc-tui/src/app/session_manager.rs`
+- 修改: `cc-tui/src/app/mod.rs:295-371`
 
 - [ ] **Step 1: 简化 SessionManager**
 
-`peri-tui/src/app/session_manager.rs` — 替换为：
+`cc-tui/src/app/session_manager.rs` — 替换为：
 
 ```rust
 use super::ChatSession;
@@ -144,7 +144,7 @@ impl SessionManager {
 
 - [ ] **Step 2: 重写 App 中的 session 方法**
 
-`peri-tui/src/app/mod.rs` — 修改 3 个方法：
+`cc-tui/src/app/mod.rs` — 修改 3 个方法：
 
 **2a. 重写 `new_session`（先销毁旧 session 再创建新的，用于 /clear 内部调用）：**
 ```rust
@@ -160,16 +160,16 @@ pub fn new_session(&mut self) {
         if let Some(home) = dirs_next::home_dir() {
             dirs.push(home.join(".claude").join("skills"));
         }
-        if let Some(global_dir) = peri_middlewares::skills::load_global_skills_dir() {
+        if let Some(global_dir) = cc_middlewares::skills::load_global_skills_dir() {
             dirs.push(global_dir);
         }
         if let Ok(cwd) = std::env::current_dir() {
             dirs.push(cwd.join(".claude").join("skills"));
         }
-        peri_middlewares::skills::list_skills(&dirs)
+        cc_middlewares::skills::list_skills(&dirs)
     };
     if let Some(pd) = &self.services.plugin_data {
-        let plugin_skills = peri_middlewares::skills::list_skills(&pd.all_skill_dirs);
+        let plugin_skills = cc_middlewares::skills::list_skills(&pd.all_skill_dirs);
         let existing_names: std::collections::HashSet<String> =
             skills.iter().map(|s| s.name.clone()).collect();
         for skill in plugin_skills {
@@ -196,7 +196,7 @@ pub fn new_session(&mut self) {
 
 - [ ] **Step 3: 构建验证**
 
-Run: `cargo build -p peri-tui 2>&1 | head -50`
+Run: `cargo build -p cc-tui 2>&1 | head -50`
 Expected: 大量编译错误（因 `sessions` 字段不再存在），这正常。后续 Task 4 会批量修复。但 session_manager.rs 和 app/mod.rs 中的这 3 个方法应无内部错误。
 
 - [ ] **Step 4: Commit**
@@ -210,12 +210,12 @@ git add -A && git commit -m "refactor: simplify SessionManager to single session
 ### Task 3: UI 布局简化为纯单列
 
 **Files:**
-- 修改: `peri-tui/src/ui/main_ui/mod.rs`
-- 修改: `peri-tui/src/ui/main_ui/status_bar.rs:411-424`
+- 修改: `cc-tui/src/ui/main_ui/mod.rs`
+- 修改: `cc-tui/src/ui/main_ui/status_bar.rs:411-424`
 
 - [ ] **Step 1: 简化 render 函数**
 
-`peri-tui/src/ui/main_ui/mod.rs` — 将整个 `render` 函数（第 20-87 行）替换为：
+`cc-tui/src/ui/main_ui/mod.rs` — 将整个 `render` 函数（第 20-87 行）替换为：
 
 ```rust
 pub fn render(f: &mut Frame, app: &mut App) {
@@ -276,11 +276,11 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
 
 - [ ] **Step 3: 移除状态栏 Ctrl+N/P/W 提示**
 
-`peri-tui/src/ui/main_ui/status_bar.rs` — 找到 `format_hints` 函数中多 session 分支（约第 411-424 行），删除 `if app.session_mgr.sessions.len() > 1` 分支，只保留单 session 的 hints。
+`cc-tui/src/ui/main_ui/status_bar.rs` — 找到 `format_hints` 函数中多 session 分支（约第 411-424 行），删除 `if app.session_mgr.sessions.len() > 1` 分支，只保留单 session 的 hints。
 
 - [ ] **Step 4: 构建验证**
 
-Run: `cargo build -p peri-tui 2>&1 | head -80`
+Run: `cargo build -p cc-tui 2>&1 | head -80`
 Expected: 可能仍有编译错误（因 sessions 字段不存在），但 ui/main_ui/mod.rs 内部结构应正确
 
 - [ ] **Step 5: Commit**
@@ -297,11 +297,11 @@ git add -A && git commit -m "refactor: simplify main_ui to single-column layout"
 
 **Files:**
 - 修改: ~70 个文件（机械替换 `sessions[...]` → `current()`/`current_mut()`）
-- 修改: `peri-tui/src/event/keyboard/normal_keys.rs`（Ctrl+N/P/W + session_idx 保存）
-- 修改: `peri-tui/src/event/mod.rs`（鼠标点击切换 session）
-- 修改: `peri-tui/src/event/macros.rs`（with_session_panels! 简化）
-- 修改: `peri-tui/src/ui/headless_test.rs`（删除 split_panel_tests）
-- 修改: `peri-tui/src/event/mouse.rs`（session_areas 引用）
+- 修改: `cc-tui/src/event/keyboard/normal_keys.rs`（Ctrl+N/P/W + session_idx 保存）
+- 修改: `cc-tui/src/event/mod.rs`（鼠标点击切换 session）
+- 修改: `cc-tui/src/event/macros.rs`（with_session_panels! 简化）
+- 修改: `cc-tui/src/ui/headless_test.rs`（删除 split_panel_tests）
+- 修改: `cc-tui/src/event/mouse.rs`（session_areas 引用）
 
 - [ ] **Step 1: 批量替换 `sessions[session_mgr.active]` → `current()` / `current_mut()`**
 
@@ -324,7 +324,7 @@ self.session_mgr.sessions[self.session_mgr.active]       → self.session_mgr.cu
 
 - [ ] **Step 2: 删除 Ctrl+N/P/W 快捷键处理**
 
-`peri-tui/src/event/keyboard/normal_keys.rs` — 删除第 299-330 行的 Ctrl+N/P/W 匹配分支：
+`cc-tui/src/event/keyboard/normal_keys.rs` — 删除第 299-330 行的 Ctrl+N/P/W 匹配分支：
 ```rust
 // Ctrl+N/P: cycle session focus — 删除
 // Ctrl+W: close current session — 删除
@@ -334,7 +334,7 @@ Ctrl+W 空出来后可作为其他用途（或直接忽略）。
 
 - [ ] **Step 3: 移除命令 dispatch 中的 session_idx 保存/恢复**
 
-`peri-tui/src/event/keyboard/normal_keys.rs` — 简化 `/` 命令 dispatch 路径（约第 153-168 行）。原来需要保存 `session_idx` 是因为 `/split` 会改变 `active`，现在不再需要：
+`cc-tui/src/event/keyboard/normal_keys.rs` — 简化 `/` 命令 dispatch 路径（约第 153-168 行）。原来需要保存 `session_idx` 是因为 `/split` 会改变 `active`，现在不再需要：
 
 ```rust
 // 替换前:
@@ -351,7 +351,7 @@ app.session_mgr.current_mut().commands.command_registry = registry;
 
 - [ ] **Step 4: 删除鼠标点击切换 session**
 
-`peri-tui/src/event/mod.rs` — 删除约第 537-550 行的多 session 鼠标点击处理：
+`cc-tui/src/event/mod.rs` — 删除约第 537-550 行的多 session 鼠标点击处理：
 ```rust
 // Multi-session: clicking a non-active session column switches focus — 整段删除
 if app.session_mgr.sessions.len() > 1 {
@@ -363,7 +363,7 @@ if app.session_mgr.sessions.len() > 1 {
 
 - [ ] **Step 5: 简化 event/macros.rs**
 
-`peri-tui/src/event/macros.rs` — `with_session_panels!` 宏简化，移除 `active_idx` 保存/恢复逻辑：
+`cc-tui/src/event/macros.rs` — `with_session_panels!` 宏简化，移除 `active_idx` 保存/恢复逻辑：
 
 ```rust
 #[macro_export]
@@ -384,7 +384,7 @@ macro_rules! with_session_panels {
 
 - [ ] **Step 6: 删除 headless_test 中的 split_panel_tests 模块**
 
-`peri-tui/src/ui/headless_test.rs` — 删除 `split_panel_tests` 模块（约第 2456-2750 行），包含以下测试函数：
+`cc-tui/src/ui/headless_test.rs` — 删除 `split_panel_tests` 模块（约第 2456-2750 行），包含以下测试函数：
 - `test_split_session_hint_shows_for_both_columns`
 - `test_split_session_both_have_slash_hint_shows_on_both`
 - `test_split_session_left_inactive_shows_model_with_m_prefix`
@@ -396,16 +396,16 @@ macro_rules! with_session_panels {
 
 - [ ] **Step 7: 清理 mouse.rs 中的 session_areas 引用**
 
-`peri-tui/src/event/mouse.rs` — 搜索 `session_areas` 引用并删除。鼠标事件处理中的 `sessions[active]` 替换为 `current()`。
+`cc-tui/src/event/mouse.rs` — 搜索 `session_areas` 引用并删除。鼠标事件处理中的 `sessions[active]` 替换为 `current()`。
 
 - [ ] **Step 8: 构建验证**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: 编译成功，无错误
 
 - [ ] **Step 9: 运行测试**
 
-Run: `cargo test -p peri-tui --lib 2>&1 | tail -30`
+Run: `cargo test -p cc-tui --lib 2>&1 | tail -30`
 Expected: 所有测试通过（删除的测试不再存在，其他测试不受影响）
 
 - [ ] **Step 10: Commit**
@@ -422,7 +422,7 @@ git add -A && git commit -m "refactor: replace sessions[active] with current(), 
 - 修改: `CLAUDE.md`（更新多 session 相关描述）
 - 修改: `README.md:24`（移除 "Built-in split screen"）
 - 修改: `TUI-STYLE.md:514`（移除 /split 条目）
-- 修改: `peri-tui/src/event/keyboard/normal_keys.rs`（删除 `/split` 相关注释）
+- 修改: `cc-tui/src/event/keyboard/normal_keys.rs`（删除 `/split` 相关注释）
 
 - [ ] **Step 1: 更新 CLAUDE.md**
 
@@ -477,15 +477,15 @@ Expected: 无新增 warning（可能有既有的，确认无新增即可）
 
 - [ ] **Step 4: 搜索残留引用**
 
-Run: `grep -rn "session_areas\|switch_next_session\|switch_prev_session\|close_session\|SplitCommand\|split_panel_tests" peri-tui/src/`
+Run: `grep -rn "session_areas\|switch_next_session\|switch_prev_session\|close_session\|SplitCommand\|split_panel_tests" cc-tui/src/`
 Expected: 无结果（所有引用已清理）
 
-Run: `grep -rn "sessions\[" peri-tui/src/ | grep -v "test\|//"`
+Run: `grep -rn "sessions\[" cc-tui/src/ | grep -v "test\|//"`
 Expected: 无结果（所有 `sessions[idx]` 已替换为 `current()`）
 
 - [ ] **Step 5: 手动运行验证**
 
-Run: `cargo run -p peri-tui`
+Run: `cargo run -p cc-tui`
 Expected: TUI 正常启动，单 session 布局，/clear 创建新对话正常工作，Ctrl+N/P/W 无响应（无报错）
 
 - [ ] **Step 6: Final commit (if any fixes)**

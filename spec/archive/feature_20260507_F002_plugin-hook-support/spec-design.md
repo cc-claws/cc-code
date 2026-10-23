@@ -2,11 +2,11 @@
 
 ## 需求背景
 
-F001（plugin-marketplace-compat）完成了插件的发现、安装、加载链路，F001（plugin-mcp-injection）完成了 MCP 服务器的 per-plugin env 展开。当前 Peri 已兼容 Claude Code 插件的 commands、agents、skills、MCP servers 四类资产。
+F001（plugin-marketplace-compat）完成了插件的发现、安装、加载链路，F001（plugin-mcp-injection）完成了 MCP 服务器的 per-plugin env 展开。当前 Peri 已兼容 参考实现 插件的 commands、agents、skills、MCP servers 四类资产。
 
-最后一个缺失拼图是 **hooks**。Claude Code 的 hooks 系统是纯配置驱动的（JSON，非 JS 代码），在 agent 生命周期关键节点触发外部动作。插件通过 `hooks/` 目录或 `plugin.json` 内的 `hooks` 字段声明 hook 规则。
+最后一个缺失拼图是 **hooks**。参考实现 的 hooks 系统是纯配置驱动的（JSON，非 JS 代码），在 agent 生命周期关键节点触发外部动作。插件通过 `hooks/` 目录或 `plugin.json` 内的 `hooks` 字段声明 hook 规则。
 
-**关键事实**：Claude Code hooks 的 4 种执行类型（command/prompt/http/agent）全部是声明式配置，不需要 JS 运行时。Peri 已具备 shell 执行（TerminalMiddleware）、LLM 调用（BaseModelReactLLM）、HTTP 客户端（reqwest）、子 Agent（SubAgentMiddleware）四种能力，技术上完全可行。
+**关键事实**：参考实现 hooks 的 4 种执行类型（command/prompt/http/agent）全部是声明式配置，不需要 JS 运行时。Peri 已具备 shell 执行（TerminalMiddleware）、LLM 调用（BaseModelReactLLM）、HTTP 客户端（reqwest）、子 Agent（SubAgentMiddleware）四种能力，技术上完全可行。
 
 当前 `PluginManifest.hooks` 字段为 `Option<serde_json::Value>`（`types.rs:104`），仅预留未实现。`LoadedPlugin`（`loader.rs:66`）不持有 hooks 数据。
 
@@ -16,7 +16,7 @@ F001（plugin-marketplace-compat）完成了插件的发现、安装、加载链
 - 支持 Phase 1 的 13 个生命周期事件
 - 新增 `HookMiddleware`，插入中间件链（HITL 之后、SubAgent 之前）
 - 从插件的 `hooks.json` / `plugin.json` 内 `hooks` 字段加载 hook 配置
-- 兼容 Claude Code 的 hooks.json 格式和 stdin/stdout JSON 协议
+- 兼容 参考实现 的 hooks.json 格式和 stdin/stdout JSON 协议
 - 支持 `once`、`async`、`asyncRewake`、`matcher`、`if` 条件匹配语义
 - Agent 类型 hook 使用完整 agent 循环（最多 50 轮），带防递归保护
 - HTTP hook 内置 SSRF 防护 + CRLF 注入防护
@@ -74,7 +74,7 @@ Setup、TaskCreated、TaskCompleted、TeammateIdle、PermissionDenied、Elicitat
 #### HookType（4 种执行类型）
 
 ```rust
-/// 4 种 hook 执行类型，对齐 Claude Code schemas/hooks.ts
+/// 4 种 hook 执行类型，对齐 参考实现 schemas/hooks.ts
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum HookType {
@@ -175,12 +175,12 @@ pub enum HookEvent {
 }
 ```
 
-#### HookInput（对齐 Claude Code BaseHookInputSchema + 事件特定字段）
+#### HookInput（对齐 参考实现 BaseHookInputSchema + 事件特定字段）
 
 ```rust
 /// Hook 执行输入——通过 stdin JSON 传递给 command hook，或作为 HTTP body
 ///
-/// 对齐 Claude Code coreSchemas.ts:
+/// 对齐 参考实现 coreSchemas.ts:
 /// - BaseHookInputSchema: session_id, transcript_path, cwd, permission_mode, agent_id, agent_type
 /// - 每个事件通过 hook_event_name 判别字段区分
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -236,12 +236,12 @@ pub struct HookInput {
 }
 ```
 
-#### HookResult（对齐 Claude Code syncHookResponseSchema）
+#### HookResult（对齐 参考实现 syncHookResponseSchema）
 
 ```rust
-/// Hook 执行结果——对齐 Claude Code src/types/hooks.ts syncHookResponseSchema
+/// Hook 执行结果——对齐 参考实现 src/types/hooks.ts syncHookResponseSchema
 ///
-/// Claude Code 的 hook 输出是扁平 JSON（非 enum），包含多个可选字段。
+/// 参考实现 的 hook 输出是扁平 JSON（非 enum），包含多个可选字段。
 /// Peri 解析为结构体后转换为内部 Action 枚举。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SyncHookResponse {
@@ -275,7 +275,7 @@ pub enum HookDecision {
     Block,
 }
 
-/// 事件特定的 hook 输出——对齐 Claude Code hookSpecificOutput discriminated union
+/// 事件特定的 hook 输出——对齐 参考实现 hookSpecificOutput discriminated union
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "hookEventName", rename_all = "PascalCase")]
 pub enum HookSpecificOutput {
@@ -346,7 +346,7 @@ pub enum HookAction {
 ```rust
 /// hooks.json 中单个 hook 规则组
 ///
-/// 对齐 Claude Code hooks schema：
+/// 对齐 参考实现 hooks schema：
 /// - matcher: 粗粒度匹配器（工具名/正则），在进程启动前过滤
 /// - hooks: 该规则组下的所有 hook 定义
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -382,7 +382,7 @@ pub struct RegisteredHook {
 
 ### matcher vs if —— 双层匹配机制
 
-Claude Code 的 hook 配置有两层匹配机制，职责不同，**不可混淆**：
+参考实现 的 hook 配置有两层匹配机制，职责不同，**不可混淆**：
 
 #### `matcher`：粗粒度字符串/正则匹配
 
@@ -629,7 +629,7 @@ impl HookMiddleware {
 
 #### CommandHook（Shell 执行）
 
-**stdin/stdout JSON 协议**（对齐 Claude Code `src/utils/hooks.ts`）：
+**stdin/stdout JSON 协议**（对齐 参考实现 `src/utils/hooks.ts`）：
 
 - **stdin**：写入完整 `HookInput` JSON（包含 `hook_event_name`、`session_id`、`cwd` 等所有基础字段 + 事件特定字段）
 - **stdout**：退出码 0 时，若以 `{` 开头则解析为 `SyncHookResponse` JSON；否则视为纯文本输出
@@ -648,14 +648,14 @@ async fn execute_command(
     plugin_options: &HashMap<String, serde_json::Value>,
 ) -> HookAction {
     let shell = hook.shell.as_deref().unwrap_or("bash");
-    // 默认超时 600 秒（对齐 Claude Code TOOL_HOOK_EXECUTION_TIMEOUT_MS = 10min）
+    // 默认超时 600 秒（对齐 参考实现 TOOL_HOOK_EXECUTION_TIMEOUT_MS = 10min）
     let timeout = hook.timeout.unwrap_or(600);
 
     let mut cmd = tokio::process::Command::new(shell);
     cmd.arg("-c").arg(&hook.command);
     cmd.current_dir(cwd);
 
-    // === 环境变量注入（对齐 Claude Code src/utils/hooks.ts:965-1010）===
+    // === 环境变量注入（对齐 参考实现 src/utils/hooks.ts:965-1010）===
     cmd.env("CLAUDE_PROJECT_DIR", cwd);
 
     // 插件上下文
@@ -747,7 +747,7 @@ async fn execute_command(
 }
 
 /// 解析 command hook stdout 输出
-/// 对齐 Claude Code parseHookOutput + processHookJSONOutput
+/// 对齐 参考实现 parseHookOutput + processHookJSONOutput
 fn parse_command_hook_output(stdout: &str) -> HookAction {
     let trimmed = stdout.trim();
 
@@ -797,7 +797,7 @@ fn sync_response_to_action(response: &SyncHookResponse) -> HookAction {
 }
 ```
 
-**环境变量协议**（对齐 Claude Code `src/utils/hooks.ts:965-1010`）：
+**环境变量协议**（对齐 参考实现 `src/utils/hooks.ts:965-1010`）：
 
 | 变量 | 说明 |
 |------|------|
@@ -818,7 +818,7 @@ async fn execute_prompt(
     llm_factory: &Arc<dyn Fn() -> Box<dyn ReactLLM + Send + Sync> + Send + Sync>,
 ) -> HookAction {
     let mut llm = llm_factory();
-    // 默认超时 30 秒（对齐 Claude Code execPromptHook.ts）
+    // 默认超时 30 秒（对齐 参考实现 execPromptHook.ts）
     let timeout = Duration::from_secs(hook.timeout.unwrap_or(30));
 
     let prompt = hook.prompt.replace("$ARGUMENTS", &serde_json::to_string(input).unwrap_or_default());
@@ -859,7 +859,7 @@ async fn execute_http(hook: &HookType::Http, input: &HookInput) -> HookAction {
         }
     }
 
-    // 默认超时 600 秒（对齐 Claude Code DEFAULT_HTTP_HOOK_TIMEOUT_MS = 10min）
+    // 默认超时 600 秒（对齐 参考实现 DEFAULT_HTTP_HOOK_TIMEOUT_MS = 10min）
     let timeout = Duration::from_secs(hook.timeout.unwrap_or(600));
 
     let client = reqwest::Client::new();
@@ -897,7 +897,7 @@ async fn execute_http(hook: &HookType::Http, input: &HookInput) -> HookAction {
     }
 }
 
-/// CRLF 注入防护（对齐 Claude Code execHttpHook.ts:76-109）
+/// CRLF 注入防护（对齐 参考实现 execHttpHook.ts:76-109）
 fn sanitize_header_value(value: &str, allowed_env_vars: &HashSet<String>) -> String {
     // 1. 替换 ${VAR} 和 $VAR（仅白名单内）
     let interpolated = replace_env_vars(value, allowed_env_vars);
@@ -906,7 +906,7 @@ fn sanitize_header_value(value: &str, allowed_env_vars: &HashSet<String>) -> Str
 }
 
 /// 解析 HTTP hook 响应
-/// 对齐 Claude Code parseHttpHookOutput：空 body 视为 {}，非 JSON 视为错误
+/// 对齐 参考实现 parseHttpHookOutput：空 body 视为 {}，非 JSON 视为错误
 fn parse_http_hook_response(body: &str) -> HookAction {
     let trimmed = body.trim();
 
@@ -932,7 +932,7 @@ fn parse_http_hook_response(body: &str) -> HookAction {
 }
 ```
 
-**SSRF 防护**（对齐 Claude Code `src/utils/hooks/ssrfGuard.ts`）：
+**SSRF 防护**（对齐 参考实现 `src/utils/hooks/ssrfGuard.ts`）：
 
 ```rust
 /// SSRF 防护：阻止对私有/内部网络的 HTTP 请求
@@ -966,12 +966,12 @@ pub mod ssrf_guard {
 
 #### AgentHook（完整 Agent 循环）
 
-**对齐 Claude Code `execAgentHook.ts`**：Agent hook 使用完整的多轮 agent 循环（最多 50 轮），而非单次 LLM 调用。子 agent 通过 `SyntheticOutputTool` 返回结构化结果。
+**对齐 参考实现 `execAgentHook.ts`**：Agent hook 使用完整的多轮 agent 循环（最多 50 轮），而非单次 LLM 调用。子 agent 通过 `SyntheticOutputTool` 返回结构化结果。
 
 ```rust
 /// Agent hook 执行——完整 agent 循环
 ///
-/// 对齐 Claude Code execAgentHook.ts:
+/// 对齐 参考实现 execAgentHook.ts:
 /// - 使用完整 query() 多轮执行，最多 50 轮
 /// - 默认使用 haiku（快速模型），可通过 hook.model 覆盖
 /// - 默认超时 60 秒
@@ -984,7 +984,7 @@ async fn execute_agent_hook(
     llm_factory: &Arc<dyn Fn() -> Box<dyn ReactLLM + Send + Sync> + Send + Sync>,
     cwd: &str,
 ) -> HookAction {
-    // 默认超时 60 秒（对齐 Claude Code execAgentHook.ts）
+    // 默认超时 60 秒（对齐 参考实现 execAgentHook.ts）
     let timeout = Duration::from_secs(hook.timeout.unwrap_or(60));
     let max_turns: usize = 50;
 
@@ -1151,7 +1151,7 @@ Hook 配置中的变量替换在执行前统一处理：
 
 ### 错误处理
 
-**原则：hook 失败不阻断 agent**（和 Claude Code 一致）。
+**原则：hook 失败不阻断 agent**（和 参考实现 一致）。
 
 - shell hook 超时/崩溃 → 日志 warn → Allow
 - LLM hook 调用失败 → 日志 warn → Allow
@@ -1237,9 +1237,9 @@ peri-middlewares/src/
 | 集成测试（`hooks/middleware.rs`） | HookMiddleware 在 ReAct 循环中的行为：PreToolUse deny 阻断、ModifyInput 修改、once 只触发一次、matcher 过滤 |
 | 集成测试（`plugin/loader.rs`） | extract_hooks 端到端：从模拟插件目录加载 hooks 配置 |
 
-### Claude Code 兼容性对照
+### 参考实现 兼容性对照
 
-| Claude Code 特性 | Peri 实现 | 兼容性 |
+| 参考实现 特性 | Peri 实现 | 兼容性 |
 |-----------------|----------------|-------|
 | hooks.json 格式 | `HooksConfig = HashMap<HookEvent, Vec<HookMatchRule>>` | ✅ 完全兼容 |
 | command hook stdin JSON | `HookInput` 写入 stdin（含 BaseHookInputSchema 全部字段） | ✅ 完全兼容 |

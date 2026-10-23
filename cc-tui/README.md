@@ -7,7 +7,7 @@
 `cc-tui` 是 cc-code 的终端界面，特点：
 
 - **纯 ACP 客户端**：通过 MpscTransport 与 ACP Server 通信
-- **全屏 TUI**：alternate screen + 鼠标支持
+- **增长视口 TUI**：启动时在正常屏（normal screen）显示紧凑界面，内容增长时向下扩展，占满宿主高度后才锁定全屏（alternate screen）；支持鼠标
 - **流式渲染**：16ms 自适应帧率
 - **i18n 支持**：中英文切换
 - **丰富交互**：面板系统、弹窗、快捷键
@@ -131,6 +131,7 @@ cargo run -p cc-tui -- -r <session-id>
 | `/agents` | 跨项目 Agent 会话中心（全页视图） |
 | `/agent-design` | SubAgent 定义管理 |
 | `/memory` | Memory 文件管理面板 |
+| `/theme` | 主题选择面板（也可 `/theme <name>` 直接切换） |
 
 ### Session 命令
 
@@ -147,10 +148,14 @@ cargo run -p cc-tui -- -r <session-id>
 | `/init` | 初始化项目配置 |
 | `/commit` | Git 提交（透传到 Agent） |
 | `/review` | PR 代码审查（透传到 Agent） |
+| `/recap` | 生成当前会话的一句话回顾 |
+| `/rewind` | 对话回滚（别名 `/undo`） |
+| `/compact` | 手动压缩上下文（ACP 命令） |
+| `/streaming` | 查看或切换时间线渲染模式（streaming/block/none） |
 
 ## 面板系统
 
-14 种面板，分 Session/Global 作用域；会话中心使用独立全页视图：
+15 种面板，分 Session/Global 作用域；会话中心使用独立全页视图：
 
 ### Session 面板
 
@@ -164,6 +169,7 @@ cargo run -p cc-tui -- -r <session-id>
 | ThreadBrowser | 会话历史 |
 | CommandPalettePanel | 命令面板 |
 | ThemePanel | 主题选择 |
+| InputHistoryPanel | 输入历史 |
 
 ### Global 面板
 
@@ -229,8 +235,8 @@ cc-tui
   ├── cc-agent        # 类型依赖（BaseMessage 等）
   ├── cc-middlewares   # 类型依赖
   ├── cc-widgets      # UI 组件
-  ├── ratatui           # TUI 框架
-  └── crossterm         # 终端控制
+  ├── cc-lsp          # LSP 客户端
+  └── ratatui           # TUI 框架
 ```
 
 ## 核心文件
@@ -240,7 +246,7 @@ cc-tui
 | `src/main.rs` | 入口，终端初始化 |
 | `src/app/mod.rs` | 应用状态管理 |
 | `src/app/agent.rs` | 事件映射 |
-| `src/app/message_pipeline.rs` | 消息管线 |
+| `src/app/message_pipeline/mod.rs` | 消息管线 |
 | `src/ui/main_ui/mod.rs` | 主布局 |
 | `src/acp_client/client.rs` | ACP 客户端 |
 | `src/i18n/` | 国际化 |

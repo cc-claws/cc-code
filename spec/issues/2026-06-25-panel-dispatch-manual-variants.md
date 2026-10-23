@@ -2,7 +2,7 @@
 
 **状态**: Open
 **优先级**: P3
-**模块**: peri-tui/event
+**模块**: cc-tui/event
 **创建时间**: 2026-06-25
 **发现方式**: bug 修复后复盘
 
@@ -40,6 +40,6 @@ if kind.map(|k| k.scope()) == Some(PanelScope::Global)
 
 ## 涉及文件
 
-- `peri-tui/src/event/keyboard/panels.rs` — `handle_panels` 函数，2 处 `matches!()`
-- `peri-tui/src/event/mod.rs:341-369` — `Event::Paste` 处理，2 处 `matches!()`
-- `peri-tui/src/app/panel_manager.rs:100-116` — `PanelKind::scope()` 定义
+- `cc-tui/src/event/keyboard/panels.rs` — `handle_panels` 函数，2 处 `matches!()`
+- `cc-tui/src/event/mod.rs:341-369` — `Event::Paste` 处理，2 处 `matches!()`
+- `cc-tui/src/app/panel_manager.rs:100-116` — `PanelKind::scope()` 定义

@@ -18,7 +18,7 @@ Task 5 (测试) -- 依赖所有前置 Task
 
 ## Task 1: 全局 Panic 通知通道 + 自定义 Panic Hook
 
-**文件**: `peri-tui/src/main.rs`
+**文件**: `cc-tui/src/main.rs`
 
 **变更**:
 
@@ -78,13 +78,13 @@ Task 5 (测试) -- 依赖所有前置 Task
    }
    ```
 
-**验证**: `cargo build -p peri-tui` 编译通过。
+**验证**: `cargo build -p cc-tui` 编译通过。
 
 ---
 
 ## Task 2: ServiceRegistry 接入 + run_tui 集成
 
-**文件 A**: `peri-tui/src/app/service_registry.rs`
+**文件 A**: `cc-tui/src/app/service_registry.rs`
 
 1. 在 `ServiceRegistry` 中添加字段：
    ```rust
@@ -92,14 +92,14 @@ Task 5 (测试) -- 依赖所有前置 Task
    pub panic_notify_rx: Option<tokio::sync::mpsc::UnboundedReceiver<String>>,
    ```
 
-**文件 B**: `peri-tui/src/app/mod.rs`
+**文件 B**: `cc-tui/src/app/mod.rs`
 
 1. 在 `App::new()` 的 ServiceRegistry 构造中添加：
    ```rust
    panic_notify_rx: None,
    ```
 
-**文件 C**: `peri-tui/src/main.rs`
+**文件 C**: `cc-tui/src/main.rs`
 
 1. `run_tui()` 中在 `enable_raw_mode()` 之前调用：
    ```rust
@@ -124,13 +124,13 @@ Task 5 (测试) -- 依赖所有前置 Task
    app.services.panic_notify_rx = Some(panic_notify_rx);
    ```
 
-**验证**: `cargo build -p peri-tui` 编译通过。
+**验证**: `cargo build -p cc-tui` 编译通过。
 
 ---
 
 ## Task 3: TUI 事件循环 Panic 通知消费
 
-**文件 A**: `peri-tui/src/app/agent_ops.rs`
+**文件 A**: `cc-tui/src/app/agent_ops.rs`
 
 1. 添加 `poll_panic_notifications` 方法（放在 `poll_background_events` 附近）：
    ```rust
@@ -159,7 +159,7 @@ Task 5 (测试) -- 依赖所有前置 Task
    }
    ```
 
-**文件 B**: `peri-tui/src/main.rs`
+**文件 B**: `cc-tui/src/main.rs`
 
 1. 在 `'event_loop` 中 `poll_background_events()` 之后添加：
    ```rust
@@ -176,7 +176,7 @@ Task 5 (测试) -- 依赖所有前置 Task
 
 ## Task 4: Disconnected 通道友好提示增强
 
-**文件**: `peri-tui/src/app/agent_ops.rs`
+**文件**: `cc-tui/src/app/agent_ops.rs`
 
 1. 在非后台任务的 `Disconnected` 分支中，现有 `apply_pipeline_action` 之后添加：
    ```rust
@@ -191,7 +191,7 @@ Task 5 (测试) -- 依赖所有前置 Task
 
 ## Task 5: 测试
 
-### A. 单元测试（`peri-tui/src/main.rs`）
+### A. 单元测试（`cc-tui/src/main.rs`）
 
 | 测试名 | 场景 |
 |--------|------|
@@ -229,8 +229,8 @@ Task 5 (测试) -- 依赖所有前置 Task
 
 | 文件 | 变更类型 |
 |------|----------|
-| `peri-tui/src/main.rs` | 新增 PANIC_NOTIFY、format_panic_message、install_panic_hook、init_panic_notify；修改 run_tui、run_app |
-| `peri-tui/src/app/service_registry.rs` | 新增 panic_notify_rx 字段 |
-| `peri-tui/src/app/mod.rs` | ServiceRegistry 构造添加 panic_notify_rx: None |
-| `peri-tui/src/app/agent_ops.rs` | 新增 poll_panic_notifications 方法；Disconnected 分支添加友好提示 |
-| `peri-tui/src/ui/message_render.rs` | 无需修改（现有 `❌` 检测自动渲染红色） |
+| `cc-tui/src/main.rs` | 新增 PANIC_NOTIFY、format_panic_message、install_panic_hook、init_panic_notify；修改 run_tui、run_app |
+| `cc-tui/src/app/service_registry.rs` | 新增 panic_notify_rx 字段 |
+| `cc-tui/src/app/mod.rs` | ServiceRegistry 构造添加 panic_notify_rx: None |
+| `cc-tui/src/app/agent_ops.rs` | 新增 poll_panic_notifications 方法；Disconnected 分支添加友好提示 |
+| `cc-tui/src/ui/message_render.rs` | 无需修改（现有 `❌` 检测自动渲染红色） |

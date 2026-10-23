@@ -71,9 +71,9 @@ Write/Edit 工具调用执行后，消息流中只显示纯文本结果（如 "A
 - `peri-tui/src/ui/message_render.rs` / `peri-tui/src/app/message_pipeline/` —— 消息流渲染集成
 - `peri-widgets/src/message_block/blocks.rs` —— 消息块渲染，需新增 diff 组件
 
-## Claude Code 参考实现
+## 参考实现
 
-Claude Code 的 diff 显示实现要点（供设计参考）：
+参考实现 的 diff 显示实现要点（供设计参考）：
 
 - **Diff 生成**：使用 `diff` npm 包的 `structuredPatch()` 和 `diffWordsWithSpace()`
 - **结构化 Hunk 类型**：`{ oldStart, oldLines, newStart, newLines, lines[] }`

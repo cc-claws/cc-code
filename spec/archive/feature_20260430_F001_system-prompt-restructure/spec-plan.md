@@ -1,6 +1,6 @@
 # 系统提示词重构 执行计划
 
-**目标:** 将系统提示词从单体文件拆分为语义独立的 `.md` 段落，建立 Feature-gated 条件注入机制，同步 claude-code 工具提示词质量。
+**目标:** 将系统提示词从单体文件拆分为语义独立的 `.md` 段落，建立 Feature-gated 条件注入机制，同步 参考实现 工具提示词质量。
 
 **技术栈:** Rust 2021, include_str! (编译时嵌入), serde_json (参数 schema)
 
@@ -123,7 +123,7 @@
 
 - [ ] 编写 `04_actions.md` — 危险操作谨慎原则
   - 位置: `peri-tui/prompts/sections/04_actions.md`
-  - 内容来源: 新增段落（基于 claude-code 的 `getActionsSection()` 风格），当前 `system.md` 中无直接对应内容
+  - 内容来源: 新增段落（基于 参考实现 的 `getActionsSection()` 风格），当前 `system.md` 中无直接对应内容
   - 内容:
 
     ```markdown
@@ -231,7 +231,7 @@
 
 - [ ] 编写 `07_communicating.md` — 用户沟通方式
   - 位置: `peri-tui/prompts/sections/07_communicating.md`
-  - 内容来源: 新增段落（基于 claude-code 的 `getOutputEfficiencySection()` 风格）
+  - 内容来源: 新增段落（基于 参考实现 的 `getOutputEfficiencySection()` 风格）
   - 内容:
 
     ```markdown
@@ -395,7 +395,7 @@
 
 - [ ] 编写 `10_hitl.md` — HITL 审批模式段落
   - 位置: `peri-tui/prompts/sections/10_hitl.md`
-  - 内容来源: claude-code HITL 相关段落 + 现有 `default_requires_approval()` 工具白名单 + `HitlDecision` 枚举语义
+  - 内容来源: 参考实现 HITL 相关段落 + 现有 `default_requires_approval()` 工具白名单 + `HitlDecision` 枚举语义
   - 内容:
 
     ```markdown
@@ -652,7 +652,7 @@
 ### Task 3: 工具提示词扩展
 
 **背景:**
-当前 9 个工具的 `description()` 和 `parameters()` 返回值均为一行简短文本，缺少 claude-code 风格的详细用法指导（使用场景、决策树、错误处理建议、注意事项），导致 LLM 不能充分利用工具能力。本 Task 将每个工具的 description 扩展为多段落文本（功能概述 + Usage + 决策指导 + 注意事项），同时丰富 parameters 中每个字段的 description 字符串。本 Task 不依赖 Task 1/2 的输出（工具提示词在中间件层定义，不在系统提示词段落中），Task 4（清理与验收）将验证本 Task 的工具提示词输出完整性。
+当前 9 个工具的 `description()` 和 `parameters()` 返回值均为一行简短文本，缺少 参考实现 风格的详细用法指导（使用场景、决策树、错误处理建议、注意事项），导致 LLM 不能充分利用工具能力。本 Task 将每个工具的 description 扩展为多段落文本（功能概述 + Usage + 决策指导 + 注意事项），同时丰富 parameters 中每个字段的 description 字符串。本 Task 不依赖 Task 1/2 的输出（工具提示词在中间件层定义，不在系统提示词段落中），Task 4（清理与验收）将验证本 Task 的工具提示词输出完整性。
 
 **涉及文件:**
 
@@ -673,7 +673,7 @@
   - 方案: 不引入新依赖，所有 description 常量使用 Rust 原始字符串字面量 `r#"..."#` + 手工换行管理
   - 以下所有步骤均使用 `r#"..."#` 方案
 
-- [ ] 扩展 `read_file` 工具的 description 和 parameters — 对齐 claude-code 的 FileReadTool 风格
+- [ ] 扩展 `read_file` 工具的 description 和 parameters — 对齐 参考实现 的 FileReadTool 风格
   - 位置: `peri-middlewares/src/tools/filesystem/read.rs`
   - 在 `const MAX_FILE_SIZE` 之后（~L19 之后）、`fn is_binary_extension` 之前（~L21 之前）插入 description 常量:
 
@@ -725,9 +725,9 @@
     }
     ```
 
-  - 原因: 对齐 claude-code 的 read_file 描述风格，让 LLM 了解行号格式、大文件处理策略、错误场景
+  - 原因: 对齐 参考实现 的 read_file 描述风格，让 LLM 了解行号格式、大文件处理策略、错误场景
 
-- [ ] 扩展 `write_file` 工具的 description 和 parameters — 对齐 claude-code 的 FileWriteTool 风格
+- [ ] 扩展 `write_file` 工具的 description 和 parameters — 对齐 参考实现 的 FileWriteTool 风格
   - 位置: `peri-middlewares/src/tools/filesystem/write.rs`
   - 在 `impl WriteFileTool` 块之前（~L6 之后）插入 description 常量:
 
@@ -769,9 +769,9 @@
     }
     ```
 
-  - 原因: 对齐 claude-code 的 write_file 描述风格，强调先读后写原则、原子写入行为、不创建文档文件的约束
+  - 原因: 对齐 参考实现 的 write_file 描述风格，强调先读后写原则、原子写入行为、不创建文档文件的约束
 
-- [ ] 扩展 `edit_file` 工具的 description 和 parameters — 对齐 claude-code 的 FileEditTool 风格
+- [ ] 扩展 `edit_file` 工具的 description 和 parameters — 对齐 参考实现 的 FileEditTool 风格
   - 位置: `peri-middlewares/src/tools/filesystem/edit.rs`
   - 在 `impl EditFileTool` 块之前（~L6 之后）插入 description 常量:
 
@@ -824,9 +824,9 @@
     }
     ```
 
-  - 原因: 对齐 claude-code 的 edit_file 描述风格，强调 old_string 唯一性要求、行号前缀格式说明、replace_all 用法
+  - 原因: 对齐 参考实现 的 edit_file 描述风格，强调 old_string 唯一性要求、行号前缀格式说明、replace_all 用法
 
-- [ ] 扩展 `glob_files` 工具的 description 和 parameters — 对齐 claude-code 的 GlobTool 风格
+- [ ] 扩展 `glob_files` 工具的 description 和 parameters — 对齐 参考实现 的 GlobTool 风格
   - 位置: `peri-middlewares/src/tools/filesystem/glob.rs`
   - 在 `const MAX_RESULTS` 之后（~L19 之后）、`fn should_skip_dir` 之前（~L21 之前）插入 description 常量:
 
@@ -869,9 +869,9 @@
     }
     ```
 
-  - 原因: 对齐 claude-code 的 glob 描述风格，说明排序规则、排除目录、与 search_files_rg 的选择决策
+  - 原因: 对齐 参考实现 的 glob 描述风格，说明排序规则、排除目录、与 search_files_rg 的选择决策
 
-- [ ] 扩展 `search_files_rg` 工具的 description 和 parameters — 对齐 claude-code 的 GrepTool 风格
+- [ ] 扩展 `search_files_rg` 工具的 description 和 parameters — 对齐 参考实现 的 GrepTool 风格
   - 位置: `peri-middlewares/src/tools/filesystem/grep.rs`
   - 在 `impl SearchFilesRgTool` 块之前（~L9 之后，struct 定义之后）插入 description 常量:
 
@@ -920,9 +920,9 @@
     }
     ```
 
-  - 原因: 对齐 claude-code 的 grep 描述风格，说明正则语法、输出模式选择、超时行为、与 glob_files 的分工
+  - 原因: 对齐 参考实现 的 grep 描述风格，说明正则语法、输出模式选择、超时行为、与 glob_files 的分工
 
-- [ ] 扩展 `bash` 工具的 description 和 parameters — 对齐 claude-code 的 BashTool 风格
+- [ ] 扩展 `bash` 工具的 description 和 parameters — 对齐 参考实现 的 BashTool 风格
   - 位置: `peri-middlewares/src/middleware/terminal.rs`
   - 在 `const MAX_OUTPUT_LINES` 之后（~L24 之后）、`fn truncate_bytes` 之前（~L26 之前）插入 description 常量:
 
@@ -976,9 +976,9 @@
     }
     ```
 
-  - 原因: 对齐 claude-code 的 bash 描述风格，强调优先使用专用工具、超时行为、跨平台说明、输出截断策略
+  - 原因: 对齐 参考实现 的 bash 描述风格，强调优先使用专用工具、超时行为、跨平台说明、输出截断策略
 
-- [ ] 扩展 `folder_operations` 工具的 description 和 parameters — 对齐 claude-code 的 FolderTool 风格
+- [ ] 扩展 `folder_operations` 工具的 description 和 parameters — 对齐 参考实现 的 FolderTool 风格
   - 位置: `peri-middlewares/src/tools/filesystem/folder.rs`
   - 在 `const MAX_LIST_ENTRIES` 之后（~L19 之后）、`fn list_folder` 之前（~L22 之前）插入 description 常量:
 
@@ -1028,9 +1028,9 @@
     }
     ```
 
-  - 原因: 对齐 claude-code 的 folder 操作描述风格，详细说明三种操作的行为差异和输出格式
+  - 原因: 对齐 参考实现 的 folder 操作描述风格，详细说明三种操作的行为差异和输出格式
 
-- [ ] 扩展 `todo_write` 工具的 description 和 parameters — 对齐 claude-code 的 TodoWriteTool 风格
+- [ ] 扩展 `todo_write` 工具的 description 和 parameters — 对齐 参考实现 的 TodoWriteTool 风格
   - 位置: `peri-middlewares/src/tools/todo.rs`
   - 在 `pub struct TodoWriteTool` 定义之前（~L29 之前），在 `TodoItem` struct 定义之后（~L25 之后）插入 description 常量:
 
@@ -1093,9 +1093,9 @@
     }
     ```
 
-  - 原因: 对齐 claude-code 的 todo_write 描述风格，强调全量替换语义、使用场景决策、状态值含义
+  - 原因: 对齐 参考实现 的 todo_write 描述风格，强调全量替换语义、使用场景决策、状态值含义
 
-- [ ] 扩展 `launch_agent` 工具的 description 和 parameters — 对齐 claude-code 的 AgentTool 风格
+- [ ] 扩展 `launch_agent` 工具的 description 和 parameters — 对齐 参考实现 的 AgentTool 风格
   - 位置: `peri-middlewares/src/subagent/tool.rs`
   - 在 `pub struct SubAgentTool` 定义之后（~L39 之后）、`impl SubAgentTool` 块之前（~L41 之前）插入 description 常量:
 
@@ -1146,7 +1146,7 @@
     }
     ```
 
-  - 原因: 对齐 claude-code 的 launch_agent 描述风格，强调上下文隔离原则、委派策略、工具过滤行为、返回格式
+  - 原因: 对齐 参考实现 的 launch_agent 描述风格，强调上下文隔离原则、委派策略、工具过滤行为、返回格式
 
 - [ ] 为所有 9 个工具的 description 扩展编写单元测试
   - 测试文件: 各工具源文件中的 `#[cfg(test)] mod tests` 块（每个文件追加一个测试）
@@ -1295,7 +1295,7 @@
   - `grep -A1 'fn description' peri-middlewares/src/tools/filesystem/read.rs`
   - 预期: 输出包含 `READ_FILE_DESCRIPTION` 常量引用
 
-- [ ] 验证工具名已替换为 snake_case（无 claude-code PascalCase 工具名残留）
+- [ ] 验证工具名已替换为 snake_case（无 参考实现 PascalCase 工具名残留）
   - `grep -rn 'use the Read tool\|use the Write tool\|use the Edit tool\|use the Glob tool\|use the Grep tool\|use the Bash tool' peri-middlewares/src/tools/ peri-middlewares/src/middleware/ peri-middlewares/src/subagent/ || echo "clean"`
   - 预期: 输出 "clean"（0 匹配）
 

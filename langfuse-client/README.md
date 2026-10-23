@@ -59,8 +59,8 @@ let config = BatcherConfig {
 
 let batcher = Batcher::new(client, config);
 
-// 添加事件（异步入队）
-batcher.add(event).await?;
+// 添加事件（同步入队，队列满时按 backpressure 策略处理）
+batcher.try_add(event)?;
 
 // 手动刷新
 batcher.flush().await?;

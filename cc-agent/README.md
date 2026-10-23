@@ -11,17 +11,17 @@ Rust Agent 框架，实现 ReAct 循环与可组合中间件系统。与 TypeScr
 - **工具系统**：统一的工具注册和调用接口
 - **LLM 适配层**：支持 Anthropic、OpenAI 兼容 API
 - **持久化**：SQLite 会话存储
-- **遥测**：Langfuse 集成
+- **日志**：tracing 订阅器初始化（Langfuse 集成在 `cc-acp`，不在本 crate）
 - **上下文压缩**：auto compact 和 micro compact
 
 ## 快速开始
 
 ```rust
-use peri_agent::prelude::*;
+use cc_agent::prelude::*;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let _guard = peri_agent::telemetry::init_tracing("my-agent");
+    let _guard = cc_agent::telemetry::init_tracing("my-agent");
 
     let agent = ReActAgent::new(MockLLM::always_answer("任务完成"))
         .max_iterations(10)
@@ -56,7 +56,7 @@ let agent = ReActAgent::new(llm)
 
 ```rust
 use async_trait::async_trait;
-use peri_agent::prelude::*;
+use cc_agent::prelude::*;
 
 struct MyMiddleware;
 
@@ -92,7 +92,7 @@ impl Middleware<AgentState> for MyMiddleware {
 
 ```rust
 use async_trait::async_trait;
-use peri_agent::tools::BaseTool;
+use cc_agent::tools::BaseTool;
 
 struct EchoTool;
 
@@ -122,7 +122,7 @@ impl BaseTool for EchoTool {
 
 ```rust
 use std::sync::Arc;
-use peri_agent::prelude::*;
+use cc_agent::prelude::*;
 
 let handler = FnEventHandler(|event| match event {
     AgentEvent::ToolStart { name, .. } => println!("开始调用工具: {name}"),
@@ -142,74 +142,27 @@ let agent = ReActAgent::new(llm)
 在 `main` 入口调用一次，其余自动处理：
 
 ```rust
-let _guard = peri_agent::telemetry::init_tracing("my-agent");
+let _guard = cc_agent::telemetry::init_tracing("my-agent");
 // _guard 必须存活到程序退出，drop 时自动 flush
 ```
 
 ### 开关控制
 
-**不配置环境变量则不开启 OTLP**，仅输出到 stdout：
+本 crate 的 telemetry 只做 tracing 日志初始化，不含 OTLP 导出（无 `otel` Cargo feature，`cc-agent/Cargo.toml` 未声明任何 feature）：
 
-| 环境变量                      | 说明                                            |
-| ----------------------------- | ----------------------------------------------- |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | 设置后自动启用 OTLP 导出，未设置则只输出 stdout |
-| `RUST_LOG`                    | 日志级别，默认 `info`                           |
-| `RUST_LOG_FORMAT=json`        | 使用 JSON 格式输出（默认 pretty）               |
+| 环境变量              | 说明                                                            |
+| --------------------- | --------------------------------------------------------------- |
+| `RUST_LOG`            | 日志级别，默认 `info`                                           |
+| `RUST_LOG_FORMAT=json` | 使用 JSON 格式输出（默认 pretty）                              |
+| `RUST_LOG_FILE`       | 日志文件路径（最高优先级）；未设置时写入 `~/.cc-code/logs/{service_name}.log` |
 
 ```bash
-# 仅 stdout 输出（默认行为）
-cargo run
-
-# 开启 OTLP 导出到本地 Jaeger
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 cargo run --features otel
-
 # 调整日志级别
 RUST_LOG=debug cargo run
-RUST_LOG=peri_agent=trace cargo run
+RUST_LOG=cc_agent=trace cargo run
 ```
 
-### 本地可视化（Jaeger）
-
-项目根目录提供了 `docker-compose.otel.yml`，一键启动 Jaeger（内置 OTLP 接收器 + UI）：
-
-```bash
-# 启动
-docker compose -f docker-compose.otel.yml up -d
-
-# 停止
-docker compose -f docker-compose.otel.yml down
-```
-
-启动后：
-
-- **可视化 UI**：<http://localhost:16686>
-- **OTLP HTTP**：`http://localhost:4318`（`OTEL_EXPORTER_OTLP_ENDPOINT` 填这个）
-- **OTLP gRPC**：`localhost:4317`
-
-### otel Feature
-
-OTLP 导出功能通过 Cargo feature 控制，默认不编译进二进制：
-
-```toml
-# Cargo.toml
-[dependencies]
-cc-agent = { version = "*", features = ["otel"] }
-```
-
-| 场景                     | 配置                                              | 结果                        |
-| ------------------------ | ------------------------------------------------- | --------------------------- |
-| 开发/测试                | 无                                                | 只输出到 stdout             |
-| 生产（有 Collector）     | `OTEL_EXPORTER_OTLP_ENDPOINT` + `--features otel` | 同时导出 trace              |
-| 配置了变量但未开 feature | `OTEL_EXPORTER_OTLP_ENDPOINT`（无 feature）       | 打印 warn，降级为 stdout    |
-| OTLP 初始化失败          | 网络不通等                                        | 打印 warn，自动降级，不崩溃 |
-
-`ReActAgent::execute()`、每次工具调用均已自动埋点，无需额外代码。
-
-## Cargo Features
-
-| Feature | 默认 | 说明                                                                                           |
-| ------- | ---- | ---------------------------------------------------------------------------------------------- |
-| `otel`  | 否   | 启用 OpenTelemetry OTLP 导出（`opentelemetry`、`opentelemetry-otlp`、`tracing-opentelemetry`） |
+`ReActAgent::execute()`、每次工具调用均已通过 tracing span 自动埋点，无需额外代码。Langfuse 追踪由 `cc-acp` 的 `langfuse/` 模块与独立的 `langfuse-client` crate 承担。
 
 ## 核心模块
 
@@ -219,10 +172,12 @@ cc-agent = { version = "*", features = ["otel"] }
 | `middleware/` | Middleware trait 定义 |
 | `tools/` | BaseTool trait、工具注册 |
 | `llm/` | LLM 适配层（BaseModel、ReactLLM） |
-| `compact/` | 上下文压缩（full_compact、micro_compact） |
-| `persistence/` | SQLite 持久化 |
-| `telemetry/` | Langfuse 遥测 |
-| `tool_search/` | 工具懒加载系统 |
+| `messages/` | BaseMessage / ContentBlock 消息类型 |
+| `agent/compact/` | 上下文压缩（full_compact、micro_compact） |
+| `thread/` | ThreadStore 会话持久化（SQLite + 文件系统） |
+| `telemetry/` | tracing 日志初始化 |
+
+工具懒加载（tool_search）不在本 crate，位于 `cc-middlewares/src/tool_search/`。
 
 ## ReAct 循环详解
 
@@ -265,7 +220,7 @@ pub enum ContentBlock {
     Document { source: DocumentSource, title: Option<String> },
     ToolUse { id: String, name: String, input: Value },
     ToolResult { id: Option<String>, tool_use_id: String, content: Vec<ContentBlock>, is_error: bool },
-    Reasoning { text: String, signature: Option<String> },
+    Reasoning { text: String, signature: Option<String>, duration_ms: Option<u64> },
     Unknown(Value),
 }
 ```
@@ -312,7 +267,8 @@ pub struct ThinkingConfig {
 | **Deferred** | 按需加载 | Cron, MCP, Lsp |
 
 ```rust
-// 核心工具定义
+// 核心工具白名单（定义位于 cc-middlewares/src/tool_search/core_tools.rs，
+// 类型为 LazyLock<HashSet<&'static str>>，共 11 个）
 const CORE_TOOLS: &[&str] = &[
     "Read", "Write", "Edit", "Glob", "Grep",
     "Bash", "WebFetch", "WebSearch", "Agent",
@@ -350,7 +306,7 @@ pub trait ThreadStore: Send + Sync {
 }
 ```
 
-实现：`SqliteStore`（`thread/sqlite_store.rs`）、`FilesystemStore`（`thread/filesystem.rs`）
+实现：`SqliteThreadStore`（`thread/sqlite_store.rs`）、`FilesystemThreadStore`（`thread/filesystem.rs`）
 
 ## 相关文档
 

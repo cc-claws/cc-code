@@ -13,14 +13,14 @@
 ### Task 1: FTL 翻译键
 
 **Files:**
-- Modify: `peri-tui/locales/en/main.ftl` (追加 ~5 行)
-- Modify: `peri-tui/locales/zh-CN/main.ftl` (追加 ~5 行)
+- Modify: `cc-tui/locales/en/main.ftl` (追加 ~5 行)
+- Modify: `cc-tui/locales/zh-CN/main.ftl` (追加 ~5 行)
 
 新增 Language 步骤需要的翻译键。语言选项名称（English / 中文）硬编码显示，不经过翻译。
 
 - [ ] **Step 1: 在英文 FTL 末尾追加翻译键**
 
-在 `peri-tui/locales/en/main.ftl` 末尾追加：
+在 `cc-tui/locales/en/main.ftl` 末尾追加：
 
 ```ftl
 # Setup Language step
@@ -31,7 +31,7 @@ setup-language-press-enter = Press Enter to confirm
 
 - [ ] **Step 2: 在中文 FTL 末尾追加翻译键**
 
-在 `peri-tui/locales/zh-CN/main.ftl` 末尾追加：
+在 `cc-tui/locales/zh-CN/main.ftl` 末尾追加：
 
 ```ftl
 # Setup Language step
@@ -43,7 +43,7 @@ setup-language-press-enter = 按 Enter 确认
 - [ ] **Step 3: 验证 FTL 文件解析无错误**
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -5
+cargo build -p cc-tui 2>&1 | head -5
 ```
 
 Expected: 编译成功，无 FTL parse error。
@@ -53,13 +53,13 @@ Expected: 编译成功，无 FTL parse error。
 ### Task 2: SetupWizardPanel 状态扩展
 
 **Files:**
-- Modify: `peri-tui/src/app/setup_wizard.rs`
+- Modify: `cc-tui/src/app/setup_wizard.rs`
 
 为 `SetupStep` 枚举添加 `Language` 变体，为 `SetupWizardPanel` 添加 `language`/`language_cursor` 字段，定义语言选项常量。
 
 - [ ] **Step 1: 在 `SetupStep` 枚举中插入 `Language` 变体**
 
-修改 `peri-tui/src/app/setup_wizard.rs` 第 3-10 行，在 `Choose` 和 `Form` 之间插入 `Language`：
+修改 `cc-tui/src/app/setup_wizard.rs` 第 3-10 行，在 `Choose` 和 `Form` 之间插入 `Language`：
 
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -114,7 +114,7 @@ language_cursor: 0,
 - [ ] **Step 5: 构建验证**
 
 ```bash
-cargo build -p peri-tui 2>&1 | tail -20
+cargo build -p cc-tui 2>&1 | tail -20
 ```
 
 Expected: 大部分编译通过，仅渲染分发缺少 `SetupStep::Language` 分支导致编译错误（预期行为，Task 3 处理）。
@@ -124,7 +124,7 @@ Expected: 大部分编译通过，仅渲染分发缺少 `SetupStep::Language` �
 ### Task 3: Language 步骤按键处理
 
 **Files:**
-- Modify: `peri-tui/src/app/setup_wizard.rs`
+- Modify: `cc-tui/src/app/setup_wizard.rs`
 
 实现 `handle_step_language` 函数，并在 `handle_setup_wizard_key` 分发和步骤间跳转逻辑中插入 Language 步骤。
 
@@ -218,7 +218,7 @@ fn handle_step_language(
 - [ ] **Step 5: 编译验证（渲染分发仍缺）**
 
 ```bash
-cargo build -p peri-tui 2>&1 | grep "error" | head -10
+cargo build -p cc-tui 2>&1 | grep "error" | head -10
 ```
 
 Expected: 仅有 `render_setup_wizard` 缺少 `SetupStep::Language` 分支的错误（Task 4 修复）。
@@ -228,7 +228,7 @@ Expected: 仅有 `render_setup_wizard` 缺少 `SetupStep::Language` 分支的错
 ### Task 4: Language 步骤 UI 渲染
 
 **Files:**
-- Modify: `peri-tui/src/ui/main_ui/popups/setup_wizard.rs`
+- Modify: `cc-tui/src/ui/main_ui/popups/setup_wizard.rs`
 
 添加 `render_step_language` 函数，在 `render_setup_wizard` 分发中添加 Language 分支。
 
@@ -315,7 +315,7 @@ use crate::app::setup_wizard::{FormField, FormMode, LANGUAGE_OPTIONS, SetupSourc
 - [ ] **Step 4: 编译验证**
 
 ```bash
-cargo build -p peri-tui 2>&1 | tail -5
+cargo build -p cc-tui 2>&1 | tail -5
 ```
 
 Expected: 编译成功。
@@ -325,7 +325,7 @@ Expected: 编译成功。
 ### Task 5: save_setup_to 写入 language 字段
 
 **Files:**
-- Modify: `peri-tui/src/app/setup_wizard.rs`
+- Modify: `cc-tui/src/app/setup_wizard.rs`
 
 - [ ] **Step 1: 在 `save_setup_to` 中写入 `language`**
 
@@ -351,7 +351,7 @@ let content = serde_json::to_string_pretty(&cfg)?;
 - [ ] **Step 2: 编译验证**
 
 ```bash
-cargo build -p peri-tui 2>&1 | tail -5
+cargo build -p cc-tui 2>&1 | tail -5
 ```
 
 Expected: 编译成功。
@@ -361,7 +361,7 @@ Expected: 编译成功。
 ### Task 6: 单元测试
 
 **Files:**
-- Modify: `peri-tui/src/app/setup_wizard_test.rs`
+- Modify: `cc-tui/src/app/setup_wizard_test.rs`
 
 - [ ] **Step 1: 添加 Language 步骤导航测试**
 
@@ -486,7 +486,7 @@ fn test_setup_wizard_new_defaults() {
 - [ ] **Step 6: 运行全部 setup wizard 测试**
 
 ```bash
-cargo test -p peri-tui --lib -- setup_wizard_test 2>&1
+cargo test -p cc-tui --lib -- setup_wizard_test 2>&1
 ```
 
 Expected: 所有测试通过。
@@ -496,19 +496,19 @@ Expected: 所有测试通过。
 ### Task 7: 集成测试更新
 
 **Files:**
-- Modify: `peri-tui/src/ui/headless_test.rs`
+- Modify: `cc-tui/src/ui/headless_test.rs`
 
 Setup wizard 的 headless 集成测试可能也需要适配新的步骤顺序。
 
 - [ ] **Step 1: 搜索 headless 测试中 setup wizard 相关测试**
 
 ```bash
-grep -n "test_s.*setup\|test_s.*wizard\|test_s.*form\|test_s.*choose" peri-tui/src/ui/headless_test.rs
+grep -n "test_s.*setup\|test_s.*wizard\|test_s.*form\|test_s.*choose" cc-tui/src/ui/headless_test.rs
 ```
 
 - [ ] **Step 2: 阅读相关测试并更新步骤预期**
 
-检查 `peri-tui/src/ui/headless_test.rs` 中所有直接调用 `handle_setup_wizard_key` 并按步骤状态做断言的测试。如果某测试从 Choose 直接进入 Form（跳过 Language），需要在测试中插入一次 Enter（从 Choose 进 Language）再 Enter（从 Language 进 Form）。
+检查 `cc-tui/src/ui/headless_test.rs` 中所有直接调用 `handle_setup_wizard_key` 并按步骤状态做断言的测试。如果某测试从 Choose 直接进入 Form（跳过 Language），需要在测试中插入一次 Enter（从 Choose 进 Language）再 Enter（从 Language 进 Form）。
 
 - [ ] **Step 3: 更新 headless_test.rs 的 import**
 
@@ -517,7 +517,7 @@ grep -n "test_s.*setup\|test_s.*wizard\|test_s.*form\|test_s.*choose" peri-tui/s
 - [ ] **Step 4: 运行 headless 测试**
 
 ```bash
-cargo test -p peri-tui --test '*' -- setup 2>&1 | tail -30
+cargo test -p cc-tui --test '*' -- setup 2>&1 | tail -30
 ```
 
 Expected: 所有测试通过。
@@ -529,13 +529,13 @@ Expected: 所有测试通过。
 - [ ] **Step 1: 完整编译**
 
 ```bash
-cargo build -p peri-tui 2>&1
+cargo build -p cc-tui 2>&1
 ```
 
 - [ ] **Step 2: 完整测试**
 
 ```bash
-cargo test -p peri-tui 2>&1
+cargo test -p cc-tui 2>&1
 ```
 
 Expected: 编译无错误，所有测试通过。
@@ -543,7 +543,7 @@ Expected: 编译无错误，所有测试通过。
 - [ ] **Step 3: Clippy**
 
 ```bash
-cargo clippy -p peri-tui -- -D warnings 2>&1
+cargo clippy -p cc-tui -- -D warnings 2>&1
 ```
 
 Expected: 无 clippy 警告。
@@ -551,9 +551,9 @@ Expected: 无 clippy 警告。
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/app/setup_wizard.rs peri-tui/src/app/setup_wizard_test.rs \
-    peri-tui/src/ui/main_ui/popups/setup_wizard.rs peri-tui/locales/en/main.ftl \
-    peri-tui/locales/zh-CN/main.ftl peri-tui/src/ui/headless_test.rs
+git add cc-tui/src/app/setup_wizard.rs cc-tui/src/app/setup_wizard_test.rs \
+    cc-tui/src/ui/main_ui/popups/setup_wizard.rs cc-tui/locales/en/main.ftl \
+    cc-tui/locales/zh-CN/main.ftl cc-tui/src/ui/headless_test.rs
 git commit -m "feat(setup): add language selection step between Choose and Form
 
 Closes spec/issues/2026-05-16-i18n-language-not-in-setup.md

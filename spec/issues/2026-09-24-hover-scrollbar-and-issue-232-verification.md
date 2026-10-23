@@ -37,12 +37,12 @@
 普通回归（不需要 LLM 请求）：
 
 ```powershell
-cargo test -p peri-tui --lib event:: -- --test-threads=2
-cargo test -p peri-tui --lib conpty::
-cargo clippy -p peri-tui --lib --bins --no-deps -- -D warnings
+cargo test -p cc-tui --lib event:: -- --test-threads=2
+cargo test -p cc-tui --lib conpty::
+cargo clippy -p cc-tui --lib --bins --no-deps -- -D warnings
 ```
 
-Windows 真实 ConPTY：先 `cargo test -p peri-tui --lib --no-run` 取得测试 exe 路径；在独立 PowerShell 中运行以下命令，避免环境变量影响用户启动的应用。
+Windows 真实 ConPTY：先 `cargo test -p cc-tui --lib --no-run` 取得测试 exe 路径；在独立 PowerShell 中运行以下命令，避免环境变量影响用户启动的应用。
 
 ```powershell
 $env:PERI_EXPECT_HOVER='0'
@@ -61,8 +61,8 @@ python scripts/test-hover-conpty.py <test-binary.exe> target/hover-modern.json
 
 - `event::`：47 项通过；1 项专属 ConPTY 测试在普通运行中忽略，另由脚本执行。包含 4 项 #232 审核用例及原有滑块 35 组位置回归。
 - `conpty::`：5 项通过。
-- `cargo clippy -p peri-tui --lib --bins --no-deps -- -D warnings`：通过。
-- `cargo build -p peri-tui --bin cc-code`：通过。可在兼容终端中运行 `./target/debug/cc-code.exe -c` 继续本地会话体验；无需替换已安装版本。
+- `cargo clippy -p cc-tui --lib --bins --no-deps -- -D warnings`：通过。
+- `cargo build -p cc-tui --bin cc-code`：通过。可在兼容终端中运行 `./target/debug/cc-code.exe -c` 继续本地会话体验；无需替换已安装版本。
 - 本次修改涉及的 Rust 文件 `rustfmt --check`、`git diff --check`：通过。未顺手格式化基线其他文件。
 - 新版 OpenConsole 1.24.2607.10001：20,001 次悬停报告合并后送达 1 个最终位置；带 1ms 批间隔的 100,001 次报告送达 714 个移动，最终位置均为 `(79,9)`。两次键盘文本均精确为 `beforeafter`，四种主动鼠标事件顺序完整，实际前端 `1003` 模式与宿主判定一致。
 - 旧系统 conhost 10.0.19041：hover 判定为 false，实际不请求 hover，键盘精确为 `beforeafter`。鼠标事件未送达，限制及基线对照见上文，不计为鼠标交互通过。

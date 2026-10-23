@@ -77,11 +77,11 @@
             let _ = responder.respond(resp);
 
             // Send AvailableCommandsUpdate notification
-            let skill_dirs = peri_middlewares::SkillsMiddleware::resolve_dirs_static(
+            let skill_dirs = cc_middlewares::SkillsMiddleware::resolve_dirs_static(
                 &cwd,
                 &ctx.plugin_skill_dirs,
             );
-            let skills = peri_middlewares::skills::list_skills(&skill_dirs);
+            let skills = cc_middlewares::skills::list_skills(&skill_dirs);
             let cmds = dispatch::build_available_commands(&skills);
             let ac_notif = SessionNotification::new(
                 SessionId::new(&*sid),

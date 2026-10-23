@@ -1,6 +1,6 @@
-# Claude Code 工具接口对齐 执行计划（上）
+# 参考实现 工具接口对齐 执行计划（上）
 
-**目标:** 将 Peri 现有 10 个工具的名称和参数对齐 Claude Code，实现系统提示词和 agent 定义的零迁移复用
+**目标:** 将 Peri 现有 10 个工具的名称和参数对齐 参考实现，实现系统提示词和 agent 定义的零迁移复用
 
 **技术栈:** Rust 2021 edition, async-trait, serde_json, grep crate, ignore crate, tokio
 
@@ -44,7 +44,7 @@
 ### Task 1: Write/Edit/Glob 仅改名
 
 **背景:**
-将 `write_file`、`edit_file`、`glob_files` 三个工具的 `fn name()` 返回值分别改为 `Write`、`Edit`、`Glob`，对齐 Claude Code 工具命名规范。这三个工具的参数结构完全不变，仅需修改工具名和描述文本中引用旧名的部分。Task 2~8 的提示词更新依赖本 Task 的工具名生效；本 Task 不依赖其他 Task。
+将 `write_file`、`edit_file`、`glob_files` 三个工具的 `fn name()` 返回值分别改为 `Write`、`Edit`、`Glob`，对齐 参考实现 工具命名规范。这三个工具的参数结构完全不变，仅需修改工具名和描述文本中引用旧名的部分。Task 2~8 的提示词更新依赖本 Task 的工具名生效；本 Task 不依赖其他 Task。
 
 **涉及文件:**
 
@@ -57,7 +57,7 @@
 - [ ] 修改 WriteFileTool 的工具名 — 将 `fn name()` 返回值从 `"write_file"` 改为 `"Write"`
   - 位置: `peri-middlewares/src/tools/filesystem/write.rs` → `impl BaseTool for WriteFileTool` 的 `fn name()` (~L33)
   - 将 `"write_file"` 改为 `"Write"`
-  - 原因: 对齐 Claude Code 工具命名
+  - 原因: 对齐 参考实现 工具命名
 
 - [ ] 更新 WriteFileTool 描述中引用 `read_file` 的文本 — 描述中提到 "use the read_file tool"，`read_file` 将在 Task 2 中改名为 `Read`，此处同步更新以保持一致
   - 位置: `peri-middlewares/src/tools/filesystem/write.rs` → `WRITE_FILE_DESCRIPTION` 常量 (~L10)
@@ -67,7 +67,7 @@
 - [ ] 修改 EditFileTool 的工具名 — 将 `fn name()` 返回值从 `"edit_file"` 改为 `"Edit"`
   - 位置: `peri-middlewares/src/tools/filesystem/edit.rs` → `impl BaseTool for EditFileTool` 的 `fn name()` (~L37)
   - 将 `"edit_file"` 改为 `"Edit"`
-  - 原因: 对齐 Claude Code 工具命名
+  - 原因: 对齐 参考实现 工具命名
 
 - [ ] 更新 EditFileTool 描述中引用 `read_file` 的文本
   - 位置: `peri-middlewares/src/tools/filesystem/edit.rs` → `EDIT_FILE_DESCRIPTION` 常量 (~L9, L10)
@@ -77,7 +77,7 @@
 - [ ] 修改 GlobFilesTool 的工具名 — 将 `fn name()` 返回值从 `"glob_files"` 改为 `"Glob"`
   - 位置: `peri-middlewares/src/tools/filesystem/glob.rs` → `impl BaseTool for GlobFilesTool` 的 `fn name()` (~L99)
   - 将 `"glob_files"` 改为 `"Glob"`
-  - 原因: 对齐 Claude Code 工具命名
+  - 原因: 对齐 参考实现 工具命名
 
 - [ ] 更新 GlobFilesTool 描述中引用旧工具名的文本
   - 位置: `peri-middlewares/src/tools/filesystem/glob.rs` → `GLOB_FILES_DESCRIPTION` 常量 (~L29, L33, L34)
@@ -119,7 +119,7 @@
 ### Task 2: Read 改名 + 新增 pages 参数
 
 **背景:**
-将 `read_file` 工具重命名为 `Read`，对齐 Claude Code 工具命名。同时新增 `pages` 参数（string, optional），为 PDF 文件读取预留接口——当文件为 PDF 且提供了 `pages` 参数时，返回提示信息表示 PDF 读取尚未支持；PDF 但未提供 `pages` 时，保持现有二进制文件检测逻辑不变。描述文本中引用的旧工具名同步更新。本 Task 不依赖其他 Task；Task 5（验收）依赖本 Task 完成。
+将 `read_file` 工具重命名为 `Read`，对齐 参考实现 工具命名。同时新增 `pages` 参数（string, optional），为 PDF 文件读取预留接口——当文件为 PDF 且提供了 `pages` 参数时，返回提示信息表示 PDF 读取尚未支持；PDF 但未提供 `pages` 时，保持现有二进制文件检测逻辑不变。描述文本中引用的旧工具名同步更新。本 Task 不依赖其他 Task；Task 5（验收）依赖本 Task 完成。
 
 **涉及文件:**
 
@@ -128,7 +128,7 @@
 
 **执行步骤:**
 
-- [ ] 修改 `fn name()` 返回值从 `"read_file"` 改为 `"Read"` — 对齐 Claude Code 工具命名
+- [ ] 修改 `fn name()` 返回值从 `"read_file"` 改为 `"Read"` — 对齐 参考实现 工具命名
   - 位置: `peri-middlewares/src/tools/filesystem/read.rs` → `impl BaseTool for ReadFileTool` 的 `fn name()` (~L83)
   - 将 `"read_file"` 改为 `"Read"`
 
@@ -151,7 +151,7 @@
     ```
 
   - 不加入 `required` 数组（可选参数）
-  - 原因: 对齐 Claude Code 的 Read 工具 pages 参数
+  - 原因: 对齐 参考实现 的 Read 工具 pages 参数
 
 - [ ] 更新 `FilesystemMiddleware::tool_names()` 中 Read 的工具名
   - 位置: `peri-middlewares/src/middleware/filesystem.rs` → `fn tool_names()` (~L30-L38)
@@ -310,7 +310,7 @@
 
 **执行步骤:**
 
-- [ ] 修改 `fn name()` 返回值从 `"todo_write"` 改为 `"TodoWrite"` — 对齐 Claude Code 工具命名
+- [ ] 修改 `fn name()` 返回值从 `"todo_write"` 改为 `"TodoWrite"` — 对齐 参考实现 工具命名
   - 位置: `peri-middlewares/src/tools/todo.rs` → `impl BaseTool for TodoWriteTool` 的 `fn name()` (~L125)
   - 将 `"todo_write"` 改为 `"TodoWrite"`
 

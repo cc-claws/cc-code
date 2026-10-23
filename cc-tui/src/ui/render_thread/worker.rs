@@ -220,6 +220,11 @@ impl RenderWorker {
     }
     pub async fn run(mut self, mut rx: mpsc::Receiver<RenderEvent>) {
         let mut pending = None;
+        // tick 截止时间必须跨事件保持单调推进。若每轮循环重建 `sleep(200ms)`，
+        // 只要事件间隔短于 200ms（流式输出、每帧视口上报），sleep 就会在到期前
+        // 被 `rx.recv()` 抢先并丢弃，导致 `Running… (Xs)` 秒数与指示器动画永久
+        // 冻结（只靠 Ctrl+O 这类改 detail 标志的事件强制重渲染才会跳一次）。
+        let mut tick_deadline: Option<tokio::time::Instant> = None;
         loop {
             let live = if self.virtual_active {
                 self.sources
@@ -228,15 +233,24 @@ impl RenderWorker {
             } else {
                 self.task.has_running_tool_blocks()
             };
+            if !live {
+                tick_deadline = None;
+            }
             let event = if let Some(event) = pending.take() {
                 Some(event)
             } else if live {
+                let deadline = *tick_deadline.get_or_insert_with(|| {
+                    tokio::time::Instant::now() + TOOL_INDICATOR_TICK_INTERVAL
+                });
                 tokio::select! {
-                    event=rx.recv()=>event,
-                    _=tokio::time::sleep(TOOL_INDICATOR_TICK_INTERVAL)=>{
+                    // 优先处理已到期的 tick：deadline 固定，事件再密也不会被无限推迟。
+                    biased;
+                    _ = tokio::time::sleep_until(deadline) => {
+                        tick_deadline = Some(tokio::time::Instant::now() + TOOL_INDICATOR_TICK_INTERVAL);
                         if self.virtual_active {self.publish_virtual().await;}else if self.task.refresh_running_tool_indicators(current_tool_indicator_tick()){self.task.notify.notify_one();}
                         continue;
                     }
+                    event=rx.recv()=>event,
                 }
             } else {
                 rx.recv().await

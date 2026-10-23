@@ -4,7 +4,7 @@
 
 **Goal:** 在 `store::load()` 中自动检测工作区 `{cwd}/.peri/settings.json` 并与全局配置合并，工作区字段覆盖全局对应字段。
 
-**Architecture:** `AppConfig::merge_overrides()` 在 `peri-acp` 中实现纯数据合并逻辑；`store::load()` 在加载全局后检测工作区文件并调用合并。`save()` 始终写全局，工作区配置只读。
+**Architecture:** `AppConfig::merge_overrides()` 在 `cc-acp` 中实现纯数据合并逻辑；`store::load()` 在加载全局后检测工作区文件并调用合并。`save()` 始终写全局，工作区配置只读。
 
 **Tech Stack:** Rust, serde, tempfile (测试), std::env::current_dir
 
@@ -13,11 +13,11 @@
 ### Task 1: `AppConfig::merge_overrides()` 方法 + 单元测试
 
 **Files:**
-- Modify: `peri-acp/src/provider/config.rs` — 在 `impl AppConfig` 块内新增 `merge_overrides` 方法，文件末尾新增 `#[cfg(test)] mod tests`
+- Modify: `cc-acp/src/provider/config.rs` — 在 `impl AppConfig` 块内新增 `merge_overrides` 方法，文件末尾新增 `#[cfg(test)] mod tests`
 
 - [ ] **Step 1: 在 `impl AppConfig` 块末尾添加 `merge_overrides` 方法**
 
-找到 `peri-acp/src/provider/config.rs` 中 `pub struct AppConfig` 的 `impl` 块（当前是 `#[derive]` 后的空 impl，若不存在则创建）。在 `impl AppConfig` 内最后一个方法后添加：
+找到 `cc-acp/src/provider/config.rs` 中 `pub struct AppConfig` 的 `impl` 块（当前是 `#[derive]` 后的空 impl，若不存在则创建）。在 `impl AppConfig` 内最后一个方法后添加：
 
 ```rust
     /// 用 workspace 配置覆盖全局配置。
@@ -84,7 +84,7 @@ impl AppConfig {
 
 - [ ] **Step 2: 在文件末尾添加测试模块**
 
-在 `peri-acp/src/provider/config.rs` 最末尾追加：
+在 `cc-acp/src/provider/config.rs` 最末尾追加：
 
 ```rust
 #[cfg(test)]
@@ -94,7 +94,7 @@ mod tests;
 
 - [ ] **Step 3: 创建测试文件**
 
-新建 `peri-acp/src/provider/config_test.rs`：
+新建 `cc-acp/src/provider/config_test.rs`：
 
 ```rust
 use super::*;
@@ -218,22 +218,22 @@ fn test_merge_diff_enabled_false_overrides_global_true() {
 - [ ] **Step 4: 运行测试确认通过**
 
 ```bash
-cargo test -p peri-acp --lib -- config_test
+cargo test -p cc-acp --lib -- config_test
 ```
 Expected: 6 个测试全部 PASS
 
 - [ ] **Step 5: 运行全量测试确认无回归**
 
 ```bash
-cargo test -p peri-acp --lib
+cargo test -p cc-acp --lib
 ```
 Expected: 所有已存在测试 PASS
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-acp/src/provider/config.rs peri-acp/src/provider/config_test.rs
-git commit -m "feat(peri-acp): AppConfig::merge_overrides 工作区配置合并
+git add cc-acp/src/provider/config.rs cc-acp/src/provider/config_test.rs
+git commit -m "feat(cc-acp): AppConfig::merge_overrides 工作区配置合并
 
 Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ```
@@ -243,7 +243,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 2: `store.rs` 工作区加载逻辑
 
 **Files:**
-- Modify: `peri-tui/src/config/store.rs`
+- Modify: `cc-tui/src/config/store.rs`
 
 - [ ] **Step 1: 新增 `workspace_config_path()` 函数**
 
@@ -295,22 +295,22 @@ pub fn load() -> Result<PeriConfig> {
 - [ ] **Step 3: 构建检查**
 
 ```bash
-cargo build -p peri-tui
+cargo build -p cc-tui
 ```
 Expected: 编译成功，无警告
 
 - [ ] **Step 4: 运行 store 相关测试**
 
 ```bash
-cargo test -p peri-tui --lib -- config
+cargo test -p cc-tui --lib -- config
 ```
 Expected: 所有已存在测试 PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-tui/src/config/store.rs
-git commit -m "feat(peri-tui): store::load 自动检测工作区 .peri/settings.json
+git add cc-tui/src/config/store.rs
+git commit -m "feat(cc-tui): store::load 自动检测工作区 .peri/settings.json
 
 Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ```
@@ -320,11 +320,11 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 3: `store.rs` 集成测试
 
 **Files:**
-- Modify: `peri-tui/src/config/mod.rs` — 在测试模块声明处添加 `store_test`
+- Modify: `cc-tui/src/config/mod.rs` — 在测试模块声明处添加 `store_test`
 
 - [ ] **Step 1: 声明测试模块**
 
-在 `peri-tui/src/config/mod.rs` 中，紧接 `types_test.rs` 的测试声明后添加：
+在 `cc-tui/src/config/mod.rs` 中，紧接 `types_test.rs` 的测试声明后添加：
 
 ```rust
 #[cfg(test)]
@@ -334,7 +334,7 @@ mod store_tests;
 
 - [ ] **Step 2: 创建集成测试文件**
 
-新建 `peri-tui/src/config/store_test.rs`：
+新建 `cc-tui/src/config/store_test.rs`：
 
 ```rust
 use super::store::{load, load_from};
@@ -371,15 +371,15 @@ fn test_workspace_config_path() {
 - [ ] **Step 3: 运行测试**
 
 ```bash
-cargo test -p peri-tui --lib -- store_test
+cargo test -p cc-tui --lib -- store_test
 ```
 Expected: 2 个测试 PASS
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/config/mod.rs peri-tui/src/config/store_test.rs
-git commit -m "test(peri-tui): store 工作区加载集成测试
+git add cc-tui/src/config/mod.rs cc-tui/src/config/store_test.rs
+git commit -m "test(cc-tui): store 工作区加载集成测试
 
 Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ```

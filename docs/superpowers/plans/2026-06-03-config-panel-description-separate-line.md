@@ -13,7 +13,7 @@
 ### Task 1: Update render — description on separate line
 
 **Files:**
-- Modify: `peri-tui/src/ui/main_ui/panels/config.rs`
+- Modify: `cc-tui/src/ui/main_ui/panels/config.rs`
 
 - [ ] **Step 1: 修改所有字段渲染，description 从同行移到独立行**
 
@@ -68,15 +68,15 @@ lines.push(Line::from(Span::styled(
 
 对于 `ROW_THRESHOLD | ROW_PERSONA | ROW_TONE`，移除 `Span::styled(format!("  {}", lc.tr(desc_key)), desc_style)` 追加独立行。
 
-- [ ] **Step 2: Run `cargo check -p peri-tui`**
+- [ ] **Step 2: Run `cargo check -p cc-tui`**
 
-Run: `cargo check -p peri-tui 2>&1 | tail -5`
+Run: `cargo check -p cc-tui 2>&1 | tail -5`
 Expected: 编译成功
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/ui/main_ui/panels/config.rs
+git add cc-tui/src/ui/main_ui/panels/config.rs
 git commit -m "refactor(tui): config panel description on separate line"
 ```
 
@@ -85,7 +85,7 @@ git commit -m "refactor(tui): config panel description on separate line"
 ### Task 2: Update mouse click mapping + desired_height
 
 **Files:**
-- Modify: `peri-tui/src/app/config_panel.rs`
+- Modify: `cc-tui/src/app/config_panel.rs`
 
 改动后屏幕布局不再是 1:1 的 row index → screen line，需要映射。
 
@@ -174,19 +174,19 @@ fn desired_height(&self, _screen_height: u16, _screen_width: u16) -> u16 {
 }
 ```
 
-- [ ] **Step 4: Run `cargo check -p peri-tui`**
+- [ ] **Step 4: Run `cargo check -p cc-tui`**
 
-Run: `cargo check -p peri-tui 2>&1 | tail -5`
+Run: `cargo check -p cc-tui 2>&1 | tail -5`
 Expected: 编译成功
 
 - [ ] **Step 5: Run tests**
 
-Run: `cargo test -p peri-tui --lib config_panel_test 2>&1 | tail -5`
+Run: `cargo test -p cc-tui --lib config_panel_test 2>&1 | tail -5`
 Expected: 全部 PASS
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-tui/src/app/config_panel.rs
+git add cc-tui/src/app/config_panel.rs
 git commit -m "fix(tui): config panel mouse mapping + height for description lines"
 ```

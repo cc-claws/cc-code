@@ -1,5 +1,7 @@
 # Langfuse 可观测性覆盖度报告
 
+> **状态注记（2026-10-22）**：本文为 2026-05-25 的覆盖度记录，其头号缺口已被后续实现关闭，不再代表现状：事件泵现位于 `cc-acp/src/session/executor.rs`（411 行起），已处理 `LlmRetrying` 与 `CompactStarted/Completed/Error`；`cc-acp/src/langfuse/tracer.rs` 已有 Compact Span（挂载到 agent observation 下）。文中的 crate 路径已由 `peri-*` 更名为 `cc-*`（如 `peri-acp/src/langfuse/tracer.rs` 现为 `cc-acp/src/langfuse/tracer.rs`）。正文保留为历史记录。
+
 > 生成日期：2026-05-25 | 代码库：perihelion
 
 ---

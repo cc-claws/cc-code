@@ -128,7 +128,7 @@ cc-code/
 特性/影响：
 - <说明>
 
-Co-Authored-By: Claude <noreply@anthropic.com>
+Co-Authored-By: cc-claws <91202691+cc-claws@users.noreply.github.com>
 ```
 
 示例：
@@ -138,14 +138,14 @@ feat(acp): add /commit command for one-click git commit
 实现一键 git commit 功能，自动生成 commit message。
 
 修改内容：
-- cc-acp/src/dispatch/commit.rs 新增 CommitCommand
-- cc-tui/src/app/commands.rs 注册 /commit 命令
+- cc-acp/src/session/command/commit.rs 新增 CommitCommand
+- cc-tui/src/command/session/commit.rs 注册 /commit 命令
 
 特性/影响：
 - 支持 conventional commits 格式
 - 自动检测变更文件并生成描述
 
-Co-Authored-By: Claude claude-sonnet-4.6 <noreply@anthropic.com>
+Co-Authored-By: cc-claws <91202691+cc-claws@users.noreply.github.com>
 ```
 
 ### PR 流程
@@ -210,7 +210,7 @@ async fn test_agent_execute_simple_task() {
     let mut state = AgentState::new("/tmp");
 
     // Act
-    let output = agent.execute(AgentInput::text("测试任务"), &mut state).await.unwrap();
+    let output = agent.execute(AgentInput::text("测试任务"), &mut state, None).await.unwrap();
 
     // Assert
     assert_eq!(output.text, "完成");

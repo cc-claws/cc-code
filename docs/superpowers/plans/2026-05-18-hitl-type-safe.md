@@ -75,15 +75,15 @@ let req: RequestPermissionRequest = serde_json::from_value(params)?;
 
 | 文件 | 操作 | 职责变更 |
 |------|------|----------|
-| `peri-tui/src/app/hitl_ops.rs` | 修改 | 用 `RequestPermissionResponse` 替换 `json!()` 构造 |
-| `peri-tui/src/app/agent_ops.rs` | 修改 | 用 `RequestPermissionRequest` 替换手动 JSON 解析 |
+| `cc-tui/src/app/hitl_ops.rs` | 修改 | 用 `RequestPermissionResponse` 替换 `json!()` 构造 |
+| `cc-tui/src/app/agent_ops.rs` | 修改 | 用 `RequestPermissionRequest` 替换手动 JSON 解析 |
 
 ---
 
 ### Task 1: 类型安全化 HITL 响应构造
 
 **Files:**
-- Modify: `peri-tui/src/app/hitl_ops.rs:88-122`
+- Modify: `cc-tui/src/app/hitl_ops.rs:88-122`
 
 - [ ] **Step 1: 添加 import 并替换 `send_acp_hitl_response` 中的手动 JSON 构造**
 
@@ -144,13 +144,13 @@ tokio::spawn(async move {
 
 - [ ] **Step 2: 验证编译通过**
 
-Run: `cargo build -p peri-tui 2>&1 | head -30`
+Run: `cargo build -p cc-tui 2>&1 | head -30`
 Expected: 无错误
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/app/hitl_ops.rs
+git add cc-tui/src/app/hitl_ops.rs
 git commit -m "refactor(tui): use typed RequestPermissionResponse for HITL approval"
 ```
 
@@ -159,7 +159,7 @@ git commit -m "refactor(tui): use typed RequestPermissionResponse for HITL appro
 ### Task 2: 类型安全化 HITL 请求解析
 
 **Files:**
-- Modify: `peri-tui/src/app/agent_ops.rs:99-139`
+- Modify: `cc-tui/src/app/agent_ops.rs:99-139`
 
 - [ ] **Step 1: 用 `RequestPermissionRequest` 反序列化替换手动字段提取**
 
@@ -248,13 +248,13 @@ fn handle_acp_request_permission(
 
 - [ ] **Step 2: 验证编译通过**
 
-Run: `cargo build -p peri-tui 2>&1 | head -30`
+Run: `cargo build -p cc-tui 2>&1 | head -30`
 Expected: 无错误
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/app/agent_ops.rs
+git add cc-tui/src/app/agent_ops.rs
 git commit -m "refactor(tui): use typed RequestPermissionRequest for HITL parsing"
 ```
 
@@ -263,7 +263,7 @@ git commit -m "refactor(tui): use typed RequestPermissionRequest for HITL parsin
 ### Task 3: 类型安全化 Elicitation（AskUser）请求解析
 
 **Files:**
-- Modify: `peri-tui/src/app/agent_ops.rs:141-214`
+- Modify: `cc-tui/src/app/agent_ops.rs:141-214`
 
 - [ ] **Step 1: 用 `CreateElicitationRequest` 反序列化替换手动字段提取**
 
@@ -347,13 +347,13 @@ grep -A 30 "pub struct ElicitationFormMode\|pub struct ElicitationSchema\|pub en
 
 - [ ] **Step 2: 验证编译通过**
 
-Run: `cargo build -p peri-tui 2>&1 | head -30`
+Run: `cargo build -p cc-tui 2>&1 | head -30`
 Expected: 无错误
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/app/agent_ops.rs
+git add cc-tui/src/app/agent_ops.rs
 git commit -m "refactor(tui): use typed CreateElicitationRequest for AskUser parsing"
 ```
 
@@ -362,7 +362,7 @@ git commit -m "refactor(tui): use typed CreateElicitationRequest for AskUser par
 ### Task 4: 移除 `RequestPermissionRequest` 相关的手动 JSON 字段名注释
 
 **Files:**
-- Modify: `peri-tui/src/app/agent_ops.rs`
+- Modify: `cc-tui/src/app/agent_ops.rs`
 
 - [ ] **Step 1: 清理 Task 2 和 Task 3 替换后残留的手动解析注释**
 
@@ -386,13 +386,13 @@ git commit -m "refactor(tui): use typed CreateElicitationRequest for AskUser par
 
 - [ ] **Step 2: 验证编译通过**
 
-Run: `cargo build -p peri-tui 2>&1 | head -30`
+Run: `cargo build -p cc-tui 2>&1 | head -30`
 Expected: 无错误
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/app/agent_ops.rs
+git add cc-tui/src/app/agent_ops.rs
 git commit -m "chore: remove manual JSON field name comments after type-safe refactoring"
 ```
 
@@ -409,10 +409,10 @@ Expected: 成功
 
 - [ ] **Step 2: 运行相关 crate 测试**
 
-Run: `cargo test -p peri-tui 2>&1 | tail -20`
+Run: `cargo test -p cc-tui 2>&1 | tail -20`
 Expected: 所有测试通过
 
-Run: `cargo test -p peri-acp 2>&1 | tail -20`
+Run: `cargo test -p cc-acp 2>&1 | tail -20`
 Expected: 所有测试通过
 
 - [ ] **Step 3: 运行 pre-commit hooks**

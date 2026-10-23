@@ -24,8 +24,8 @@
 ### Verify
 
 ```bash
-cargo build -p peri-tui
-cargo test -p peri-tui --lib
+cargo build -p cc-tui
+cargo test -p cc-tui --lib
 # Ctrl+T / Ctrl+Shift+T / Alt+M / Alt+Shift+M 在 TUI 中仍正常切换模型和 Provider
 ```
 
@@ -109,8 +109,8 @@ pub(crate) enum CancelPolicy {
 ### Verify
 
 ```bash
-cargo build -p peri-middlewares
-cargo test -p peri-middlewares --lib -- subagent
+cargo build -p cc-middlewares
+cargo test -p cc-middlewares --lib -- subagent
 ```
 
 **关键验证点**:
@@ -144,7 +144,7 @@ cargo test -p peri-middlewares --lib -- subagent
 ### Verify
 
 ```bash
-cargo build -p peri-middlewares
+cargo build -p cc-middlewares
 # invoke_fork 行为不变——纯移动
 ```
 
@@ -175,8 +175,8 @@ cargo build -p peri-middlewares
 ### Verify
 
 ```bash
-cargo build -p peri-middlewares
-cargo test -p peri-middlewares --lib -- background
+cargo build -p cc-middlewares
+cargo test -p cc-middlewares --lib -- background
 ```
 
 ### Risk
@@ -255,13 +255,13 @@ pub(super) fn handle_xxx(app: &mut App, key_event: &KeyEvent) -> Option<Action>
 2. 创建 `event/keyboard/mod.rs`（仅 re-export）
 3. 逐个创建子模块，每次只移动一个阶段
 4. 更新 `keyboard.rs` 的 `handle_key_event()` 调用这些 `handle_xxx` 函数
-5. 每次移动后 `cargo build -p peri-tui` 确认构建
+5. 每次移动后 `cargo build -p cc-tui` 确认构建
 
 ### Each extraction is self-contained and verifiable
 
 ```bash
 # 每完成一个模块:
-cargo build -p peri-tui && cargo test -p peri-tui --lib -- keyboard
+cargo build -p cc-tui && cargo test -p cc-tui --lib -- keyboard
 ```
 
 ### Risk
@@ -316,14 +316,14 @@ if let Some(action) = keyboard::shortcuts::handle(app, &key_event) {
 1. 创建 `event/keyboard/normal_keys.rs`
 2. 逐个提取 arm body 函数（每次一个）
 3. 更新 match 块调用提取的函数
-4. 每次提取后 `cargo build -p peri-tui`
+4. 每次提取后 `cargo build -p cc-tui`
 
 ### Verify
 
 ```bash
-cargo build -p peri-tui
-cargo test -p peri-tui --lib -- keyboard
-cargo test -p peri-tui --lib -- message_pipeline  # 间接相关
+cargo build -p cc-tui
+cargo test -p cc-tui --lib -- keyboard
+cargo test -p cc-tui --lib -- message_pipeline  # 间接相关
 ```
 
 ### Risk
@@ -342,8 +342,8 @@ cargo test --workspace
 cargo clippy --workspace --all-targets
 
 # 确认文件大小
-wc -l peri-middlewares/src/subagent/tool/define.rs
-wc -l peri-tui/src/event/keyboard.rs
+wc -l cc-middlewares/src/subagent/tool/define.rs
+wc -l cc-tui/src/event/keyboard.rs
 ```
 
 **期望**:

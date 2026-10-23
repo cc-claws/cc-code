@@ -9,7 +9,7 @@
 
 不影响现有 19 个中间件实现。
 
-**范围:** 仅 `peri-agent` crate（`middleware/trait.rs` + `middleware/chain.rs` + `chain_test.rs`）+ ReAct 循环调用点（`executor/mod.rs`）。
+**范围:** 仅 `cc-agent` crate（`middleware/trait.rs` + `middleware/chain.rs` + `chain_test.rs`）+ ReAct 循环调用点（`executor/mod.rs`）。
 
 **设计决策:** 默认空实现——所有现有 `impl Middleware<S> for Xxx` 自动继承，无需逐个修改。
 
@@ -19,16 +19,16 @@
 
 | 文件 | 改动 | 行数 |
 |------|------|------|
-| `peri-agent/src/middleware/trait.rs` | 新增 `before_model` + `after_model` 方法定义 | +17 |
-| `peri-agent/src/middleware/chain.rs` | 新增 `run_before_model` + `run_after_model` 方法 | +16 |
-| `peri-agent/src/agent/executor/mod.rs` | ReAct 循环中插入两个调用点 | +4 |
-| `peri-agent/src/middleware/chain_test.rs` | 新增 11 个测试 | +220 |
+| `cc-agent/src/middleware/trait.rs` | 新增 `before_model` + `after_model` 方法定义 | +17 |
+| `cc-agent/src/middleware/chain.rs` | 新增 `run_before_model` + `run_after_model` 方法 | +16 |
+| `cc-agent/src/agent/executor/mod.rs` | ReAct 循环中插入两个调用点 | +4 |
+| `cc-agent/src/middleware/chain_test.rs` | 新增 11 个测试 | +220 |
 
 ---
 
 ## Step 1: Middleware trait 新增两个钩子
 
-**文件:** `peri-agent/src/middleware/trait.rs`
+**文件:** `cc-agent/src/middleware/trait.rs`
 
 ### 1.1 文档注释更新（现有第 8-15 行）
 
@@ -89,7 +89,7 @@ use crate::agent::react::{AgentOutput, Reasoning, ToolCall, ToolResult};
 
 ## Step 2: MiddlewareChain 新增两个方法
 
-**文件:** `peri-agent/src/middleware/chain.rs`
+**文件:** `cc-agent/src/middleware/chain.rs`
 
 ### 2.1 `run_before_model`（在 `run_after_tool` 后插入，第 118 行后）
 
@@ -144,7 +144,7 @@ use crate::agent::react::{AgentOutput, Reasoning, ToolCall, ToolResult};
 
 ## Step 3: ReAct 循环插入调用点
 
-**文件:** `peri-agent/src/agent/executor/mod.rs`，第 243-281 行的 `for step` 循环。
+**文件:** `cc-agent/src/agent/executor/mod.rs`，第 243-281 行的 `for step` 循环。
 
 **修改后:**
 
@@ -178,7 +178,7 @@ use crate::agent::react::{AgentOutput, Reasoning, ToolCall, ToolResult};
 
 ## Step 4: 测试新增
 
-**文件:** `peri-agent/src/middleware/chain_test.rs`，在现有测试末尾追加。
+**文件:** `cc-agent/src/middleware/chain_test.rs`，在现有测试末尾追加。
 
 **需追加的 import:**
 ```rust
@@ -623,9 +623,9 @@ use crate::agent::react::Reasoning;  // 测试中构造 Reasoning 需要
 ## 全量验证
 
 ```bash
-cargo build -p peri-agent                  # 编译通过
-cargo test -p peri-agent --lib             # peri-agent 单元测试
-cargo test -p peri-middlewares --lib       # 中间件 crate 测试
+cargo build -p cc-agent                  # 编译通过
+cargo test -p cc-agent --lib             # cc-agent 单元测试
+cargo test -p cc-middlewares --lib       # 中间件 crate 测试
 cargo test --workspace                     # 全量（确保无回归）
 ```
 

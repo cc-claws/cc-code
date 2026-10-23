@@ -101,7 +101,7 @@ if result.ok {
 
 | 文件 | 改动 |
 |------|------|
-| `peri-tui/src/acp_server/prompt.rs` | 移除 `result.stop_reason == Cancelled` 条件，仅保留 `messages.len() > history_len + 1` |
+| `cc-tui/src/acp_server/prompt.rs` | 移除 `result.stop_reason == Cancelled` 条件，仅保留 `messages.len() > history_len + 1` |
 | `spec/issues/2026-05-29-llm-stream-error-causes-amnesia.md` | 更新状态为 Fixed，补充 MaxIterationsExceeded 场景 |
 
 ### 风险评估

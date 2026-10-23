@@ -3,7 +3,7 @@
 **状态**：Shell 路由与 Windows 进程树回收已修复，47 项相关回归通过；完整退出日志待独立验证
 **优先级**：P1
 **创建日期**：2026-09-24
-**模块**：中间件执行器 (`peri-middlewares` / `hooks::executor` / `process`)
+**模块**：中间件执行器 (`cc-middlewares` / `hooks::executor` / `process`)
 **GitHub Issue**：[#260](https://github.com/cc-claws/cc-code/issues/260)
 
 ---
@@ -13,7 +13,7 @@
 在 Windows 环境下运行 Agent（例如 CLI print 模式或交互模式），当项目中配置了生命周期 Hook（如 `.claude/settings.local.json`）时，每次工具调用（`PreToolUse`、`PostToolUse`）都会高频触发如下警告刷屏：
 
 ```text
-WARN agent.execute{max_iterations=500}: peri_middlewares::hooks::executor: Command hook exited with code 1: 'bash' 不是内部或外部命令，也不是可运行的程序
+WARN agent.execute{max_iterations=500}: cc_middlewares::hooks::executor: Command hook exited with code 1: 'bash' 不是内部或外部命令，也不是可运行的程序
 或批处理文件。
 ```
 
@@ -28,7 +28,7 @@ WARN agent.execute{max_iterations=500}: peri_middlewares::hooks::executor: Comma
 经代码与真实子进程验证，问题涉及**默认值注释过期**、**前缀识别缺失**与**进程 I/O/生命周期不完整**：
 
 ### 2.1 默认值注释与既有 Windows 行为不一致
-在 `peri-middlewares/src/hooks/executor.rs:23-42` 中：
+在 `cc-middlewares/src/hooks/executor.rs:23-42` 中：
 ```rust
 /// Execute a command hook (shell script).
 ///
@@ -47,7 +47,7 @@ pub async fn execute_command_hook(...) -> HookAction {
 - **历史决策**：2026-05-27 跨平台修复已将 Windows Hook 统一交给 CMD。不能仅凭旧注释强制恢复 bash，否则会改变现有 CMD Hook 的语法。最终修复保留平台默认值，并补齐明确 POSIX 命令的执行前路由。
 
 ### 2.2 底层封装未识别 `bash`/`sh` 前缀
-在 `peri-middlewares/src/process/mod.rs:98` 中：
+在 `cc-middlewares/src/process/mod.rs:98` 中：
 ```rust
 _ => {
     if cfg!(target_os = "windows") {
@@ -63,7 +63,7 @@ _ => {
 底层封装仅考虑了多行命令（`contains('\n')`）需自动交由 Git Bash，**遗漏了单行以 `bash ` 或 `sh ` 开头的命令**。当命令形如 `bash .claude/hooks/guard.sh` 且 `shell: None` 时，仍然原样扔给 Windows 原生 `cmd /C`。而 Windows 下默认安装的 Git 通常只将 `C:\Program Files\Git\cmd` 加入 PATH（只有 `git.exe`，没有 `bash.exe`），导致 CMD 报错“'bash' 不是内部或外部命令”。
 
 ### 2.3 I/O 与进程回收缺口，不能直接复用终端 Fallback
-在 `peri-middlewares/src/process/mod.rs` 中已封装有：
+在 `cc-middlewares/src/process/mod.rs` 中已封装有：
 - `git_bash_path()`（探测 Git Bash 路径）
 - `should_fallback_to_bash()`（检测“不是内部或外部命令”）
 
@@ -79,7 +79,7 @@ _ => {
 > 以下 A/B/C 为初始讨论，最终实现以第 6 节为准。尤其不采用默认强制 bash 或执行失败后重跑 Hook。
 
 ### 方案 A：底层构造智能路由（前置阻断）
-在 `peri-middlewares/src/process/mod.rs` 的 `shell_command_with_shell` 中，当 `shell == None` 时增加对 `bash `/`sh ` 命令前缀的识别：
+在 `cc-middlewares/src/process/mod.rs` 的 `shell_command_with_shell` 中，当 `shell == None` 时增加对 `bash `/`sh ` 命令前缀的识别：
 
 ```rust
 _ => {
@@ -102,23 +102,23 @@ _ => {
 ```
 
 ### 方案 B：对齐 Hook 契约默认值
-在 `peri-middlewares/src/hooks/executor.rs` 中，对齐函数约定的默认值：
+在 `cc-middlewares/src/hooks/executor.rs` 中，对齐函数约定的默认值：
 ```rust
 let shell_name = shell.as_deref().or(Some("bash"));
 let mut cmd = crate::process::shell_command_with_shell(&command, &[], shell_name);
 ```
 
 ### 方案 C：下沉通用批处理命令执行器 `run_shell_command`
-在 `peri-middlewares/src/process/mod.rs` 中提供统一的非流式进程执行接口，闭环管理 `spawn`、`stdin` 写入、`wait_with_output` 超时控制和 Windows CMD 失败时的自动 `git_bash_path` 重试，供 `hooks/executor.rs` 等模块统一复用，杜绝各处手写进程操作。
+在 `cc-middlewares/src/process/mod.rs` 中提供统一的非流式进程执行接口，闭环管理 `spawn`、`stdin` 写入、`wait_with_output` 超时控制和 Windows CMD 失败时的自动 `git_bash_path` 重试，供 `hooks/executor.rs` 等模块统一复用，杜绝各处手写进程操作。
 
 ---
 
 ## 4. 涉及核心文件
 
-- `peri-middlewares/src/process/mod.rs`
-- `peri-middlewares/src/process/process_test.rs`
-- `peri-middlewares/src/hooks/executor.rs`
-- `peri-middlewares/src/hooks/executor_test.rs`（如有）
+- `cc-middlewares/src/process/mod.rs`
+- `cc-middlewares/src/process/process_test.rs`
+- `cc-middlewares/src/hooks/executor.rs`
+- `cc-middlewares/src/hooks/executor_test.rs`（如有）
 
 ---
 
@@ -159,11 +159,11 @@ let mut cmd = crate::process::shell_command_with_shell(&command, &[], shell_name
 
 本机 Windows 验证结果：
 
-- `cargo test -p peri-middlewares --lib test_command_hook -- --nocapture`：11 通过。
-- `cargo test -p peri-middlewares --lib -- process:: test_bash_routed_command_is_not_replayed`：36 通过。
+- `cargo test -p cc-middlewares --lib test_command_hook -- --nocapture`：11 通过。
+- `cargo test -p cc-middlewares --lib -- process:: test_bash_routed_command_is_not_replayed`：36 通过。
 - 本次修改的 Rust 文件 `rustfmt --check`、`git diff --check` 通过。
-- `cargo clippy -p peri-middlewares --lib --tests -- -W clippy::all`：通过，无告警。
-- `cargo fmt --all -- --check` 发现基线已有格式差异，位于 `peri-agent/src/agent/executor/tool_dispatch*.rs`、`peri-middlewares/src/tools/output_filter_test.rs`、`peri-tui/src/terminal_title_test.rs`；未顺手修改。
+- `cargo clippy -p cc-middlewares --lib --tests -- -W clippy::all`：通过，无告警。
+- `cargo fmt --all -- --check` 发现基线已有格式差异，位于 `cc-agent/src/agent/executor/tool_dispatch*.rs`、`cc-middlewares/src/tools/output_filter_test.rs`、`cc-tui/src/terminal_title_test.rs`；未顺手修改。
 - 测试结束后查询本机进程，未发现残留测试进程或 Bash 进程。未运行完整 workspace 测试及真实 TUI 会话。
 
 ### 尚未归因的问题

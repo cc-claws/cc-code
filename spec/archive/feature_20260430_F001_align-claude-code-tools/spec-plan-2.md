@@ -1,4 +1,4 @@
-# Claude Code 工具接口对齐 执行计划（下）
+# 参考实现 工具接口对齐 执行计划（下）
 
 **目标:** 完成中等到重大重构的工具对齐，以及 TUI 层全局更新
 
@@ -37,7 +37,7 @@
 ### Task 5: Bash timeout 单位迁移 + 新增参数
 
 **背景:**
-将 `bash` 工具重命名为 `Bash`，超时参数从秒（`timeout_secs`，1-300）迁移为毫秒（`timeout`，1-600000），对齐 Claude Code 的 Bash 工具接口。同时新增 `description`（命令用途简述）和 `run_in_background`（后台运行预留）两个可选参数。当前 `BashTool` 使用 `Duration::from_secs(timeout_secs)` 计算超时，需改为 `Duration::from_millis(timeout_ms)`。Task 8 的 TUI 层工具名更新和 HITL 工具名匹配依赖本 Task 的工具名变更。
+将 `bash` 工具重命名为 `Bash`，超时参数从秒（`timeout_secs`，1-300）迁移为毫秒（`timeout`，1-600000），对齐 参考实现 的 Bash 工具接口。同时新增 `description`（命令用途简述）和 `run_in_background`（后台运行预留）两个可选参数。当前 `BashTool` 使用 `Duration::from_secs(timeout_secs)` 计算超时，需改为 `Duration::from_millis(timeout_ms)`。Task 8 的 TUI 层工具名更新和 HITL 工具名匹配依赖本 Task 的工具名变更。
 
 **涉及文件:**
 - 修改: `peri-middlewares/src/middleware/terminal.rs`
@@ -47,7 +47,7 @@
 - [x] 修改 BashTool 工具名 — 将 `fn name()` 返回值从 `"bash"` 改为 `"Bash"`
   - 位置: `terminal.rs` → `impl BaseTool for BashTool` 的 `fn name()` (~L107)
   - 将 `"bash"` 改为 `"Bash"`
-  - 原因: 对齐 Claude Code 工具命名
+  - 原因: 对齐 参考实现 工具命名
 
 - [x] 重写参数 schema — 将 `timeout_secs` 替换为 `timeout`，新增 `description` 和 `run_in_background`
   - 位置: `terminal.rs` → `impl BaseTool for BashTool` 的 `fn parameters()` (~L115-L130)
@@ -67,7 +67,7 @@
         "description": "Set to true to run this command in the background. Only use this if you don't need the result immediately and are OK being notified when the command completes later"
     }
     ```
-  - 原因: 对齐 Claude Code 的 Bash 参数结构
+  - 原因: 对齐 参考实现 的 Bash 参数结构
 
 - [x] 更新 `invoke()` 方法 — 修改超时解析逻辑，解析新增参数
   - 位置: `terminal.rs` → `impl BaseTool for BashTool` 的 `async fn invoke()` (~L132-L198)
@@ -549,7 +549,7 @@
 ### Task 7: Agent 重大重构
 
 **背景:**
-将 `launch_agent` 工具重命名为 `Agent`，将参数结构从 `agent_id`+`task`+`cwd` 重写为 `prompt`+`description`+`subagent_type`+`name`+`isolation`+`run_in_background`+`cwd`，对齐 Claude Code 的 Agent 工具接口。当前 `SubAgentTool.invoke()` 从 `input["agent_id"]` 和 `input["task"]` 读取参数，需改为从 `input["prompt"]` 和 `input["subagent_type"]` 读取。`isolation` 和 `run_in_background` 为预留字段，解析但不影响执行。Task 8 的 TUI 层工具名和 HITL 工具名匹配依赖本 Task。
+将 `launch_agent` 工具重命名为 `Agent`，将参数结构从 `agent_id`+`task`+`cwd` 重写为 `prompt`+`description`+`subagent_type`+`name`+`isolation`+`run_in_background`+`cwd`，对齐 参考实现 的 Agent 工具接口。当前 `SubAgentTool.invoke()` 从 `input["agent_id"]` 和 `input["task"]` 读取参数，需改为从 `input["prompt"]` 和 `input["subagent_type"]` 读取。`isolation` 和 `run_in_background` 为预留字段，解析但不影响执行。Task 8 的 TUI 层工具名和 HITL 工具名匹配依赖本 Task。
 
 **涉及文件:**
 - 修改: `peri-middlewares/src/subagent/tool.rs`
@@ -560,7 +560,7 @@
 - [x] 修改 SubAgentTool 工具名 — 将 `fn name()` 返回值从 `"launch_agent"` 改为 `"Agent"`
   - 位置: `tool.rs` → `impl BaseTool for SubAgentTool` 的 `fn name()` (~L162)
   - 将 `"launch_agent"` 改为 `"Agent"`
-  - 原因: 对齐 Claude Code 工具命名
+  - 原因: 对齐 参考实现 工具命名
 
 - [x] 重写参数 schema — 替换 `agent_id`+`task` 为新参数结构
   - 位置: `tool.rs` → `impl BaseTool for SubAgentTool` 的 `fn parameters()` (~L170-L189)
@@ -604,7 +604,7 @@
         })
     }
     ```
-  - 原因: 对齐 Claude Code 的 Agent 参数结构
+  - 原因: 对齐 参考实现 的 Agent 参数结构
 
 - [x] 重写 `invoke()` 方法 — 从新参数名读取输入
   - 位置: `tool.rs` → `impl BaseTool for SubAgentTool` 的 `async fn invoke()` (~L191-L322)
@@ -795,7 +795,7 @@
 ### Task 8: TUI 层和提示词全局更新
 
 **背景:**
-Task 1-7 已将所有 9 个工具的名称和参数结构对齐 Claude Code（`read_file`→`Read`、`write_file`→`Write`、`edit_file`→`Edit`、`glob_files`→`Glob`、`search_files_rg`→`Grep`、`bash`→`Bash`、`todo_write`→`TodoWrite`、`ask_user_question`→`AskUserQuestion`、`launch_agent`→`Agent`）。TUI 层的 UI 显示、事件路由、工具参数格式化、HITL 审批匹配、提示词段落文件仍引用旧工具名，需全部更新为新名称。`message_pipeline.rs` 中 SubAgent 事件路由依赖 `input["agent_id"]`/`input["task"]` 字段，需改为 `input["subagent_type"]`/`input["prompt"]` 以适配 Agent 工具的新参数结构。`skill_preload.rs` 中 fake tool call 使用的 `"read_file"` 需改为 `"Read"`。本 Task 依赖 Task 1-7 全部完成。
+Task 1-7 已将所有 9 个工具的名称和参数结构对齐 参考实现（`read_file`→`Read`、`write_file`→`Write`、`edit_file`→`Edit`、`glob_files`→`Glob`、`search_files_rg`→`Grep`、`bash`→`Bash`、`todo_write`→`TodoWrite`、`ask_user_question`→`AskUserQuestion`、`launch_agent`→`Agent`）。TUI 层的 UI 显示、事件路由、工具参数格式化、HITL 审批匹配、提示词段落文件仍引用旧工具名，需全部更新为新名称。`message_pipeline.rs` 中 SubAgent 事件路由依赖 `input["agent_id"]`/`input["task"]` 字段，需改为 `input["subagent_type"]`/`input["prompt"]` 以适配 Agent 工具的新参数结构。`skill_preload.rs` 中 fake tool call 使用的 `"read_file"` 需改为 `"Read"`。本 Task 依赖 Task 1-7 全部完成。
 
 **涉及文件:**
 - 修改: `peri-tui/src/app/tool_display.rs`

@@ -15,11 +15,11 @@
 ### Task 1: 添加帧率限制常量和追踪变量
 
 **Files:**
-- Modify: `peri-tui/src/main.rs`
+- Modify: `cc-tui/src/main.rs`
 
 - [ ] **Step 1: 添加 `use std::time::{Duration, Instant}` import**
 
-在 `peri-tui/src/main.rs` 顶部 import 区域（第 15 行 `use std::io;` 之后）添加：
+在 `cc-tui/src/main.rs` 顶部 import 区域（第 15 行 `use std::io;` 之后）添加：
 
 ```rust
 use std::time::{Duration, Instant};
@@ -158,7 +158,7 @@ const TARGET_FRAME_INTERVAL: Duration = Duration::from_millis(33);
 - [ ] **Step 6: 构建验证**
 
 ```bash
-cargo build -p peri-tui
+cargo build -p cc-tui
 ```
 
 预期：编译通过，无 warning。
@@ -166,7 +166,7 @@ cargo build -p peri-tui
 - [ ] **Step 7: Commit**
 
 ```bash
-git add peri-tui/src/main.rs
+git add cc-tui/src/main.rs
 git commit -m "perf(tui): add 30 FPS frame rate limit for loading animation
 
 Loading spinner no longer redraws at uncapped frame rate. Only the
@@ -185,7 +185,7 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 - [ ] **Step 1: 启动 TUI 并触发 agent 执行**
 
 ```bash
-cargo run -p peri-tui
+cargo run -p cc-tui
 ```
 
 输入一个需要 agent 执行的 prompt（如 "list files in current directory"），观察 loading 动画是否流畅（30 FPS 足以看起来流畅）。

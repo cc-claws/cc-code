@@ -51,7 +51,7 @@ rebuild()
 ### Task 1: 在 MessageViewModel 中新增 content_hash 字段
 
 **Files:**
-- Modify: `peri-tui/src/ui/message_view/mod.rs`
+- Modify: `cc-tui/src/ui/message_view/mod.rs`
 
 - [ ] **Step 1: 在 `MessageViewModel` enum 外部新增 `content_hash` 字段 — 使用 newtype wrapper**
 
@@ -192,7 +192,7 @@ impl MessageViewModel {
 
 - [ ] **Step 5: 编写 `content_hash` 计算的单元测试**
 
-在 `peri-tui/src/ui/message_view/message_view_test.rs` 末尾添加：
+在 `cc-tui/src/ui/message_view/message_view_test.rs` 末尾添加：
 
 ```rust
 // ── content_hash 测试 ──
@@ -274,7 +274,7 @@ fn test_recompute_hash_idempotent() {
 - [ ] **Step 6: 运行测试验证基础结构**
 
 ```bash
-cargo test -p peri-tui --lib message_view_test -- --nocapture
+cargo test -p cc-tui --lib message_view_test -- --nocapture
 ```
 
 Expected: 所有新增 test PASS（此时工厂方法会编译失败，需要在 Task 2 中修复）。
@@ -284,7 +284,7 @@ Expected: 所有新增 test PASS（此时工厂方法会编译失败，需要在
 ### Task 2: 修改所有构造点 — 工厂方法
 
 **Files:**
-- Modify: `peri-tui/src/ui/message_view/mod.rs`
+- Modify: `cc-tui/src/ui/message_view/mod.rs`
 
 所有工厂方法在构造 enum variant 时新增 `content_hash: 0`，然后调用 `recompute_hash()`。
 
@@ -487,7 +487,7 @@ pub fn append_chunk(&mut self, chunk: &str) {
 - [ ] **Step 9: 运行 message_view_test 验证**
 
 ```bash
-cargo test -p peri-tui --lib message_view_test -- --nocapture
+cargo test -p cc-tui --lib message_view_test -- --nocapture
 ```
 
 Expected: 所有测试通过。
@@ -497,9 +497,9 @@ Expected: 所有测试通过。
 ### Task 3: 修改 MessagePipeline 中的构造点
 
 **Files:**
-- Modify: `peri-tui/src/app/message_pipeline/transform.rs`
-- Modify: `peri-tui/src/app/message_pipeline/reconcile.rs`
-- Modify: `peri-tui/src/app/message_pipeline/mod.rs`
+- Modify: `cc-tui/src/app/message_pipeline/transform.rs`
+- Modify: `cc-tui/src/app/message_pipeline/reconcile.rs`
+- Modify: `cc-tui/src/app/message_pipeline/mod.rs`
 
 - [ ] **Step 1: 修改 `build_streaming_bubble()` (transform.rs)**
 
@@ -638,7 +638,7 @@ fn update_tool_end_in_subagent(
 - [ ] **Step 7: 运行 message_pipeline_test 验证**
 
 ```bash
-cargo test -p peri-tui --lib message_pipeline_test -- --nocapture
+cargo test -p cc-tui --lib message_pipeline_test -- --nocapture
 ```
 
 Expected: 所有测试通过。
@@ -648,8 +648,8 @@ Expected: 所有测试通过。
 ### Task 4: 修改 agent_ops 中的直接变更点
 
 **Files:**
-- Modify: `peri-tui/src/app/agent_ops/lifecycle.rs`
-- Modify: `peri-tui/src/app/agent_events_bg.rs`
+- Modify: `cc-tui/src/app/agent_ops/lifecycle.rs`
+- Modify: `cc-tui/src/app/agent_events_bg.rs`
 
 - [ ] **Step 1: 修改 `lifecycle.rs` 中的 `is_streaming = false`**
 
@@ -751,7 +751,7 @@ if let Some(idx) = best_idx {
 - [ ] **Step 3: 运行编译验证**
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -80
+cargo build -p cc-tui 2>&1 | head -80
 ```
 
 Expected: 编译通过，无 error。
@@ -761,7 +761,7 @@ Expected: 编译通过，无 error。
 ### Task 5: 修改 aggregate 函数中的构造点
 
 **Files:**
-- Modify: `peri-tui/src/ui/message_view/aggregate.rs`
+- Modify: `cc-tui/src/ui/message_view/aggregate.rs`
 
 - [ ] **Step 1: 修改 `aggregate_tail_tool_groups()` 中的 `ToolCallGroup` 构造（行 60-64）**
 
@@ -824,7 +824,7 @@ result.push(merged);
 - [ ] **Step 3: 运行 message_view_test 验证**
 
 ```bash
-cargo test -p peri-tui --lib message_view_test -- --nocapture
+cargo test -p cc-tui --lib message_view_test -- --nocapture
 ```
 
 ---
@@ -832,7 +832,7 @@ cargo test -p peri-tui --lib message_view_test -- --nocapture
 ### Task 6: 修改 RenderTask::rebuild() — 替换全量 hash 计算
 
 **Files:**
-- Modify: `peri-tui/src/ui/render_thread.rs`
+- Modify: `cc-tui/src/ui/render_thread.rs`
 
 - [ ] **Step 1: 替换 `rebuild()` 中的 hash 计算**
 
@@ -913,7 +913,7 @@ async fn test_rebuild_identical_hash_skips_render() {
 - [ ] **Step 4: 运行 render_thread_test 验证**
 
 ```bash
-cargo test -p peri-tui --lib render_thread -- --nocapture
+cargo test -p cc-tui --lib render_thread -- --nocapture
 ```
 
 Expected: 所有测试通过。
@@ -923,7 +923,7 @@ Expected: 所有测试通过。
 ### Task 7: 处理 render_one 中的 dirty 修改
 
 **Files:**
-- Modify: `peri-tui/src/ui/render_thread.rs`
+- Modify: `cc-tui/src/ui/render_thread.rs`
 
 **注意：** `render_one()` 会修改 `AssistantBubble` 的 `blocks`（`ensure_rendered_incremental`）和 `UserBubble` 的 `rendered`（`parse_markdown`）。这些修改不参与 hash（`rendered` 和 `dirty`/`rendered_prefix_len` 不在 `Hash` impl 中），因此 **不需要** recompute_hash。
 
@@ -946,10 +946,10 @@ fn render_one(...) -> Vec<Line<'static>> {
 ### Task 8: 修改测试文件中的直接构造点
 
 **Files:**
-- Modify: `peri-tui/src/ui/message_view/message_view_test.rs` — `make_done_subagent()`, `make_running_subagent()`, `test_aggregate_batch_groups_already_aggregated_skip` 中的 `SubAgentGroup` 构造
-- Modify: `peri-tui/src/ui/message_render_test.rs` — 3 处 `ToolBlock` 构造 + 1 处 `ToolCallGroup` + 1 处 `SubAgentGroup`
-- Modify: `peri-tui/src/ui/headless_test.rs` — 1 处 `ToolBlock` 构造（行 1084）
-- Modify: `peri-tui/src/app/message_pipeline/message_pipeline_test.rs` — 1 处 `SubAgentGroup` 构造（行 1291）
+- Modify: `cc-tui/src/ui/message_view/message_view_test.rs` — `make_done_subagent()`, `make_running_subagent()`, `test_aggregate_batch_groups_already_aggregated_skip` 中的 `SubAgentGroup` 构造
+- Modify: `cc-tui/src/ui/message_render_test.rs` — 3 处 `ToolBlock` 构造 + 1 处 `ToolCallGroup` + 1 处 `SubAgentGroup`
+- Modify: `cc-tui/src/ui/headless_test.rs` — 1 处 `ToolBlock` 构造（行 1084）
+- Modify: `cc-tui/src/app/message_pipeline/message_pipeline_test.rs` — 1 处 `SubAgentGroup` 构造（行 1291）
 
 - [ ] **Step 1: 修改 message_view_test.rs**
 
@@ -998,7 +998,7 @@ fn make_done_subagent(agent_id: &str, task: &str) -> MessageViewModel {
 - [ ] **Step 5: 全面编译验证**
 
 ```bash
-cargo build -p peri-tui 2>&1 | tail -20
+cargo build -p cc-tui 2>&1 | tail -20
 ```
 
 Expected: 编译通过。
@@ -1007,10 +1007,10 @@ Expected: 编译通过。
 
 ### Task 9: 全量测试验证
 
-- [ ] **Step 1: 运行 peri-tui 全量测试**
+- [ ] **Step 1: 运行 cc-tui 全量测试**
 
 ```bash
-cargo test -p peri-tui --lib 2>&1 | tail -40
+cargo test -p cc-tui --lib 2>&1 | tail -40
 ```
 
 Expected: 所有测试通过。
@@ -1018,7 +1018,7 @@ Expected: 所有测试通过。
 - [ ] **Step 2: 运行 clippy 检查**
 
 ```bash
-cargo clippy -p peri-tui 2>&1 | grep -E "warning|error" | head -20
+cargo clippy -p cc-tui 2>&1 | grep -E "warning|error" | head -20
 ```
 
 Expected: 无新增 warning/error。
@@ -1026,16 +1026,16 @@ Expected: 无新增 warning/error。
 - [ ] **Step 3: 提交**
 
 ```bash
-git add peri-tui/src/ui/message_view/mod.rs \
-        peri-tui/src/ui/message_view/message_view_test.rs \
-        peri-tui/src/ui/render_thread.rs \
-        peri-tui/src/ui/render_thread_test.rs \
-        peri-tui/src/ui/message_view/aggregate.rs \
-        peri-tui/src/app/message_pipeline/transform.rs \
-        peri-tui/src/app/message_pipeline/reconcile.rs \
-        peri-tui/src/app/message_pipeline/mod.rs \
-        peri-tui/src/app/agent_ops/lifecycle.rs \
-        peri-tui/src/app/agent_events_bg.rs
+git add cc-tui/src/ui/message_view/mod.rs \
+        cc-tui/src/ui/message_view/message_view_test.rs \
+        cc-tui/src/ui/render_thread.rs \
+        cc-tui/src/ui/render_thread_test.rs \
+        cc-tui/src/ui/message_view/aggregate.rs \
+        cc-tui/src/app/message_pipeline/transform.rs \
+        cc-tui/src/app/message_pipeline/reconcile.rs \
+        cc-tui/src/app/message_pipeline/mod.rs \
+        cc-tui/src/app/agent_ops/lifecycle.rs \
+        cc-tui/src/app/agent_events_bg.rs
 git commit -m "perf(render): inline content_hash into MessageViewModel to skip rebuild recalculation
 
 Adds content_hash: u64 field to every MessageViewModel variant. Hash is

@@ -43,6 +43,21 @@ jobs:
         run: |
           cd npm
           npm version "${{ steps.version.outputs.version }}" --no-git-tag-version --allow-same-version
+          # 平台包的 optionalDependencies 必须与主包同版本（精确、不带 ^），
+          # 否则仓库里的 manifest 会指向上一版平台包 —— 本地手动发布时就会
+          # 装到与主包不匹配的二进制。release-npm.yml 也会同步一次，但那次
+          # 只发生在 runner 的工作副本里，不会回写仓库。
+          node -e '
+            const fs = require("fs");
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf-8"));
+            for (const name of Object.keys(pkg.optionalDependencies || {})) {
+              if (name.startsWith("@cc-claw/code-")) {
+                pkg.optionalDependencies[name] = pkg.version;
+              }
+            }
+            fs.writeFileSync("package.json", JSON.stringify(pkg, null, 4) + "\n");
+          '
+          cat package.json
 
       - name: Commit version bump
         if: steps.version.outputs.skip != 'true'

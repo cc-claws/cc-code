@@ -42,8 +42,8 @@ cc-acp/src/dispatch/
 ├── fork_session.rs ← fork_session_thread(...)
 └── test.rs         ← 单元测试
 
-cc-tui/src/acp_server/requests.rs  ← 调用 peri_acp::dispatch::*
-cc-tui/src/acp_stdio.rs            ← 调用 peri_acp::dispatch::*
+cc-tui/src/acp_server/requests.rs  ← 调用 cc_acp::dispatch::*
+cc-tui/src/acp_stdio.rs            ← 调用 cc_acp::dispatch::*
 ```
 
 **保留在传输层**（状态管理依赖特定锁类型/通知机制）：
@@ -96,9 +96,9 @@ pub fn build_initialize_response() -> InitializeResponse {
 ```rust
 use std::path::PathBuf;
 use std::sync::Arc;
-use peri_agent::thread::{ThreadId, ThreadMeta, ThreadStore};
-use peri_middlewares::prelude::SharedPermissionMode;
-use peri_middlewares::skills::SkillMetadata;
+use cc_agent::thread::{ThreadId, ThreadMeta, ThreadStore};
+use cc_middlewares::prelude::SharedPermissionMode;
+use cc_middlewares::skills::SkillMetadata;
 use agent_client_protocol::schema::{AgentMode, AgentModel, ConfigOption};
 use crate::provider::{LlmProvider, PeriConfig};
 use crate::prompt::{build_system_prompt, PromptFeatures};
@@ -130,15 +130,15 @@ pub async fn build_new_session_data(
     let thread_id = thread_store.create_thread(meta).await?;
     let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
     let (frozen_claude_md, frozen_claude_local_md) =
-        peri_middlewares::AgentsMdMiddleware::read_frozen_content(cwd);
+        cc_middlewares::AgentsMdMiddleware::read_frozen_content(cwd);
     let frozen_skill_summary =
-        peri_middlewares::SkillsMiddleware::build_frozen_summary(cwd, plugin_skill_dirs);
+        cc_middlewares::SkillsMiddleware::build_frozen_summary(cwd, plugin_skill_dirs);
     let features = PromptFeatures::detect();
     let frozen_system_prompt =
         build_system_prompt(None, cwd, features, plugin_agent_dirs, Some(&frozen_date));
     let skill_dirs =
-        peri_middlewares::SkillsMiddleware::resolve_dirs_static(cwd, plugin_skill_dirs);
-    let skills = peri_middlewares::skills::list_skills(&skill_dirs);
+        cc_middlewares::SkillsMiddleware::resolve_dirs_static(cwd, plugin_skill_dirs);
+    let skills = cc_middlewares::skills::list_skills(&skill_dirs);
     let modes = build_mode_state(permission_mode);
     let models = build_model_state(provider, peri_config);
     let config_options = build_config_options(peri_config, provider, permission_mode.load());
@@ -169,8 +169,8 @@ pub async fn build_new_session_data(
 **新增文件**：`cc-acp/src/dispatch/load_session.rs`
 
 ```rust
-use peri_agent::messages::BaseMessage;
-use peri_agent::thread::{ThreadId, ThreadStore};
+use cc_agent::messages::BaseMessage;
+use cc_agent::thread::{ThreadId, ThreadStore};
 
 pub async fn load_session_history(
     thread_store: &dyn ThreadStore,
@@ -197,7 +197,7 @@ pub async fn load_session_history(
 
 ```rust
 use agent_client_protocol::schema::{SessionId, SessionInfo};
-use peri_agent::thread::ThreadStore;
+use cc_agent::thread::ThreadStore;
 
 pub async fn list_sessions_as_info(
     thread_store: &dyn ThreadStore,
@@ -234,8 +234,8 @@ pub async fn list_sessions_as_info(
 **新增文件**：`cc-acp/src/dispatch/fork_session.rs`
 
 ```rust
-use peri_agent::messages::BaseMessage;
-use peri_agent::thread::{ThreadMeta, ThreadStore};
+use cc_agent::messages::BaseMessage;
+use cc_agent::thread::{ThreadMeta, ThreadStore};
 
 pub async fn fork_session_thread(
     thread_store: &dyn ThreadStore,
@@ -301,7 +301,7 @@ AgentCapabilities::new()
     .prompt_capabilities(PromptCapabilities::new()),
 
 // After:
-use peri_acp::dispatch::build_initialize_response;
+use cc_acp::dispatch::build_initialize_response;
 // ...
 async move |_req: InitializeRequest, responder, _cx| {
     tracing::info!("ACP initialize");
@@ -341,14 +341,14 @@ async move |_req: InitializeRequest, responder, _cx| {
 
 **修改文件**：`cc-tui/src/acp_server/requests.rs`
 
-将 `initialize`、`session/new`、`session/load`、`session/list`、`session/fork` 的 handler 中的业务逻辑替换为 `peri_acp::dispatch::*` 调用。
+将 `initialize`、`session/new`、`session/load`、`session/list`、`session/fork` 的 handler 中的业务逻辑替换为 `cc_acp::dispatch::*` 调用。
 
 ### 8a. `initialize`（行 39-58）
 
 ```rust
 // Before: 本地构建 AgentCapabilities
 // After:
-use peri_acp::dispatch::build_initialize_response;
+use cc_acp::dispatch::build_initialize_response;
 let resp = build_initialize_response();
 serde_json::to_value(resp)
     .map_err(|e| AcpError::new(-32603, format!("Serialize failed: {e}")))

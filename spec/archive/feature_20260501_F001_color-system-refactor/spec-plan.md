@@ -1,6 +1,6 @@
 # 颜色系统重构（对齐 Claude Dark 主题）执行计划
 
-**目标:** 将 peri TUI 配色方案从暖棕系对齐到 Claude Code Dark 主题的中性灰系，清理全部硬编码颜色
+**目标:** 将 peri TUI 配色方案从暖棕系对齐到 参考实现 Dark 主题的中性灰系，清理全部硬编码颜色
 
 **技术栈:** Rust, ratatui (Color::Rgb), cargo test
 
@@ -126,7 +126,7 @@
   - 将设计哲学描述更新为反映 Claude 配色风格:
 
     ```rust
-    /// TUI 统一颜色主题（对齐 Claude Code Dark 配色方案）
+    /// TUI 统一颜色主题（对齐 参考实现 Dark 配色方案）
     ///
     /// 设计哲学：中性灰层级 + Claude 暖橙品牌色。
     /// 背景透明——不使用任何 bg() 颜色（弹窗光标行和用户消息区除外）。
