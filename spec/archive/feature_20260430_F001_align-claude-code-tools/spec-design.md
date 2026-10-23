@@ -2,20 +2,20 @@
 
 ## 需求背景
 
-Peri 当前实现了 10 个内置工具，其接口设计与 Claude Code 存在显著差异——工具名称不同（`read_file` vs `Read`）、参数结构不同（`search_files_rg` 传 ripgrep 原始参数 vs `Grep` 结构化字段）、语义不完全对齐（`TodoWrite` 有 id 但 Claude Code 没有、`ask_user_question` 批量模式等）。
+Peri 当前实现了 10 个内置工具，其接口设计与 参考实现 存在显著差异——工具名称不同（`read_file` vs `Read`）、参数结构不同（`search_files_rg` 传 ripgrep 原始参数 vs `Grep` 结构化字段）、语义不完全对齐（`TodoWrite` 有 id 但 参考实现 没有、`ask_user_question` 批量模式等）。
 
 这导致三个问题：
 
-1. 直接复用 Claude Code 的系统提示词（含工具使用指导）时，LLM 无法正确调用工具
+1. 直接复用 参考实现 的系统提示词（含工具使用指导）时，LLM 无法正确调用工具
 2. 社区积累的 agent 定义（`.claude/agents/*.md`）和 skills 中引用的工具名/参数无法直接使用
-3. 新用户从 Claude Code 迁移到 Peri 需要重新学习工具接口
+3. 新用户从 参考实现 迁移到 Peri 需要重新学习工具接口
 
 ## 目标
 
-- 10 个现有工具的**名称完全对齐** Claude Code（`read_file` → `Read`、`search_files_rg` → `Grep` 等）
-- 参数结构对齐 Claude Code（字段名、类型、语义一致）
+- 10 个现有工具的**名称完全对齐** 参考实现（`read_file` → `Read`、`search_files_rg` → `Grep` 等）
+- 参数结构对齐 参考实现（字段名、类型、语义一致）
 - `search_files_rg` → `Grep` 重构为结构化接口（不再传 ripgrep 原始参数数组）
-- `launch_agent` → `Agent` 对齐 Claude Code 的 `prompt`/`description` 模式
+- `launch_agent` → `Agent` 对齐 参考实现 的 `prompt`/`description` 模式
 - `folder_operations` 保留为 Peri 扩展工具，不做重命名
 
 ## 方案设计
@@ -125,7 +125,7 @@ Peri 当前实现了 10 个内置工具，其接口设计与 Claude Code 存在�
 
 变更点：
 
-- `timeout_secs`（秒，1-300）→ `timeout`（毫秒，最大 600000/10 分钟），对齐 Claude Code
+- `timeout_secs`（秒，1-300）→ `timeout`（毫秒，最大 600000/10 分钟），对齐 参考实现
 - 新增 `description`：LLM 提供命令用途说明，用于 UI 展示和日志
 - 新增 `run_in_background`：支持后台运行模式（初期可预留，不实现完整后台逻辑）
 
@@ -182,7 +182,7 @@ Peri 当前实现了 10 个内置工具，其接口设计与 Claude Code 存在�
 
 - 字段命名对齐：`multi_select` → `multiSelect`
 - 新增 `options.preview` 字段（预览内容）
-- 保留 1-4 个问题的批量能力（与 Claude Code 单问题接口不同，但作为 Peri 增强保留）
+- 保留 1-4 个问题的批量能力（与 参考实现 单问题接口不同，但作为 Peri 增强保留）
 
 #### 9. `Agent`（原 `launch_agent`）— 重大重构
 
@@ -214,7 +214,7 @@ Peri 当前实现了 10 个内置工具，其接口设计与 Claude Code 存在�
 
 **预留字段策略：** `isolation` 和 `run_in_background` 参数解析但不执行，返回成功响应即可。未来实现时只需在 `invoke()` 中添加分支逻辑。
 
-**无 `subagent_type` 的行为：** 当 `subagent_type` 为空时，等价于 Claude Code 的 "fork yourself" 模式——创建一个继承所有父工具（排除 `launch_agent` 自身）的子 agent，使用相同系统提示词。这与现有的 `SubAgentTool` 空工具列表行为一致。
+**无 `subagent_type` 的行为：** 当 `subagent_type` 为空时，等价于 参考实现 的 "fork yourself" 模式——创建一个继承所有父工具（排除 `launch_agent` 自身）的子 agent，使用相同系统提示词。这与现有的 `SubAgentTool` 空工具列表行为一致。
 
 #### 10. `folder_operations`（保留）
 
@@ -300,7 +300,7 @@ Peri 当前实现了 10 个内置工具，其接口设计与 Claude Code 存在�
 
 ## 验收标准
 
-- [ ] 10 个工具名称全部对齐 Claude Code（`Read`/`Write`/`Edit`/`Glob`/`Grep`/`Bash`/`TodoWrite`/`AskUserQuestion`/`Agent`/`folder_operations`）
+- [ ] 10 个工具名称全部对齐 参考实现（`Read`/`Write`/`Edit`/`Glob`/`Grep`/`Bash`/`TodoWrite`/`AskUserQuestion`/`Agent`/`folder_operations`）
 - [ ] `Grep` 工具接受结构化参数（pattern/path/glob/type/output_mode 等），不再接受 args 数组
 - [ ] `Agent` 工具接受 prompt/description/subagent_type/name 参数
 - [ ] `Bash` 工具 timeout 单位为毫秒，支持 description 和 run_in_background 参数

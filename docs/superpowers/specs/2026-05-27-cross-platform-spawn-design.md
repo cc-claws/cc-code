@@ -17,7 +17,7 @@ Windows 上 `tokio::process::Command::new("npx")` 失败——`npx` 是 `.cmd` �
 
 ## Design
 
-### New Module: `peri-middlewares/src/process.rs`
+### New Module: `cc-middlewares/src/process.rs`
 
 Two-layer API:
 
@@ -97,12 +97,12 @@ let mut cmd = crate::process::shell_command(&command, &[]);
 
 ### Module Registration
 
-Add `pub mod process;` to `peri-middlewares/src/lib.rs`.
+Add `pub mod process;` to `cc-middlewares/src/lib.rs`.
 
 ### Out of Scope
 
 - No MCP config schema changes — shell wrapping is internal, `"command": "npx"` works as-is
-- No changes to `peri-lsp` or `peri-tui` `Command::new` usages (different scenarios: LSP transport, browser open, editor launch)
+- No changes to `cc-lsp` or `cc-tui` `Command::new` usages (different scenarios: LSP transport, browser open, editor launch)
 - No new workspace crate
 - No shell auto-detection or `.cmd` sniffing — always wrap in shell
 

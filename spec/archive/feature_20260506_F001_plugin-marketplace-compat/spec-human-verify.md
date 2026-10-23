@@ -1,4 +1,4 @@
-# 插件系统兼容 Claude Code Marketplace 人工验收清单
+# 插件系统兼容 参考实现 Marketplace 人工验收清单
 
 **生成时间:** 2026-05-06
 **关联计划:** spec-plan-2.md
@@ -44,8 +44,8 @@
 ### 场景 2：插件清单类型兼容性
 
 #### - [x] 2.1 plugin.json 解析 roundtrip 测试通过
-- **来源:** spec-plan-2.md Task 7 步骤 2 / spec-design.md 验收标准 "能解析 Claude Code 格式的 plugin.json"
-- **目的:** 确认 Claude Code schemas.ts 格式的 plugin.json 可正确反序列化
+- **来源:** spec-plan-2.md Task 7 步骤 2 / spec-design.md 验收标准 "能解析 参考实现 格式的 plugin.json"
+- **目的:** 确认 参考实现 schemas.ts 格式的 plugin.json 可正确反序列化
 - **操作步骤:**
   1. [A] `cargo test -p peri-middlewares --lib -- plugin::types::tests 2>&1 | tail -15` → 期望包含: `test result: ok`
 

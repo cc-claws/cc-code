@@ -13,12 +13,12 @@
 
 在真实工程实践中，开发者普遍会在 Windows Terminal、Ghostty、iTerm2、tmux 或 Kitty 等现代终端模拟器中同时开启多个会话标签（如：同时修复 Bug、重构模块、排查日志）。现有标题方案导致多 Tab 完全无法辨识当前窗口处于哪个项目、处理什么任务；且当 Agent 卡在 HITL 审批（如危险命令拦截）或提问交互（`AskUserQuestion`）时，切到其他窗口的开发者完全感知不到需要介入（无阻塞状态反馈）。
 
-参考 **OpenAI Codex CLI (`codex-rs`)（PR #15860 及 Issue #31124, #35626, #36132）** 与 Claude Code 的工业级实现，终端标题被设计为与底部状态栏平级的 **Status Surface（状态表面）**，具备多段动态信息拼接、生命周期状态感知、会话主题同步与安全去重机制。
+参考 **OpenAI Codex CLI (`codex-rs`)（PR #15860 及 Issue #31124, #35626, #36132）** 与 参考实现 的工业级实现，终端标题被设计为与底部状态栏平级的 **Status Surface（状态表面）**，具备多段动态信息拼接、生命周期状态感知、会话主题同步与安全去重机制。
 
 ## 现状与缺陷详情
 
 ### 1. 标题内容机械写死，缺失工程上下文
-- 当前代码（`peri-tui/src/main.rs:882` 与 `peri-tui/src/app/mod.rs:564`）：
+- 当前代码（`cc-tui/src/main.rs:882` 与 `cc-tui/src/app/mod.rs:564`）：
   - 启动时写死：`SetTitle("✻ CC Code")`
   - 执行中写死：`SetTitle(format!("{} CC Code — Running", frame))`
   - 完成后写死：`SetTitle("✴ CC Code — Done")`
@@ -26,7 +26,7 @@
 
 ### 2. 关键阻塞状态（Action Required）感知缺失
 - 当触发高危工具调用（HITL 审批弹窗）、`AskUserQuestion` 选项交互、或执行计划确认时，TUI 等待用户输入，但外部终端标题依然保持普通状态甚至转为 Idle，切走窗口的开发者无法得知“当前会话已暂停并等待我批准”。
-- 对比 Codex / Claude Code：进入等待输入或审批状态时，标题立即切为醒目的 `⚠️ [项目] | [主题] — Action Required`，即使窗口在后台也能一目了然。
+- 对比 Codex / 参考实现：进入等待输入或审批状态时，标题立即切为醒目的 `⚠️ [项目] | [主题] — Action Required`，即使窗口在后台也能一目了然。
 
 ### 3. OSC 0 写入机制粗暴，无去重且退出无清理
 - 当前在主事件循环中，无论标题内容是否变化，每 200ms 无条件向 stdout 执行 `execute!(stdout, SetTitle(...))`，造成无谓的控制台 I/O 抖动。
@@ -36,7 +36,7 @@
 ## 期望设计与对齐规范（对齐 OpenAI Codex `codex-rs`）
 
 ### 一、Status Surface 架构分层
-将终端标题从简单的字符串拼接待办，提升为标准的状态表面抽象（可独立为 `peri-tui/src/terminal_title.rs` 或纳入 UI 状态管线）：
+将终端标题从简单的字符串拼接待办，提升为标准的状态表面抽象（可独立为 `cc-tui/src/terminal_title.rs` 或纳入 UI 状态管线）：
 
 1. **`TerminalTitleItem` 组成项（支持默认组合与灵活扩展）**：
    - `Activity`：旋转 Spinner 动画帧（`⠋` / `✻` 等）
@@ -74,12 +74,12 @@
 
 ## 涉及文件
 
-- `peri-tui/src/terminal_title.rs`（新建：封装终端标题状态机、清洗函数与去重写出）
-- `peri-tui/src/main.rs`（主事件循环动画驱动、启动与退出生命周期清理）
-- `peri-tui/src/app/mod.rs`（`set_loading` 状态机联动，通知终端标题状态流转）
-- `peri-tui/src/app/agent_ops_interaction.rs`（HITL 审批与提问弹窗激活/关闭时切换 `ActionRequired` 状态）
-- `peri-tui/src/command/session/rename.rs`（重命名时即时刷新标题）
-- `peri-acp/src/session/` 或 `peri-tui/src/session_mgr.rs`（首轮 Prompt 后的会话短标题提炼与事件通知）
+- `cc-tui/src/terminal_title.rs`（新建：封装终端标题状态机、清洗函数与去重写出）
+- `cc-tui/src/main.rs`（主事件循环动画驱动、启动与退出生命周期清理）
+- `cc-tui/src/app/mod.rs`（`set_loading` 状态机联动，通知终端标题状态流转）
+- `cc-tui/src/app/agent_ops_interaction.rs`（HITL 审批与提问弹窗激活/关闭时切换 `ActionRequired` 状态）
+- `cc-tui/src/command/session/rename.rs`（重命名时即时刷新标题）
+- `cc-acp/src/session/` 或 `cc-tui/src/session_mgr.rs`（首轮 Prompt 后的会话短标题提炼与事件通知）
 
 ## 验收标准
 
@@ -97,7 +97,7 @@
 
 ## 修复记录
 
-- 新增 `peri-tui/src/terminal_title.rs` 模块及单元测试，抽象 `TerminalTitleItem` 与 `TerminalTitleStatusKind` 状态机。
+- 新增 `cc-tui/src/terminal_title.rs` 模块及单元测试，抽象 `TerminalTitleItem` 与 `TerminalTitleStatusKind` 状态机。
 - 深度对齐终端实践与用户感知习惯：
   - 彻底去除 `| project` 冗余后缀以及 `— Running`、`— Thinking`、`— Done` 等机械词汇。
   - 运行时纯净展示：`⠋ <主题>`（未命名时为 `⠋ <项目名>`）。

@@ -25,7 +25,7 @@
 ### Task 1: Fix Tool observation `session_id`
 
 **Files:**
-- Modify: `peri-acp/src/langfuse/tracer.rs:338-357` (the `ObservationBody` in `on_tool_end`)
+- Modify: `cc-acp/src/langfuse/tracer.rs:338-357` (the `ObservationBody` in `on_tool_end`)
 - Test: verify via `bunx langfuse-cli`
 
 - [ ] **Step 1: Add `session_id` to tool ObservationBody**
@@ -59,13 +59,13 @@ session_id: Some(session_id),
 
 - [ ] **Step 2: Build and verify compilation**
 
-Run: `cargo build -p peri-acp`
+Run: `cargo build -p cc-acp`
 Expected: compiles without errors
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-acp/src/langfuse/tracer.rs
+git add cc-acp/src/langfuse/tracer.rs
 git commit -m "fix(langfuse): add session_id to tool observations"
 ```
 
@@ -235,7 +235,7 @@ git commit -m "fix(langfuse): analysis script reads model from metadata fallback
 Setting `version` on observations enables filtering by release in Langfuse UI.
 
 **Files:**
-- Modify: `peri-acp/src/langfuse/tracer.rs`
+- Modify: `cc-acp/src/langfuse/tracer.rs`
 
 - [ ] **Step 4.1: Add version constant and use it**
 
@@ -250,12 +250,12 @@ add `version: Some(VERSION.to_string())` to each body construction.
 
 - [ ] **Step 4.2: Build**
 
-Run: `cargo build -p peri-acp`
+Run: `cargo build -p cc-acp`
 
 - [ ] **Step 4.3: Commit**
 
 ```bash
-git add peri-acp/src/langfuse/tracer.rs
+git add cc-acp/src/langfuse/tracer.rs
 git commit -m "feat(langfuse): add version to all observations"
 ```
 
@@ -265,7 +265,7 @@ git commit -m "feat(langfuse): add version to all observations"
 
 - [ ] **Step 5.1: Start TUI and send a test prompt**
 
-Run: `cargo run -p peri-tui`
+Run: `cargo run -p cc-tui`
 Send: "hello"
 
 - [ ] **Step 5.2: Check Langfuse for correct data**

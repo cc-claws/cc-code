@@ -2,11 +2,11 @@
 
 ## 领域综述
 
-TUI 组件领域负责通用 UI 组件的抽取和独立 widget crate 的创建，以及对标 Claude Code 的信息展示组件。
+TUI 组件领域负责通用 UI 组件的抽取和独立 widget crate 的创建，以及对标参考实现的信息展示组件。
 
 核心职责：
 
-- cc-widgets crate 提供 15 个通用组件，零内部依赖
+- cc-widgets crate 提供 16 个公开模块，零内部依赖
 - SpinnerWidget：动词从 TODO activeForm 获取，Token 计数平滑递增动画
 - ToolCallWidget：工具调用状态指示器，智能折叠策略
 - MessageBlockWidget：消息块渲染，代码高亮和 diff 着色
@@ -32,7 +32,6 @@ TUI tick 事件
 工具调用渲染
   → 只读工具（read/glob/search）: 默认折叠
   → 写操作（bash/write/edit/folder）: 默认展开
-  → SubAgent 步数 > 4: 自动折叠内部消息
   → Enter 键切换折叠/展开
 ```
 
@@ -40,8 +39,8 @@ TUI tick 事件
 
 | 维度 | 选型 |
 |------|------|
-| 独立 crate | cc-widgets，零内部依赖，仅依赖 ratatui + pulldown-cmark |
-| 组件数量 | 11 个：BorderedPanel/ScrollableArea/SelectableList/InputField/TabBar/RadioGroup/CheckboxGroup/FormState/MarkdownRenderer/Spinner/ToolCall |
+| 独立 crate | cc-widgets，零内部依赖（外部依赖含 ratatui、pulldown-cmark、syntect、two-face 等） |
+| 组件数量 | 16 个公开模块：bordered_panel/checkbox_group/diff/file_tree/form/input_field/list/markdown/message_block/radio_group/scrollable_area/selectable_list/spinner/tab_bar/text_selection/tool_call |
 | API 风格 | ratatui StatefulWidget trait 原生风格 |
 | 泛型设计 | ListState<T> 不要求 T: Clone；FormState<F> 泛型管理字段导航 |
 | 主题抽象 | Theme trait 查询颜色，组件不硬编码 |
@@ -69,11 +68,11 @@ TUI tick 事件
 `cc-widgets/src/markdown/` 以 CC `src/utils/markdown.ts` 的 `formatToken` 为基准：
 
 - **块间空行只来自源文本**：解析侧 `BlockGap` 用 `into_offset_iter()` 的字节偏移判断相邻块之间是否有空行（扫描时跳过 `>` 引用前缀），渲染侧 `RenderState::begin_block()` 据此插空行。块级元素不再无条件补空行。
-- **软换行保留换行**：`SoftBreak` 触发 `flush_line()`——CC 的 text token 含 `\n` 且原样输出，合并成空格会让多行段落塌成一行。
+- **软换行保留换行**：`SoftBreak` 触发 `flush_line()`——参考实现的 text token 含 `\n` 且原样输出，合并成空格会让多行段落塌成一行。
 - **引用块内段落**：`> 第一段\n>\n> 第二段` 会渲染出一个无 `▍` 前缀的空行。
-- **水平线**：hr 前按源文本留空，hr 后不留空行（CC 的 hr tokenizer 吞掉后续换行；`BlockGap` 用 `last_was_rule` 抑制下一块的判定）。
+- **水平线**：hr 前按源文本留空，hr 后不留空行（参考实现的 hr tokenizer 吞掉后续换行；`BlockGap` 用 `last_was_rule` 抑制下一块的判定）。
 - **loose list 项间不插空行**：列表项/表格内部的块不消费空行标记。
-- 已知有意差异：列表符号 `•` vs CC `-`、引用前缀 `▍` vs `│`、表格 box drawing vs `| a | b |`、图片显示 alt vs URL、三级嵌套缩进每层固定 2 空格 vs CC 累加。
+- 已知有意差异：引用前缀 `▍` vs `│`、表格 box drawing vs `| a | b |`、三级嵌套缩进每层固定 2 空格 vs 参考实现累加。（列表符号与图片 alt 显示已于 #666 对齐，v0.6.176）
 
 回归测试：`mod_test.rs` 的 `test_markdown_structure_matches_cc`（23 个语法样本逐行对拍 CC）及
 `test_table_spacing_matches_cc` / `test_hr_spacing_matches_cc` / `test_nested_list_items_are_on_separate_lines`
@@ -87,7 +86,7 @@ diff 视图侧（`cc-widgets/src/diff/renderer.rs`）同口径对齐：超宽行
 
 ### feature_20260427_F001_claude-code-info-display
 
-**摘要:** 对标 Claude Code 新增 Spinner、工具调用、消息块三个 widget
+**摘要:** 对标参考实现新增 Spinner、工具调用、消息块三个 widget
 **关键决策:**
 
 - Spinner 动词从 TODO activeForm 获取，无任务时随机选取默认动词池
@@ -95,7 +94,6 @@ diff 视图侧（`cc-widgets/src/diff/renderer.rs`）同口径对齐：超宽行
 - Token 计数使用平滑递增动画（维护 displayed_tokens 与 token_count 双值）
 - 代码高亮采用 syntect 而非 tree-sitter
 - 只读工具默认折叠、写操作默认展开的智能折叠策略
-- SubAgent 步数超过 4 时自动折叠内部消息
 **归档:** [链接](../../archive/feature_20260427_F001_claude-code-info-display/)
 **归档日期:** 2026-04-30
 
@@ -104,7 +102,7 @@ diff 视图侧（`cc-widgets/src/diff/renderer.rs`）同口径对齐：超宽行
 **摘要:** 抽取 TUI 重复 UI 代码为独立可复用 ratatui widget crate
 **关键决策:**
 
-- 新增 cc-widgets crate，零内部依赖仅依赖 ratatui + pulldown-cmark
+- 新增 cc-widgets crate，零内部依赖（外部依赖随功能扩展，含 ratatui、pulldown-cmark、syntect 等）
 - 全量抽取 11 个通用组件（BorderedPanel、ScrollableArea、SelectableList 等）
 - 所有组件遵循 ratatui StatefulWidget trait 原生 API 风格
 - ListState<T> 泛型设计不要求 T: Clone

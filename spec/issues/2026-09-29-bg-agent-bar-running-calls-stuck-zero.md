@@ -40,7 +40,7 @@
 
 ## 涉及文件
 
-- `peri-tui/src/ui/main_ui/bg_agent_bar.rs` —— 状态栏子代理条目渲染处（calls 字段展示位置）
+- `cc-tui/src/ui/main_ui/bg_agent_bar.rs` —— 状态栏子代理条目渲染处（calls 字段展示位置）
 - `spec/issues/2026-05-26-bg-agent-message-flow-broken.md` —— 关联 issue（同模块 bg_agent_bar 显示问题，含 total_steps 过时现象，Open）
 
 ## 期望行为

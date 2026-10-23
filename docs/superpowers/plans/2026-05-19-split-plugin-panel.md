@@ -13,18 +13,18 @@
 ### Task 1: 创建 `plugin_panel/` 目录结构
 
 **Files:**
-- Create: `peri-tui/src/app/plugin_panel/`
-- Create: `peri-tui/src/app/plugin_panel/mod.rs`
-- Create: `peri-tui/src/app/plugin_panel/types.rs`
-- Create: `peri-tui/src/app/plugin_panel/handlers.rs`
+- Create: `cc-tui/src/app/plugin_panel/`
+- Create: `cc-tui/src/app/plugin_panel/mod.rs`
+- Create: `cc-tui/src/app/plugin_panel/types.rs`
+- Create: `cc-tui/src/app/plugin_panel/handlers.rs`
 
 - [ ] **Step 1: Create directory and empty files**
 
 ```bash
-mkdir -p peri-tui/src/app/plugin_panel
-touch peri-tui/src/app/plugin_panel/mod.rs
-touch peri-tui/src/app/plugin_panel/types.rs
-touch peri-tui/src/app/plugin_panel/handlers.rs
+mkdir -p cc-tui/src/app/plugin_panel
+touch cc-tui/src/app/plugin_panel/mod.rs
+touch cc-tui/src/app/plugin_panel/types.rs
+touch cc-tui/src/app/plugin_panel/handlers.rs
 ```
 
 ---
@@ -32,8 +32,8 @@ touch peri-tui/src/app/plugin_panel/handlers.rs
 ### Task 2: 移动类型定义到 `types.rs`
 
 **Files:**
-- Create: `peri-tui/src/app/plugin_panel/types.rs`
-- Modify: `peri-tui/src/app/plugin_panel.rs:1-212`
+- Create: `cc-tui/src/app/plugin_panel/types.rs`
+- Modify: `cc-tui/src/app/plugin_panel.rs:1-212`
 
 - [ ] **Step 1: 将 `plugin_panel.rs` 第 1-212 行的类型定义移至 `types.rs`**
 
@@ -52,8 +52,8 @@ Write `types.rs`:
 ```rust
 use std::collections::HashSet;
 
-use peri_middlewares::plugin::InstallScope;
-use peri_widgets::InputState;
+use cc_middlewares::plugin::InstallScope;
+use cc_widgets::InputState;
 
 use super::super::panel_list::PanelList;
 
@@ -96,7 +96,7 @@ impl DiscoverDetailAction {
 #[derive(Debug, Clone)]
 pub struct MarketplaceViewEntry {
     pub name: String,
-    pub source: peri_middlewares::plugin::MarketplaceSource,
+    pub source: cc_middlewares::plugin::MarketplaceSource,
     pub source_label: &'static str,
     pub plugin_count: usize,
     pub installed_count: usize,
@@ -235,7 +235,7 @@ Delete lines 1-212 from `plugin_panel.rs`. Keep the rest (lines 214 onward) for 
 - [ ] **Step 3: Verify build**
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -20
+cargo build -p cc-tui 2>&1 | head -20
 ```
 
 Expected: FAIL — `mod.rs` doesn't re-export types yet.
@@ -245,7 +245,7 @@ Expected: FAIL — `mod.rs` doesn't re-export types yet.
 ### Task 3: 创建 `mod.rs` 并保留查询+PanelComponent+App 桥接
 
 **Files:**
-- Modify: `peri-tui/src/app/plugin_panel/mod.rs`
+- Modify: `cc-tui/src/app/plugin_panel/mod.rs`
 
 - [ ] **Step 1: Write `mod.rs` re-exporting submodules and containing PluginPanel methods + PanelComponent impl + App bridge**
 
@@ -489,7 +489,7 @@ impl App {
 - [ ] **Step 2: Build to verify mod.rs compiles with type references**
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -30
+cargo build -p cc-tui 2>&1 | head -30
 ```
 
 Expected: Compilation errors about `handle_*` methods not found (they're in `handlers.rs`).
@@ -499,8 +499,8 @@ Expected: Compilation errors about `handle_*` methods not found (they're in `han
 ### Task 4: 移动事件处理方法到 `handlers.rs`
 
 **Files:**
-- Create: `peri-tui/src/app/plugin_panel/handlers.rs`
-- Modify: `peri-tui/src/app/plugin_panel.rs` (删除 handlers 代码)
+- Create: `cc-tui/src/app/plugin_panel/handlers.rs`
+- Modify: `cc-tui/src/app/plugin_panel.rs` (删除 handlers 代码)
 
 - [ ] **Step 1: Write `handlers.rs` with all `handle_*` methods and helper functions**
 
@@ -509,7 +509,7 @@ Copy the entire `impl PluginPanel { ... }` block from `plugin_panel.rs` lines 53
 ```rust
 use std::collections::HashSet;
 
-use peri_middlewares::plugin::{self, claude_home, load_known_marketplaces};
+use cc_middlewares::plugin::{self, claude_home, load_known_marketplaces};
 use tui_textarea::{Input, Key};
 use tracing::info;
 
@@ -589,7 +589,7 @@ Remove lines 530-1340 from `plugin_panel.rs`.
 - [ ] **Step 3: Build**
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -20
+cargo build -p cc-tui 2>&1 | head -20
 ```
 
 Expected: compilation succeeds with no errors.
@@ -599,17 +599,17 @@ Expected: compilation succeeds with no errors.
 ### Task 5: Update external references
 
 **Files:**
-- Modify: `peri-tui/src/ui/main_ui/panels/plugin.rs:11`
-- Modify: `peri-tui/src/app/panel_ops.rs:385`
-- Modify: `peri-tui/src/app/panel_manager.rs:18`
-- Modify: `peri-tui/src/app/agent_events_plugin.rs:2`
+- Modify: `cc-tui/src/ui/main_ui/panels/plugin.rs:11`
+- Modify: `cc-tui/src/app/panel_ops.rs:385`
+- Modify: `cc-tui/src/app/panel_manager.rs:18`
+- Modify: `cc-tui/src/app/agent_events_plugin.rs:2`
 
 - [ ] **Step 1: Verify imports still work**
 
 All external files use `use crate::app::plugin_panel::{...}` which is resolved through `mod.rs`'s `pub use types::*;`. The external code should compile without changes.
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -10
+cargo build -p cc-tui 2>&1 | head -10
 ```
 
 Expected: compilation succeeds.
@@ -617,7 +617,7 @@ Expected: compilation succeeds.
 - [ ] **Step 2: Verify full crate tests**
 
 ```bash
-cargo test -p peri-tui --lib plugin_panel 2>&1 | tail -10
+cargo test -p cc-tui --lib plugin_panel 2>&1 | tail -10
 ```
 
 Expected: all tests pass.
@@ -627,12 +627,12 @@ Expected: all tests pass.
 ### Task 6: Delete old `plugin_panel.rs` and update `mod.rs`
 
 **Files:**
-- Delete: `peri-tui/src/app/plugin_panel.rs`
-- Modify: `peri-tui/src/app/mod.rs:11`
+- Delete: `cc-tui/src/app/plugin_panel.rs`
+- Modify: `cc-tui/src/app/mod.rs:11`
 
 - [ ] **Step 1: Update `mod.rs` to use directory module**
 
-Change line 11 in `peri-tui/src/app/mod.rs` from:
+Change line 11 in `cc-tui/src/app/mod.rs` from:
 
 ```rust
 pub mod plugin_panel;
@@ -649,13 +649,13 @@ pub mod plugin_panel;
 - [ ] **Step 2: Delete old file**
 
 ```bash
-rm peri-tui/src/app/plugin_panel.rs
+rm cc-tui/src/app/plugin_panel.rs
 ```
 
 - [ ] **Step 3: Final build**
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -10
+cargo build -p cc-tui 2>&1 | head -10
 ```
 
 Expected: compilation succeeds.
@@ -667,7 +667,7 @@ Expected: compilation succeeds.
 - [ ] **Step 1: Run all tests**
 
 ```bash
-cargo test -p peri-tui --lib 2>&1 | tail -10
+cargo test -p cc-tui --lib 2>&1 | tail -10
 ```
 
 Expected: All tests pass.
@@ -675,8 +675,8 @@ Expected: All tests pass.
 - [ ] **Step 2: Commit**
 
 ```bash
-cargo fmt -p peri-tui
-git add peri-tui/src/app/plugin_panel/ peri-tui/src/app/plugin_panel.rs
+cargo fmt -p cc-tui
+git add cc-tui/src/app/plugin_panel/ cc-tui/src/app/plugin_panel.rs
 git commit -m "refactor: split plugin_panel into submodules
 
 - Move type definitions to plugin_panel/types.rs (212 lines)

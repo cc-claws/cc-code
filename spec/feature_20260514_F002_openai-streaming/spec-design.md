@@ -21,7 +21,7 @@ TUI 层已完整支持增量渲染（`TextChunk`/`AiReasoning` 事件 + `message
 
 采用**回调注入**方案：在 `ReactLLM::generate_reasoning()` 中注入可选的 `StreamingContext`，LLM 适配器在 SSE 解析过程中通过 `event_handler` 直接发射 `AgentEvent::TextChunk`/`AiReasoning` 事件。
 
-**关键架构事实**：TUI 的 LLM 调用链是 `RetryableLLM<BaseModelReactLLM<Box<dyn BaseModel>>>`（见 `peri-tui/src/app/agent.rs:173-174`、`src/acp/agent_assembler.rs:15`）。`ChatOpenAI` 和 `ChatAnthropic` 在此路径中作为 `Box<dyn BaseModel>`（`BaseModel` trait 实现者）被包装在 `BaseModelReactLLM` 内——它们的 `ReactLLM` impl **在 TUI 路径中不会被调用**。
+**关键架构事实**：TUI 的 LLM 调用链是 `RetryableLLM<BaseModelReactLLM<Box<dyn BaseModel>>>`（见 `cc-tui/src/app/agent.rs:173-174`、`src/acp/agent_assembler.rs:15`）。`ChatOpenAI` 和 `ChatAnthropic` 在此路径中作为 `Box<dyn BaseModel>`（`BaseModel` trait 实现者）被包装在 `BaseModelReactLLM` 内——它们的 `ReactLLM` impl **在 TUI 路径中不会被调用**。
 
 因此流式入口在 `BaseModelReactLLM.generate_reasoning()` 中，而非 `ChatOpenAI.generate_reasoning()`。新增 `BaseModel::invoke_streaming()` 可选方法，仅 `ChatOpenAI` 和 `ChatAnthropic` override 实现 SSE 流式。
 
@@ -379,7 +379,7 @@ while let Some(chunk) = stream.next().await {
 - **事件驱动 TUI 通信**：通过 `AgentEventHandler::on_event()` 发射事件，不引入新的通信机制
 - **消息不可变历史**：流式事件只影响 UI 渲染，不修改已持久化的消息历史
 - **Middleware Chain**：不受影响，流式是 LLM 适配层内部实现细节。流式 TextChunk/AiReasoning 不经过 `before_tool`/`after_tool` 中间件钩子。流式文本在工具调用前已发射完毕，HITL 拦截 ToolStart 时无冲突
-- **Workspace 依赖**：`BaseModel` trait 新增 `invoke_streaming()` 默认方法，不破坏 `peri-agent` → `peri-tui` 的依赖方向。仅 `ChatOpenAI`/`ChatAnthropic`（`peri-agent` 内部）override 该方法
+- **Workspace 依赖**：`BaseModel` trait 新增 `invoke_streaming()` 默认方法，不破坏 `cc-agent` → `cc-tui` 的依赖方向。仅 `ChatOpenAI`/`ChatAnthropic`（`cc-agent` 内部）override 该方法
 - **错误处理**：LLM 层返回 `anyhow::Result`，流式错误走相同路径
 
 **需注意的架构约定**：

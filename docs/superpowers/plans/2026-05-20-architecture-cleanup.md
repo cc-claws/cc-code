@@ -14,7 +14,7 @@
 
 **Create:**
 ```
-peri-tui/src/app/
+cc-tui/src/app/
 ├── modules.rs          (~25 lines: unified re-exports from all groups)
 ├── modules_panels.rs   (~20 lines: 14 panel module declarations)
 ├── modules_state.rs    (~12 lines: 5 state module declarations)
@@ -22,27 +22,27 @@ peri-tui/src/app/
 ├── modules_system.rs   (~12 lines: 6 system module declarations)
 └── edit_utils.rs       (~195 lines: handle_edit_key + edit_display_parts + build_textarea*)
 
-peri-tui/src/event/
+cc-tui/src/event/
 └── macros.rs           (~55 lines: with_global_panels! + with_session_panels!)
 ```
 
 **Modify:**
-- `peri-tui/src/app/mod.rs` → module declarations replaced with `mod modules; pub use modules::*;` (814 → ~620 lines)
-- `peri-tui/src/event/mod.rs` → macros moved to `macros.rs` (576 → ~520 lines)
+- `cc-tui/src/app/mod.rs` → module declarations replaced with `mod modules; pub use modules::*;` (814 → ~620 lines)
+- `cc-tui/src/event/mod.rs` → macros moved to `macros.rs` (576 → ~520 lines)
 
 ---
 
 ### Task 1: 创建分类模块重导出 — modules_panels.rs + modules_state.rs
 
 **Files:**
-- Create: `peri-tui/src/app/modules_panels.rs`
-- Create: `peri-tui/src/app/modules_state.rs`
-- Modify: `peri-tui/src/app/mod.rs`
+- Create: `cc-tui/src/app/modules_panels.rs`
+- Create: `cc-tui/src/app/modules_state.rs`
+- Modify: `cc-tui/src/app/mod.rs`
 
 - [ ] **Step 1: 创建 modules_panels.rs — 所有 panel 子模块**
 
 ```rust
-// peri-tui/src/app/modules_panels.rs
+// cc-tui/src/app/modules_panels.rs
 // Panel modules — all UI panel definitions
 pub mod agent_panel;
 pub mod config_panel;
@@ -73,7 +73,7 @@ mod panel_status;
 - [ ] **Step 2: 创建 modules_state.rs — 状态管理模块**
 
 ```rust
-// peri-tui/src/app/modules_state.rs
+// cc-tui/src/app/modules_state.rs
 // State management modules
 mod global_ui_state;
 mod service_registry;
@@ -93,7 +93,7 @@ pub use message_state::MessageState;
 - [ ] **Step 3: 验证编译**
 
 ```bash
-cargo build -p peri-tui 2>&1
+cargo build -p cc-tui 2>&1
 ```
 Expected: Unused module warning for new files (not yet imported). Verify the content compiles when imported.
 
@@ -104,7 +104,7 @@ Expected: Unused module warning for new files (not yet imported). Verify the con
 - [ ] **Step 1: 创建 modules_agent.rs — Agent 操作模块**
 
 ```rust
-// peri-tui/src/app/modules_agent.rs
+// cc-tui/src/app/modules_agent.rs
 // Agent communication and operation modules
 mod agent_comm;
 mod agent_compact;
@@ -128,7 +128,7 @@ mod hitl_prompt;
 - [ ] **Step 2: 创建 modules_system.rs — 系统/基础设施模块**
 
 ```rust
-// peri-tui/src/app/modules_system.rs
+// cc-tui/src/app/modules_system.rs
 // System infrastructure modules
 mod chat_session;
 mod command_system;
@@ -145,7 +145,7 @@ mod thread_ops;
 - [ ] **Step 3: 创建 modules.rs — 统一重导出枢纽**
 
 ```rust
-// peri-tui/src/app/modules.rs
+// cc-tui/src/app/modules.rs
 // Unified module declarations — groups all 56 sub-modules by category.
 // Each modules_*.rs declares its own set of siblings via `pub mod` or `mod`.
 
@@ -219,7 +219,7 @@ But KEEP the `pub use` for prompt types and other types that aren't in the categ
 - [ ] **Step 3: Build and fix import errors**
 
 ```bash
-cargo build -p peri-tui 2>&1
+cargo build -p cc-tui 2>&1
 ```
 
 Expected: Build may fail with "unresolved import" errors if some types were accessed via `crate::app::SomeType` but now the path changed. Fix by ensuring `modules.rs` re-exports all previously `pub` types.
@@ -240,7 +240,7 @@ pub use global_ui_state::GlobalUiState;
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/app/modules*.rs peri-tui/src/app/mod.rs
+git add cc-tui/src/app/modules*.rs cc-tui/src/app/mod.rs
 git commit -m "refactor(app): group 56 module declarations into categorical modules_*.rs
 
 app/mod.rs module declarations: 56 lines → 5 files grouped by category.
@@ -254,15 +254,15 @@ Reduces cognitive load of app/mod.rs top section."
 ### Task 4: 提取 edit_utils.rs — 从 app/mod.rs 分离公共工具函数
 
 **Files:**
-- Create: `peri-tui/src/app/edit_utils.rs`
-- Modify: `peri-tui/src/app/mod.rs`
+- Create: `cc-tui/src/app/edit_utils.rs`
+- Modify: `cc-tui/src/app/mod.rs`
 
 - [ ] **Step 1: 创建 edit_utils.rs**
 
 Extract lines 621-814 from `app/mod.rs` (functions `ensure_cursor_visible`, `handle_edit_key`, `edit_display_parts`, `build_textarea`, `build_textarea_with_hint`) into `app/edit_utils.rs`.
 
 ```rust
-// peri-tui/src/app/edit_utils.rs
+// cc-tui/src/app/edit_utils.rs
 use ratatui::style::Style;
 use ratatui::text::Span;
 use tui_textarea::TextArea;
@@ -305,7 +305,7 @@ Update `use` statements in `app/mod.rs` — `build_textarea` is called in `new()
 - [ ] **Step 3: 查找并更新所有调用点**
 
 ```bash
-grep -rn 'build_textarea\|handle_edit_key\|edit_display_parts\|ensure_cursor_visible' peri-tui/src/ --include='*.rs' | grep -v edit_utils.rs | grep -v '_test.rs'
+grep -rn 'build_textarea\|handle_edit_key\|edit_display_parts\|ensure_cursor_visible' cc-tui/src/ --include='*.rs' | grep -v edit_utils.rs | grep -v '_test.rs'
 ```
 
 Update each call site to use `edit_utils::function_name` or add local `use` import.
@@ -318,15 +318,15 @@ Common call sites:
 - [ ] **Step 4: Build and test**
 
 ```bash
-cargo build -p peri-tui 2>&1
-cargo test -p peri-tui --lib 2>&1 | tail -10
+cargo build -p cc-tui 2>&1
+cargo test -p cc-tui --lib 2>&1 | tail -10
 ```
 Expected: Build succeeds, tests pass.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-tui/src/app/edit_utils.rs peri-tui/src/app/mod.rs
+git add cc-tui/src/app/edit_utils.rs cc-tui/src/app/mod.rs
 # Also git add any files that had import updates
 git commit -m "refactor(app): extract edit utilities to edit_utils.rs
 
@@ -339,15 +339,15 @@ edit_display_parts, build_textarea, ensure_cursor_visible."
 ### Task 5: 提取 event/macros.rs — 从 event/mod.rs 分离宏
 
 **Files:**
-- Create: `peri-tui/src/event/macros.rs`
-- Modify: `peri-tui/src/event/mod.rs`
+- Create: `cc-tui/src/event/macros.rs`
+- Modify: `cc-tui/src/event/mod.rs`
 
 - [ ] **Step 1: 创建 event/macros.rs**
 
 Extract lines 20-55 from `event/mod.rs` (`with_global_panels!` and `with_session_panels!` macros) into `event/macros.rs`.
 
 ```rust
-// peri-tui/src/event/macros.rs
+// cc-tui/src/event/macros.rs
 
 /// Executes a panel dispatch on `global_panels`, automatically handling
 /// `mem::take` borrow avoidance.
@@ -393,14 +393,14 @@ mod macros;
 - [ ] **Step 3: Build and test**
 
 ```bash
-cargo build -p peri-tui 2>&1
+cargo build -p cc-tui 2>&1
 ```
 Expected: Build succeeds. Macros are exported at crate root, `mod macros;` ensures the file is compiled.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/event/macros.rs peri-tui/src/event/mod.rs
+git add cc-tui/src/event/macros.rs cc-tui/src/event/mod.rs
 git commit -m "refactor(event): extract panel dispatch macros to macros.rs
 
 event/mod.rs: 576 → ~520 lines. Extract: with_global_panels!,
@@ -437,22 +437,22 @@ cargo fmt --all
 - [ ] **Step 4: Verify app/mod.rs module count**
 
 ```bash
-grep -c '^pub mod \|^mod ' peri-tui/src/app/mod.rs
+grep -c '^pub mod \|^mod ' cc-tui/src/app/mod.rs
 ```
 Expected: ~8 direct module declarations (modules + remaining stragglers).
 
 ```bash
-grep -c '^pub mod \|^mod ' peri-tui/src/app/modules_panels.rs peri-tui/src/app/modules_state.rs peri-tui/src/app/modules_agent.rs peri-tui/src/app/modules_system.rs
+grep -c '^pub mod \|^mod ' cc-tui/src/app/modules_panels.rs cc-tui/src/app/modules_state.rs cc-tui/src/app/modules_agent.rs cc-tui/src/app/modules_system.rs
 ```
 Expected: 14 + 5 + 16 + 6 = 41 across the group files.
 
 - [ ] **Step 5: Line count summary**
 
 ```bash
-echo "=== app/mod.rs ===" && wc -l peri-tui/src/app/mod.rs
-echo "=== modules_*.rs ===" && wc -l peri-tui/src/app/modules*.rs
-echo "=== edit_utils.rs ===" && wc -l peri-tui/src/app/edit_utils.rs
-echo "=== event/* ===" && wc -l peri-tui/src/event/*.rs
+echo "=== app/mod.rs ===" && wc -l cc-tui/src/app/mod.rs
+echo "=== modules_*.rs ===" && wc -l cc-tui/src/app/modules*.rs
+echo "=== edit_utils.rs ===" && wc -l cc-tui/src/app/edit_utils.rs
+echo "=== event/* ===" && wc -l cc-tui/src/event/*.rs
 ```
 
 - [ ] **Step 6: Final commit**

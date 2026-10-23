@@ -520,47 +520,6 @@ pub(crate) fn find_url_ranges(text: &str) -> Vec<(usize, usize)> {
     ranges
 }
 
-/// 给一行纯文本里的 URL 套上「链接色 + 下划线」。
-///
-/// 链接色定稿为 **ANSI Cyan**（`Color::Cyan`，不随 `/theme` 漂移）：
-/// 与状态栏的模型名 / 分支名同一口径，深色与浅色主题下都由终端调色板保证可读，
-/// 且与正文的 `text_soft` / `error` 在明度上拉开，一眼可辨。
-///
-/// 说明：这不是 OSC 8 真超链接（ratatui 的 cell 模型不支持塞转义序列，
-/// 且 `sanitize_display_text` 会剥掉 `\x1b`），只是视觉上把 URL 与正文区分开。
-/// 点击能力仍由终端自身的 URL 识别提供。
-fn style_urls(text: &str, base: Style) -> Vec<Span<'static>> {
-    let ranges = find_url_ranges(text);
-    if ranges.is_empty() {
-        return vec![Span::styled(text.to_string(), base)];
-    }
-    // 链接 span 的背景与状态栏模型名对齐为 `bg(Reset)`。
-    //
-    // 状态栏用 `plain_style()`（`fg(Reset).bg(Reset)`）绘制模型名，而工具输出正文的
-    // base 是 `Style::default().fg(text_soft)`（`bg = None`）。`bg = None` 时 ratatui
-    // 不下发背景指令，cell 沿用 buffer 里已有的背景；`Reset` 则显式发 `ESC[49m`
-    // 让终端恢复自己的默认背景。两者落到不同的背景解析路径上，同一个
-    // `Color::Cyan` 便呈现可见色差。固定为 `Reset` 与状态栏走同一条背景路径，
-    // 前景色观感才真正一致。
-    let link = base
-        .fg(Color::Cyan)
-        .bg(Color::Reset)
-        .add_modifier(Modifier::UNDERLINED);
-    let mut spans = Vec::with_capacity(ranges.len() * 2 + 1);
-    let mut cursor = 0;
-    for (start, end) in ranges {
-        if start > cursor {
-            spans.push(Span::styled(text[cursor..start].to_string(), base));
-        }
-        spans.push(Span::styled(text[start..end].to_string(), link));
-        cursor = end;
-    }
-    if cursor < text.len() {
-        spans.push(Span::styled(text[cursor..].to_string(), base));
-    }
-    spans
-}
-
 /// 同 [`push_wrapped_line`]，但保留原行的前导空白缩进层级并返回折行集合。
 fn format_wrapped_line_keep_lead(
     line: Line<'static>,
@@ -637,7 +596,7 @@ fn format_prefixed_text(
     text_style: Style,
     content_width: usize,
 ) -> Vec<Line<'static>> {
-    let line = Line::from(style_urls(&sanitize_display_text(text), text_style));
+    let line = Line::from(Span::styled(sanitize_display_text(text), text_style));
     // 续行悬挂缩进与首行前缀等宽，保证正文左对齐且总宽不溢出。
     let hang = " ".repeat(UnicodeWidthStr::width(first_prefix));
     format_wrapped_line_keep_lead(line, first_prefix, &hang, prefix_style, content_width)
@@ -1143,12 +1102,9 @@ fn format_shell_output_lines(
     width: usize,
 ) -> Vec<Line<'static>> {
     let prefix_style = Style::default().fg(prefix_color);
-    // 先按 ANSI 切段（保留命令自带着色），再把每段里的 URL 单独挑出来上链接色：
-    // 用户 `!gh pr checks` 这类命令的输出主要是 Git 分支、URL，链接色能明显提速扫读。
-    let content: Vec<Span<'static>> = ansi_spans(text, default_style)
-        .into_iter()
-        .flat_map(|span| style_urls(&span.content, span.style))
-        .collect();
+    // 先按 ANSI 切段保留命令自带着色。URL 不再单独着色：可点击性由消息区
+    // 注入的 OSC 8 给出（见 `crate::ui::osc8`），视觉上与正文一致（对齐 CC）。
+    let content: Vec<Span<'static>> = ansi_spans(text, default_style);
     format_wrapped_line_keep_lead(
         Line::from(content),
         prefix,

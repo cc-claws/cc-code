@@ -6,7 +6,7 @@
 
 需要支持**工具级后台运行**：LLM 通过 Agent 工具的 `run_in_background` 参数启动后台 agent，主 agent 立即继续执行，后台 agent 完成后通过事件推送通道主动通知主 agent。
 
-参考实现：Claude Code 的 `LocalAgentTask` + `run_in_background` 参数 + `BackgroundTasksDialog` UI。
+参考实现：参考实现 的 `LocalAgentTask` + `run_in_background` 参数 + `BackgroundTasksDialog` UI。
 
 ## 目标
 

@@ -14,9 +14,9 @@
 | P2 `peri/agent_event_done` | 保留（TUI 性能优化） |
 | P4 compact 绕过 | 随 P3 解决——compact 走 executor 入口拦截 |
 
-## Phase 1: `peri-acp` 命令基础设施
+## Phase 1: `cc-acp` 命令基础设施
 
-### 1.1 新建 `peri-acp/src/session/command.rs`
+### 1.1 新建 `cc-acp/src/session/command.rs`
 
 ```rust
 /// 命令执行方式
@@ -110,17 +110,17 @@ pub async fn execute_prompt(...) -> PromptResult {
 
 | 文件 | 操作 |
 |------|------|
-| `peri-acp/src/session/command.rs` | 新增 |
-| `peri-acp/src/session/mod.rs` | 添加 `mod command` |
-| `peri-acp/src/session/executor.rs` | 入口添加命令拦截 |
-| `peri-acp/src/session/command/compact.rs` | 新增（从 TUI 移植） |
-| `peri-acp/src/session/command/clear.rs` | 新增 |
+| `cc-acp/src/session/command.rs` | 新增 |
+| `cc-acp/src/session/mod.rs` | 添加 `mod command` |
+| `cc-acp/src/session/executor.rs` | 入口添加命令拦截 |
+| `cc-acp/src/session/command/compact.rs` | 新增（从 TUI 移植） |
+| `cc-acp/src/session/command/clear.rs` | 新增 |
 
 ## Phase 2: TUI CommandRegistry 重构
 
 ### 2.1 命令分类
 
-`peri-tui/src/command/mod.rs` 改为：
+`cc-tui/src/command/mod.rs` 改为：
 
 ```rust
 /// UI 命令——本地执行
@@ -160,9 +160,9 @@ struct CommandDispatcher {
 
 | 文件 | 操作 |
 |------|------|
-| `peri-tui/src/command/mod.rs` | 重构为 UICommand + CommandDispatcher |
-| `peri-tui/src/command/session/compact.rs` | 删除（逻辑移入 peri-acp） |
-| `peri-tui/src/command/core/clear.rs` | 删除（逻辑移入 peri-acp） |
+| `cc-tui/src/command/mod.rs` | 重构为 UICommand + CommandDispatcher |
+| `cc-tui/src/command/session/compact.rs` | 删除（逻辑移入 cc-acp） |
+| `cc-tui/src/command/core/clear.rs` | 删除（逻辑移入 cc-acp） |
 | 所有现有 Command impl | 改为 impl UICommand（不改逻辑） |
 
 ## Phase 3: 清理旧 RPC
@@ -198,7 +198,7 @@ struct CommandDispatcher {
 ## 依赖关系
 
 ```
-Phase 1（peri-acp 基础设施）
+Phase 1（cc-acp 基础设施）
   → Phase 2（TUI 重构）依赖 Phase 1 的 CommandContext/CommandResult 类型
   → Phase 3（清理）依赖 Phase 2 完成后才能安全删除旧代码
   → Phase 4（文档）最后更新

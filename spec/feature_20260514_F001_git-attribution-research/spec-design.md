@@ -2,14 +2,14 @@
 
 ## 需求背景
 
-claude-code 在系统提示词和 commit 命令中注入了完整的 Git 安全协议（不更新 config、不 force-push、不含 secret 文件等），并通过 `commitAttribution.ts` 等模块实现了 AI 模型在 commit 中的署名机制（Co-Authored-By trailer + 贡献百分比追踪）。
+参考实现 在系统提示词和 commit 命令中注入了完整的 Git 安全协议（不更新 config、不 force-push、不含 secret 文件等），并通过 `commitAttribution.ts` 等模块实现了 AI 模型在 commit 中的署名机制（Co-Authored-By trailer + 贡献百分比追踪）。
 
 peri 当前：
 
 - 系统提示词中仅有通用的操作安全指导（"prefer reversible operations"、"confirm destructive actions"），缺少 git 专属规则
 - 无任何 commit 署名机制——AI 生成的代码被提交后无法追溯模型来源
 
-需要参照 claude-code 的设计，实现两个能力：
+需要参照 参考实现 的设计，实现两个能力：
 
 1. **Git 安全提示词**：将 git 操作的具体安全规则注入系统提示词
 2. **Git 留名**：跟踪文件变更，让模型在 commit 中自动追加 Co-Authored-By trailer
@@ -38,12 +38,12 @@ peri 当前：
 
 **A. Git 安全提示词**：
 
-- 扩展 `peri-tui/prompts/sections/04_actions.md`，增加 Git Safety Protocol 段落
+- 扩展 `cc-tui/prompts/sections/04_actions.md`，增加 Git Safety Protocol 段落
 - 内容放入静态缓存段（01-06），参与 Anthropic prompt cache
 
 **B. Git 留名追踪**：
 
-- 新增 `peri-middlewares/src/attribution/` 模块
+- 新增 `cc-middlewares/src/attribution/` 模块
 - 新增 `GitAttributionMiddleware`，hook `before_tool` / `after_tool` 追踪 Write/Edit
 - 通过 middleware 的 `before_agent` 钩子注入 Co-Authored-By 指令到消息历史
 
@@ -65,7 +65,7 @@ On commit (模型自主行为):
 
 #### 1. 系统提示词扩展
 
-修改 `peri-tui/prompts/sections/04_actions.md`，在现有内容后追加：
+修改 `cc-tui/prompts/sections/04_actions.md`，在现有内容后追加：
 
 ```markdown
 ## Git Safety Protocol
@@ -82,7 +82,7 @@ On commit (模型自主行为):
 #### 2. Attribution 模块结构
 
 ```
-peri-middlewares/src/attribution/
+cc-middlewares/src/attribution/
 ├── mod.rs              # 公开 API + GitAttributionMiddleware
 ├── model_email.rs      # MODEL_EMAIL_MAP: model 关键词 → 邮箱
 └── state.rs            # AttributionState + 追踪逻辑
@@ -256,17 +256,17 @@ Co-Authored-By 指令通过 `before_agent` 注入为 System 消息（不在 `04_
 
 | 文件 | 操作 | 说明 |
 |------|------|------|
-| `peri-tui/prompts/sections/04_actions.md` | 修改 | 追加 Git Safety Protocol 段落 |
-| `peri-middlewares/src/attribution/mod.rs` | 新增 | GitAttributionMiddleware + 公开 API |
-| `peri-middlewares/src/attribution/model_email.rs` | 新增 | 模型→邮箱映射表 |
-| `peri-middlewares/src/attribution/state.rs` | 新增 | AttributionState + 追踪逻辑 |
-| `peri-middlewares/src/attribution/mod.rs` | 新增 | 模块入口 + pub use |
-| `peri-middlewares/src/lib.rs` | 修改 | 导出 attribution 模块 |
-| `peri-tui/src/app/agent.rs` 或中间件注册处 | 修改 | 注册 GitAttributionMiddleware |
+| `cc-tui/prompts/sections/04_actions.md` | 修改 | 追加 Git Safety Protocol 段落 |
+| `cc-middlewares/src/attribution/mod.rs` | 新增 | GitAttributionMiddleware + 公开 API |
+| `cc-middlewares/src/attribution/model_email.rs` | 新增 | 模型→邮箱映射表 |
+| `cc-middlewares/src/attribution/state.rs` | 新增 | AttributionState + 追踪逻辑 |
+| `cc-middlewares/src/attribution/mod.rs` | 新增 | 模块入口 + pub use |
+| `cc-middlewares/src/lib.rs` | 修改 | 导出 attribution 模块 |
+| `cc-tui/src/app/agent.rs` 或中间件注册处 | 修改 | 注册 GitAttributionMiddleware |
 
 ### 关键决策记录
 
-1. **邮箱域名使用 `@peri.ai`**：因 GitHub 组织不支持 Co-Authored-By，使用自有域名构造虚拟邮箱（参照 claude-code 的 `@claude-code-best.win`）
+1. **邮箱域名使用 `@peri.ai`**：因 GitHub 组织不支持 Co-Authored-By，使用自有域名构造虚拟邮箱
 2. **字符级贡献计算使用 prefix/suffix 匹配**：比简单的 `Math.abs(len_diff)` 更准确，能处理等长替换（如 `"Esc"` → `"esc"`）
 3. **不计算百分比**（本迭代）：用户需要的最小实现是署名，百分比统计可后续加
 4. **提示词注入使用 `before_agent` 钩子**：比扩展静态段落更灵活，支持动态模型名

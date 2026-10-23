@@ -265,7 +265,7 @@
 
 #### - [x] 5.3 serde 反序列化兼容性验证
 - **来源:** spec-plan.md Task 5
-- **目的:** 确认 Claude Code hooks.json 格式兼容
+- **目的:** 确认 参考实现 hooks.json 格式兼容
 - **操作步骤:**
   1. [A] `cargo test -p peri-middlewares --lib hooks::types::tests 2>&1 | grep "test result:"` → 期望包含: test result: ok
 

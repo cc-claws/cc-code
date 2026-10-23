@@ -30,7 +30,7 @@ Compact 后的对话摘要作为 Human 消息注入消息列表，TUI 以完整 
 
 ### 3.1 消息构造（`CompactMiddleware`）
 
-**文件**: `peri-middlewares/src/compact_middleware.rs:227-231`
+**文件**: `cc-middlewares/src/compact_middleware.rs:227-231`
 
 当前代码：
 
@@ -56,7 +56,7 @@ let mut new_messages = vec![BaseMessage::human(summary_content)];
 
 ### 3.2 ViewModel 转换（`MessageViewModel`）
 
-**文件**: `peri-tui/src/ui/message_view/mod.rs`
+**文件**: `cc-tui/src/ui/message_view/mod.rs`
 
 **新增字段**：`UserBubble` 加一个布尔标记：
 
@@ -102,7 +102,7 @@ BaseMessage::Human { content, .. } => {
 
 ### 3.3 渲染（`message_render.rs`）
 
-**文件**: `peri-tui/src/ui/message_render.rs`
+**文件**: `cc-tui/src/ui/message_render.rs`
 
 渲染 `UserBubble` 时判断 `system_reminder`：
 
@@ -154,6 +154,6 @@ TUI 渲染输出：
 
 | 文件 | 变更 |
 |------|------|
-| `peri-middlewares/src/compact_middleware.rs` | summary 文本包裹 `<system-reminder>` 标签 |
-| `peri-tui/src/ui/message_view/mod.rs` | UserBubble +`system_reminder` 字段；`from_base_message_with_cwd` 检测/剥离标签；更新 PartialEq/Hash |
-| `peri-tui/src/ui/message_render.rs` | UserBubble 渲染分支：系统提醒 → 单行提示 |
+| `cc-middlewares/src/compact_middleware.rs` | summary 文本包裹 `<system-reminder>` 标签 |
+| `cc-tui/src/ui/message_view/mod.rs` | UserBubble +`system_reminder` 字段；`from_base_message_with_cwd` 检测/剥离标签；更新 PartialEq/Hash |
+| `cc-tui/src/ui/message_render.rs` | UserBubble 渲染分支：系统提醒 → 单行提示 |

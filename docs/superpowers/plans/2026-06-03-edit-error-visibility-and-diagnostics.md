@@ -16,16 +16,16 @@
 
 | 文件 | 职责 |
 |------|------|
-| `peri-middlewares/src/tools/filesystem/edit.rs` | Edit 工具实现——5 处 Ok→Err + `build_not_found_hint` + not_unique 行号 |
-| `peri-middlewares/src/tools/filesystem/edit_test.rs` | 测试——现有断言更新 + 5 个新测试 |
+| `cc-middlewares/src/tools/filesystem/edit.rs` | Edit 工具实现——5 处 Ok→Err + `build_not_found_hint` + not_unique 行号 |
+| `cc-middlewares/src/tools/filesystem/edit_test.rs` | 测试——现有断言更新 + 5 个新测试 |
 
 ---
 
 ### Task 1: 错误返回改为 Err()（is_error 标记修复）
 
 **Files:**
-- Modify: `peri-middlewares/src/tools/filesystem/edit.rs:84-86,92-94,123-128,150-155,156-163`
-- Test: `peri-middlewares/src/tools/filesystem/edit_test.rs`
+- Modify: `cc-middlewares/src/tools/filesystem/edit.rs:84-86,92-94,123-128,150-155,156-163`
+- Test: `cc-middlewares/src/tools/filesystem/edit_test.rs`
 
 - [ ] **Step 1: 写失败测试——验证错误场景返回 Err**
 
@@ -81,7 +81,7 @@ assert_eq!(content, "hello world", "file should not be modified");
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `cargo test -p peri-middlewares --lib -- tools::filesystem::edit::tests`
+Run: `cargo test -p cc-middlewares --lib -- tools::filesystem::edit::tests`
 Expected: 4 个测试 FAIL（`Result::unwrap()` on an `Err` value 改为 `unwrap_err()` on an `Ok` value——因为实现还没改）
 
 注意：Step 1 先改测试为 `unwrap_err()`，但实现还没改，所以这 4 个测试此时**通过**（实现仍返回 Ok）。需要先确认：改为 `unwrap_err()` 后，因为实现仍返回 Ok，测试会 FAIL（`unwrap_err()` on Ok）。这是正确的 TDD 流程。
@@ -130,13 +130,13 @@ if occurrences > 1 {
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `cargo test -p peri-middlewares --lib -- tools::filesystem::edit::tests`
+Run: `cargo test -p cc-middlewares --lib -- tools::filesystem::edit::tests`
 Expected: 所有 8 个测试 PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-middlewares/src/tools/filesystem/edit.rs peri-middlewares/src/tools/filesystem/edit_test.rs
+git add cc-middlewares/src/tools/filesystem/edit.rs cc-middlewares/src/tools/filesystem/edit_test.rs
 git commit -m "fix: Edit 工具错误改为 Err() 返回，is_error 正确标记为 true
 
 5 处 Ok(\"Error: ...\") 改为 Err(...into())，使 tool_dispatch 正确设置
@@ -150,8 +150,8 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 ### Task 2: 模糊匹配提示函数 build_not_found_hint
 
 **Files:**
-- Modify: `peri-middlewares/src/tools/filesystem/edit.rs`
-- Test: `peri-middlewares/src/tools/filesystem/edit_test.rs`
+- Modify: `cc-middlewares/src/tools/filesystem/edit.rs`
+- Test: `cc-middlewares/src/tools/filesystem/edit_test.rs`
 
 - [ ] **Step 1: 写失败测试——前缀匹配提示**
 
@@ -180,7 +180,7 @@ async fn test_edit_not_found_with_fuzzy_prefix_match() {
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `cargo test -p peri-middlewares --lib -- test_edit_not_found_with_fuzzy_prefix_match`
+Run: `cargo test -p cc-middlewares --lib -- test_edit_not_found_with_fuzzy_prefix_match`
 Expected: FAIL（错误信息尚未包含"前 N 行匹配到"）
 
 - [ ] **Step 3: 写失败测试——行数近似匹配回退**
@@ -336,13 +336,13 @@ if occurrences == 0 {
 
 - [ ] **Step 7: 运行全部 Edit 测试确认通过**
 
-Run: `cargo test -p peri-middlewares --lib -- tools::filesystem::edit::tests`
+Run: `cargo test -p cc-middlewares --lib -- tools::filesystem::edit::tests`
 Expected: 所有 11 个测试 PASS（8 旧 + 3 新）
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add peri-middlewares/src/tools/filesystem/edit.rs peri-middlewares/src/tools/filesystem/edit_test.rs
+git add cc-middlewares/src/tools/filesystem/edit.rs cc-middlewares/src/tools/filesystem/edit_test.rs
 git commit -m "feat: Edit not found 错误增加模糊匹配提示
 
 新增 build_not_found_hint：前缀匹配→行数近似匹配回退。
@@ -357,8 +357,8 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 ### Task 3: not_unique 行号提示
 
 **Files:**
-- Modify: `peri-middlewares/src/tools/filesystem/edit.rs`
-- Test: `peri-middlewares/src/tools/filesystem/edit_test.rs`
+- Modify: `cc-middlewares/src/tools/filesystem/edit.rs`
+- Test: `cc-middlewares/src/tools/filesystem/edit_test.rs`
 
 - [ ] **Step 1: 写失败测试——not_unique 显示行号范围**
 
@@ -385,7 +385,7 @@ async fn test_edit_not_unique_shows_line_ranges() {
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `cargo test -p peri-middlewares --lib -- test_edit_not_unique_shows_line_ranges`
+Run: `cargo test -p cc-middlewares --lib -- test_edit_not_unique_shows_line_ranges`
 Expected: FAIL（当前错误信息不含行号范围）
 
 - [ ] **Step 3: 写失败测试——超多次匹配截断**
@@ -453,13 +453,13 @@ if occurrences > 1 {
 
 - [ ] **Step 5: 运行全部 Edit 测试确认通过**
 
-Run: `cargo test -p peri-middlewares --lib -- tools::filesystem::edit::tests`
+Run: `cargo test -p cc-middlewares --lib -- tools::filesystem::edit::tests`
 Expected: 所有 13 个测试 PASS
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-middlewares/src/tools/filesystem/edit.rs peri-middlewares/src/tools/filesystem/edit_test.rs
+git add cc-middlewares/src/tools/filesystem/edit.rs cc-middlewares/src/tools/filesystem/edit_test.rs
 git commit -m "feat: Edit not_unique 错误增加匹配行号定位
 
 列出每个匹配位置的行号范围，超过 10 处时截断显示。
@@ -472,19 +472,19 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 
 ### Task 4: 最终验证
 
-- [ ] **Step 1: 运行 peri-middlewares 全量测试**
+- [ ] **Step 1: 运行 cc-middlewares 全量测试**
 
-Run: `cargo test -p peri-middlewares --lib`
+Run: `cargo test -p cc-middlewares --lib`
 Expected: 全部 PASS
 
 - [ ] **Step 2: 运行 cargo build 确认编译通过**
 
-Run: `cargo build -p peri-middlewares`
+Run: `cargo build -p cc-middlewares`
 Expected: 编译成功，无 warning
 
 - [ ] **Step 3: 运行 clippy**
 
-Run: `cargo clippy -p peri-middlewares -- -D warnings`
+Run: `cargo clippy -p cc-middlewares -- -D warnings`
 Expected: 无 warning
 
 - [ ] **Step 4: 更新 issue 状态**

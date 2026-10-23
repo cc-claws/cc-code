@@ -6,7 +6,7 @@
 
 ## 问题描述
 
-Claude Code 有 `PostToolBatch` 钩子事件，在一批并行工具调用全部完成后、下次模型请求前触发（每个 batch 一次）。Peri 未实现此事件。
+参考实现 有 `PostToolBatch` 钩子事件，在一批并行工具调用全部完成后、下次模型请求前触发（每个 batch 一次）。Peri 未实现此事件。
 
 ## 预期行为
 
@@ -25,12 +25,12 @@ Claude Code 有 `PostToolBatch` 钩子事件，在一批并行工具调用全部
 
 ## 修复方向
 
-1. `peri-middlewares/src/hooks/types.rs` — `HookEvent` 已有 `Unknown(String)` 兜底，但需显式添加 `PostToolBatch` 变体
-2. `peri-agent/src/agent/tool_dispatch.rs` — `dispatch_tools` 中，所有 tool_result 写入 state 后、返回前触发
-3. `peri-middlewares/src/hooks/middleware.rs` — 新增 `after_tools_batch` 方法或在现有流程中插入触发点
+1. `cc-middlewares/src/hooks/types.rs` — `HookEvent` 已有 `Unknown(String)` 兜底，但需显式添加 `PostToolBatch` 变体
+2. `cc-agent/src/agent/tool_dispatch.rs` — `dispatch_tools` 中，所有 tool_result 写入 state 后、返回前触发
+3. `cc-middlewares/src/hooks/middleware.rs` — 新增 `after_tools_batch` 方法或在现有流程中插入触发点
 
 ## 涉及文件
 
-- `peri-middlewares/src/hooks/types.rs` — 新增 `PostToolBatch` 变体
-- `peri-agent/src/agent/tool_dispatch.rs` — 批量工具完成后的触发点
-- `peri-middlewares/src/hooks/middleware.rs` — 事件触发逻辑
+- `cc-middlewares/src/hooks/types.rs` — 新增 `PostToolBatch` 变体
+- `cc-agent/src/agent/tool_dispatch.rs` — 批量工具完成后的触发点
+- `cc-middlewares/src/hooks/middleware.rs` — 事件触发逻辑

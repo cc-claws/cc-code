@@ -1,5 +1,7 @@
 # PRD: 左右分栏布局
 
+> **状态注记（2026-10-22 核对）**：本方案**未实现**（截至 v0.6.182）：代码中不存在本文的 `LayoutMode` / `SidebarTab` / `PanelPlacement` / `LayoutState`（`cc-tui/src/ui/render_layout/mod.rs` 的 `LayoutMode` 是消息渲染的布局结构体，与分栏无关），无 Sidebar 渲染与布局切换快捷键。本文保留为设计记录，下文 §6 的未勾选计划即当前状态。
+
 ## 1. 背景
 
 当前 cc-tui 采用单列垂直布局，所有内容（消息、面板、输入框）都在同一列中。随着功能增加（面板系统、后台 Agent、文件树等），单列布局在宽屏下空间利用率低，且面板与消息区互相挤压。
@@ -66,13 +68,13 @@ mimo-code 采用左右分栏布局：
 
 ### 3.4 与 peri 现有面板系统兼容
 
-peri 现有 12 种面板（`PanelKind`），分为 Session 和 Global 两种作用域：
+peri 现有 15 种面板（`PanelKind`，`cc-tui/src/app/panel_manager.rs`），分为 Session 和 Global 两种作用域：
 
 **Session 面板**：
-- `Agent`、`Hooks`、`Model`、`Login`、`Config`、`ThreadBrowser`
+- `Agent`、`Hooks`、`Model`、`Login`、`Config`、`ThreadBrowser`、`CommandPalette`、`Theme`、`InputHistory`
 
 **Global 面板**：
-- `Mcp`、`Plugin`、`Cron`、`Status`、`Memory`、`Tasks`
+- `Mcp`、`Plugin`、`Cron`、`Status`、`Memory`、`BackgroundTasks`
 
 Sidebar 可选择承载部分面板，保持 `PanelComponent` trait 兼容：
 
@@ -295,7 +297,7 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
 
 - 保持现有 `Single` 布局为默认模式
 - 所有现有功能在两种布局模式下都可用
-- 快捷键不冲突（`Ctrl+B` 当前未使用）
+- 快捷键需重新评估：`Ctrl+B` 现已用于 Bash 后台化 / 后台任务（`cc-tui/src/app/agent_shell_executor.rs`、`cc-tui/src/event/keyboard/normal_keys.rs`），与本文的 Sidebar 切换冲突
 
 ### 7.2 面板系统兼容
 

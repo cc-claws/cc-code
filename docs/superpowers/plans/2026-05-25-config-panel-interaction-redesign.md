@@ -13,12 +13,12 @@
 ### Task 1: Add i18n strings for groups, descriptions, and status bar hints
 
 **Files:**
-- Modify: `peri-tui/locales/en/main.ftl`
-- Modify: `peri-tui/locales/zh-CN/main.ftl`
+- Modify: `cc-tui/locales/en/main.ftl`
+- Modify: `cc-tui/locales/zh-CN/main.ftl`
 
 - [ ] **Step 1: Add i18n entries to English locale**
 
-In `peri-tui/locales/en/main.ftl`, after the existing `config-field-proactiveness` entry (line 220), insert:
+In `cc-tui/locales/en/main.ftl`, after the existing `config-field-proactiveness` entry (line 220), insert:
 
 ```ftl
 # Config panel groups
@@ -41,7 +41,7 @@ hint-config-save = :Save & close
 
 - [ ] **Step 2: Add i18n entries to Chinese locale**
 
-In `peri-tui/locales/zh-CN/main.ftl`, after the existing `config-field-proactiveness` entry (line 219), insert:
+In `cc-tui/locales/zh-CN/main.ftl`, after the existing `config-field-proactiveness` entry (line 219), insert:
 
 ```ftl
 # Config panel groups
@@ -65,7 +65,7 @@ hint-config-save = :保存关闭
 - [ ] **Step 3: Verify i18n strings exist by counting entries**
 
 ```bash
-grep -c "config-group-general\|config-group-prompt-overrides" peri-tui/locales/en/main.ftl peri-tui/locales/zh-CN/main.ftl
+grep -c "config-group-general\|config-group-prompt-overrides" cc-tui/locales/en/main.ftl cc-tui/locales/zh-CN/main.ftl
 ```
 Expected: 2 lines per file (2 entries in each locale).
 
@@ -74,7 +74,7 @@ Expected: 2 lines per file (2 entries in each locale).
 ### Task 2: Simplify ConfigPanel struct — remove browse/edit mode
 
 **Files:**
-- Modify: `peri-tui/src/app/config_panel.rs`
+- Modify: `cc-tui/src/app/config_panel.rs`
 
 - [ ] **Step 1: Remove `ConfigPanelMode` enum, add row index constants**
 
@@ -233,7 +233,7 @@ Remove `use super::panel_list::PanelList;` (line 10). Remove unused `ConfigPanel
 ### Task 3: Rewrite render_config_panel for single direct-edit mode
 
 **Files:**
-- Modify: `peri-tui/src/ui/main_ui/panels/config.rs`
+- Modify: `cc-tui/src/ui/main_ui/panels/config.rs`
 
 - [ ] **Step 1: Rewrite `render_config_panel`**
 
@@ -248,7 +248,7 @@ use ratatui::{
     Frame,
 };
 
-use peri_widgets::BorderedPanel;
+use cc_widgets::BorderedPanel;
 
 use crate::app::config_panel::{
     ConfigPanel, ROW_AUTOCOMPACT, ROW_COUNT, ROW_GENERAL_HEADER, ROW_LANGUAGE, 
@@ -475,7 +475,7 @@ The old `render_text_field` function and `ConfigEditField` import are replaced b
 ### Task 4: Rewrite key handling for direct-edit mode
 
 **Files:**
-- Modify: `peri-tui/src/app/config_panel.rs`
+- Modify: `cc-tui/src/app/config_panel.rs`
 
 - [ ] **Step 1: Replace `handle_key` in `impl PanelComponent for ConfigPanel`**
 
@@ -757,7 +757,7 @@ Remove `use crate::config::PeriConfig;` from the render file (now imported diffe
 ### Task 5: Update tests
 
 **Files:**
-- Modify: `peri-tui/src/app/config_panel_test.rs`
+- Modify: `cc-tui/src/app/config_panel_test.rs`
 
 - [ ] **Step 1: Rewrite test file for direct-edit mode**
 
@@ -932,11 +932,11 @@ Removed tests:
 ### Task 6: Update panel_config.rs (if needed)
 
 **Files:**
-- Verify: `peri-tui/src/app/panel_config.rs`
+- Verify: `cc-tui/src/app/panel_config.rs`
 
 - [ ] **Step 1: Verify no changes needed to `open_config_panel`**
 
-Read `peri-tui/src/app/panel_config.rs` and confirm `open_config_panel()` still works — it creates `ConfigPanel::from_config(cfg)` and wraps it. No changes needed since `from_config` signature is unchanged.
+Read `cc-tui/src/app/panel_config.rs` and confirm `open_config_panel()` still works — it creates `ConfigPanel::from_config(cfg)` and wraps it. No changes needed since `from_config` signature is unchanged.
 
 - [ ] **Step 2: Verify `config_panel_apply` is no longer called from key handler**
 
@@ -952,39 +952,39 @@ The old `handle_key` called `apply_edit` directly (not via `config_panel_apply`)
 - [ ] **Step 1: Build the crate**
 
 ```bash
-cargo build -p peri-tui 2>&1 | tail -30
+cargo build -p cc-tui 2>&1 | tail -30
 ```
 Expected: Compilation succeeds with zero errors.
 
 - [ ] **Step 2: Run config panel tests**
 
 ```bash
-cargo test -p peri-tui --lib config_panel_test 2>&1
+cargo test -p cc-tui --lib config_panel_test 2>&1
 ```
 Expected: All 9 tests pass.
 
 - [ ] **Step 3: Run linter**
 
 ```bash
-cargo clippy -p peri-tui -- -D warnings 2>&1 | tail -20
+cargo clippy -p cc-tui -- -D warnings 2>&1 | tail -20
 ```
 Expected: Zero warnings.
 
 - [ ] **Step 4: Run full test suite**
 
 ```bash
-cargo test -p peri-tui --lib 2>&1 | tail -20
+cargo test -p cc-tui --lib 2>&1 | tail -20
 ```
 Expected: All tests pass.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-tui/src/app/config_panel.rs \
-        peri-tui/src/app/config_panel_test.rs \
-        peri-tui/src/ui/main_ui/panels/config.rs \
-        peri-tui/locales/en/main.ftl \
-        peri-tui/locales/zh-CN/main.ftl
+git add cc-tui/src/app/config_panel.rs \
+        cc-tui/src/app/config_panel_test.rs \
+        cc-tui/src/ui/main_ui/panels/config.rs \
+        cc-tui/locales/en/main.ftl \
+        cc-tui/locales/zh-CN/main.ftl
 git commit -m "refactor(tui): redesign /config panel for direct-edit single mode
 
 Remove Browse/Edit two-step mode. All fields directly editable on open.

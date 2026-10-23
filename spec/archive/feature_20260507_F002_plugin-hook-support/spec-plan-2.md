@@ -1,6 +1,6 @@
 # Plugin Hook Support 执行计划 (2/2)
 
-**目标:** 实现 Claude Code 兼容的 hook 执行引擎上层——SSRF 防护、4 种执行器、HookMiddleware 集成、插件加载注册
+**目标:** 实现 参考实现 兼容的 hook 执行引擎上层——SSRF 防护、4 种执行器、HookMiddleware 集成、插件加载注册
 
 **技术栈:** Rust 2021 / tokio / serde / regex / ipnet (新增依赖) / reqwest
 
@@ -137,7 +137,7 @@ HTTP hook 需要防止对内网私有地址的请求（SSRF 攻击），避免�
 
 **认知变更:**
 
-- [x] [CLAUDE.md] HTTP hook SSRF 防护使用 `ipnet` crate 实现，阻止范围对齐 Claude Code `src/utils/hooks/ssrfGuard.ts`（IPv4: 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16；IPv6: ::, fc00::/7, fe80::/10, ::ffff:<v4> mapped），允许 127.0.0.0/8 和 ::1（本地开发 hook）
+- [x] [CLAUDE.md] HTTP hook SSRF 防护使用 `ipnet` crate 实现，阻止范围对齐 参考实现 `src/utils/hooks/ssrfGuard.ts`（IPv4: 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16；IPv6: ::, fc00::/7, fe80::/10, ::ffff:<v4> mapped），允许 127.0.0.0/8 和 ::1（本地开发 hook）
 - [x] [CLAUDE.md] [TRAP] DNS rebinding 攻击防护：SSRF 检查必须先 DNS 解析再验证 IP，不能仅检查 URL 中的 hostname（攻击者可控制 DNS 响应将公网域名解析到内网 IP）。使用 `tokio::net::lookup_host()` 而非 `std::net::ToSocketAddrs` 确保异步安全。
 
 ---
@@ -586,7 +586,7 @@ HookMiddleware 是 hook 系统的核心，负责在 agent 生命周期关键节�
     }
     ```
 
-  - 原因: 对齐 Claude Code hooks 加载优先级（hooks.json 文件优先于 plugin.json 内嵌字段）
+  - 原因: 对齐 参考实现 hooks 加载优先级（hooks.json 文件优先于 plugin.json 内嵌字段）
 
 - [x] 在 plugin/loader.rs 中扩展 PluginLoadResult 聚合 hooks
   - 位置: `peri-middlewares/src/plugin/loader.rs:368` 的 `PluginLoadResult` 结构体
@@ -749,7 +749,7 @@ HookMiddleware 是 hook 系统的核心，负责在 agent 生命周期关键节�
 
 **认知变更:**
 
-- [x] [CLAUDE.md] 插件 hooks 配置加载优先级：`hooks/hooks.json` 文件优先于 `plugin.json` 内的 `hooks` 字段，对齐 Claude Code 行为
+- [x] [CLAUDE.md] 插件 hooks 配置加载优先级：`hooks/hooks.json` 文件优先于 `plugin.json` 内的 `hooks` 字段，对齐 参考实现 行为
 - [x] [CLAUDE.md] LoadedPlugin 新增 `hooks_config: Option<HooksConfig>` 字段，在 `load_plugins()` 时通过 `extract_hooks()` 提取
 - [x] [CLAUDE.md] PluginLoadResult 新增 `all_hooks: Vec<RegisteredHook>` 字段，聚合所有插件的 hooks，供 TUI 层传递给 HookMiddleware
 - [x] [CLAUDE.md] [TRAP] PluginManifest.hooks 类型从 `Option<serde_json::Value>` 改为 `Option<HooksConfig>` 后，现有测试中的 `"hooks": {}` 仍能正确反序列化为空 HashMap，但显式 `null` 会反序列化为 `None`。新增测试时必须验证这两种情况。

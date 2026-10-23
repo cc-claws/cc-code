@@ -11,8 +11,8 @@
 ```rust
 //! Load session messages from ThreadStore.
 
-use peri_agent::messages::BaseMessage;
-use peri_agent::thread::{ThreadId, ThreadStore};
+use cc_agent::messages::BaseMessage;
+use cc_agent::thread::{ThreadId, ThreadStore};
 
 /// Load message history for a session thread.
 ///
@@ -37,8 +37,8 @@ pub async fn load_session_messages(
 
 ```rust
 use super::session_load::load_session_messages;
-use peri_agent::messages::BaseMessage;
-use peri_agent::thread::{ThreadId, ThreadMeta, ThreadStore};
+use cc_agent::messages::BaseMessage;
+use cc_agent::thread::{ThreadId, ThreadMeta, ThreadStore};
 
 struct MockThreadStore {
     messages: Vec<BaseMessage>,
@@ -60,7 +60,7 @@ impl ThreadStore for MockThreadStore {
     async fn append_messages(&self, _id: &ThreadId, _msgs: &[BaseMessage]) -> Result<(), String> {
         Ok(())
     }
-    async fn list_threads(&self) -> Result<Vec<peri_agent::thread::ThreadInfo>, String> {
+    async fn list_threads(&self) -> Result<Vec<cc_agent::thread::ThreadInfo>, String> {
         Ok(vec![])
     }
 }

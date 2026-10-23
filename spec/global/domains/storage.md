@@ -31,9 +31,9 @@ StateSnapshot 事件触发
 | 数据库驱动 | sqlx 0.8（runtime-tokio + sqlite），原生 async，不含 macros/migrate |
 | 连接管理 | SqlitePool(max=5)，替代 Arc\<Mutex\<Connection\>\> + spawn_blocking |
 | PRAGMA | journal_mode=WAL, synchronous=NORMAL, foreign_keys=ON |
-| Schema | threads(id,title,cwd,created_at,updated_at,message_count) + messages(message_id,thread_id,role,content) |
+| Schema | threads(id,title,cwd,created_at,updated_at,message_count,parent_thread_id,snapshot_at_message_id,hidden,cancel_policy,config,cached_context,agent_status,latest_recap,last_task_summary,model,reasoning_effort,branch) + messages(message_id,thread_id,role,content) |
 | 事务 | append_messages 使用 pool.begin() + tx.commit() |
-| 初始化 | init_schema 拆分为 3 次 sqlx::query().execute()（sqlx 不支持多语句） |
+| 初始化 | init_schema 单次 multi-statement execute 建两表，之后逐列 ALTER TABLE 幂等补列（12 列）并建索引 |
 | 调用方影响 | App::new() / new_headless() 变 async，移除 Default impl |
 
 ## Feature 附录

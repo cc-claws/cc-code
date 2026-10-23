@@ -1,26 +1,21 @@
 # 项目架构约束
 
-![技术栈概览](./images/06-tech-stack.png)
-
 ## 技术栈
 
 - **语言:** Rust 2021 edition
 - **异步运行时:** tokio 1.x（`features = ["full"]`）
-- **HTTP 客户端:** reqwest 0.12（json + stream features）
+- **HTTP 客户端:** reqwest 0.13（json + stream features）
 - **序列化:** serde 1.x + serde_json 1.x
 - **数据库:** sqlx 0.8（runtime-tokio + sqlite，SqlitePool 连接池，WAL 模式）
 - **MCP Client:** rmcp 3.5（stdio + Streamable HTTP 传输，auth feature 启用 OAuth 2.0）
-- **TUI 框架:** ratatui ≥0.30 + ratatui-textarea 0.8 + pulldown-cmark 0.12 + arboard 3（剪贴板）+ png 0.17（RGBA→PNG）+ base64 0.22 + langfuse-client（workspace 内 crate，Langfuse V4 客户端，替代 langfuse-ergonomic）
+- **TUI 框架:** ratatui ≥0.30 + tui-textarea-2 0.11 + pulldown-cmark 0.13 + arboard 3（剪贴板）+ png 0.18（RGBA→PNG）+ base64 0.22 + langfuse-client（workspace 内 crate，Langfuse V4 客户端，替代 langfuse-ergonomic）
 - **Agent Client Protocol:** agent-client-protocol 0.11（JSON-RPC 2.0，ACP 标准协议）
-- **配置同步:** tokio-tungstenite（WebSocket 客户端）+ aes-gcm（AES-256-GCM 加密）+ ring（PBKDF2 密钥派生）+ rmp-serde（MessagePack 序列化）
-- **Relay Server:** Hono.js（HTTP/WebSocket 框架）+ Cloudflare Workers Durable Objects（配对码状态管理）
-- **cc-widgets**（独立 widget crate，BorderedPanel/ScrollableArea/SelectableList/MarkdownRenderer 等 11 组件）
+- **cc-widgets**（独立 widget crate，16 个公开模块：bordered_panel/markdown/diff/tool_call 等）
 - **syntect 5**（代码语法高亮，feature flag `markdown-highlight` 控制）
 - **grep 0.4 + grep-regex**（进程内文件内容搜索，替代外部 rg 进程）
-- **定时任务:** croner 2（cron 表达式解析与下次触发时间计算，仅 cc-middlewares）
+- **定时任务:** croner 3（cron 表达式解析与下次触发时间计算，仅 cc-middlewares）
 - **错误处理:** thiserror 2.0（库 crate）/ anyhow 1.0（应用层）
-- **日志/追踪:** tracing 0.1 + tracing-subscriber 0.3 + opentelemetry 0.31 + tracing-opentelemetry 0.32
-- **OTLP 导出:** opentelemetry-otlp 0.31（http-proto + reqwest-rustls）
+- **日志/追踪:** tracing 0.1 + tracing-subscriber 0.3
 - **UUID:** uuid 1.x（features: v7 + serde，cc-agent 层消息 ID）
 - **同步原语:** parking_lot 0.12
 - **构建工具:** Cargo（Workspace resolver = "2"）
@@ -30,15 +25,15 @@
 - **Workspace 多 crate 分层:** `cc-agent`（核心 lib）→ `cc-middlewares`（中间件 lib）→ `cc-acp`（ACP 服务层）→ `cc-tui`（应用层），禁止下层依赖上层
 - **异步优先:** 所有 IO 密集操作使用 async/await，trait 方法通过 `async-trait` 标注
 - **Middleware Chain 模式:** 横切关注点（HITL、日志、工具提供、prompt 注入）通过 `Middleware<S>` trait 解耦，不侵入核心 ReAct 执行器
-- **工具系统:** `BaseTool` trait 统一工具接口，`ToolProvider` trait 支持批量动态提供，`register_tool` 手动注册优先级最高
+- **工具系统:** `BaseTool` trait 统一工具接口，工具由中间件 `collect_tools` 汇总提供，`register_tool` 手动注册优先级最高
 - **消息不可变历史:** `AgentState` 消息列表只追加，不修改历史，保证 LLM 上下文一致性
 - **事件驱动 ACP 通信:** Agent 执行与 TUI 渲染通过 ACP JSON-RPC 2.0 协议通信，MpscTransport（内存通道）用于本地 TUI，StdioTransport 用于 IDE 对接，禁止共享可变状态
 - **线程持久化事件驱动:** 持久化由 `StateSnapshot` 事件触发增量写入，不做全量序列化
-- **Widget 独立 crate:** cc-widgets 零内部依赖，仅依赖 ratatui + pulldown-cmark，TUI 通过 feature flag 引入
+- **Widget 独立 crate:** cc-widgets 零内部依赖（外部依赖含 ratatui、pulldown-cmark、syntect 等），TUI 通过 feature flag 引入
 - **权限模式系统:** 2 档 PermissionMode（`Auto` 默认 / `Bypass`），Arc<AtomicU8> 无锁共享，HITL middleware 按模式决定放行/判定/拦截
 - **LLM 重试装饰器:** RetryableLLM<L> 装饰器模式，对 executor 零改动，指数退避+25%随机抖动
 - **消息管线统一:** MessagePipeline 成为消息状态管理唯一入口，PipelineAction 枚举统一描述所有 UI 变更
-- **系统提示词段落化:** include_str! 编译时嵌入 sections/ 目录下的 12 个 .md 段落，PromptFeatures 条件注入
+- **系统提示词段落化:** include_str! 编译时嵌入 sections/ 目录下的 14 个 .md 段落，PromptFeatures 条件注入
 - **文件搜索:** rg CLI 双引擎，优先外部 ripgrep 二进制（`PERI_RG_PATH` → exe 同级 `bin/rg(.exe)` → 系统 PATH 探测），失败回退 grep+grep-regex crate（WalkParallel 多线程并行）
 
 ## API 风格
@@ -58,18 +53,16 @@
 
 ## 部署方式
 
-- **开发/本地运行:** `cargo run -p cc-tui`，配置通过 `~/.peri/settings.json` 的 `env` 字段和环境变量
+- **开发/本地运行:** `cargo run -p cc-tui`，配置通过 `~/.cc-code/settings.json` 的 `env` 字段和环境变量
 - **生产构建:** `cargo build --release`，输出单一二进制，无外部动态依赖（SQLite bundled）
-- **可观测性（可选）:** `docker compose -f docker-compose.otel.yml up -d` 启动 Jaeger，设置 `OTEL_EXPORTER_OTLP_ENDPOINT` 环境变量即开启 OTLP 导出
-- **CI/CD:** （未检测到）
+- **可观测性（可选）:** 配置 Langfuse 环境变量后，经其 OTLP 端点（`/api/public/otel/v1/traces`）上报追踪
+- **CI/CD:** GitHub Actions —— ci.yml 三平台（Ubuntu/macOS/Windows）CI + release-npm.yml 发布链
 
 ## 安全约束
 
-- **HITL 默认拦截清单:** `bash`、`write_*`、`edit_*`、`delete_*`、`rm_*`，需明确审批才执行
-- **API Key 安全:** `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` 可通过环境变量或 `~/.peri/settings.json` 的 `env` 字段配置（用户目录配置文件已 gitignore）
+- **HITL 默认拦截清单:** 精确名 `Bash`/`Write`/`Edit`/`Agent`/`WebFetch`/`WebSearch` + `delete_`/`rm_` 前缀 + `mcp__` 前缀工具，需明确审批才执行
+- **API Key 安全:** `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` 可通过环境变量或 `~/.cc-code/settings.json` 的 `env` 字段配置（用户目录配置文件已 gitignore）
 - **SubAgent 防递归:** `Agent` 工具始终从子 Agent 工具集中排除自身，防止无限递归
-- **配置同步 E2E 加密:** 配对码 → PBKDF2-SHA256 → AES-256-GCM 端到端加密，Relay Server 只转发密文无法解密
-- **路径穿越防护:** sync 模块使用 `validate_and_resolve()` 三层校验，拒绝绝对路径、ParentDir 穿越、解析后前缀验证
 
 ---
-*最后更新: 2026-05-20 — 由 feature_2026-05-18_F001_acp-tui-separation 和 feature_2026-05-17_F001_config-sync 归档时更新*
+*最后更新: 2026-10-22 — 对照 v0.6.182 代码维护：更新依赖版本、删除已移除的同步/Relay/OTel 技术栈、修正 HITL 清单与 CI 描述*

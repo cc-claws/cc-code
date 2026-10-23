@@ -409,3 +409,53 @@ fn test_width_safe_backend_tool_result_prefix_falls_back_to_plus() {
         "⎿ 应降级为 +（与 └ 等制表符一致），而非 ?"
     );
 }
+
+/// 回归：OSC 8 序列绝不能写进 `Cell` symbol。
+///
+/// `Buffer::diff` 用 `symbol.width()` 决定跳过后续多少个 cell，而序列载荷（URL）
+/// 是可见字符——一旦进 buffer，链接后面的文字会被整段跳过、不落笔（线上表现：
+/// 「URL 只剩首字母，同行内容错位/残留旧画面」）。装饰只能发生在输出层。
+#[test]
+fn test_hyperlink_decoration_stays_out_of_buffer() {
+    use ratatui::{layout::Rect, TerminalOptions, Viewport};
+    let (probe, _) = make_probe(&[]);
+    let inner = TestBackend::new(4, 1);
+    let mut terminal = Terminal::with_options(
+        WidthSafeBackend::with_probe(inner, probe),
+        TerminalOptions {
+            viewport: Viewport::Fixed(Rect::new(0, 0, 4, 1)),
+        },
+    )
+    .expect("创建固定视口");
+    let mut buffer_symbol = String::new();
+    terminal
+        .draw(|f| {
+            crate::terminal_backend::hyperlink::begin_frame(true);
+            crate::terminal_backend::hyperlink::register(0, 0, "https://a.example");
+            f.render_widget(Paragraph::new("ab"), f.area());
+            buffer_symbol = f.buffer_mut()[(0, 0)].symbol().to_string();
+        })
+        .expect("绘制");
+    let drawn = terminal.backend().inner.buffer();
+    assert!(
+        drawn[(0, 0)]
+            .symbol()
+            .starts_with("\x1b]8;;https://a.example\x07"),
+        "输出侧必须包裹 OSC 8: {:?}",
+        drawn[(0, 0)].symbol()
+    );
+    assert_eq!(
+        drawn[(0, 0)].style().fg,
+        Some(ratatui::style::Color::LightBlue),
+        "链接前景色取 12 号槽（实测与 CC 观感一致）"
+    );
+    assert_eq!(
+        drawn[(1, 0)].symbol(),
+        "b",
+        "链接后面的 cell 必须照常落笔，不能被 diff 跳过"
+    );
+    assert_eq!(
+        buffer_symbol, "a",
+        "buffer 里必须保持纯文本，序列不得参与宽度判定"
+    );
+}

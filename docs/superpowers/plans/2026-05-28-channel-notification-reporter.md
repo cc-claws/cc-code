@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在 MCP 协议上实现服务端主动消息推送 + 远程权限审批机制，对齐 Claude Code Channel 接口。
+**Goal:** 在 MCP 协议上实现服务端主动消息推送 + 远程权限审批机制，对齐参考实现的 Channel 接口。
 
 **Architecture:** 复用 MCP 传输通道的 `CustomNotification`，在 `McpClientPool` 注入自定义 `Service<RoleClient>` handler 接收 `notifications/claude/*` 三类通知。消息通过 `pending_messages` 队列注入 Agent 对话，权限通过 `MultiplexBroker` 实现本地 UI 与远程 channel 的多路竞争审批。
 
-**Tech Stack:** rmcp 1.7 (CustomNotification/NotificationContext), tokio::sync (mpsc/oneshot), peri-agent interaction broker trait
+**Tech Stack:** rmcp 1.7 (CustomNotification/NotificationContext), tokio::sync (mpsc/oneshot), cc-agent interaction broker trait
 
 ---
 
@@ -14,31 +14,31 @@
 
 | 文件 | 操作 | 职责 |
 |------|------|------|
-| `peri-agent/src/interaction/channel_types.rs` | **Create** | Channel 相关类型定义 |
-| `peri-agent/src/interaction/multiplex.rs` | **Create** | MultiplexBroker 实现 |
-| `peri-agent/src/interaction/channel_broker.rs` | **Create** | ChannelBroker 实现 |
-| `peri-agent/src/interaction/mod.rs` | Modify | 导出新模块、`ApprovalDecision` 加 `source` 字段 |
-| `peri-middlewares/src/mcp/channel_handler.rs` | **Create** | `Service<RoleClient>` handler，授权表 + 待审批 Map |
-| `peri-middlewares/src/mcp/mcp_notify.rs` | **Create** | `McpClientPool::send_custom_notification()` |
-| `peri-middlewares/src/mcp/channel_state.rs` | **Create** | 共享 ChannelState |
-| `peri-middlewares/src/mcp/mod.rs` | Modify | 导出新模块 |
-| `peri-middlewares/src/mcp/client.rs` | Modify | `McpClientHandle` 加 `channel_capable` 字段 |
-| `peri-middlewares/src/mcp/initialize.rs` | Modify | 注入 handler、检测 capability |
-| `peri-acp/src/prompt/mod.rs` | Modify | `PromptFeatures` 加 `channel_enabled`，注入段落 |
-| `peri-acp/src/agent/builder.rs` | Modify | 注入 channel_state 到 broker/handler |
-| `peri-tui/prompts/sections/15_channel.md` | **Create** | 频道消息格式说明 |
-| `peri-tui/src/app/channel_ops.rs` | **Create** | `/channel` 命令 + channel 消息桥接 |
-| `peri-tui/src/app/agent_ops/polling.rs` | Modify | poll 中消费 channel 通知 |
-| `peri-tui/src/app/service_registry.rs` | Modify | 新增 `channel_state` 字段 |
-| `peri-tui/src/app/mod.rs` | Modify | 注册 `/channel` 命令 |
+| `cc-agent/src/interaction/channel_types.rs` | **Create** | Channel 相关类型定义 |
+| `cc-agent/src/interaction/multiplex.rs` | **Create** | MultiplexBroker 实现 |
+| `cc-agent/src/interaction/channel_broker.rs` | **Create** | ChannelBroker 实现 |
+| `cc-agent/src/interaction/mod.rs` | Modify | 导出新模块、`ApprovalDecision` 加 `source` 字段 |
+| `cc-middlewares/src/mcp/channel_handler.rs` | **Create** | `Service<RoleClient>` handler，授权表 + 待审批 Map |
+| `cc-middlewares/src/mcp/mcp_notify.rs` | **Create** | `McpClientPool::send_custom_notification()` |
+| `cc-middlewares/src/mcp/channel_state.rs` | **Create** | 共享 ChannelState |
+| `cc-middlewares/src/mcp/mod.rs` | Modify | 导出新模块 |
+| `cc-middlewares/src/mcp/client.rs` | Modify | `McpClientHandle` 加 `channel_capable` 字段 |
+| `cc-middlewares/src/mcp/initialize.rs` | Modify | 注入 handler、检测 capability |
+| `cc-acp/src/prompt/mod.rs` | Modify | `PromptFeatures` 加 `channel_enabled`，注入段落 |
+| `cc-acp/src/agent/builder.rs` | Modify | 注入 channel_state 到 broker/handler |
+| `cc-tui/prompts/sections/15_channel.md` | **Create** | 频道消息格式说明 |
+| `cc-tui/src/app/channel_ops.rs` | **Create** | `/channel` 命令 + channel 消息桥接 |
+| `cc-tui/src/app/agent_ops/polling.rs` | Modify | poll 中消费 channel 通知 |
+| `cc-tui/src/app/service_registry.rs` | Modify | 新增 `channel_state` 字段 |
+| `cc-tui/src/app/mod.rs` | Modify | 注册 `/channel` 命令 |
 
 ---
 
 ### Task 1: Channel 类型定义 + short_request_id
 
 **Files:**
-- Create: `peri-agent/src/interaction/channel_types.rs`
-- Modify: `peri-agent/src/interaction/mod.rs` (add `mod channel_types;` + `pub use`)
+- Create: `cc-agent/src/interaction/channel_types.rs`
+- Modify: `cc-agent/src/interaction/mod.rs` (add `mod channel_types;` + `pub use`)
 
 - [ ] **Step 1: 创建 channel_types.rs**
 
@@ -84,7 +84,7 @@ pub fn short_request_id() -> String {
 
 - [ ] **Step 3: 导出模块**
 
-修改 `peri-agent/src/interaction/mod.rs`：
+修改 `cc-agent/src/interaction/mod.rs`：
 
 在文件末尾追加：
 ```rust
@@ -110,7 +110,7 @@ pub enum ApprovalDecision {
 
 搜索所有 `ApprovalDecision::Approve` / `ApprovalDecision::Reject` 的使用点并更新：
 
-`peri-middlewares/src/hitl/mod.rs`:
+`cc-middlewares/src/hitl/mod.rs`:
 ```rust
 // apply_decision 函数中，需要更新 match 分支
 fn apply_decision(call: &ToolCall, decision: ApprovalDecision) -> AgentResult<ToolCall> {
@@ -126,16 +126,16 @@ fn apply_decision(call: &ToolCall, decision: ApprovalDecision) -> AgentResult<To
 }
 ```
 
-`peri-middlewares/src/hitl/mod.rs` 中 `decide_by_mode` 里所有 `ApprovalDecision::Reject { reason }` → `ApprovalDecision::Reject { reason, source: None }`。
+`cc-middlewares/src/hitl/mod.rs` 中 `decide_by_mode` 里所有 `ApprovalDecision::Reject { reason }` → `ApprovalDecision::Reject { reason, source: None }`。
 
-`peri-tui/src/cli_print.rs` 中 PrintBroker 的 Decision 构造同样需更新。
+`cc-tui/src/cli_print.rs` 中 PrintBroker 的 Decision 构造同样需更新。
 
 所有测试中构造 `ApprovalDecision::Reject { reason: ... }` 的地方加 `source: None`。
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-agent/src/interaction/channel_types.rs peri-agent/src/interaction/mod.rs
+git add cc-agent/src/interaction/channel_types.rs cc-agent/src/interaction/mod.rs
 find . -name "*.rs" -path "*/hitl/*" -o -name "*.rs" -path "*/cli_print*" | xargs git add
 git commit -m "feat: add ChannelNotification types + short_request_id + ApprovalDecision.source field
 
@@ -147,7 +147,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 2: ChannelState 共享状态
 
 **Files:**
-- Create: `peri-middlewares/src/mcp/channel_state.rs`
+- Create: `cc-middlewares/src/mcp/channel_state.rs`
 
 - [ ] **Step 1: 创建 ChannelState**
 
@@ -156,7 +156,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use parking_lot::Mutex as SyncMutex;
 use tokio::sync::{mpsc, oneshot};
-use peri_agent::interaction::{ChannelNotification, PermissionResponse};
+use cc_agent::interaction::{ChannelNotification, PermissionResponse};
 
 /// Channel 共享状态 — 桥接 MCP handler 与 TUI/broker
 pub struct ChannelState {
@@ -206,7 +206,7 @@ impl ChannelState {
 
 - [ ] **Step 2: 导出模块**
 
-修改 `peri-middlewares/src/mcp/mod.rs`，在 mod 声明区域加：
+修改 `cc-middlewares/src/mcp/mod.rs`，在 mod 声明区域加：
 ```rust
 pub mod channel_state;
 pub use channel_state::ChannelState;
@@ -215,7 +215,7 @@ pub use channel_state::ChannelState;
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-middlewares/src/mcp/channel_state.rs peri-middlewares/src/mcp/mod.rs
+git add cc-middlewares/src/mcp/channel_state.rs cc-middlewares/src/mcp/mod.rs
 git commit -m "feat: add ChannelState shared state for channel handler/broker bridge
 
 Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
@@ -226,7 +226,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 3: ChannelHandler — MCP 自定义通知处理器
 
 **Files:**
-- Create: `peri-middlewares/src/mcp/channel_handler.rs`
+- Create: `cc-middlewares/src/mcp/channel_handler.rs`
 
 - [ ] **Step 1: 创建 ChannelHandler**
 
@@ -237,7 +237,7 @@ use rmcp::model::{CancelledNotificationParam, ElicitationResponseNotificationPar
 use rmcp::service::{NotificationContext, RoleClient};
 
 use super::channel_state::ChannelState;
-use peri_agent::interaction::{short_request_id, ChannelNotification, PermissionRequest, PermissionResponse};
+use cc_agent::interaction::{short_request_id, ChannelNotification, PermissionRequest, PermissionResponse};
 
 pub struct ChannelHandler {
     /// 共享状态
@@ -352,7 +352,7 @@ fn extract_server_name(source: &str) -> String {
 
 - [ ] **Step 2: 导出模块**
 
-修改 `peri-middlewares/src/mcp/mod.rs`：
+修改 `cc-middlewares/src/mcp/mod.rs`：
 ```rust
 pub mod channel_handler;
 pub use channel_handler::ChannelHandler;
@@ -361,7 +361,7 @@ pub use channel_handler::ChannelHandler;
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-middlewares/src/mcp/channel_handler.rs peri-middlewares/src/mcp/mod.rs
+git add cc-middlewares/src/mcp/channel_handler.rs cc-middlewares/src/mcp/mod.rs
 git commit -m "feat: add ChannelHandler implementing rmcp ClientHandler for channel notifications
 
 Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
@@ -372,13 +372,13 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 4: McpClientPool 集成 ChannelHandler + send_custom_notification
 
 **Files:**
-- Create: `peri-middlewares/src/mcp/mcp_notify.rs`
-- Modify: `peri-middlewares/src/mcp/client.rs` — 加 `channel_capable` 字段
-- Modify: `peri-middlewares/src/mcp/initialize.rs` — 注入 handler、检测 capability
+- Create: `cc-middlewares/src/mcp/mcp_notify.rs`
+- Modify: `cc-middlewares/src/mcp/client.rs` — 加 `channel_capable` 字段
+- Modify: `cc-middlewares/src/mcp/initialize.rs` — 注入 handler、检测 capability
 
 - [ ] **Step 1: McpClientHandle 加 channel_capable 字段**
 
-修改 `peri-middlewares/src/mcp/client.rs`，在 `McpClientHandle` 结构体中追加字段：
+修改 `cc-middlewares/src/mcp/client.rs`，在 `McpClientHandle` 结构体中追加字段：
 
 ```rust
 pub struct McpClientHandle {
@@ -433,14 +433,14 @@ impl McpClientPool {
 
 - [ ] **Step 3: 导出 mcp_notify 模块**
 
-修改 `peri-middlewares/src/mcp/mod.rs`：
+修改 `cc-middlewares/src/mcp/mod.rs`：
 ```rust
 pub(crate) mod mcp_notify;
 ```
 
 - [ ] **Step 4: 修改 run_initialize 接受 handler 参数**
 
-修改 `peri-middlewares/src/mcp/initialize.rs`，将 `run_initialize` 的签名改为：
+修改 `cc-middlewares/src/mcp/initialize.rs`，将 `run_initialize` 的签名改为：
 
 ```rust
 pub async fn run_initialize(
@@ -559,7 +559,7 @@ let channel_capable = rs
 - [ ] **Step 7: Commit**
 
 ```bash
-git add peri-middlewares/src/mcp/
+git add cc-middlewares/src/mcp/
 git commit -m "feat: integrate ChannelHandler into McpClientPool + channel_capable detection
 
 Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
@@ -570,7 +570,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 5: MultiplexBroker — 多路竞争审批
 
 **Files:**
-- Create: `peri-agent/src/interaction/multiplex.rs`
+- Create: `cc-agent/src/interaction/multiplex.rs`
 
 - [ ] **Step 1: 创建 MultiplexBroker**
 
@@ -691,7 +691,7 @@ impl MultiplexBroker {
 
 - [ ] **Step 2: 导出**
 
-修改 `peri-agent/src/interaction/mod.rs`：
+修改 `cc-agent/src/interaction/mod.rs`：
 ```rust
 pub mod multiplex;
 pub use multiplex::MultiplexBroker;
@@ -700,7 +700,7 @@ pub use multiplex::MultiplexBroker;
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-agent/src/interaction/multiplex.rs peri-agent/src/interaction/mod.rs
+git add cc-agent/src/interaction/multiplex.rs cc-agent/src/interaction/mod.rs
 git commit -m "feat: add MultiplexBroker for racing multiple UserInteractionBroker sources
 
 Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
@@ -711,7 +711,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 6: ChannelBroker — 发送 permission_request + 等待 channel 响应
 
 **Files:**
-- Create: `peri-agent/src/interaction/channel_broker.rs`
+- Create: `cc-agent/src/interaction/channel_broker.rs`
 
 - [ ] **Step 1: 创建 ChannelBroker**
 
@@ -732,14 +732,14 @@ use crate::interaction::{
 /// 1. 通过 McpClientPool 发送 permission_request
 /// 2. 在 pending_permissions 中注册 oneshot 等待响应
 pub struct ChannelBroker {
-    pub state: Arc<peri_middlewares::mcp::ChannelState>,
-    pub pool: Arc<peri_middlewares::mcp::McpClientPool>,
+    pub state: Arc<cc_middlewares::mcp::ChannelState>,
+    pub pool: Arc<cc_middlewares::mcp::McpClientPool>,
 }
 
 impl ChannelBroker {
     pub fn new(
-        state: Arc<peri_middlewares::mcp::ChannelState>,
-        pool: Arc<peri_middlewares::mcp::McpClientPool>,
+        state: Arc<cc_middlewares::mcp::ChannelState>,
+        pool: Arc<cc_middlewares::mcp::McpClientPool>,
     ) -> Self {
         Self { state, pool }
     }
@@ -856,11 +856,11 @@ impl ChannelBroker {
 }
 ```
 
-> **循环依赖问题：** `peri-agent/src/interaction/channel_broker.rs` 引用了 `peri_middlewares::mcp::ChannelState` 和 `McpClientPool`。但 `peri-middlewares` 依赖 `peri-agent`。需要将 `ChannelState` 和 `send_custom_notification` 移到 `peri-agent`，或者通过 trait/type alias 解耦。
+> **循环依赖问题：** `cc-agent/src/interaction/channel_broker.rs` 引用了 `cc_middlewares::mcp::ChannelState` 和 `McpClientPool`。但 `cc-middlewares` 依赖 `cc-agent`。需要将 `ChannelState` 和 `send_custom_notification` 移到 `cc-agent`，或者通过 trait/type alias 解耦。
 
-**解决方案：** 将 `ChannelState` 移到 `peri-agent/src/interaction/channel_state.rs`，`send_custom_notification` 用 trait 抽象。
+**解决方案：** 将 `ChannelState` 移到 `cc-agent/src/interaction/channel_state.rs`，`send_custom_notification` 用 trait 抽象。
 
-创建 `peri-agent/src/interaction/channel_state.rs`（同 Task 2 代码，但归 peri-agent 所有）。
+创建 `cc-agent/src/interaction/channel_state.rs`（同 Task 2 代码，但归 cc-agent 所有）。
 
 创建 trait `ChannelNotificationSender`：
 
@@ -877,11 +877,11 @@ pub trait ChannelNotificationSender: Send + Sync {
 }
 ```
 
-`McpClientPool` 在 `peri-middlewares` 中实现这个 trait，传给 `ChannelBroker`。
+`McpClientPool` 在 `cc-middlewares` 中实现这个 trait，传给 `ChannelBroker`。
 
 - [ ] **Step 2: 导出模块**
 
-修改 `peri-agent/src/interaction/mod.rs`：
+修改 `cc-agent/src/interaction/mod.rs`：
 ```rust
 pub mod channel_state;
 pub mod channel_broker;
@@ -892,11 +892,11 @@ pub use channel_state::ChannelNotificationSender;
 
 - [ ] **Step 3: McpClientPool 实现 ChannelNotificationSender**
 
-在 `peri-middlewares/src/mcp/mcp_notify.rs` 中：
+在 `cc-middlewares/src/mcp/mcp_notify.rs` 中：
 
 ```rust
 #[async_trait::async_trait]
-impl peri_agent::interaction::ChannelNotificationSender for McpClientPool {
+impl cc_agent::interaction::ChannelNotificationSender for McpClientPool {
     async fn send_notification(
         &self,
         server_name: &str,
@@ -911,7 +911,7 @@ impl peri_agent::interaction::ChannelNotificationSender for McpClientPool {
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-agent/src/interaction/ peri-middlewares/src/mcp/mcp_notify.rs
+git add cc-agent/src/interaction/ cc-middlewares/src/mcp/mcp_notify.rs
 git commit -m "feat: add ChannelBroker for remote permission approval + ChannelNotificationSender trait
 
 Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
@@ -922,18 +922,18 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 7: 消息注入桥接 — channel 通知 → pending_messages
 
 **Files:**
-- Modify: `peri-tui/src/app/agent_ops/polling.rs` — poll 中消费 channel 通知
-- Modify: `peri-tui/src/app/service_registry.rs` — 存 channel_state
+- Modify: `cc-tui/src/app/agent_ops/polling.rs` — poll 中消费 channel 通知
+- Modify: `cc-tui/src/app/service_registry.rs` — 存 channel_state
 
 - [ ] **Step 1: ServiceRegistry 加 channel_state**
 
-修改 `peri-tui/src/app/service_registry.rs`：
+修改 `cc-tui/src/app/service_registry.rs`：
 
 ```rust
 pub struct ServiceRegistry {
     // ... 已有字段保持不变 ...
     /// Channel 消息状态（跨 session 共享）
-    pub channel_state: Option<Arc<peri_agent::interaction::ChannelState>>,
+    pub channel_state: Option<Arc<cc_agent::interaction::ChannelState>>,
 }
 ```
 
@@ -944,7 +944,7 @@ channel_state: None,
 
 - [ ] **Step 2: 在 poll_agent 中消费 channel 通知**
 
-修改 `peri-tui/src/app/agent_ops/polling.rs`，在 `poll_agent` 函数末尾的 cron 触发检查后面，添加 channel 消息消费：
+修改 `cc-tui/src/app/agent_ops/polling.rs`，在 `poll_agent` 函数末尾的 cron 触发检查后面，添加 channel 消息消费：
 
 ```rust
 // 6. 消费 channel 通知（与 cron 触发同样的排队逻辑）
@@ -996,10 +996,10 @@ impl App {
 
 - [ ] **Step 3: MessageState 加 channel_notification_rx 字段**
 
-修改 `peri-tui/src/app/message_state.rs`：
+修改 `cc-tui/src/app/message_state.rs`：
 
 ```rust
-use peri_agent::interaction::ChannelNotification;
+use cc_agent::interaction::ChannelNotification;
 
 pub struct MessageState {
     // ... 已有字段保持不变 ...
@@ -1016,7 +1016,7 @@ channel_notification_rx: None,
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/app/
+git add cc-tui/src/app/
 git commit -m "feat: wire channel notifications into pending_messages queue
 
 Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
@@ -1027,7 +1027,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 8: /channel 命令
 
 **Files:**
-- Create: `peri-tui/src/app/channel_ops.rs`
+- Create: `cc-tui/src/app/channel_ops.rs`
 
 - [ ] **Step 1: 创建 /channel 命令**
 
@@ -1171,7 +1171,7 @@ fn extract_mcp_server_name(source: &str) -> String {
 
 - [ ] **Step 2: 注册命令**
 
-修改 `peri-tui/src/command/mod.rs` 的 `default_registry()`：
+修改 `cc-tui/src/command/mod.rs` 的 `default_registry()`：
 
 ```rust
 r.register(Box::new(crate::app::channel_ops::ChannelCommand));
@@ -1184,11 +1184,11 @@ r.register(Box::new(crate::app::channel_ops::ChannelCommand));
 pub mod channel_ops;
 ```
 
-> **实际放置:** `ChannelCommand` 放在 `peri-tui/src/command/session/channel.rs`，与其他 session 命令一致。
+> **实际放置:** `ChannelCommand` 放在 `cc-tui/src/command/session/channel.rs`，与其他 session 命令一致。
 
 - [ ] **Step 3: Modify App struct**
 
-修改 `peri-tui/src/app/mod.rs`，加方法：
+修改 `cc-tui/src/app/mod.rs`，加方法：
 
 ```rust
 impl App {
@@ -1204,7 +1204,7 @@ impl App {
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/
+git add cc-tui/src/
 git commit -m "feat: add /channel open/close/status command for MCP channel management
 
 Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
@@ -1215,9 +1215,9 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 9: 系统提示词段落 + build_agent 集成
 
 **Files:**
-- Create: `peri-tui/prompts/sections/15_channel.md`
-- Modify: `peri-acp/src/prompt/mod.rs` — `PromptFeatures` + 注入段落
-- Modify: `peri-acp/src/agent/builder.rs` — 注入 MultiplexBroker + channel_state
+- Create: `cc-tui/prompts/sections/15_channel.md`
+- Modify: `cc-acp/src/prompt/mod.rs` — `PromptFeatures` + 注入段落
+- Modify: `cc-acp/src/agent/builder.rs` — 注入 MultiplexBroker + channel_state
 
 - [ ] **Step 1: 创建 15_channel.md**
 
@@ -1236,7 +1236,7 @@ If you don't see a reply tool for a channel server, ask the user to check the ch
 
 - [ ] **Step 2: 加 PromptFeatures::channel_enabled**
 
-修改 `peri-acp/src/prompt/mod.rs`：
+修改 `cc-acp/src/prompt/mod.rs`：
 
 ```rust
 pub struct PromptFeatures {
@@ -1266,20 +1266,20 @@ impl PromptFeatures {
 if features.channel_enabled {
     dynamic_sections.push(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../peri-tui/prompts/sections/15_channel.md"
+        "/../cc-tui/prompts/sections/15_channel.md"
     )));
 }
 ```
 
 - [ ] **Step 3: build_agent 集成 MultiplexBroker**
 
-修改 `peri-acp/src/agent/builder.rs`，在 `AcpAgentConfig` 中加：
+修改 `cc-acp/src/agent/builder.rs`，在 `AcpAgentConfig` 中加：
 
 ```rust
 pub struct AcpAgentConfig {
     // ... 已有字段 ...
     /// Channel 共享状态（None = 不启用 channel 功能）
-    pub channel_state: Option<Arc<peri_agent::interaction::ChannelState>>,
+    pub channel_state: Option<Arc<cc_agent::interaction::ChannelState>>,
 }
 ```
 
@@ -1289,12 +1289,12 @@ pub struct AcpAgentConfig {
 // 构造 permission broker：如果启用了 channel，包装为 MultiplexBroker
 let permission_broker: Arc<dyn UserInteractionBroker> = if let Some(ref channel_state) = cfg.channel_state {
     if let Some(ref mcp_pool) = cfg.mcp_pool {
-        let channel_broker = Arc::new(peri_agent::interaction::ChannelBroker::new(
+        let channel_broker = Arc::new(cc_agent::interaction::ChannelBroker::new(
             channel_state.clone(),
             mcp_pool.clone(),
         ));
         let tui_broker = original_broker.clone();  // 原始 TUI broker
-        Arc::new(peri_agent::interaction::MultiplexBroker::new(vec![
+        Arc::new(cc_agent::interaction::MultiplexBroker::new(vec![
             ("tui".to_string(), tui_broker),
             ("channel".to_string(), channel_broker as Arc<dyn UserInteractionBroker>),
         ]))
@@ -1323,7 +1323,7 @@ let hitl = HumanInTheLoopMiddleware::with_shared_mode(
 在 TUI 启动 (main.rs / app init) 时：
 
 ```rust
-let channel_state = peri_agent::interaction::ChannelState::new();
+let channel_state = cc_agent::interaction::ChannelState::new();
 app.services.channel_state = Some(channel_state.clone());
 
 // 将 channel_state 传给 AcpAgentConfig
@@ -1333,7 +1333,7 @@ app.services.channel_state = Some(channel_state.clone());
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-tui/prompts/sections/15_channel.md peri-acp/src/prompt/mod.rs peri-acp/src/agent/builder.rs
+git add cc-tui/prompts/sections/15_channel.md cc-acp/src/prompt/mod.rs cc-acp/src/agent/builder.rs
 git commit -m "feat: inject channel system prompt + integrate MultiplexBroker in build_agent
 
 Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
@@ -1345,7 +1345,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 
 1. **Spec coverage:** ✔ channel 消息推送 + ✔ 权限审批 relay + ✔ 安全门控 (capability + session open) + ✔ 短 ID + ✔ 系统提示词
 2. **Placeholder scan:** No TBD/TODO — all code blocks are concrete
-3. **Type consistency:** `ChannelState` moved from `peri-middlewares` to `peri-agent` to avoid circular dep; `ChannelNotificationSender` trait bridges `McpClientPool` into `peri-agent` typespace. `ApprovalDecision.source` field added in Task 1, consumed in Tasks 5-6. `PromptFeatures.channel_enabled` added in Task 9, consumed in paragraph injection in same task.
+3. **Type consistency:** `ChannelState` moved from `cc-middlewares` to `cc-agent` to avoid circular dep; `ChannelNotificationSender` trait bridges `McpClientPool` into `cc-agent` typespace. `ApprovalDecision.source` field added in Task 1, consumed in Tasks 5-6. `PromptFeatures.channel_enabled` added in Task 9, consumed in paragraph injection in same task.
 4. **Open issue:** `ChannelHandler::handle_request` returns `ServerResult::Err` — is `call_tool` on this handler used or bypassed? Current architecture: `call_tool` goes through `McpClientPool.call_tool()` which uses `RunningService` directly, not the handler. The handler is only for notifications. This should be verified.
 
 ---

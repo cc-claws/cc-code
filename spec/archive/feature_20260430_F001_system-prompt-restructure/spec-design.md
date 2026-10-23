@@ -6,13 +6,13 @@
 
 1. **单体文件，难以维护**：`system.md` 和 `default.md` 两个文件承载了所有提示词内容，各段落职责边界模糊，无法独立演进。
 2. **无 Feature 控制**：HITL 审批模式、SubAgent、Cron、Skills 等功能的提示词无法条件注入，要么全部包含、要么完全不包含。
-3. **工具提示词过于简略**：工具 `description()` 只有一行文本，缺少 claude-code 中的详细用法指导（使用示例、决策树、错误处理建议），导致 LLM 不能充分利用工具能力。
+3. **工具提示词过于简略**：工具 `description()` 只有一行文本，缺少 参考实现 中的详细用法指导（使用示例、决策树、错误处理建议），导致 LLM 不能充分利用工具能力。
 
 ## 目标
 
 - 将系统提示词拆分为语义明确的独立 `.md` 文件，每个文件有清晰的段落职责说明
 - 建立 Feature-gated 的条件注入机制，根据运行时功能开关动态合成提示词
-- 同步 claude-code 项目的系统提示词段落和工具 description/parameters，对齐提示词质量
+- 同步 参考实现 项目的系统提示词段落和工具 description/parameters，对齐提示词质量
 - 保持 `build_system_prompt()` 函数式架构，新增 `PromptFeatures` 参数控制条件段落
 
 ## 方案设计
@@ -46,38 +46,38 @@ peri-tui/prompts/
 
 **`01_intro.md`** — 身份定义
 
-- 来源：claude-code `getSimpleIntroSection()` + 现有 `default.md` 开头
+- 来源：参考实现 `getSimpleIntroSection()` + 现有 `default.md` 开头
 - 内容：AI 助手身份声明、安全策略（仅防御性安全任务）、URL 生成禁令
 
 **`02_system.md`** — 系统级行为
 
-- 来源：claude-code `getSimpleSystemSection()`
+- 来源：参考实现 `getSimpleSystemSection()`
 - 内容：文本输出显示规则、工具权限模式说明、工具列表延迟加载、system-reminder 标签说明、外部数据注入检测、hooks 反馈处理、上下文自动压缩
 
 **`03_doing_tasks.md`** — 任务执行规范
 
-- 来源：claude-code `getSimpleDoingTasksSection()`
+- 来源：参考实现 `getSimpleDoingTasksSection()`
 - 内容：软件工程任务定位、主动性平衡、代码修改原则（先读后改）、文件创建决策、安全漏洞防范、代码风格指导（不加多余注释/错误处理/抽象）、结果如实报告、用户反馈处理方式
 
 **`04_actions.md`** — 危险操作谨慎原则
 
-- 来源：claude-code `getActionsSection()`
+- 来源：参考实现 `getActionsSection()`
 - 内容：操作可逆性与影响范围评估、高风险操作需确认的判断标准、障碍处理原则
 
 **`05_using_tools.md`** — 工具使用策略
 
-- 来源：claude-code `getUsingYourToolsSection()`
+- 来源：参考实现 `getUsingYourToolsSection()`
 - 内容：工具选择决策树（4 步）、专用工具优先于 Bash 原则、搜索查询构建指导、成本不对称原则、渐进式搜索回退链、搜索策略按复杂度分级
 - 注意：工具名常量需要替换为 peri 的工具名（如 `Read` → `read_file`）
 
 **`06_tone_style.md`** — 语气风格
 
-- 来源：claude-code `getSimpleToneAndStyleSection()`
+- 来源：参考实现 `getSimpleToneAndStyleSection()`
 - 内容：emoji 使用限制、用户能力正面假设、代码引用格式（file_path:line_number）
 
 **`07_communicating.md`** — 用户沟通方式
 
-- 来源：claude-code `getOutputEfficiencySection()`
+- 来源：参考实现 `getOutputEfficiencySection()`
 - 内容：面向人而非控制台的写作风格、不叙述内部机制、更新时的上下文恢复、避免过度格式化、完成后直接报告
 
 **`08_env.md`** — 环境信息模板
@@ -91,13 +91,13 @@ peri-tui/prompts/
 
 - 触发条件：`PromptFeatures::hitl_enabled == true`
 - 内容：工具审批行为指导、审批决策类型说明、被拒绝后的应对策略
-- 来源：claude-code 中 HITL 相关段落 + 现有 HITL 中间件逻辑
+- 来源：参考实现 中 HITL 相关段落 + 现有 HITL 中间件逻辑
 
 **`11_subagent.md`** — SubAgent 工具使用
 
 - 触发条件：`PromptFeatures::subagent_enabled == true`
 - 内容：launch_agent 工具使用指导、子 agent 委派策略、上下文隔离原则
-- 来源：claude-code `getAgentToolSection()` + SubAgent 中间件说明
+- 来源：参考实现 `getAgentToolSection()` + SubAgent 中间件说明
 
 **`12_cron.md`** — Cron 定时任务
 
@@ -109,7 +109,7 @@ peri-tui/prompts/
 
 - 触发条件：`PromptFeatures::skills_enabled == true`
 - 内容：Skills 搜索顺序、# 前缀触发方式、Skill 定义文件结构
-- 来源：现有 Skills 中间件说明 + claude-code Skills 指导
+- 来源：现有 Skills 中间件说明 + 参考实现 Skills 指导
 
 #### 动态生成段落
 
@@ -221,7 +221,7 @@ let system_prompt = build_system_prompt(overrides, cwd, features);
 
 #### 同步清单
 
-| 工具 | claude-code 对应 | 同步内容 |
+| 工具 | 参考实现 对应 | 同步内容 |
 |------|------------------|---------|
 | `read_file` | `FileReadTool/prompt.ts` | description 扩展（含用法、行号格式、大文件建议），注释掉 PDF/image/notebook 支持段落 |
 | `write_file` | `FileWriteTool/prompt.ts` | description 扩展（原子写入说明、父目录自动创建），参数 description 丰富 |
@@ -229,13 +229,13 @@ let system_prompt = build_system_prompt(overrides, cwd, features);
 | `glob_files` | `GlobTool/prompt.ts` | description 扩展（glob 模式语法、排序规则），参数说明丰富 |
 | `search_files_rg` | `GrepTool/prompt.ts` | description 扩展（正则语法、输出模式、上下文行），参数说明丰富 |
 | `bash` | `BashTool/prompt.ts` | description 扩展（超时说明、跨平台命令），参数说明丰富 |
-| `ask_user_question` | `AskUserQuestionTool/prompt.ts` | 保持现有格式（已与 claude-code 基本对齐） |
+| `ask_user_question` | `AskUserQuestionTool/prompt.ts` | 保持现有格式（已与 参考实现 基本对齐） |
 | `todo_write` | `TodoWriteTool/prompt.ts` | description 扩展（用法指导） |
 | `launch_agent` | `AgentTool/prompt.ts` | description 扩展（委派策略、工具过滤规则） |
 
 #### 同步规则
 
-1. **已实现功能**：完整搬运 claude-code 的 description 文本
+1. **已实现功能**：完整搬运 参考实现 的 description 文本
 2. **未实现功能**：用 `// TODO:` 注释标记对应行，不在 description 中输出。例如：
 
    ```rust
@@ -245,7 +245,7 @@ let system_prompt = build_system_prompt(overrides, cwd, features);
    }
    ```
 
-3. **工具名替换**：claude-code 的 `Read` → `read_file`、`Write` → `write_file`、`Edit` → `edit_file` 等
+3. **工具名替换**：参考实现 的 `Read` → `read_file`、`Write` → `write_file`、`Edit` → `edit_file` 等
 4. **参数 schema 不新增**：只在已有参数上丰富 description 字段，不为未实现的功能添加新参数
 
 #### 工具 description 存储方式
@@ -271,7 +271,7 @@ fn description(&self) -> &str {
 **阶段 1：目录结构与静态段落迁移**
 
 1. 创建 `peri-tui/prompts/sections/` 目录
-2. 编写 01-08 号段落文件（从 claude-code 同步 + 现有 system.md 拆分）
+2. 编写 01-08 号段落文件（从 参考实现 同步 + 现有 system.md 拆分）
 3. 修改 `build_system_prompt()` 使用 `include_str!` 加载段落
 4. 删除旧的 `system.md` 和 `default.md`
 5. 验证：运行 TUI 确认提示词正常
@@ -288,7 +288,7 @@ fn description(&self) -> &str {
 
 1. 逐个工具扩展 description 和 parameters
 2. 标注未实现功能的 TODO 注释
-3. 验证：对比 claude-code 工具输出，确认对齐
+3. 验证：对比 参考实现 工具输出，确认对齐
 
 **阶段 4：清理与测试**
 
@@ -299,7 +299,7 @@ fn description(&self) -> &str {
 ## 实现要点
 
 - **include_str! 编译时嵌入**：零运行时开销，但修改 `.md` 文件后需重新编译
-- **工具名映射**：claude-code 使用 PascalCase 工具名（`Read`、`Write`），peri 使用 snake_case（`read_file`、`write_file`），同步时需全部替换
+- **工具名映射**：参考实现 使用 PascalCase 工具名（`Read`、`Write`），peri 使用 snake_case（`read_file`、`write_file`），同步时需全部替换
 - **Feature 检测方式**：当前 `PromptFeatures::detect()` 用环境变量推断，长期应改为从中间件注册列表推断（更准确）
 - **子 Agent 提示词**：SubAgent 调用 `build_system_prompt()` 时也需要传入对应的 `PromptFeatures`，需同步修改 SubAgent 的 system_builder 闭包
 
@@ -314,7 +314,7 @@ fn description(&self) -> &str {
 - [ ] `peri-tui/prompts/sections/` 下有 12 个 `.md` 文件（8 静态 + 4 feature-gated）
 - [ ] 旧 `system.md` 和 `default.md` 已删除
 - [ ] `build_system_prompt()` 使用 `include_str!` 加载段落 + `PromptFeatures` 条件注入
-- [ ] 9 个工具的 description 已同步 claude-code 详细版本
+- [ ] 9 个工具的 description 已同步 参考实现 详细版本
 - [ ] 未实现功能已用 TODO 注释标记
 - [ ] 所有现有测试通过
 - [ ] `cargo run -p peri-tui` 启动后功能正常

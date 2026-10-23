@@ -53,7 +53,7 @@
 **摘要:** 全面增强 Micro/Full Compact 策略与压缩后重新注入
 **关键决策:**
 - Micro-compact 引入可压缩工具白名单 + 时间衰减清除策略
-- Full Compact 采用 9 段结构化摘要模板对齐 Claude Code
+- Full Compact 摘要格式（注：早期的 9 段结构化摘要模板已被任务续接式自由摘要取代，现行实现见 cc-agent/src/agent/compact/full.rs）
 - 压缩后重新注入最近读取文件和激活 Skills（System 消息形式）
 - 工具对完整性保护：确保 tool_use 和 tool_result 不被拆开
 - PTL 降级重试：按消息步数组逐步删除最旧组，最多重试 3 次

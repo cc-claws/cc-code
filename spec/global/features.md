@@ -1,10 +1,8 @@
 # 已有功能清单
 
-![功能模块概览](./images/05-feature-modules.png)
-
 ## 核心引擎（cc-agent）
 
-- **子 Agent 独立事件信封（未发布）：** 以实例 ID 包装完整子事件，覆盖思考、消息快照、工具、指标与诊断；ACP 标准事件仅经 `session/update`，生命周期仅经 `peri/subagent_lifecycle`。
+- **子 Agent 独立事件信封：** 以实例 ID 包装完整子事件，覆盖思考、消息快照、工具、指标与诊断；ACP 标准事件仅经 `session/update`，生命周期仅经 `peri/subagent_lifecycle`。
 
 - **ReAct 循环执行器:** `ReActAgent` 核心默认最多 10 次迭代（`cc-acp` 构建时 `max_iterations(500)` 放宽），思考 → 工具调用 → 反馈自动推进，parallel 工具调用（同轮多工具同时执行）
 - **MockLLM 测试工具:** `MockLLM::tool_then_answer()` 按脚本回放推理序列，无需真实 API，覆盖单元测试场景
@@ -12,22 +10,22 @@
 - **Anthropic 适配器:** Prompt Cache（默认开启，最后消息末尾 `cache_control:ephemeral`），Extended Thinking（`budget_tokens`），`system` 字段 blocks 格式
 - **MessageAdapter 双向转换:** `OpenAiAdapter` / `AnthropicAdapter` 实现 `MessageAdapter` trait，`BaseMessage` ↔ Provider 原生 JSON
 - **ContentBlock 完整支持:** Text / Image（Base64 & URL）/ Document / ToolUse / ToolResult / Reasoning / Unknown 透传
-- **Middleware Chain:** `Middleware<S>` trait，`before_agent` / `after_agent` / `before_tool` / `after_tool` / `collect_tools` 五个钩子
+- **Middleware Chain:** `Middleware<S>` trait，七个生命周期钩子（`before_agent` / `before_tools_batch` / `before_tool` / `after_tool` / `before_model` / `after_model` / `after_agent`）+ `collect_tools`
 - **系统提示词段落化:** 14 个 .md 段落文件（6 静态 + 8 动态，其中若干 feature-gated），`__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 边界标记分隔静态/动态（标记前可缓存），PromptFeatures 条件注入，include_str! 编译时嵌入
 - **消息管线统一:** MessagePipeline 唯一入口，PipelineAction 枚举，ToolStart+ToolEnd 事件拆分
 - **尾部重建:** reconcile_tail() 方法，Done/Interrupted 时触发，RebuildAll 只替换尾部
-- **工具参数 Schema 预校验:** 对齐 Claude Code `formatZodValidationError` 风格，结构化分项输出缺失参数 / 意外参数 / 类型不符；`suggest_tool_mismatch` 启发式诊断（基于参数特征指纹对 WebFetch/Bash/Grep/Read/Agent 给出纠偏建议）；`SchemaFailureTracker` 熔断器（滑动窗口口径，窗口容量 6；单工具阈值 2、跨工具聚合阈值 3，由窗口派生且成功调用同样占位以淘汰旧失败，防盲目重试循环）
+- **工具参数 Schema 预校验:** 对齐参考实现的校验错误格式风格，结构化分项输出缺失参数 / 意外参数 / 类型不符；`suggest_tool_mismatch` 启发式诊断（基于参数特征指纹对 WebFetch/Bash/Grep/Read/Agent 给出纠偏建议）；`SchemaFailureTracker` 熔断器（滑动窗口口径，窗口容量 6；单工具阈值 2、跨工具聚合阈值 3，由窗口派生且成功调用同样占位以淘汰旧失败，防盲目重试循环）
 - **工具动作签名循环检测:** 连续 3 轮相同工具动作时注入纠正消息，打断重复循环
 - **Anthropic 适配器（自适应兼容）:** 非流式响应自适应解析反向代理返回的 OpenAI 格式（`choices` / `message` / `tool_calls`），缺 `content` 时回退解析；SSE 流式自适应解析
 - **/recap 会话回顾:** 独立 `aux_model`（与 compact_model 解耦），单轮禁用工具、不写 history、支持 Ctrl+C 取消
 - **自动记忆系统（Auto-Memory，v0.6.139，#507）:** 模型获得跨会话持久记忆，**纯文件架构、零专有工具**——系统提示词向模型呈现项目记忆目录，模型用通用 `Write`/`Edit` 维护带四类型 YAML frontmatter 的 Markdown 记忆文件，入口索引 `MEMORY.md` 有界（≤200 行且 ≤25KB，超限安全截断并追加 warning），与既有 `~/.claude/projects/`、`~/.cc-code/projects/` 记忆资产双向兼容；`MemoryMiddleware` 在 `AgentsMdMiddleware` 之后注入**冻结的索引快照**（置于动态边界之后，保障 Prompt Cache 前缀稳定）；安全门为自动记忆路径设 carve-out 豁免，记忆路径在 TUI 中脱敏渲染
 
-- **核心工具描述对齐 Claude Code（v0.6.138）:** Bash / WebFetch 改为 **NOT 反向枚举**（读用 `Read` NOT `cat`、内容检索用 `Grep` NOT `grep`/`rg` 等），补齐 `Grep`/`Read`/`TodoWrite`/`AskUserQuestion` 边界句；**`Write` 改为 NEVER 语义**——默认不再主动创建 `.md`/README，仅用户明确要求时创建（行为语义变更）。详见 [domains/tools.md](domains/tools.md)
-- **系统提示词静态段落对齐 Claude Code（v0.6.139，#504）:** `01_intro` 补「信息足够即行动」与 Corrections；`03_doing_tasks` 补 Scope discipline（不超范围加功能/抽象、优先编辑现有文件、不做投机抽象）；`04_actions` 补授权与影响判定框架（破坏性/难逆/影响共享状态/上传第三方需确认）；`06_tone_style` 明确「用户只看文本输出」与结果诚实性。详见 [domains/system-prompt.md](domains/system-prompt.md)
+- **核心工具描述对齐参考实现（v0.6.138）:** Bash / WebFetch 改为 **NOT 反向枚举**（读用 `Read` NOT `cat`、内容检索用 `Grep` NOT `grep`/`rg` 等），补齐 `Grep`/`Read`/`TodoWrite`/`AskUserQuestion` 边界句；**`Write` 改为 NEVER 语义**——默认不再主动创建 `.md`/README，仅用户明确要求时创建（行为语义变更）。详见 [domains/tools.md](domains/tools.md)
+- **系统提示词静态段落对齐参考实现（v0.6.139，#504）:** `01_intro` 补「信息足够即行动」与 Corrections；`03_doing_tasks` 补 Scope discipline（不超范围加功能/抽象、优先编辑现有文件、不做投机抽象）；`04_actions` 补授权与影响判定框架（破坏性/难逆/影响共享状态/上传第三方需确认）；`06_tone_style` 明确「用户只看文本输出」与结果诚实性。详见 [domains/system-prompt.md](domains/system-prompt.md)
 
 ## 中间件（cc-middlewares）
 
-- **后台任务管理（未发布）：** 子 Agent 恒后台执行（无前台同步模式），会话级任务注册表（并发上限 3）、下一次模型调用前消费的定向 mailbox、显式超时预算 `timeout_secs`（省略/零无限制）、独立持久化子线程；结果经完成通知回流并自动续接。
+- **后台任务管理：** 子 Agent 恒后台执行（无前台同步模式），会话级任务注册表（并发上限 3）、下一次模型调用前消费的定向 mailbox、显式超时预算 `timeout_secs`（省略/零无限制）、独立持久化子线程；结果经完成通知回流并自动续接。
 
 - **FilesystemMiddleware:** 提供 `Read`、`Write`、`Edit`、`Glob`、`Grep` 五个工具；只读工具无需 HITL
 - **TerminalMiddleware:** 提供 `Bash` 工具，120 秒超时，跨平台（Windows: `cmd /C`，其他: `bash -c`）；Windows 下 `cmd /C` 失败且 stderr 匹配"命令未识别"时自动 fallback 到 Git Bash（`bash -c`），多语言 stderr 匹配（English/中文/法语/德语）+ 兜底模式，`MSYS_NO_PATHCONV=1` 防路径转换，剩余超时继承
@@ -36,39 +34,39 @@
 - **SkillsMiddleware:** `before_agent` 扫描加载 Skills（`~/.claude/skills/` → `skillsDir` → `./.claude/skills/`），prepend System prompt
 - **AgentsMdMiddleware:** `before_agent` 自动读取项目指引文件，prepend System prompt（单条 System 消息，会话内冻结）。加载模型对齐 dsh：**同目录候选全部加载并合并**（`AGENTS.md` / `CLAUDE.md` / `.claude/AGENTS.md`，基础层 → `.local` 覆盖层；trim 后内容相同去重），**跨目录从项目根（含 `.git`）逐级向下到 cwd 拼接**；每段带 provenance 头 `## <相对路径>`；单文件超 1 MiB 头 70%+尾 20% 截断（CJK 安全），渲染总量超 256 KiB 停止追加并标注；`@import` 对所有候选生效（深度 3 + 环检测；默认限**所属项目根内**，越界保留占位符；用户自有全局文件不受限）。**用户全局层为有序候选回退**：`~/.cc-code/AGENTS.md` → `~/.cc-code/CLAUDE.md` → `~/.claude/CLAUDE.md` → `~/.claude/AGENTS.md`，取首个存在且非空者；空文件不遮蔽后续候选。全局加载统一复用 `load_user_global_instruction`，与 Jev 安全门的 `read_global_content()` 为同一数据源（#402、#403）。
 - **TodoMiddleware:** `after_tool` 解析 `TodoWrite` 结果，推送 Todo 状态到渲染 channel
-- **Jev 规则提炼缓存:** 完整规则 JSON 按内容 SHA-256 存入 `~/.cc-code/jev/`，来源/项目/模型/提炼配置签名一致时跨进程复用；实际加载的规则变化后在新会话重新提炼，不增加界面提示。提炼走独立低思考档（`effort=low`），单块超时按阶梯重试一次（首试后放宽 2 倍）且不触发对半递归拆分；仅完整成功的结果落盘。具体工具调用仍执行权限判定，详见 [HITL 设计](./domains/hitl-permissions.md#jev-规则提炼缓存)。磁盘缓存以 `to_vec_pretty` 多行 JSON 落盘（规则正文与 `<签名>.index.json` 索引同步美化），内容哈希对落盘字节计算，缓存仍能正常命中。
-- **AskUserTool:** `AskUserQuestion` 工具（对齐 Claude AskUserQuestion），入参为 `questions` 数组（1–4 个），每题含 `question` 问题文字、`header` 短标签（≤12字）、`multi_select` 字段、`options`（每项含 `label` + `description`），始终允许自定义输入；oneshot channel 挂起等待用户输入
+- **Jev 规则提炼缓存:** 完整规则 JSON 按内容 SHA-256 存入 `~/.cc-code/jev/`，来源/项目/模型/提炼配置签名一致时跨进程复用；实际加载的规则变化后在新会话重新提炼，不增加界面提示。提炼单块超时按阶梯重试一次（首试后放宽 2 倍）且不触发对半递归拆分；仅完整成功的结果落盘。具体工具调用仍执行权限判定，详见 [HITL 设计](./domains/hitl-permissions.md#jev-规则提炼缓存)。磁盘缓存以 `to_vec_pretty` 多行 JSON 落盘（规则正文与 `<签名>.index.json` 索引同步美化），内容哈希对落盘字节计算，缓存仍能正常命中。
+- **AskUserTool:** `AskUserQuestion` 工具（对齐参考实现的 AskUserQuestion），入参为 `questions` 数组（1–4 个），每题含 `question` 问题文字、`header` 短标签（≤12字）、`multi_select` 字段、`options`（每项含 `label` + `description`），始终允许自定义输入；oneshot channel 挂起等待用户输入
 - **Token 追踪:** TokenTracker 累积追踪 input/output/cache tokens，ContextBudget 上下文窗口预算管理
 - **Micro-compact:** 零 API 调用轻量压缩，可压缩工具白名单 + 时间衰减清除，图片/文档替换
-- **Full Compact:** 9 段结构化摘要模板，工具对完整性保护，PTL 降级重试
+- **Full Compact:** 自由 Markdown 摘要，工具对完整性保护，PTL 降级重试
 - **LLM 重试:** RetryableLLM<L> 装饰器，指数退避+25%随机抖动，LlmRetrying 事件通知
-- **rg CLI 双引擎文件搜索:** 优先外部 ripgrep 二进制，按 `PERI_RG_PATH` → exe 同级 `bin/rg(.exe)` → 系统 `PATH`（直接执行 `rg --version` 探测，不依赖 which/where）顺序解析，缓存到进程级 `OnceLock`；探测失败回退纯 Rust 引擎（grep + grep-regex crate，WalkParallel 多线程并行，15 秒超时）。npm install.js 自动下载 rg 预编译二进制；Grep/Glob 双引擎输出格式对齐
-- **MCP 中间件:** McpMiddleware 作为 MCP Client 连接外部服务器（stdio/HTTP），`mcp__{server}__{tool}` 动态工具注册，`mcp_read_resource` 资源读取工具，双层配置合并（全局 settings.json + 项目 .mcp.json），${VAR} 环境变量展开
+- **rg CLI 双引擎文件搜索:** 优先外部 ripgrep 二进制，按 `PERI_RG_PATH` → exe 同级 `bin/rg(.exe)` → 系统 `PATH`（直接执行 `rg --version` 探测，不依赖 which/where）顺序解析，缓存到进程级 `OnceLock`；探测失败回退纯 Rust 引擎（grep + grep-regex crate，WalkParallel 多线程并行，15 秒超时）。Grep/Glob 双引擎输出格式对齐
+- **MCP 中间件:** McpMiddleware 作为 MCP Client 连接外部服务器（stdio/HTTP），`mcp__{server}__{tool}` 动态工具注册，`mcp_read_resource` 资源读取工具，三层配置合并（全局 settings.json < 插件 plugin.json < 项目 .mcp.json，优先级递增），${VAR} 环境变量展开
 - **MCP 运行时管理:** /mcp 面板（Browse/Tools/Resources 三视图），后台连接池初始化不阻塞 TUI，重连/删除服务器
 - **MCP OAuth 2.0:** rmcp auth feature + AuthClient，Authorization Code + PKCE 流程，401 自动触发，Token 持久化 ~/.cc-code/oauth_tokens.json（0600），混合回调（本地 HTTP → TUI 手动粘贴），回调服务器注入并严格校验 rmcp 生成的 state 参数（CSRF 纵深防御）
-- **工具名称对齐 Claude Code:** 11 个核心工具名称完全对齐（Read/Write/Edit/Glob/Grep/Bash/WebFetch/WebSearch/Agent/AskUserQuestion/TodoWrite），Grep 重构为结构化接口，HITL 默认审批清单同步更新
-- **RTK 代理双轨制:** 探测外部 `rtk` 二进制（where/which），对 git/cargo/npm/pnpm/npx/yarn/bun/docker/kubectl/pytest/python/php/go/dotnet/tsc/eslint/gh/find/grep/rg/ls/tree/cat/diff/curl/wget 等 23 类命令执行 `rtk rewrite` 重写以降低输出 Token；失败回退原始命令；过滤 RTK 宿主 stderr 噪音
+- **工具名称对齐参考实现：** 11 个核心工具名称完全对齐（Read/Write/Edit/Glob/Grep/Bash/WebFetch/WebSearch/Agent/AskUserQuestion/TodoWrite），Grep 重构为结构化接口，HITL 默认审批清单同步更新
+- **RTK 代理双轨制:** 探测外部 `rtk` 二进制（where/which），对 git/cargo/npm/pnpm/npx/yarn/bun/docker/kubectl/pytest/python/php/go/dotnet/tsc/eslint/gh/find/grep/rg/ls/tree/cat/diff/curl/wget 等 27 类命令执行 `rtk rewrite` 重写以降低输出 Token；失败回退原始命令；过滤 RTK 宿主 stderr 噪音
 - **output_filter 噪音清洗:** RTK git status 噪音清洗（`clean — nothing to commit`）；移除毒性通用折叠（避免吞并代码上下文），仅对 git status 做针对性剔除
 - **Read 多模态读取:** 图片读取 + 魔数校验（Magic Bytes）防伪造图片；工具包装器透传 invoke_content 保证多模态内容不丢失
 - **Bash 跨平台健壮性:** 多行命令（含字面换行）在 Windows 改走 Git Bash 避免 `cmd /C` 截断；管道超时保留已累积输出；后台 shell 任务在 fork 常驻子进程后不再永久挂起；移除 Git Bash fallback 重试标记（`[Retried with Git Bash]`）混入上下文
 
 ## TUI 界面（cc-tui）
 
-- **紧凑启动与增长视口（未发布，#650）：** 从 shell 输出下方启动，每次增长仅原生滚动必要行数并上移起点，内容或已占用高度长满整个宿主才锁定全屏；折叠、新建会话及放大终端均不缩回。欢迎卡作为纯 UI 前缀跨全屏保留并随消息滚动，不写入消息历史、系统提示词或消息缓存；包含真实版本、cwd、/help 与简短 /login，窄屏省略吉祥物。切屏前完成重排，切屏、resize 与首帧同步输出。详细交互见 [TUI-STYLE](../../TUI-STYLE.md#终端视口未发布650)；自动化与 Windows 人工验证已通过，macOS/Linux 待兼容性检查。
+- **紧凑启动与增长视口（#650，v0.6.171）：** 从 shell 输出下方启动，每次增长仅原生滚动必要行数并上移起点，内容或已占用高度长满整个宿主才锁定全屏；折叠、新建会话及放大终端均不缩回。欢迎卡作为纯 UI 前缀跨全屏保留并随消息滚动，不写入消息历史、系统提示词或消息缓存；包含真实版本、cwd、/help 与简短 /login，窄屏省略吉祥物。切屏前完成重排，切屏、resize 与首帧同步输出。详细交互见 [TUI-STYLE](../../TUI-STYLE.md#终端视口v06171-650)；三平台 CI 全绿。
 - **详情渲染策略（#629，v0.6.169）：** `/config` 提供 `auto`（默认）/ `cache` / `virtual`，通过 `config.detail_render_strategy` 保存并即时通知渲染线程；项目配置可覆盖全局配置，缺省或未知值回退 auto。虚拟路径按视口渲染并限制离屏成品缓存，不承诺整个会话固定内存。
 
-- **后台子任务抽屉（未发布）：** 独立视口与指标、导航游标和当前任务分离、定向补充消息、全局审批、单任务/全部停止、五行与极矮终端布局；详细交互见 [TUI-STYLE](../../TUI-STYLE.md)。
+- **后台子任务抽屉（v0.6.130）：** 独立视口与指标、导航游标和当前任务分离、定向补充消息、全局审批、单任务/全部停止、五行与极矮终端布局；详细交互见 [TUI-STYLE](../../TUI-STYLE.md)。
 
 - **文件提及候选（#463）:** 单独输入 `@` 立即弹面板，默认仅枚举当前目录并限制 15 项；关键词递归模糊搜索 200ms 防抖，保留最后一次输入，截断缓存或进入新目录时重新搜索。视口最多 10 行并适配可用高度，选中项始终可见；搜索中、空目录、无匹配提供双语提示，搜索期间阻止旧候选误补全及 Enter 误提交。
 
 - **多会话历史:** `SqliteThreadStore` 持久化会话，`/resume` 面板浏览（j/k 导航，d 删除，Enter 打开，Esc 新建）
 - **模型别名映射:** 四档别名 opus/sonnet/haiku/fable（`ALL_ALIASES: [&str; 4]`），`/model` 四 Tab 面板（`AliasTab::{Opus,Sonnet,Haiku,Fable}`），`/model <alias>` 快捷切换；模型切换快捷键已废弃 Alt+M/Ctrl+T，统一走 Ctrl+P/Alt+P 命令面板
-- **TUI 命令:** 以 `command::default_registry()` 为准，ACP 另有 7 个命令；`/agents` 打开跨项目会话中心，`/agent-design` 选择 agent 定义，`/tasks` 入口移除；`/history`、`/resume`、`/clear`、`/help`、`/compact`、`/config`、`/cost`、`/context`、`/memory`、`/mcp`、`/recap`(away/catchup)、`/commit`(ci)、`/review`(pr)、`/export`(save)、`/gc`、`/lang`、`/init`、`/setup`、`/channel`(ch)、`/rename`、`/effort`、`/loop`、`/cron`、`/doctor`、`/hooks`、`/plugin`、`/exit`(quit)、`/model`、`/theme` 保持既有语义；Command trait 支持 alias 机制
+- **TUI 命令:** 以 TUI 命令注册表（`command::default_registry()` 及应用层命令）为准，ACP 内置注册表另有 28 个命令；`/agents` 打开跨项目会话中心，`/agent-design` 选择 agent 定义，`/tasks` 入口移除；`/history`、`/resume`、`/clear`、`/help`、`/compact`、`/config`、`/cost`、`/context`、`/memory`、`/mcp`、`/recap`(away/catchup)、`/commit`(ci)、`/review`(pr)、`/export`(save)、`/gc`、`/lang`、`/init`、`/setup`、`/channel`(ch)、`/rename`、`/effort`、`/loop`、`/cron`、`/doctor`、`/hooks`、`/plugin`、`/exit`(quit)、`/model`、`/theme`、`/login`、`/rewind`、`/streaming` 保持既有语义；Command trait 支持 alias 机制
 - **Agent Command Center（#542）:** `/agents` 或满足门控的空草稿 `←` 打开全页根会话中心；跨 cwd、项目/状态/模型分组、五档状态过滤、10 条真分页、详情延迟读取、标题搜索、重命名及二次确认永久删除。Enter 恢复目标项目，`n` 在选中项目新建，`o` 当前项目历史；运行任务/审批未结束不切换。持久化模型/推理/分支快照与根会话终态，跨进程按保存状态降级。
-- **Skills 补全:** 输入 `#` 触发 Skills 浮层，Tab 导航，Enter 补全为 `#skill-name`；发送含 `#skill-name` 的消息时自动通过 `SkillPreloadMiddleware` 将 skill 全文注入 agent state（fake Read 工具调用序列）
-- **候选浮层运行中交互（对齐 CC useTypeahead）:** Agent 运行中候选存在时 `↑↓`/`Tab` 可导航浮层；`Enter` 仅已选中候选时补全（不提交），未选中走排队；`Esc` 分层关闭（先浮层后中断，`hint_dismissed_for` 抑制位文本不变不再弹、编辑后恢复）；`↓` 优先级浮层导航 > 后台 shell 聚焦 > @ 提及 > 滚动
+- **Skills 补全:** 输入 `/` 触发 Skills 浮层，Tab 导航，Enter 补全为 `/skill-name`；发送含 `/skill-name` 的消息时自动通过 `SkillPreloadMiddleware` 将 skill 全文注入 agent state（fake Read 工具调用序列）
+- **候选浮层运行中交互（对齐参考实现的候选浮层行为）:** Agent 运行中候选存在时 `↑↓`/`Tab` 可导航浮层；`Enter` 仅已选中候选时补全（不提交），未选中走排队；`Esc` 分层关闭（先浮层后中断，`hint_dismissed_for` 抑制位文本不变不再弹、编辑后恢复）；`↓` 优先级浮层导航 > 后台 shell 聚焦 > @ 提及 > 滚动
 - **Steer 前台命令宽限期:** 点「立即补充」时若有单条前台命令在跑，2 秒宽限（`STEER_FOREGROUND_GRACE`）后自动转后台并提示；多条并行不自动选择，重复 steer 不重置计时器
-- **状态栏权限模式符号:** 权限模式标签前固定显示 `⏵⏵` 前缀（对齐 CC `PermissionMode.ts` symbol）
+- **状态栏权限模式符号:** 权限模式标签前固定显示 `⏵⏵` 前缀（对齐参考实现的权限模式符号）
 - **HITL 弹窗:** `ApprovalNeeded` 事件触发审批弹窗，展示工具名称和参数，支持 Approve / Edit / Reject / Respond
 - **AskUser 弹窗:** `AskUserBatch` 事件触发问答弹窗，支持批量问题，单选/多选
 - **YOLO 模式:** `-y` 参数启动，自动 Approve 所有 HITL 请求（不影响 ask_user）
@@ -87,10 +85,10 @@
 - **定时任务（cron）:** /loop 注册定时任务（cron 表达式 + prompt），/cron 面板管理（导航/删除/切换启用）；AI 通过 CronRegister/CronList/CronRemove 工具创建管理；内存任务表上限 20，TUI 重启后清空
 - **子 Agent 模型切换:** agent.md 的 model 字段生效，LLM Factory 签名升级为 Fn(Option<&str>)，alias 解析在 TUI 层；SkillFrontmatter 增加 model 文档字段
 - **工具颜色分层:** 工具名（颜色+BOLD）+ 参数（DarkGray），文件路径自动缩短
-- **/compact Thread 迁移:** /compact 执行后创建新 Thread 保留旧历史，新 Thread 以摘要 System 消息开头
-- **App 结构体拆分:** App 拆分为 AppCore/AgentComm/LangfuseState 三个子结构体（共 37 字段），对外 API 通过转发方法保持不变
-- **Widget 独立 crate:** cc-widgets 提供 15 个通用组件（BorderedPanel、DiffViewer、FileTree、Form、InputField、List、ListOverlay、MessageBlock、RadioGroup、CheckboxGroup、ScrollableArea、Spinner、TabBar、ToolCallWidget、Markdown），零内部依赖
-- **Spinner 动画:** 动词从 TODO activeForm 获取，Token 计数平滑递增动画，已用时间显示；完成态对齐 Claude Code 风格（`✻ {verb} for {elapsed} · done {HH:MM}`）
+- **/compact 历史替换:** /compact 在原会话内以摘要替换历史消息（`build_compacted_messages`），不创建新 Thread
+- **App 结构体拆分:** App 为单结构体（10 字段：core/session/services/ui/panels/input/runtime/langfuse/theme/input_pump），状态按 ChatSession / ServiceRegistry / UiState / PanelManager / InputState 分工承载
+- **Widget 独立 crate:** cc-widgets 提供 16 个公开模块（bordered_panel、checkbox_group、diff、file_tree、form、input_field、list、markdown、message_block、radio_group、scrollable_area、selectable_list、spinner、tab_bar、text_selection、tool_call），无 workspace 内部依赖
+- **Spinner 动画:** 动词从 TODO activeForm 获取，Token 计数平滑递增动画，已用时间显示；完成态对齐参考实现风格（`✻ {verb} for {elapsed} · done {HH:MM}`）
 - **智能折叠策略:** 只读工具默认折叠、写操作默认展开，SubAgent 步数超过 4 自动折叠
 - **syntect 代码高亮:** markdown-highlight feature flag 控制，base16-ocean.dark 主题，单行代码块不高亮
 - **鼠标文字选区:** TextSelection 模块管理拖拽状态，WrappedLineInfo 换行映射，Ctrl+C 优先级链（选区复制>中断>退出），REVERSED 反色高亮
@@ -125,8 +123,8 @@
 - **PageUp/PageDown 半页滚动:** 20 行（输入框为空时生效）
 - **「回到最新」浮层按钮（#448）:** 消息区滚动离开底部且内容溢出时，在消息区最后一行居中显示「↓ 回到最新」浮层按钮；点击按钮或按 `End`（输入框为空）回到底部即消失，离开底部期间有新内容时文案切换为「↓ 有新活动」；覆盖式浮层，复用 `scroll_follow`/`scrollbar_max_offset` 滚动状态，不改变布局与滚动位置，面板/弹窗激活时隐藏且不拦截指针
 
-- **主题系统（`/theme`，v0.6.140）:** 全部 UI 颜色抽成统一调色板（69 个与 Claude Code 相同的语义字段 + cc-code 扩展字段），8 套主题：`auto`（跟随终端：按终端颜色能力与背景明暗解析成下述某套）+ `default`（cc-code 现行配色）+ `dark`/`light`/`light-daltonized`/`dark-daltonized`/`light-ansi`/`dark-ansi`（后六套名称与全部字段与 claude-code-best/claude-code 的 `src/utils/theme.ts` **逐值一致**，`palettes_parity_test.rs` 逐字段断言锁定防漂移）。`/theme` 面板光标移动实时预览、Enter 确认、Esc 还原，`/theme <name>` 直接切换，选择持久化到配置 `theme` 字段、重启恢复；cc-widgets 的 markdown/diff 渲染同步注入当前调色板（语法高亮随明暗族切换、渲染缓存 key 含主题指纹）。渲染层统一 `theme::cur().<字段>`，禁止裸 `Color::Rgb`；**状态栏为例外**（见下）
-- **Spinner 变色与 tips 调度对齐 Claude Code（v0.6.140 / v0.6.141）:** 动词改走 CC 的成对流光（底色 + 流光色，±1 列窄带、50ms 步进、自左向右扫过），无新 token 超 10s 后流光熄火、动词与字形向 error 色平滑插值（停滞转红），删除自研「时间热度四档」；tips 由按渲染 tick 无差别轮换改为带会话冷却的调度模型——每轮挑选一条并**扣留**、轮结束才发布（每轮最多一条、轮内不换），取「距上次展示最久」者，历史持久化 `~/.cc-code/spinner-tips.json`，新增 `spinner_tips_enabled` / `spinner_tips_override` 配置（#510、#511）
+- **主题系统（`/theme`，v0.6.140）:** 全部 UI 颜色抽成统一调色板（69 个语义字段 + cc-code 扩展字段），7 套调色板 + `auto` 跟随模式（按终端颜色能力与背景明暗解析成下述某套）：`default`（cc-code 现行配色）+ `dark`/`light`/`light-daltonized`/`dark-daltonized`/`light-ansi`/`dark-ansi`（后六套名称与全部字段与参考源码的 `src/utils/theme.ts` **逐值一致**，`palettes_parity_test.rs` 逐字段断言锁定防漂移）。`/theme` 面板光标移动实时预览、Enter 确认、Esc 还原，`/theme <name>` 直接切换，选择持久化到配置 `theme` 字段、重启恢复；cc-widgets 的 markdown/diff 渲染同步注入当前调色板（语法高亮随明暗族切换、渲染缓存 key 含主题指纹）。渲染层统一 `theme::cur().<字段>`，禁止裸 `Color::Rgb`；**状态栏为例外**（见下）
+- **Spinner 变色与 tips 调度对齐参考实现（v0.6.140 / v0.6.141）:** 动词改走成对流光（底色 + 流光色，±1 列窄带、50ms 步进、自左向右扫过），无新 token 超 10s 后流光熄火、动词与字形向 error 色平滑插值（停滞转红），删除自研「时间热度四档」；tips 由按渲染 tick 无差别轮换改为带会话冷却的调度模型——每轮挑选一条并**扣留**、轮结束才发布（每轮最多一条、轮内不换），取「距上次展示最久」者，历史持久化 `~/.cc-code/spinner-tips.json`，新增 `spinner_tips_enabled` / `spinner_tips_override` 配置（#510、#511）
 - **状态栏配色固定、不参与主题化（v0.6.143，#523）:** 状态栏配色是打磨定稿的固定值，不随 `/theme` 切换——`status_bar.rs` 内经模块内固定配色常量 `sb` 输出，渲染结果与主题系统引入之前逐字节一致；`/theme` 面板补齐 session 面板键盘路由（`↑`/`↓`/`Esc` 生效，v0.6.142，#521）
 
 ## ACP 服务层（cc-acp）
@@ -142,12 +140,11 @@
 
 - **SQLite 线程持久化:** sqlx SqlitePool(max=5) 原生异步连接池，WAL 模式，`append_messages` 事务保证 crash-safe，`StateSnapshot` 事件驱动增量写入，数据库文件 + WAL/SHM 应用 0o600 权限（Unix），grandparent 目录权限校验
 - **会话回顾/总结持久化:** ThreadMeta 新增 `latest_recap` 与 `last_task_summary`（TaskSummary { verb, elapsed_ms, done_at }）字段并落库，`-c`/`-r` 恢复会话时 recap 与任务完成总结行不再丢失；SQLite 幂等 ALTER TABLE 迁移；ThreadStore 提供 update_latest_recap / update_last_task_summary 单列 UPDATE（避免重写 ~1MB cached_context）
-- **OpenTelemetry 追踪:** 内置 OTLP HTTP 导出，`OTEL_EXPORTER_OTLP_ENDPOINT` 环境变量控制开关，tracing-opentelemetry 桥接，兼容 Jaeger
 - **结构化日志:** `RUST_LOG` 级别控制，`RUST_LOG_FORMAT=json` 切换 JSON 格式
 - **配置持久化:** `~/.cc-code/settings.json` 存储 Provider/Model 配置，`AppConfig` 统一读写，`env` 字段替代 .env 文件注入环境变量
 - **日志路径迁移:** 日志默认写入 `~/.cc-code/logs`
 - **应用主目录统一 `~/.cc-code`（#349，破坏性）:** 移除对改名前 `~/.peri` 的逐文件回退，`app_home::app_data_path`/`app_data_dir` 一律返回 `~/.cc-code/...`；仅在 `~/.peri` 存在的数据文件不再被读取（需手动迁移）。`hitl` 敏感目录名单中的 `.peri` 保留（安全用途）
-- **npm 安装增强:** install.js 自动下载 ripgrep 预编译二进制；存在既有 cc-code 配置时回填缺失模型别名（含 fable）；Windows postinstall 将全局入口改写为直起 `bin/cc-code.exe`（去掉 node 中间层，修复 Ctrl+C 直接退出）
+- **npm 安装分发:** 发布时由构建脚本组装各平台二进制包，`npm/bin/cc-code` 启动器按当前平台分发到对应平台包；Windows 下全局入口直起 `bin/cc-code.exe`（去掉 node 中间层，修复 Ctrl+C 直接退出）
 
 ---
-*最后更新: 2026-10-21 — 紧凑欢迎卡与按内容增长的终端视口（#650，未发布；详情渲染策略 auto/cache/virtual（#629，v0.6.169）；自动化与 Windows 人工验证通过，macOS/Linux 待兼容性检查）；此前：2026-10-20 — 候选浮层运行中交互对齐 CC（loading 时 ↑↓/Tab 可导航、Enter 已选中才补全、Esc 分层关闭 + hint_dismissed_for 抑制位）；Steer 前台命令 2 秒宽限期后自动转后台；状态栏权限模式标签加 ⏵⏵ 前缀；此前：2026-10-18 — Markdown 缓存字节预算（#594）：8 MB 预算按 LRU 淘汰、`/gc` 显示预算，并修复 `ByteBudgetCache` 条数上限淘汰不扣减字节导致的统计虚高；此前：2026-10-15 — Agent Command Center（#542）：跨项目全页视图、会话 cwd 切换与状态/快照持久化；此前：主题系统 `/theme`（7 套调色板，6 套与 Claude Code 逐值一致）与 Spinner 流光 / tips 调度对齐 CC、状态栏配色固定不参与主题化，并补记自动记忆系统（#507）与 rmcp 3.5（#519）；此前：主 Agent 可按 task_id 取消后台子 Agent（Agent action=stop，抽屉红 ● + stopped by …，等待计数行）；此前：SubAgent 启动摘要支持 `Ctrl+O` 展开 Prompt 卡片（`SubagentStarted.prompt` 全文透传、`SystemNote.detail_content` 双态同源、卡片 `●` 统一大实心圆点）；此前：v0.6.129：@ 文件候选立即弹出，默认当前目录上限 15 项/10 行，搜索防抖和缓存边界修复（#463）；此前：v0.6.128：修复 Windows 下 `cc-code update` 在运行中被误报为 UTF-8 错误（子进程输出容错解码 + 便捷副本锁安全覆盖，#453）、「回到最新」按钮按输入框白条居中（#458）；此前： v0.6.119：手动 `/compact` 摘要补齐 `<system-reminder>` 包裹，与自动 compact 共用 `build_compacted_messages`，界面恢复折叠（#413）；此前：v0.6.118：Jev 规则磁盘缓存改为多行 JSON 输出（#412）；v0.6.117：Windows 全局入口直起 exe，修复 npm 安装下 Ctrl+C 直接退出（#410、#411）；v0.6.116：Schema 熔断改为滑动窗口计数，修复交替错配逃逸（#404、#408）；v0.6.115：Jev 规则提炼超时阶梯（首试后放宽 2 倍重试一次）、超时不再对半递归、提炼改用独立低思考档，修复磁盘缓存从未落盘（#405、#406）；此前：v0.6.114：Jev 完整规则提炼结果磁盘持久化缓存（#398、#399）、用户全局指引多候选回退与 Jev 统一数据源（#402、#403）、排队消息快捷键优化为 Ctrl+Enter/Ctrl+X（#400、#401）；此前：v0.6.113：弹窗 Ctrl+C 中断保护与 Oniguruma PHP 内存优化（#394-397）；v0.6.111：状态栏第二行「最近工具」实时摘要（#390）*
+*最后更新: 2026-10-22 — 对照 v0.6.182 代码维护修正多处过期描述（钩子数、命令数、配置合并层数、/compact 与 Full Compact 口径、主题计数、已删除的 OpenTelemetry 与 npm install.js 描述等）；此前：2026-10-21 — 紧凑欢迎卡与按内容增长的终端视口（#650，v0.6.171）；详情渲染策略 auto/cache/virtual（#629，v0.6.169）；此前：2026-10-20 — 候选浮层运行中交互对齐参考实现（loading 时 ↑↓/Tab 可导航、Enter 已选中才补全、Esc 分层关闭 + hint_dismissed_for 抑制位）；Steer 前台命令 2 秒宽限期后自动转后台；状态栏权限模式标签加 ⏵⏵ 前缀；此前：2026-10-18 — Markdown 缓存字节预算（#594）：8 MB 预算按 LRU 淘汰、`/gc` 显示预算，并修复 `ByteBudgetCache` 条数上限淘汰不扣减字节导致的统计虚高；此前：2026-10-15 — Agent Command Center（#542）：跨项目全页视图、会话 cwd 切换与状态/快照持久化；此前：主题系统 `/theme`（7 套调色板 + auto，6 套与参考实现逐值一致）与 Spinner 流光 / tips 调度对齐参考实现、状态栏配色固定不参与主题化，并补记自动记忆系统（#507）与 rmcp 3.5（#519）；此前：主 Agent 可按 task_id 取消后台子 Agent（Agent action=stop，抽屉红 ● + stopped by …，等待计数行）；此前：SubAgent 启动摘要支持 `Ctrl+O` 展开 Prompt 卡片（`SubagentStarted.prompt` 全文透传、`SystemNote.detail_content` 双态同源、卡片 `●` 统一大实心圆点）；此前：v0.6.129：@ 文件候选立即弹出，默认当前目录上限 15 项/10 行，搜索防抖和缓存边界修复（#463）；此前：v0.6.128：修复 Windows 下 `cc-code update` 在运行中被误报为 UTF-8 错误（子进程输出容错解码 + 便捷副本锁安全覆盖，#453）、「回到最新」按钮按输入框白条居中（#458）；此前： v0.6.119：手动 `/compact` 摘要补齐 `<system-reminder>` 包裹，与自动 compact 共用 `build_compacted_messages`，界面恢复折叠（#413）；此前：v0.6.118：Jev 规则磁盘缓存改为多行 JSON 输出（#412）；v0.6.117：Windows 全局入口直起 exe，修复 npm 安装下 Ctrl+C 直接退出（#410、#411）；v0.6.116：Schema 熔断改为滑动窗口计数，修复交替错配逃逸（#404、#408）；v0.6.115：Jev 规则提炼超时阶梯（首试后放宽 2 倍重试一次）、超时不再对半递归、提炼改用独立低思考档，修复磁盘缓存从未落盘（#405、#406）；此前：v0.6.114：Jev 完整规则提炼结果磁盘持久化缓存（#398、#399）、用户全局指引多候选回退与 Jev 统一数据源（#402、#403）、排队消息快捷键优化为 Ctrl+Enter/Ctrl+X（#400、#401）；此前：v0.6.113：弹窗 Ctrl+C 中断保护与 Oniguruma PHP 内存优化（#394-397）；v0.6.111：状态栏第二行「最近工具」实时摘要（#390）*

@@ -43,12 +43,12 @@ inline executor 及共用 shell helper 的 hooks/MCP 均复用该隔离策略；
 ## 可复现验证
 
 ```powershell
-cargo test -p peri-tui --lib mouse_batch -- --test-threads=1
-cargo test -p peri-tui --lib scrollbar_test -- --test-threads=1
-cargo test -p peri-tui --lib shell_exec::tests -- --test-threads=1
-cargo test -p peri-tui --lib terminal_backend::compatible::tests
-cargo test -p peri-middlewares --lib process::process_test -- --test-threads=1
-cargo check -p peri-tui --bins
+cargo test -p cc-tui --lib mouse_batch -- --test-threads=1
+cargo test -p cc-tui --lib scrollbar_test -- --test-threads=1
+cargo test -p cc-tui --lib shell_exec::tests -- --test-threads=1
+cargo test -p cc-tui --lib terminal_backend::compatible::tests
+cargo test -p cc-middlewares --lib process::process_test -- --test-threads=1
+cargo check -p cc-tui --bins
 ```
 
 滚轮回归包含一万行缓存内容，比较旧逐事件绘制与新批处理的最终画面和偏移量；
@@ -57,8 +57,8 @@ cargo check -p peri-tui --bins
 真实控制台专项（需要 PHP CLI 和 Git Bash；使用 cargo 输出的实际测试二进制路径）：
 
 ```powershell
-./scripts/test-shell-console.ps1 -TestBinary ./target/debug/deps/peri_tui-<hash>.exe
-./scripts/test-cmd-rendering.ps1 -TestBinary ./target/debug/deps/peri_tui-<hash>.exe
+./scripts/test-shell-console.ps1 -TestBinary ./target/debug/deps/cc_tui-<hash>.exe
+./scripts/test-cmd-rendering.ps1 -TestBinary ./target/debug/deps/cc_tui-<hash>.exe
 ```
 
 第一项记录 cmd/PowerShell/Git Bash 的隔离前后代码页与真实列宽探针失效次数，
@@ -76,7 +76,7 @@ cargo check -p peri-tui --bins
   本机证据：`target/shell-console-229-evidence.json`。
 - 既有控制台残影专项 4 个字体/代码页组合通过。
   本机证据：`target/console-ghosting-229-evidence.json`。
-- `cargo clippy -p peri-tui -p peri-middlewares --lib --bins --no-deps -- -D warnings`
+- `cargo clippy -p cc-tui -p cc-middlewares --lib --bins --no-deps -- -D warnings`
   通过，覆盖最新库与 TUI 二进制代码；修改的 Rust 文件格式检查及 `git diff --check` 通过。
 - 未运行工作区完整测试、其他操作系统测试或 Windows Terminal / VS Code 手动视觉验收；
   未提交、推送或发布，用户原有未跟踪文件保持不变。

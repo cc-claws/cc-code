@@ -218,10 +218,10 @@ fn handle_streaming_command(&mut self, args: &str) {
 
 | 文件 | 改动 |
 |------|------|
-| `peri-tui/src/app/message_pipeline/mod.rs` | 新增 `StreamingMode` 枚举 + `MessagePipeline` 字段 + `check_throttle()` 分支 + `push_chunk()` Block 逻辑 + 边界检测 |
-| `peri-tui/src/app/message_pipeline/message_pipeline_test.rs` | 新增三模式单元测试 |
-| `peri-tui/src/app/agent_ops/polling.rs` | input handler 拦截 `/streaming` 命令（或移到 input 处理层） |
-| `peri-tui/src/ui/main_ui/status_bar.rs` | 显示当前模式标签 |
+| `cc-tui/src/app/message_pipeline/mod.rs` | 新增 `StreamingMode` 枚举 + `MessagePipeline` 字段 + `check_throttle()` 分支 + `push_chunk()` Block 逻辑 + 边界检测 |
+| `cc-tui/src/app/message_pipeline/message_pipeline_test.rs` | 新增三模式单元测试 |
+| `cc-tui/src/app/agent_ops/polling.rs` | input handler 拦截 `/streaming` 命令（或移到 input 处理层） |
+| `cc-tui/src/ui/main_ui/status_bar.rs` | 显示当前模式标签 |
 
 ## 风险
 

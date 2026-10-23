@@ -10,7 +10,7 @@
 //! Build ACP available commands list, shared by TUI and stdio transports.
 
 use agent_client_protocol_schema::AvailableCommand;
-use peri_middlewares::skills::SkillMetadata;
+use cc_middlewares::skills::SkillMetadata;
 
 /// Build the list of available slash commands for ACP clients,
 /// including discovered skills as `skill:<name>` entries.
@@ -28,7 +28,7 @@ pub fn build_available_commands(skills: &[SkillMetadata]) -> Vec<AvailableComman
         AvailableCommand::new("history", "View and resume previous conversations"),
         AvailableCommand::new("doctor", "Diagnose configuration and connection issues"),
         AvailableCommand::new("mcp", "Manage MCP (Model Context Protocol) servers"),
-        AvailableCommand::new("hooks", "Manage Claude Code hooks"),
+        AvailableCommand::new("hooks", "Manage hooks"),
         AvailableCommand::new("plugin", "Manage installed plugins"),
         AvailableCommand::new("cron", "Manage scheduled/cron tasks"),
         AvailableCommand::new("agents", "Manage sub-agent definitions"),
@@ -55,7 +55,7 @@ pub fn build_available_commands(skills: &[SkillMetadata]) -> Vec<AvailableComman
 
 ```rust
 use super::commands::build_available_commands;
-use peri_middlewares::skills::SkillMetadata;
+use cc_middlewares::skills::SkillMetadata;
 
 #[test]
 fn test_build_available_commands_includes_builtins() {

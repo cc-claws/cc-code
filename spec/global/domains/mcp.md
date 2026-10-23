@@ -2,14 +2,14 @@
 
 ## 领域综述
 
-MCP（Model Context Protocol）领域负责 Peri 与外部 MCP 服务器的集成能力。作为 MCP Client，支持 stdio 和 Streamable HTTP 两种传输协议，将外部服务器的工具和资源动态注入到 ReAct 循环中。
+MCP（Model Context Protocol）领域负责 CC Code 与外部 MCP 服务器的集成能力。作为 MCP Client，支持 stdio 和 Streamable HTTP 两种传输协议，将外部服务器的工具和资源动态注入到 ReAct 循环中。
 
 核心职责：
 
 - MCP 服务器连接池管理（McpClientPool）
 - 工具桥接（mcp__{server}__{tool} 命名）
 - 资源读取（mcp_read_resource 工具）
-- 双层配置合并（全局 settings.json + 项目 .mcp.json）
+- 三层配置合并（全局 settings.json < 插件 < 项目 .mcp.json）
 - 运行时管理（/mcp 面板、状态查看、重连、删除）
 - OAuth 2.0 认证（Authorization Code + PKCE、Token 持久化）
 
@@ -22,12 +22,12 @@ MCP（Model Context Protocol）领域负责 Peri 与外部 MCP 服务器的集�
 ```
 App::new() 创建
   → spawn_mcp_init() 后台 task
-    → McpConfig::load_merged_config(cwd)
+    → load_merged_config(cwd, claude_home)（自由函数）
     → McpClientPool::run_initialize()
       → 对每个 server: stdio spawn / HTTP connect
       → 成功 → Ready + 工具发现
       → 失败 → Failed（不阻塞其他 server）
-  → submit_message() 时如未就绪 → 异步等待（30s）
+  → submit 时不等待 MCP 就绪（watch 接收端仅供状态栏显示初始化进度）
 ```
 
 ### 工具调用流程
@@ -62,7 +62,7 @@ MCP HTTP 请求 → 401 + WWW-Authenticate
 | 传输层 | stdio（子进程）+ Streamable HTTP（远程） |
 | 连接池 | McpClientPool，惰性初始化，stdio 10s/HTTP 30s 超时 |
 | 工具命名 | `mcp__{server}__{tool}`，HITL 默认需审批 |
-| 配置合并 | 全局 settings.json + 项目 .mcp.json，同名覆盖 |
+| 配置合并 | global < plugin < project 三层合并，同名按优先级覆盖 |
 | 环境变量 | `${VAR}` 占位符自动展开 |
 | OAuth | rmcp auth feature + AuthClient，PKCE，Token 刷新 |
 | Token 持久化 | ~/.cc-code/oauth_tokens.json（0600 权限） |
@@ -91,9 +91,9 @@ MCP HTTP 请求 → 401 + WWW-Authenticate
 **关键决策:**
 
 - spawn_mcp_init() 后台 task，不阻塞 TUI 渲染和用户输入
-- submit_message() 时异步等待 MCP 就绪（30s）
+- submit_message() 时不等待 MCP 就绪（早期的异步等待逻辑已移除）
 - /mcp 面板：服务器状态、工具/资源详情、重连、持久删除
-- McpPanelView 枚举（Browse/Tools/Resources 三个视图）
+- McpPanelView 枚举（现为 ServerList/ServerDetail 两个视图）
 **归档:** [链接](../../archive/feature_20260502_F002_mcp-management/)
 **归档日期:** 2026-05-04
 

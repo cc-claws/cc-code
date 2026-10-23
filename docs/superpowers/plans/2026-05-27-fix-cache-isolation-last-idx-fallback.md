@@ -13,7 +13,7 @@
 ### Task 1: Write tests for cache_control assignment in system blocks
 
 **Files:**
-- Create: `peri-agent/src/llm/anthropic_test.rs` (append tests)
+- Create: `cc-agent/src/llm/anthropic_test.rs` (append tests)
 
 - [ ] **Step 1: Add test — 2-block split (boundary present) only marks static block**
 
@@ -37,7 +37,7 @@ fn test_system_blocks_cache_control_two_blocks() {
 
 - [ ] **Step 2: Run test to verify it FAILS**
 
-Run: `cargo test -p peri-agent --lib test_system_blocks_cache_control_two_blocks`
+Run: `cargo test -p cc-agent --lib test_system_blocks_cache_control_two_blocks`
 Expected: FAIL — Block 1 still has `cache_control` due to `i == last_idx`
 
 - [ ] **Step 3: Add test — 1-block (no boundary) still marks single block**
@@ -58,7 +58,7 @@ fn test_system_blocks_cache_control_single_block() {
 
 - [ ] **Step 4: Run test to verify it PASSES** (current behavior already passes for 1-block)
 
-Run: `cargo test -p peri-agent --lib test_system_blocks_cache_control_single_block`
+Run: `cargo test -p cc-agent --lib test_system_blocks_cache_control_single_block`
 Expected: PASS
 
 - [ ] **Step 5: Add test — 3+ blocks (middleware + split) only marks static**
@@ -87,7 +87,7 @@ fn test_system_blocks_cache_control_middleware_blocks() {
 
 - [ ] **Step 6: Run test to verify it FAILS**
 
-Run: `cargo test -p peri-agent --lib test_system_blocks_cache_control_middleware_blocks`
+Run: `cargo test -p cc-agent --lib test_system_blocks_cache_control_middleware_blocks`
 Expected: FAIL — Block 3 still has cache_control
 
 - [ ] **Step 7: Add test — all blocks false, fallback applies**
@@ -111,7 +111,7 @@ fn test_system_blocks_cache_control_all_false_fallback() {
 
 - [ ] **Step 8: Run test to verify it PASSES**
 
-Run: `cargo test -p peri-agent --lib test_system_blocks_cache_control_all_false_fallback`
+Run: `cargo test -p cc-agent --lib test_system_blocks_cache_control_all_false_fallback`
 Expected: PASS
 
 ---
@@ -119,7 +119,7 @@ Expected: PASS
 ### Task 2: Implement the fix in invoke.rs
 
 **Files:**
-- Modify: `peri-agent/src/llm/anthropic/invoke.rs:324-340`
+- Modify: `cc-agent/src/llm/anthropic/invoke.rs:324-340`
 
 - [ ] **Step 1: Extract system blocks JSON construction to a testable function**
 
@@ -195,12 +195,12 @@ Replace `// system 多块格式：静态块 + 最后一块标记 cache_control` 
 ### Task 3: Verify all tests pass
 
 **Files:**
-- Test: `peri-agent/src/llm/anthropic_test.rs`
+- Test: `cc-agent/src/llm/anthropic_test.rs`
 
 - [ ] **Step 1: Run the new test suite**
 
 ```bash
-cargo test -p peri-agent --lib test_system_blocks_cache_control
+cargo test -p cc-agent --lib test_system_blocks_cache_control
 ```
 
 Expected: 4 tests PASS
@@ -208,7 +208,7 @@ Expected: 4 tests PASS
 - [ ] **Step 2: Run the full anthropic test suite**
 
 ```bash
-cargo test -p peri-agent --lib anthropic_test
+cargo test -p cc-agent --lib anthropic_test
 ```
 
 Expected: All tests PASS (existing split_system_blocks + messages_to_anthropic + cache_control tests must not regress)
@@ -216,8 +216,8 @@ Expected: All tests PASS (existing split_system_blocks + messages_to_anthropic +
 - [ ] **Step 3: Run clippy + fmt**
 
 ```bash
-cargo fmt -p peri-agent
-cargo clippy -p peri-agent --lib
+cargo fmt -p cc-agent
+cargo clippy -p cc-agent --lib
 ```
 
 Expected: No warnings or errors
@@ -225,7 +225,7 @@ Expected: No warnings or errors
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-agent/src/llm/anthropic/invoke.rs peri-agent/src/llm/anthropic_test.rs
+git add cc-agent/src/llm/anthropic/invoke.rs cc-agent/src/llm/anthropic_test.rs
 git commit -m "fix(anthropic): remove i==last_idx fallback when static block already cached
 
 The i==last_idx fallback in build_request_body unconditionally marked

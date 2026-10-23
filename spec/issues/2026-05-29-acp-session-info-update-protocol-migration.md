@@ -21,14 +21,14 @@ ACP 协议 RFD [session-info-update](https://agentclientprotocol.com/rfds/sessio
 
 | 位置 | 触发时机 | 当前发送内容 |
 |------|----------|-------------|
-| `peri-tui/src/acp_server/notify.rs:104-123` | prompt/compact 完成后 | 仅 `updatedAt` = RFC3339 timestamp |
-| `peri-acp/src/event/mapper.rs:203-208` | LLM retry 时 | `title` = "Retrying LLM call (attempt N/M, Dms delay)" |
+| `cc-tui/src/acp_server/notify.rs:104-123` | prompt/compact 完成后 | 仅 `updatedAt` = RFC3339 timestamp |
+| `cc-acp/src/event/mapper.rs:203-208` | LLM retry 时 | `title` = "Retrying LLM call (attempt N/M, Dms delay)" |
 
 两处均未发送有意义的会话标题（如从用户首条消息自动生成）。
 
 ### TUI 接收侧
 
-`peri-tui/src/app/agent_ops/acp_bridge.rs:204` 明确忽略：
+`cc-tui/src/app/agent_ops/acp_bridge.rs:204` 明确忽略：
 
 ```rust
 "usage_update" | "session_info_update" => {
@@ -71,9 +71,9 @@ stdio 模式下 `session_info_update` 通过 `session/update` 推送，客户端
 
 ## 涉及文件
 
-- `peri-tui/src/acp_server/notify.rs:104-123` — `send_session_info_update` 当前仅发 updatedAt，需增加 title 生成逻辑
-- `peri-acp/src/event/mapper.rs:203-208` — LLM retry 场景的 SessionInfoUpdate 发送
-- `peri-tui/src/app/agent_ops/acp_bridge.rs:204` — TUI 侧需处理 session_info_update 而非忽略
+- `cc-tui/src/acp_server/notify.rs:104-123` — `send_session_info_update` 当前仅发 updatedAt，需增加 title 生成逻辑
+- `cc-acp/src/event/mapper.rs:203-208` — LLM retry 场景的 SessionInfoUpdate 发送
+- `cc-tui/src/app/agent_ops/acp_bridge.rs:204` — TUI 侧需处理 session_info_update 而非忽略
 - `agent-client-protocol` crate — SessionInfoUpdate struct 定义（确认与 RFD 对齐）
 
 ## 参考

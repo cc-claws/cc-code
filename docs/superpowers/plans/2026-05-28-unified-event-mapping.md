@@ -16,24 +16,24 @@
 
 | 文件 | 职责 | 操作 |
 |------|------|------|
-| `peri-acp/src/event/mapper.rs` | `MappedEvent` + `map_event()` 统一映射函数 | **重写** |
-| `peri-acp/src/event/mod.rs` | Re-export mapper | **微调** |
-| `peri-acp/src/session/event_sink.rs` | TransportEventSink/StdioEventSink 使用 `map_event()` | **重写** |
-| `peri-tui/src/app/agent.rs` | `map_executor_event()` 简化为仅类别③ | **编辑** |
-| `peri-tui/src/app/agent_ops/acp_bridge.rs` | Bridge 增加 Peri 模式 session/update 消费 | **编辑** |
-| `peri-tui/src/app/agent_ops/session_update.rs` | 新增 Peri 模式 session/update → AgentEvent 转换 | **新增方法** |
-| `peri-tui/src/acp_client/client.rs` | 无需变更 | **不变** |
-| `peri-tui/src/app/events.rs` | 无需变更（AgentEvent 保留所有变体） | **不变** |
-| `peri-tui/src/app/agent_ops/mod.rs` | 无需变更（handle_agent_event 不变） | **不变** |
-| `peri-agent/src/agent/events.rs` | 无需变更 | **不变** |
+| `cc-acp/src/event/mapper.rs` | `MappedEvent` + `map_event()` 统一映射函数 | **重写** |
+| `cc-acp/src/event/mod.rs` | Re-export mapper | **微调** |
+| `cc-acp/src/session/event_sink.rs` | TransportEventSink/StdioEventSink 使用 `map_event()` | **重写** |
+| `cc-tui/src/app/agent.rs` | `map_executor_event()` 简化为仅类别③ | **编辑** |
+| `cc-tui/src/app/agent_ops/acp_bridge.rs` | Bridge 增加 Peri 模式 session/update 消费 | **编辑** |
+| `cc-tui/src/app/agent_ops/session_update.rs` | 新增 Peri 模式 session/update → AgentEvent 转换 | **新增方法** |
+| `cc-tui/src/acp_client/client.rs` | 无需变更 | **不变** |
+| `cc-tui/src/app/events.rs` | 无需变更（AgentEvent 保留所有变体） | **不变** |
+| `cc-tui/src/app/agent_ops/mod.rs` | 无需变更（handle_agent_event 不变） | **不变** |
+| `cc-agent/src/agent/events.rs` | 无需变更 | **不变** |
 
 ---
 
 ### Task 1: 创建 `MappedEvent` 和 `map_event()`
 
 **Files:**
-- Rewrite: `peri-acp/src/event/mapper.rs`
-- Modify: `peri-acp/src/event/mod.rs`
+- Rewrite: `cc-acp/src/event/mapper.rs`
+- Modify: `cc-acp/src/event/mod.rs`
 
 - [ ] **Step 1: 重写 mapper.rs 为 MappedEvent + map_event()**
 
@@ -48,7 +48,7 @@ use agent_client_protocol::schema::{
     SessionInfoUpdate, SessionUpdate, TextContent, ToolCall, ToolCallStatus, ToolCallUpdate,
     ToolCallUpdateFields, ToolKind, UsageUpdate,
 };
-use peri_agent::agent::events::AgentEvent as ExecutorEvent;
+use cc_agent::agent::events::AgentEvent as ExecutorEvent;
 
 /// 统一映射输出：标准 SessionUpdate 列表 + 是否需 TUI 转发 + source_agent_id
 pub struct MappedEvent {
@@ -135,9 +135,9 @@ pub fn map_event(event: &ExecutorEvent, context_window: u32) -> Vec<MappedEvent>
                     e.content.clone(),
                     PlanEntryPriority::Medium,
                     match e.status {
-                        peri_agent::agent::events::TodoStatus::Pending => PlanEntryStatus::Pending,
-                        peri_agent::agent::events::TodoStatus::InProgress => PlanEntryStatus::InProgress,
-                        peri_agent::agent::events::TodoStatus::Completed => PlanEntryStatus::Completed,
+                        cc_agent::agent::events::TodoStatus::Pending => PlanEntryStatus::Pending,
+                        cc_agent::agent::events::TodoStatus::InProgress => PlanEntryStatus::InProgress,
+                        cc_agent::agent::events::TodoStatus::Completed => PlanEntryStatus::Completed,
                     },
                 )
             }).collect();
@@ -212,7 +212,7 @@ mod tests;
 - [ ] **Step 2: 更新 mod.rs 导出**
 
 ```rust
-// peri-acp/src/event/mod.rs
+// cc-acp/src/event/mod.rs
 //! Event mapping from ExecutorEvent to ACP SessionUpdate and peri/agent_event routing.
 
 pub mod mapper;
@@ -222,14 +222,14 @@ pub use mapper::{map_event, MappedEvent};
 - [ ] **Step 3: 运行编译验证**
 
 ```bash
-cargo build -p peri-acp
+cargo build -p cc-acp
 ```
 Expected: 编译通过，旧函数调用处会有编译错误（因为 `map_executor_to_updates()` / `map_executor_to_peri_notifications()` 已被删除）
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-acp/src/event/mapper.rs peri-acp/src/event/mod.rs
+git add cc-acp/src/event/mapper.rs cc-acp/src/event/mod.rs
 git commit -m "feat: add MappedEvent + map_event() unified event mapper"
 ```
 
@@ -238,12 +238,12 @@ git commit -m "feat: add MappedEvent + map_event() unified event mapper"
 ### Task 2: 更新 TransportEventSink 使用 `map_event()`
 
 **Files:**
-- Modify: `peri-acp/src/session/event_sink.rs` (TransportEventSink impl)
+- Modify: `cc-acp/src/session/event_sink.rs` (TransportEventSink impl)
 
 - [ ] **Step 1: 替换 TransportEventSink 的 push_event 实现**
 
 ```rust
-// peri-acp/src/session/event_sink.rs
+// cc-acp/src/session/event_sink.rs
 
 use crate::event::{map_event, MappedEvent};
 // 删除原有 import:
@@ -318,14 +318,14 @@ impl EventSink for TransportEventSink {
 - [ ] **Step 2: 运行编译验证**
 
 ```bash
-cargo build -p peri-acp
+cargo build -p cc-acp
 ```
 Expected: TransportEventSink 编译通过，不再引用旧函数
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-acp/src/session/event_sink.rs
+git add cc-acp/src/session/event_sink.rs
 git commit -m "feat: TransportEventSink uses map_event() with _peri metadata"
 ```
 
@@ -334,7 +334,7 @@ git commit -m "feat: TransportEventSink uses map_event() with _peri metadata"
 ### Task 3: 更新 StdioEventSink 使用 `map_event()`
 
 **Files:**
-- Modify: `peri-acp/src/session/event_sink.rs` (StdioEventSink impl)
+- Modify: `cc-acp/src/session/event_sink.rs` (StdioEventSink impl)
 
 - [ ] **Step 1: 替换 StdioEventSink 的 push_event 实现**
 
@@ -363,21 +363,21 @@ impl EventSink for StdioEventSink {
 - [ ] **Step 2: 运行编译验证**
 
 ```bash
-cargo build -p peri-acp
+cargo build -p cc-acp
 ```
-Expected: 整个 `peri-acp` crate 编译通过
+Expected: 整个 `cc-acp` crate 编译通过
 
-- [ ] **Step 3: 确认 peri-acp 不再引用旧函数**
+- [ ] **Step 3: 确认 cc-acp 不再引用旧函数**
 
 ```bash
-cargo build -p peri-acp --all-targets
+cargo build -p cc-acp --all-targets
 ```
 Expected: 编译通过，无 `map_executor_to_updates` 或 `map_executor_to_peri_notifications` 残留引用。
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-acp/src/session/event_sink.rs
+git add cc-acp/src/session/event_sink.rs
 git commit -m "feat: StdioEventSink uses map_event()"
 ```
 
@@ -386,7 +386,7 @@ git commit -m "feat: StdioEventSink uses map_event()"
 ### Task 4: 新增 Peri 模式 session/update → AgentEvent 桥接
 
 **Files:**
-- Modify: `peri-tui/src/app/agent_ops/session_update.rs`
+- Modify: `cc-tui/src/app/agent_ops/session_update.rs`
 
 TUI Peri 模式收到 `session/update` 后，解析为 AgentEvent 走现有 pipeline。在已有 External 模式 handler **之后**追加 Peri 模式方法。
 
@@ -396,7 +396,7 @@ TUI Peri 模式收到 `session/update` 后，解析为 AgentEvent 走现有 pipe
 // 追加到 session_update.rs 末尾
 
 use crate::app::AgentEvent;
-use peri_agent::agent::events::{CompactFileInfo, TodoEntry, TodoStatus};
+use cc_agent::agent::events::{CompactFileInfo, TodoEntry, TodoStatus};
 
 impl App {
     /// Peri 模式：将 session/update JSON 转换为 AgentEvent 并派发
@@ -533,11 +533,11 @@ impl App {
                             .and_then(|v| v.as_str())
                             .unwrap_or("pending");
                         let status = match status_str {
-                            "in_progress" => peri_middlewares::prelude::TodoStatus::InProgress,
-                            "completed" => peri_middlewares::prelude::TodoStatus::Completed,
-                            _ => peri_middlewares::prelude::TodoStatus::Pending,
+                            "in_progress" => cc_middlewares::prelude::TodoStatus::InProgress,
+                            "completed" => cc_middlewares::prelude::TodoStatus::Completed,
+                            _ => cc_middlewares::prelude::TodoStatus::Pending,
                         };
-                        todos.push(peri_middlewares::prelude::TodoItem {
+                        todos.push(cc_middlewares::prelude::TodoItem {
                             content,
                             status,
                             active_form: None,
@@ -571,14 +571,14 @@ fn truncate(s: &str, n: usize) -> String {
 - [ ] **Step 2: 运行编译验证**
 
 ```bash
-cargo build -p peri-tui
+cargo build -p cc-tui
 ```
 Expected: `handle_session_update_peri` 被解析但未被调用（no warning from unused）
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/app/agent_ops/session_update.rs
+git add cc-tui/src/app/agent_ops/session_update.rs
 git commit -m "feat: add handle_session_update_peri() for Peri mode SessionUpdate→AgentEvent bridge"
 ```
 
@@ -587,12 +587,12 @@ git commit -m "feat: add handle_session_update_peri() for Peri mode SessionUpdat
 ### Task 5: 更新 acp_bridge.rs 调用 Peri 模式桥接
 
 **Files:**
-- Modify: `peri-tui/src/app/agent_ops/acp_bridge.rs`
+- Modify: `cc-tui/src/app/agent_ops/acp_bridge.rs`
 
 - [ ] **Step 1: 修改 SessionUpdate 分支**
 
 ```rust
-// peri-tui/src/app/agent_ops/acp_bridge.rs
+// cc-tui/src/app/agent_ops/acp_bridge.rs
 
             AcpNotification::SessionUpdate { params, .. } => {
                 if self.backend_mode == super::super::BackendMode::External {
@@ -606,14 +606,14 @@ git commit -m "feat: add handle_session_update_peri() for Peri mode SessionUpdat
 - [ ] **Step 2: 运行编译验证**
 
 ```bash
-cargo build -p peri-tui
+cargo build -p cc-tui
 ```
 Expected: 编译通过
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/app/agent_ops/acp_bridge.rs
+git add cc-tui/src/app/agent_ops/acp_bridge.rs
 git commit -m "feat: Peri mode bridge consumes session/update via handle_session_update_peri()"
 ```
 
@@ -622,15 +622,15 @@ git commit -m "feat: Peri mode bridge consumes session/update via handle_session
 ### Task 6: 简化 map_executor_event() — 删除类别①映射
 
 **Files:**
-- Modify: `peri-tui/src/app/agent.rs`
+- Modify: `cc-tui/src/app/agent.rs`
 
 - [ ] **Step 1: 简化 map_executor_event()**
 
 ```rust
-// peri-tui/src/app/agent.rs
+// cc-tui/src/app/agent.rs
 
 use super::AgentEvent;
-use peri_agent::agent::events::AgentEvent as ExecutorEvent;
+use cc_agent::agent::events::AgentEvent as ExecutorEvent;
 
 // ─── 辅助函数 ─────────────────────────────────────────────────────────────────
 
@@ -755,14 +755,14 @@ pub(crate) fn map_executor_event(event: ExecutorEvent, cwd: &str) -> Option<Agen
 - [ ] **Step 2: 运行编译验证**
 
 ```bash
-cargo build -p peri-tui
+cargo build -p cc-tui
 ```
 Expected: 编译通过。如果 tool_display 中的 `truncate` 函数与 session_update.rs 中新增的 `truncate` 冲突，删除 session_update.rs 中的 `truncate` 并使用 `tool_display::truncate`。
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/app/agent.rs
+git add cc-tui/src/app/agent.rs
 git commit -m "refactor: simplify map_executor_event() — remove category① mappings"
 ```
 
@@ -772,18 +772,18 @@ git commit -m "refactor: simplify map_executor_event() — remove category① ma
 
 **Files:** 所有改动的文件
 
-- [ ] **Step 1: 运行 peri-acp 测试**
+- [ ] **Step 1: 运行 cc-acp 测试**
 
 ```bash
-cargo test -p peri-acp --lib
-cargo build -p peri-acp --all-targets
+cargo test -p cc-acp --lib
+cargo build -p cc-acp --all-targets
 ```
 
-- [ ] **Step 2: 运行 peri-tui 测试**
+- [ ] **Step 2: 运行 cc-tui 测试**
 
 ```bash
-cargo test -p peri-tui --lib
-cargo build -p peri-tui --all-targets
+cargo test -p cc-tui --lib
+cargo build -p cc-tui --all-targets
 ```
 
 - [ ] **Step 3: 运行全量编译**
@@ -794,16 +794,16 @@ cargo build --all-targets
 
 - [ ] **Step 4: 检查 agent.rs 的测试文件是否需要更新**
 
-`peri-tui/src/app/agent_test.rs` 可能包含了类别①事件的映射测试。检查并删除已不适用于新 map_executor_event 的测试用例。
+`cc-tui/src/app/agent_test.rs` 可能包含了类别①事件的映射测试。检查并删除已不适用于新 map_executor_event 的测试用例。
 
 - [ ] **Step 5: 检查 headless_test.rs**
 
-`peri-tui/src/ui/headless_test.rs` 中大量使用 `AgentEvent` 变体（AssistantChunk, ToolStart, ToolEnd 等）。这些测试**不变**——AgentEvent 枚举本身不变，只是其创建方式从 `map_executor_event` 改为 `handle_session_update_peri`。
+`cc-tui/src/ui/headless_test.rs` 中大量使用 `AgentEvent` 变体（AssistantChunk, ToolStart, ToolEnd 等）。这些测试**不变**——AgentEvent 枚举本身不变，只是其创建方式从 `map_executor_event` 改为 `handle_session_update_peri`。
 
 运行测试验证：
 
 ```bash
-cargo test -p peri-tui --lib -- headless_test
+cargo test -p cc-tui --lib -- headless_test
 ```
 
 - [ ] **Step 6: Commit**
@@ -818,8 +818,8 @@ git commit -m "test: adjust tests for unified event mapping"
 ### Task 8: 删除 peri/* 自定义通知残留
 
 **Files:**
-- Modify: `peri-tui/src/acp_client/client.rs` (可选)
-- Modify: `peri-tui/src/app/agent_ops/acp_bridge.rs`
+- Modify: `cc-tui/src/acp_client/client.rs` (可选)
+- Modify: `cc-tui/src/app/agent_ops/acp_bridge.rs`
 
 `Peri` 变体现在不再被 `map_event()` 产生（旧的 `map_executor_to_peri_notifications()` 已被删除）。`AcpNotification::Peri` 可以保留（向后兼容），Bridge 的 `Peri` 分支不变。
 
@@ -830,7 +830,7 @@ git commit -m "test: adjust tests for unified event mapping"
 - [ ] **Step 2: 运行编译**
 
 ```bash
-cargo build -p peri-tui
+cargo build -p cc-tui
 ```
 
 - [ ] **Step 3: Commit**
@@ -858,7 +858,7 @@ git commit -m "chore: peri/* custom notifications removed (now handled by map_ev
 **2. Placeholder scan:** 所有步骤有具体代码。
 
 **3. Type consistency:**
-- `MappedEvent` 定义在 `peri-acp/src/event/mapper.rs`，在 `event_sink.rs` + `mapper_test.rs` 中使用 ✅
+- `MappedEvent` 定义在 `cc-acp/src/event/mapper.rs`，在 `event_sink.rs` + `mapper_test.rs` 中使用 ✅
 - `handle_session_update_peri()` 返回签名 `(bool, bool, bool)` 与 `handle_agent_event` 一致 ✅
 - `truncate()` 避免重复定义 — 使用 `tool_display::truncate` ✅
 

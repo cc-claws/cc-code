@@ -3158,9 +3158,10 @@ fn test_find_url_ranges_matches_cc_pattern() {
     );
 }
 
-/// 工具结果行里的 URL 必须是「链接色 + 下划线」，其余文字保持原色。
+/// 工具结果里的 URL 不再单独着色：可点击性交给消息区注入的 OSC 8，
+/// 视觉上与正文一致（对齐 CC `OutputLine.tsx` 的 `createHyperlink`）。
 #[test]
-fn test_tool_result_urls_use_link_color_and_underline() {
+fn test_tool_result_url_keeps_body_style() {
     use crate::app::MessageViewModel;
     let url = "https://github.com/cc-claws/cc-code/actions/runs/39409693912";
     let vm = MessageViewModel::ToolBlock {
@@ -3182,91 +3183,24 @@ fn test_tool_result_urls_use_link_color_and_underline() {
         source_agent_id: None,
     };
     let lines = render_view_model(&vm, Some(1), 120, false, 0);
-    let spans = &lines[1].spans;
-    let url_span = spans
+    let url_line = lines
         .iter()
-        .find(|span| span.content.as_ref() == url)
-        .unwrap_or_else(|| panic!("应切出独立 URL span: {:?}", rendered_span_dump(&lines[1])));
-    assert_eq!(
-        url_span.style.fg,
-        Some(ratatui::style::Color::Cyan),
-        "URL 应使用定稿的 ANSI Cyan 链接色"
-    );
-    // URL 的链接色必须与状态栏模型名「同一套前景 + 背景」，否则同一个
-    // `Color::Cyan` 会因背景解析路径不同而呈现可见色差。
-    //
-    // 状态栏 `plain_style()` 是 `fg(Reset).bg(Reset)`；URL 若只设 fg、bg 留空，
-    // ratatui 就不下发背景指令，cell 沿用 buffer 里的旧背景，两块区域观感不一致。
-    assert_eq!(
-        url_span.style.bg,
-        Some(ratatui::style::Color::Reset),
-        "URL 的背景必须与状态栏模型名的 bg(Reset) 对齐"
-    );
-    assert!(
-        url_span
-            .style
-            .add_modifier
-            .contains(ratatui::style::Modifier::UNDERLINED),
-        "URL 应加下划线"
-    );
-    let plain = spans
-        .iter()
-        .find(|span| span.content.starts_with("Build (ubuntu-latest)"))
-        .expect("正文 span 应保留");
-    assert_eq!(
-        plain.style.fg,
-        Some(crate::ui::theme::cur().text_soft),
-        "URL 之外的正文仍是 TEXT_SOFT"
-    );
+        .find(|line| line.spans.iter().any(|span| span.content.contains(url)))
+        .unwrap_or_else(|| panic!("URL 必须出现在工具结果行里"));
+    assert_url_spans_are_unstyled(url_line);
 }
 
-/// 错误输出的 URL 仍要能看出是链接，但正文保持红色（链接色覆盖前景、下划线叠加）。
+/// `!` 本机命令输出：ANSI 着色照旧，但 URL 不再被单独挑出来上链接色。
 #[test]
-fn test_error_output_url_still_underlined() {
+fn test_shell_command_output_url_keeps_ansi_style() {
     use crate::app::MessageViewModel;
-    let vm = MessageViewModel::ToolBlock {
-        tool_name: "Bash".to_string(),
-        tool_call_id: "tc_bash_url_err".to_string(),
-        display_name: "Bash".to_string(),
-        args_display: Some("curl https://a.example".to_string()),
-        content: "[stderr]\nfailed to fetch https://a.example/api\n[Exit code: 1]".to_string(),
-        is_error: false,
-        collapsed: true,
-        color: crate::ui::theme::cur().bash_border,
-        diff_input: None,
-        timeout_ms: None,
-        shell_backgrounded: false,
-        started_at: None,
-        content_hash: 0,
-        phase: crate::ui::message_view::ToolPhase::Finished,
-        live_output: None,
-        source_agent_id: None,
-    };
-    let lines = render_view_model(&vm, Some(1), 120, false, 0);
-    let url_span = lines
-        .iter()
-        .flat_map(|line| line.spans.iter())
-        .find(|span| span.content.as_ref() == "https://a.example/api")
-        .unwrap_or_else(|| panic!("错误输出里的 URL 也应切出独立 span"));
-    assert_eq!(url_span.style.fg, Some(ratatui::style::Color::Cyan));
-    assert!(url_span
-        .style
-        .add_modifier
-        .contains(ratatui::style::Modifier::UNDERLINED));
-}
-
-/// `!` 本机命令输出同样识别 URL（用户 `!gh pr checks` 的主要场景）。
-#[test]
-fn test_shell_command_output_urls_are_styled() {
-    use crate::app::MessageViewModel;
+    let url = "https://github.com/cc-claws/cc-code/actions/runs/1";
     let mut vm = MessageViewModel::ShellCommand {
         id: "shell-url".to_string(),
         command: "gh pr checks 638".to_string(),
         cwd: ".".to_string(),
         stdin: Vec::new(),
-        stdout:
-            "Build (macos-latest)\tfail\t3m2s\thttps://github.com/cc-claws/cc-code/actions/runs/1"
-                .to_string(),
+        stdout: format!("Build (macos-latest)\tfail\t3m2s\t{url}"),
         stderr: String::new(),
         exit_code: Some(0),
         collapsed: true,
@@ -3276,23 +3210,31 @@ fn test_shell_command_output_urls_are_styled() {
     };
     vm.recompute_hash();
     let lines = render_view_model(&vm, None, 120, false, 0);
-    let url_span = lines
+    let url_line = lines
         .iter()
-        .flat_map(|line| line.spans.iter())
-        .find(|span| span.content.as_ref() == "https://github.com/cc-claws/cc-code/actions/runs/1")
-        .unwrap_or_else(|| panic!("`!` 命令输出里的 URL 也应切出独立 span"));
-    assert_eq!(url_span.style.fg, Some(ratatui::style::Color::Cyan));
-    assert!(url_span
-        .style
-        .add_modifier
-        .contains(ratatui::style::Modifier::UNDERLINED));
+        .find(|line| line.spans.iter().any(|span| span.content.contains(url)))
+        .unwrap_or_else(|| panic!("`!` 命令输出里的 URL 必须原样保留"));
+    assert_url_spans_are_unstyled(url_line);
 }
 
-fn rendered_span_dump(line: &Line<'static>) -> Vec<(String, Option<ratatui::style::Color>)> {
-    line.spans
-        .iter()
-        .map(|span| (span.content.to_string(), span.style.fg))
-        .collect()
+/// URL 所在行的每个 span 都不得再出现「链接色 + 下划线」的人工着色。
+fn assert_url_spans_are_unstyled(line: &Line<'static>) {
+    for span in &line.spans {
+        assert_ne!(
+            span.style.fg,
+            Some(ratatui::style::Color::Cyan),
+            "URL 不应再被单独上链接色: {:?}",
+            span.content
+        );
+        assert!(
+            !span
+                .style
+                .add_modifier
+                .contains(ratatui::style::Modifier::UNDERLINED),
+            "渲染层不再给 URL 加下划线，悬停提示由终端 OSC 8 承担: {:?}",
+            span.content
+        );
+    }
 }
 
 #[test]

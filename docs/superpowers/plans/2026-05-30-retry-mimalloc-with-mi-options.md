@@ -17,12 +17,12 @@
 | File | Action | Responsibility |
 |------|--------|---------------|
 | `Cargo.toml` | Modify | Add mimalloc to workspace dependencies |
-| `peri-tui/Cargo.toml` | Modify | Add mimalloc crate dependency (non-Windows) |
-| `peri-tui/src/main.rs` | Modify | Add `#[global_allocator]` + call `init_mimalloc_conf()` |
-| `peri-tui/src/lib.rs` | Modify | Add `pub mod mimalloc_config;` module declaration |
-| `peri-tui/src/mimalloc_config.rs` | Create | `init_mimalloc_conf()` + `alloc_collect()` functions |
-| `peri-tui/src/mimalloc_config_test.rs` | Create | Unit tests for config + collect |
-| `peri-tui/src/app/thread_ops.rs` | Modify | Call `alloc_collect()` after clear in `new_thread()` and `open_thread()` |
+| `cc-tui/Cargo.toml` | Modify | Add mimalloc crate dependency (non-Windows) |
+| `cc-tui/src/main.rs` | Modify | Add `#[global_allocator]` + call `init_mimalloc_conf()` |
+| `cc-tui/src/lib.rs` | Modify | Add `pub mod mimalloc_config;` module declaration |
+| `cc-tui/src/mimalloc_config.rs` | Create | `init_mimalloc_conf()` + `alloc_collect()` functions |
+| `cc-tui/src/mimalloc_config_test.rs` | Create | Unit tests for config + collect |
+| `cc-tui/src/app/thread_ops.rs` | Modify | Call `alloc_collect()` after clear in `new_thread()` and `open_thread()` |
 
 ---
 
@@ -30,7 +30,7 @@
 
 **Files:**
 - Modify: `Cargo.toml`
-- Modify: `peri-tui/Cargo.toml`
+- Modify: `cc-tui/Cargo.toml`
 
 - [ ] **Step 1: Add mimalloc to workspace dependencies**
 
@@ -41,9 +41,9 @@ In `Cargo.toml`, append to the `[workspace.dependencies]` section (after the `te
 mimalloc = "0.1"
 ```
 
-- [ ] **Step 2: Add mimalloc to peri-tui crate dependencies**
+- [ ] **Step 2: Add mimalloc to cc-tui crate dependencies**
 
-In `peri-tui/Cargo.toml`, add a platform-specific dependency section at the end of the file:
+In `cc-tui/Cargo.toml`, add a platform-specific dependency section at the end of the file:
 
 ```toml
 [target.'cfg(not(target_os = "windows"))'.dependencies]
@@ -52,14 +52,14 @@ mimalloc.workspace = true
 
 - [ ] **Step 3: Build to verify dependency resolution**
 
-Run: `cargo check -p peri-tui`
+Run: `cargo check -p cc-tui`
 Expected: Build succeeds, mimalloc and libmimalloc-sys are fetched.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add Cargo.toml peri-tui/Cargo.toml
-git commit -m "chore: add mimalloc workspace dependency for peri-tui
+git add Cargo.toml cc-tui/Cargo.toml
+git commit -m "chore: add mimalloc workspace dependency for cc-tui
 
 Re-introducing mimalloc with MI_OPTION tuning to address long-session
 RSS growth. Non-Windows only (system allocator on Windows).
@@ -72,13 +72,13 @@ Refs: spec/issues/2026-05-30-retry-mimalloc-with-mi-options.md"
 ### Task 2: Create mimalloc_config module
 
 **Files:**
-- Create: `peri-tui/src/mimalloc_config.rs`
-- Create: `peri-tui/src/mimalloc_config_test.rs`
-- Modify: `peri-tui/src/lib.rs`
+- Create: `cc-tui/src/mimalloc_config.rs`
+- Create: `cc-tui/src/mimalloc_config_test.rs`
+- Modify: `cc-tui/src/lib.rs`
 
 - [ ] **Step 1: Create `mimalloc_config.rs`**
 
-Create `peri-tui/src/mimalloc_config.rs`:
+Create `cc-tui/src/mimalloc_config.rs`:
 
 ```rust
 //! mimalloc allocator tuning for high-churn workloads.
@@ -139,7 +139,7 @@ pub fn alloc_collect() {
 
 - [ ] **Step 2: Create `mimalloc_config_test.rs`**
 
-Create `peri-tui/src/mimalloc_config_test.rs`:
+Create `cc-tui/src/mimalloc_config_test.rs`:
 
 ```rust
 use super::*;
@@ -217,7 +217,7 @@ fn test_alloc_collect_does_not_panic() {
 
 - [ ] **Step 3: Add module declaration to `lib.rs`**
 
-In `peri-tui/src/lib.rs`, add `mimalloc_config` after the existing module declarations:
+In `cc-tui/src/lib.rs`, add `mimalloc_config` after the existing module declarations:
 
 ```rust
 pub mod mimalloc_config;
@@ -225,13 +225,13 @@ pub mod mimalloc_config;
 
 - [ ] **Step 4: Build and test**
 
-Run: `cargo build -p peri-tui && cargo test -p peri-tui --lib -- mimalloc_config`
+Run: `cargo build -p cc-tui && cargo test -p cc-tui --lib -- mimalloc_config`
 Expected: Build succeeds, 3 tests pass.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-tui/src/mimalloc_config.rs peri-tui/src/mimalloc_config_test.rs peri-tui/src/lib.rs
+git add cc-tui/src/mimalloc_config.rs cc-tui/src/mimalloc_config_test.rs cc-tui/src/lib.rs
 git commit -m "feat(tui): add mimalloc_config module with MI_OPTION tuning and alloc_collect
 
 init_mimalloc_conf() sets PAGE_RESET/DECOMMIT/BACKGROUND_THREAD env vars
@@ -246,11 +246,11 @@ Refs: spec/issues/2026-05-30-retry-mimalloc-with-mi-options.md"
 ### Task 3: Register mimalloc as global allocator and call init
 
 **Files:**
-- Modify: `peri-tui/src/main.rs`
+- Modify: `cc-tui/src/main.rs`
 
 - [ ] **Step 1: Add `#[global_allocator]` and call `init_mimalloc_conf()`**
 
-In `peri-tui/src/main.rs`, add the global allocator declaration and the init call. The `init_mimalloc_conf()` must be the **very first thing** in `main()` — before any allocation.
+In `cc-tui/src/main.rs`, add the global allocator declaration and the init call. The `init_mimalloc_conf()` must be the **very first thing** in `main()` — before any allocation.
 
 Add at the top of the file (after the existing `use` statements, before `mod acp_stdio;`):
 
@@ -266,20 +266,20 @@ Then find the `main()` function. Add `init_mimalloc_conf()` as the first line of
 fn main() -> Result<()> {
     // Set mimalloc env vars BEFORE any allocation.
     // Must be the very first line — mimalloc reads these during init.
-    peri_tui::mimalloc_config::init_mimalloc_conf();
+    cc_tui::mimalloc_config::init_mimalloc_conf();
 
     // ... rest of main unchanged ...
 ```
 
 - [ ] **Step 2: Build to verify**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: Build succeeds.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/main.rs
+git add cc-tui/src/main.rs
 git commit -m "feat(tui): register mimalloc as global allocator with MI_OPTION init
 
 init_mimalloc_conf() called as first line of main() to set PAGE_RESET,
@@ -293,11 +293,11 @@ Refs: spec/issues/2026-05-30-retry-mimalloc-with-mi-options.md"
 ### Task 4: Add `alloc_collect()` calls after session clear/switch
 
 **Files:**
-- Modify: `peri-tui/src/app/thread_ops.rs`
+- Modify: `cc-tui/src/app/thread_ops.rs`
 
 - [ ] **Step 1: Add `alloc_collect()` call in `new_thread()`**
 
-In `peri-tui/src/app/thread_ops.rs`, in the `new_thread()` method, after the ACP `new_session` call completes and before the final `render_tx.send` block, add the `alloc_collect()` call.
+In `cc-tui/src/app/thread_ops.rs`, in the `new_thread()` method, after the ACP `new_session` call completes and before the final `render_tx.send` block, add the `alloc_collect()` call.
 
 Find the closing brace of this block (approximately line 346):
 
@@ -311,7 +311,7 @@ After it, before the `let _ = self.session_mgr...` render event, add:
 
 ```rust
         // 回收释放的内存给 OS
-        peri_tui::mimalloc_config::alloc_collect();
+        cc_tui::mimalloc_config::alloc_collect();
 ```
 
 - [ ] **Step 2: Add `alloc_collect()` call in `open_thread()`**
@@ -320,18 +320,18 @@ In the same file, in the `open_thread()` method, after `self.reset_agent_session
 
 ```rust
         // 回收释放的内存给 OS
-        peri_tui::mimalloc_config::alloc_collect();
+        cc_tui::mimalloc_config::alloc_collect();
 ```
 
 - [ ] **Step 3: Build and test**
 
-Run: `cargo build -p peri-tui && cargo test -p peri-tui --lib`
+Run: `cargo build -p cc-tui && cargo test -p cc-tui --lib`
 Expected: Build succeeds, all tests pass.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/app/thread_ops.rs
+git add cc-tui/src/app/thread_ops.rs
 git commit -m "feat(tui): add alloc_collect() after session clear and thread switch
 
 Call mi_collect(true) after new_thread() and open_thread() to force
@@ -353,12 +353,12 @@ Expected: Build succeeds, no warnings about mimalloc.
 
 - [ ] **Step 2: Run all tests**
 
-Run: `cargo test -p peri-tui --lib`
+Run: `cargo test -p cc-tui --lib`
 Expected: All tests pass (including the 3 new mimalloc_config tests).
 
 - [ ] **Step 3: Manual smoke test — start TUI and observe RSS**
 
-1. Start TUI: `cargo run -p peri-tui`
+1. Start TUI: `cargo run -p cc-tui`
 2. Send a few messages
 3. Observe RSS growth behavior over 5-10 turns
 4. Run `/clear` and observe whether RSS drops
@@ -385,5 +385,5 @@ No TBD/TODO/fill-in-later patterns found. All code blocks contain complete imple
 
 - `mimalloc::MiMalloc` is the standard type from the `mimalloc` crate — matches `#[global_allocator]` requirements (implements `GlobalAlloc`)
 - `libmimalloc_sys::mi_collect(true)` — `bool` parameter for force collection, matches mimalloc C API
-- `peri_tui::mimalloc_config::init_mimalloc_conf()` and `alloc_collect()` — module path matches `lib.rs` declaration and `main.rs` usage
+- `cc_tui::mimalloc_config::init_mimalloc_conf()` and `alloc_collect()` — module path matches `lib.rs` declaration and `main.rs` usage
 - Platform gates `#[cfg(not(target_os = "windows"))]` consistently applied across global_allocator, config module, and Cargo.toml

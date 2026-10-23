@@ -2,13 +2,13 @@
 
 **目标:** 彻底移除 `execute_prompt` 外层的 compact+resubmit 循环，将 compact 触发逻辑下沉为 `CompactMiddleware`，在 ReAct 循环内部的两个检查点（`before_model` / `after_agent`）原地压缩上下文，删除 resubmit 能力。
 
-**架构:** 新增 `before_model` / `after_model` 钩子到 Middleware trait → 实现 `CompactMiddleware`（`peri-middlewares`）→ 在 ReAct 循环中插入调用点 → 简化 `execute_prompt` 为单次 `agent.execute()` → 清理 TUI 侧残留逻辑。
+**架构:** 新增 `before_model` / `after_model` 钩子到 Middleware trait → 实现 `CompactMiddleware`（`cc-middlewares`）→ 在 ReAct 循环中插入调用点 → 简化 `execute_prompt` 为单次 `agent.execute()` → 清理 TUI 侧残留逻辑。
 
 **设计决策:** 见 `/grill-me` 对话总结——只有**一个** ReAct 循环，compact 是该循环内的中间件行为；不再有外层重建 agent 并重新执行的能力。
 
 **子计划:** Middleware trait 钩子扩展细节见 [spec-plan-model-hooks.md](./spec-plan-model-hooks.md)
 
-**技术栈:** Rust 2021, tokio + async-trait, peri-agent + peri-middlewares + peri-acp + peri-tui
+**技术栈:** Rust 2021, tokio + async-trait, cc-agent + cc-middlewares + cc-acp + cc-tui
 
 ---
 
@@ -18,10 +18,10 @@
 
 | Crate | 改动 | 风险 |
 |-------|------|------|
-| `peri-agent` | Middleware trait 新增 `before_model` + `after_model`；ReAct 循环插入两个调用点 | **中** — 19 个中间件零改动（默认实现），详见 [spec-plan-model-hooks.md] |
-| `peri-middlewares` | 新增 `CompactMiddleware` | **中** — 新模块，需正确接入 LLM/事件/Hooks 依赖 |
-| `peri-acp` | `executor.rs` 删除外部循环，`builder.rs` 注入 CompactMiddleware | **高** — 核心执行路径重构 |
-| `peri-tui` | 清理 `compact_task()` 死代码 | **低** — 删除而已 |
+| `cc-agent` | Middleware trait 新增 `before_model` + `after_model`；ReAct 循环插入两个调用点 | **中** — 19 个中间件零改动（默认实现），详见 [spec-plan-model-hooks.md] |
+| `cc-middlewares` | 新增 `CompactMiddleware` | **中** — 新模块，需正确接入 LLM/事件/Hooks 依赖 |
+| `cc-acp` | `executor.rs` 删除外部循环，`builder.rs` 注入 CompactMiddleware | **高** — 核心执行路径重构 |
+| `cc-tui` | 清理 `compact_task()` 死代码 | **低** — 删除而已 |
 
 **Task 依赖:** Task 1（Middleware trait）→ Task 2（CompactMiddleware）→ Task 3（ReAct 循环）→ Task 4（executor 简化）→ Task 5（TUI 清理）→ Task 6（测试验证）。Task 2 和 3 可部分并行。
 
@@ -32,7 +32,7 @@
 | Task | 名称 | 概要 | 涉及文件 |
 |------|------|------|----------|
 | 1 | Middleware trait 扩展 | 新增 `before_model` + `after_model` 钩子，详见 [spec-plan-model-hooks.md] | trait.rs, chain.rs, chain_test.rs, executor/mod.rs |
-| 2 | CompactMiddleware 实现 | 新建 `peri-middlewares/src/compact_middleware.rs` | compact_middleware.rs, mod.rs |
+| 2 | CompactMiddleware 实现 | 新建 `cc-middlewares/src/compact_middleware.rs` | compact_middleware.rs, mod.rs |
 | 3 | ReAct 循环改造 | `execute()` 中插入 `before_model` / `after_model` 调用点 | executor/mod.rs（已在 Task 1 中完成） |
 | 4 | executor.rs 去循环化 | 删除外层 `loop`，单次 `execute()` | executor.rs, builder.rs |
 | 5 | TUI 清理 | 删除 `compact_task()` 死代码 | agent.rs, agent_compact.rs (适配) |
@@ -44,7 +44,7 @@
 
 **目标:** 新增 `before_model` 钩子，Middleware trait + MiddlewareChain + 所有实现者。
 
-### 1.1 Middleware trait（`peri-agent/src/middleware/trait.rs`）
+### 1.1 Middleware trait（`cc-agent/src/middleware/trait.rs`）
 
 在 `after_tool` 和 `after_agent` 之间插入新方法：
 
@@ -59,7 +59,7 @@ async fn before_model(&self, state: &mut S) -> AgentResult<()> {
 
 **影响范围:** 所有 `impl Middleware<S> for XxxMiddleware` 自动获得默认空实现。无需修改任何现有中间件。
 
-### 1.2 MiddlewareChain（`peri-agent/src/middleware/chain.rs`）
+### 1.2 MiddlewareChain（`cc-agent/src/middleware/chain.rs`）
 
 新增 `run_before_model` 方法（按序执行所有中间件，遇错即停）：
 
@@ -77,7 +77,7 @@ pub async fn run_before_model(&self, state: &mut S) -> AgentResult<()> {
 
 新增 `test_run_before_model_basic` / `test_run_before_model_error_propagation` 测试。
 
-**验证:** `cargo test -p peri-agent --lib middleware::chain::tests`
+**验证:** `cargo test -p cc-agent --lib middleware::chain::tests`
 
 ---
 
@@ -87,32 +87,32 @@ pub async fn run_before_model(&self, state: &mut S) -> AgentResult<()> {
 
 ### 2.1 文件位置
 
-新建 `peri-middlewares/src/compact_middleware.rs`，在 `peri-middlewares/src/lib.rs` 中声明模块并 re-export。
+新建 `cc-middlewares/src/compact_middleware.rs`，在 `cc-middlewares/src/lib.rs` 中声明模块并 re-export。
 
 ### 2.2 结构体设计
 
 ```rust
 pub struct CompactMiddleware {
     /// LLM 模型（用于 full compact 摘要生成），None 则跳过 full compact
-    model: Option<Arc<dyn peri_agent::llm::BaseModel>>,
+    model: Option<Arc<dyn cc_agent::llm::BaseModel>>,
     /// Compact 配置
-    config: peri_agent::agent::compact::CompactConfig,
+    config: cc_agent::agent::compact::CompactConfig,
     /// 上下文窗口预算
-    budget: peri_agent::agent::token::ContextBudget,
+    budget: cc_agent::agent::token::ContextBudget,
     /// 工作目录（re_inject 需要）
     cwd: String,
     /// 事件通道（发送 CompactStarted/Completed/Error）
-    event_tx: Arc<std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<peri_agent::agent::events::AgentEvent>>>>,
+    event_tx: Arc<std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<cc_agent::agent::events::AgentEvent>>>>,
     /// 取消令牌
-    cancel: peri_agent::agent::AgentCancellationToken,
+    cancel: cc_agent::agent::AgentCancellationToken,
     /// Hooks（PreCompact/PostCompact）
-    hooks: Vec<peri_middlewares::hooks::RegisteredHook>,
+    hooks: Vec<cc_middlewares::hooks::RegisteredHook>,
     /// Hook 上下文
-    hook_ctx: peri_acp::session::compact_runner::HookContext,
+    hook_ctx: cc_acp::session::compact_runner::HookContext,
 }
 ```
 
-**⚠️ 注意**: `HookContext` 在 `peri-acp` 中定义。若不想引入 `peri-acp` 依赖，可将其下沉到 `peri-agent` 或复制一份到 `peri-middlewares`。推荐方案：将 `HookContext` 提取到 `peri-agent::agent::compact` 模块（与 compact 逻辑共址）。
+**⚠️ 注意**: `HookContext` 在 `cc-acp` 中定义。若不想引入 `cc-acp` 依赖，可将其下沉到 `cc-agent` 或复制一份到 `cc-middlewares`。推荐方案：将 `HookContext` 提取到 `cc-agent::agent::compact` 模块（与 compact 逻辑共址）。
 
 ### 2.3 `before_model` 逻辑
 
@@ -140,7 +140,7 @@ after_agent(state, output):
 
 ### 2.5 `do_full_compact` 实现
 
-复用现有的 `peri_agent::agent::compact::full_compact()` + `re_inject()`：
+复用现有的 `cc_agent::agent::compact::full_compact()` + `re_inject()`：
 
 ```
 do_full_compact(state):
@@ -201,7 +201,7 @@ async fn before_model(&self, state: &mut S) -> AgentResult<()> {
 
 `DISABLE_COMPACT` / `DISABLE_AUTO_COMPACT` 在 `before_model`/`after_agent` 入口检查，而非构造函数中——允许运行时通过环境变量动态控制。
 
-**验证:** `cargo build -p peri-middlewares` + 新增单元测试
+**验证:** `cargo build -p cc-middlewares` + 新增单元测试
 
 ---
 
@@ -211,7 +211,7 @@ async fn before_model(&self, state: &mut S) -> AgentResult<()> {
 
 ### 3.1 executor/mod.rs 修改
 
-在 `peri-agent/src/agent/executor/mod.rs` 第 245-246 行之间插入：
+在 `cc-agent/src/agent/executor/mod.rs` 第 245-246 行之间插入：
 
 ```rust
 for step in 0..self.max_iterations {
@@ -246,7 +246,7 @@ for step in 0..self.max_iterations {
 ```
 替换为简短注释说明 compact 已由 CompactMiddleware 处理。
 
-**验证:** `cargo build -p peri-agent`
+**验证:** `cargo build -p cc-agent`
 
 ---
 
@@ -254,7 +254,7 @@ for step in 0..self.max_iterations {
 
 **目标:** `execute_prompt()` 从 `loop { build_agent → execute → compact → resubmit }` 简化为 `build_agent → execute → return`。
 
-### 4.1 executor.rs 简化（`peri-acp/src/session/executor.rs`）
+### 4.1 executor.rs 简化（`cc-acp/src/session/executor.rs`）
 
 **删除:**
 - L131: `let mut current_history = history;`
@@ -341,7 +341,7 @@ PromptResult {
 }
 ```
 
-### 4.2 AcpAgentConfig 扩展（`peri-acp/src/agent/builder.rs`）
+### 4.2 AcpAgentConfig 扩展（`cc-acp/src/agent/builder.rs`）
 
 新增字段（`Option` 类型，保持向后兼容）：
 
@@ -403,25 +403,25 @@ if let (Some(config), Some(budget), Some(model), Some(event_tx)) = (
 
 `compact_runner` 模块保留（手动 `/compact` 路径仍需使用），但 `execute_prompt` 中不再引用它。`run_full_compact`/`run_micro_compact` 保留为公有 API。
 
-**验证:** `cargo build -p peri-acp`
+**验证:** `cargo build -p cc-acp`
 
 ---
 
 ## Task 5：TUI 清理
 
-### 5.1 删除 compact_task（`peri-tui/src/app/agent.rs`）
+### 5.1 删除 compact_task（`cc-tui/src/app/agent.rs`）
 
 搜索并删除 `compact_task()` 函数（旧的手动 compact 残留）。
 
 ### 5.2 handle_compact_completed 适配
 
-`peri-tui/src/app/agent_compact.rs` 中的 `handle_compact_completed` 逻辑保持不变——CompactMiddleware 仍通过事件通道发送 `CompactCompleted` 事件，TUI 映射和处理逻辑无需修改。
+`cc-tui/src/app/agent_compact.rs` 中的 `handle_compact_completed` 逻辑保持不变——CompactMiddleware 仍通过事件通道发送 `CompactCompleted` 事件，TUI 映射和处理逻辑无需修改。
 
 ### 5.3 map_executor_event 不变
 
-`CompactStarted` / `CompactCompleted` / `CompactError` 的映射保持不变（`peri-tui/src/app/agent.rs:154-168`）。
+`CompactStarted` / `CompactCompleted` / `CompactError` 的映射保持不变（`cc-tui/src/app/agent.rs:154-168`）。
 
-**验证:** `cargo build -p peri-tui`
+**验证:** `cargo build -p cc-tui`
 
 ---
 
@@ -429,7 +429,7 @@ if let (Some(config), Some(budget), Some(model), Some(event_tx)) = (
 
 ### 6.1 新增测试
 
-- `peri-middlewares/src/compact_middleware_test.rs`: CompactMiddleware 单元测试
+- `cc-middlewares/src/compact_middleware_test.rs`: CompactMiddleware 单元测试
   - `test_before_model_noop_when_disabled` — 禁用时跳过
   - `test_before_model_micro_compact` — 低于 auto 阈值时触发 micro
   - `test_before_model_full_compact` — 超过 auto 阈值时触发 full
@@ -437,17 +437,17 @@ if let (Some(config), Some(budget), Some(model), Some(event_tx)) = (
   - `test_compact_without_model_skips_full` — 无 model 时跳过 full compact
   - `test_borrow_safety_then_mut` — 验证先读 tracker 后改 messages 的借用模式
 
-- `peri-agent/src/middleware/chain_test.rs`: `before_model` 钩子测试
+- `cc-agent/src/middleware/chain_test.rs`: `before_model` 钩子测试
 
-- `peri-acp` 集成测试：验证 `execute_prompt` 单次执行不循环
+- `cc-acp` 集成测试：验证 `execute_prompt` 单次执行不循环
 
 ### 6.2 全量测试
 
 ```bash
 cargo test --workspace
-cargo test -p peri-agent --lib
-cargo test -p peri-middlewares --lib
-cargo test -p peri-acp --lib
+cargo test -p cc-agent --lib
+cargo test -p cc-middlewares --lib
+cargo test -p cc-acp --lib
 ```
 
 ### 6.3 手动验证场景
@@ -470,7 +470,7 @@ cargo test -p peri-acp --lib
 | 所有 17 个中间件需兼容新 `before_model` 方法 | 默认空实现，零改动 |
 | CompactMiddleware 借用模式在 async 中可能有问题 | 将 tracker 读取限制在同步块内，立即 drop 引用 |
 | full_compact 中 LLM 调用在中间件内执行可能超时 | 复用现有 `cancel` token，`tokio::select!` 竞争取消 |
-| HookContext 沉入 peri-agent 增加跨 crate 依赖 | 优先方案：在 peri-agent 中定义精简版 HookContext；备选：直接在 peri-middlewares 复制定义 |
+| HookContext 沉入 cc-agent 增加跨 crate 依赖 | 优先方案：在 cc-agent 中定义精简版 HookContext；备选：直接在 cc-middlewares 复制定义 |
 | 手动 /compact 路径与 auto-compact 事件冲突 | 手动 compact 仍在 compact_runner 中独立发送事件，与 CompactMiddleware 互斥（不同 session 状态） |
 
 ---

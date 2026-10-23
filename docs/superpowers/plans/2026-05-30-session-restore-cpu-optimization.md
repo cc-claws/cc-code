@@ -17,16 +17,16 @@
 `rebuild()` 中 `compute_wrapped_height()` 和 `build_wrap_map()` 对同一批 `lines` 各遍历一次调用 `Paragraph::line_count()`，完全重复。将两者合并为一次遍历。
 
 **Files:**
-- Modify: `peri-tui/src/ui/render_thread.rs:73-81`（删除 `compute_wrapped_height`）
-- Modify: `peri-tui/src/ui/render_thread.rs:127-163`（`build_wrap_map` 返回元组）
-- Modify: `peri-tui/src/ui/render_thread.rs:350-357`（`rebuild` 中拆解元组）
-- Test: `peri-tui/src/ui/render_thread_test.rs`
+- Modify: `cc-tui/src/ui/render_thread.rs:73-81`（删除 `compute_wrapped_height`）
+- Modify: `cc-tui/src/ui/render_thread.rs:127-163`（`build_wrap_map` 返回元组）
+- Modify: `cc-tui/src/ui/render_thread.rs:350-357`（`rebuild` 中拆解元组）
+- Test: `cc-tui/src/ui/render_thread_test.rs`
 
 - [ ] **Step 1: 修改 `build_wrap_map` 返回 `(usize, Vec<WrappedLineInfo>)`**
 
 将 `build_wrap_map` 的返回类型改为元组，内部累加 `total_lines`。
 
-修改 `peri-tui/src/ui/render_thread.rs` 第 127 行起的 `build_wrap_map`：
+修改 `cc-tui/src/ui/render_thread.rs` 第 127 行起的 `build_wrap_map`：
 
 ```rust
     fn build_wrap_map(lines: &[Line<'static>], width: u16) -> (usize, Vec<WrappedLineInfo>) {
@@ -71,7 +71,7 @@
 
 - [ ] **Step 2: 删除 `compute_wrapped_height` 函数**
 
-删除 `peri-tui/src/ui/render_thread.rs` 第 71-81 行的 `compute_wrapped_height` 函数和注释。
+删除 `cc-tui/src/ui/render_thread.rs` 第 71-81 行的 `compute_wrapped_height` 函数和注释。
 
 即删除：
 ```rust
@@ -108,7 +108,7 @@
 
 - [ ] **Step 4: 更新所有测试中的 `build_wrap_map` 调用**
 
-测试文件 `peri-tui/src/ui/render_thread_test.rs` 中 `test_build_wrap_map_*` 系列测试直接调用 `RenderTask::build_wrap_map()`，需要适配元组返回值。
+测试文件 `cc-tui/src/ui/render_thread_test.rs` 中 `test_build_wrap_map_*` 系列测试直接调用 `RenderTask::build_wrap_map()`，需要适配元组返回值。
 
 以 `test_build_wrap_map_empty` 为例，所有 `build_wrap_map` 调用处改为解构：
 
@@ -128,10 +128,10 @@ fn test_build_wrap_map_empty() {
 - [ ] **Step 5: 运行测试验证**
 
 ```bash
-cargo test -p peri-tui --lib -- test_build_wrap_map
-cargo test -p peri-tui --lib -- test_rebuild
-cargo test -p peri-tui --lib -- test_resize
-cargo test -p peri-tui --lib -- test_clear
+cargo test -p cc-tui --lib -- test_build_wrap_map
+cargo test -p cc-tui --lib -- test_rebuild
+cargo test -p cc-tui --lib -- test_resize
+cargo test -p cc-tui --lib -- test_clear
 ```
 
 预期：全部 PASS
@@ -139,7 +139,7 @@ cargo test -p peri-tui --lib -- test_clear
 - [ ] **Step 6: 构建验证**
 
 ```bash
-cargo build -p peri-tui
+cargo build -p cc-tui
 ```
 
 预期：编译通过，无 warning
@@ -147,7 +147,7 @@ cargo build -p peri-tui
 - [ ] **Step 7: Commit**
 
 ```bash
-git add peri-tui/src/ui/render_thread.rs peri-tui/src/ui/render_thread_test.rs
+git add cc-tui/src/ui/render_thread.rs cc-tui/src/ui/render_thread_test.rs
 git commit -m "perf(render): merge compute_wrapped_height into build_wrap_map to eliminate duplicate line_count traversal
 
 Eliminates redundant Paragraph::line_count() traversal in rebuild().
@@ -164,14 +164,14 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 `from_base_message_with_cwd()` 在创建 VM 时就调用 `parse_markdown_default()`（宽度80），但 `render_one()` 又会用实际宽度重新解析 UserBubble。改为延迟解析——创建时不解析，渲染时才解析。
 
 **Files:**
-- Modify: `peri-tui/src/ui/message_view/mod.rs:442-468`（`from_base_message_with_cwd` 中 UserBubble + TextBlock）
-- Modify: `peri-tui/src/ui/message_view/mod.rs:681-684`（`MessageViewModel::user()` helper）
-- Modify: `peri-tui/src/ui/render_thread.rs:166-190`（`render_one` 无需改动，已有处理逻辑）
-- Test: `peri-tui/src/ui/render_thread_test.rs`（现有测试验证 hash diff 和 rebuild）
+- Modify: `cc-tui/src/ui/message_view/mod.rs:442-468`（`from_base_message_with_cwd` 中 UserBubble + TextBlock）
+- Modify: `cc-tui/src/ui/message_view/mod.rs:681-684`（`MessageViewModel::user()` helper）
+- Modify: `cc-tui/src/ui/render_thread.rs:166-190`（`render_one` 无需改动，已有处理逻辑）
+- Test: `cc-tui/src/ui/render_thread_test.rs`（现有测试验证 hash diff 和 rebuild）
 
 - [ ] **Step 1: 修改 `from_base_message_with_cwd` 中 Human 消息路径**
 
-将 `peri-tui/src/ui/message_view/mod.rs` 第 442-448 行从：
+将 `cc-tui/src/ui/message_view/mod.rs` 第 442-448 行从：
 
 ```rust
             BaseMessage::Human { content, .. } => {
@@ -262,9 +262,9 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 - `test_build_wrap_map_*`：wrap 计算与 VM 内容无关
 
 ```bash
-cargo test -p peri-tui --lib -- test_rebuild
-cargo test -p peri-tui --lib -- test_build_wrap_map
-cargo test -p peri-tui --lib -- render_thread
+cargo test -p cc-tui --lib -- test_rebuild
+cargo test -p cc-tui --lib -- test_build_wrap_map
+cargo test -p cc-tui --lib -- render_thread
 ```
 
 预期：全部 PASS。如果 hash 测试因空 rendered 导致 hash 不同而失败，需确认 `MessageViewModel` 的 `Hash` impl 是否包含 `rendered` 字段——如果不包含则无影响。
@@ -272,7 +272,7 @@ cargo test -p peri-tui --lib -- render_thread
 - [ ] **Step 5: 构建验证**
 
 ```bash
-cargo build -p peri-tui
+cargo build -p cc-tui
 ```
 
 预期：编译通过。检查是否有 `parse_markdown_default` 的 unused import warning——如有，从 `message_view/mod.rs` 顶部移除该 import（其他调用点可能仍在使用，需检查）。
@@ -280,7 +280,7 @@ cargo build -p peri-tui
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-tui/src/ui/message_view/mod.rs
+git add cc-tui/src/ui/message_view/mod.rs
 git commit -m "perf(markdown): defer markdown parsing to render time in session restore
 
 UserBubble and AssistantBubble TextBlocks no longer parse markdown at
@@ -299,12 +299,12 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 `open_thread()` 调用 `store.load_messages()`（单线程消息），随后 ACP 侧 `load_session()` 再调用 `load_context()`（含祖先链+缓存）。改用 `load_context()` 让 TUI 侧也受益于 cached_context 缓存，且功能是超集。
 
 **Files:**
-- Modify: `peri-tui/src/app/thread_ops.rs:155-159`（`open_thread` 中 `load_messages` → `load_context`）
+- Modify: `cc-tui/src/app/thread_ops.rs:155-159`（`open_thread` 中 `load_messages` → `load_context`）
 - Test: 手动测试恢复会话功能
 
 - [ ] **Step 1: 修改 `open_thread()` 中的加载调用**
 
-将 `peri-tui/src/app/thread_ops.rs` 第 155-159 行从：
+将 `cc-tui/src/app/thread_ops.rs` 第 155-159 行从：
 
 ```rust
         let base_msgs = tokio::task::block_in_place(|| {
@@ -338,13 +338,13 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 - [ ] **Step 3: 构建验证**
 
 ```bash
-cargo build -p peri-tui
+cargo build -p cc-tui
 ```
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/app/thread_ops.rs
+git add cc-tui/src/app/thread_ops.rs
 git commit -m "perf(restore): use load_context instead of load_messages in open_thread
 
 TUI side now benefits from cached_context and ancestor chain resolution.
@@ -373,7 +373,7 @@ cargo build
 - [ ] **Step 2: 运行 TUI 相关测试**
 
 ```bash
-cargo test -p peri-tui --lib
+cargo test -p cc-tui --lib
 ```
 
 预期：全部 PASS
@@ -381,7 +381,7 @@ cargo test -p peri-tui --lib
 - [ ] **Step 3: 运行 agent 相关测试（load_context 变更）**
 
 ```bash
-cargo test -p peri-agent --lib -- sqlite_store
+cargo test -p cc-agent --lib -- sqlite_store
 ```
 
 预期：全部 PASS
@@ -389,7 +389,7 @@ cargo test -p peri-agent --lib -- sqlite_store
 - [ ] **Step 4: Lint 检查**
 
 ```bash
-cargo clippy -p peri-tui --lib -- -D warnings
+cargo clippy -p cc-tui --lib -- -D warnings
 ```
 
 预期：无 warning
@@ -397,7 +397,7 @@ cargo clippy -p peri-tui --lib -- -D warnings
 - [ ] **Step 5: 手动验证恢复功能**
 
 ```bash
-cargo run -p peri-tui -- -c
+cargo run -p cc-tui -- -c
 ```
 
 手动验证：

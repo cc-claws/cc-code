@@ -25,19 +25,19 @@
 
 | 文件 | 改动 |
 |------|------|
-| `peri-tui/src/app/edit_utils.rs` | **Modify**: `handle_edit_key()` 添加 4 个新分支；添加 `find_word_start()` / `find_word_end()` 辅助函数 |
-| `peri-widgets/src/input_field.rs` | **Modify**: `InputState` 添加 `cursor_word_left()` / `cursor_word_right()` / `delete_word_backward()` |
-| `peri-tui/src/app/plugin_panel/handlers/plugin_handlers/discover_search.rs` | **Modify**: `handle_discover_searching()` 使用 `InputState` 新方法替代裸 insert/backspace |
-| `peri-tui/src/app/plugin_panel/handlers/plugin_handlers/marketplace.rs` | **Modify**: `handle_marketplace_add()` 使用 `InputState` 新方法替代裸 insert/backspace |
-| `peri-tui/src/app/plugin_panel/mod.rs` | **Modify**: 调用 `InputState` 新方法的辅助函数 |
-| `peri-tui/src/app/edit_utils_test.rs` | **Create**: `handle_edit_key` 及辅助函数的测试 |
+| `cc-tui/src/app/edit_utils.rs` | **Modify**: `handle_edit_key()` 添加 4 个新分支；添加 `find_word_start()` / `find_word_end()` 辅助函数 |
+| `cc-widgets/src/input_field.rs` | **Modify**: `InputState` 添加 `cursor_word_left()` / `cursor_word_right()` / `delete_word_backward()` |
+| `cc-tui/src/app/plugin_panel/handlers/plugin_handlers/discover_search.rs` | **Modify**: `handle_discover_searching()` 使用 `InputState` 新方法替代裸 insert/backspace |
+| `cc-tui/src/app/plugin_panel/handlers/plugin_handlers/marketplace.rs` | **Modify**: `handle_marketplace_add()` 使用 `InputState` 新方法替代裸 insert/backspace |
+| `cc-tui/src/app/plugin_panel/mod.rs` | **Modify**: 调用 `InputState` 新方法的辅助函数 |
+| `cc-tui/src/app/edit_utils_test.rs` | **Create**: `handle_edit_key` 及辅助函数的测试 |
 
 ---
 
 ### Task 1: Add word boundary helpers to `edit_utils.rs`
 
 **Files:**
-- Modify: `peri-tui/src/app/edit_utils.rs`（在 `handle_edit_key` 函数之前插入）
+- Modify: `cc-tui/src/app/edit_utils.rs`（在 `handle_edit_key` 函数之前插入）
 
 - [ ] **Step 1: Add `find_word_start` and `find_word_end` helper functions**
 
@@ -121,15 +121,15 @@ fn char_category(c: char) -> u8 {
 }
 ```
 
-- [ ] **Step 2: Run `cargo build -p peri-tui` to verify no syntax errors**
+- [ ] **Step 2: Run `cargo build -p cc-tui` to verify no syntax errors**
 
-Run: `cargo build -p peri-tui 2>&1 | head -20`
+Run: `cargo build -p cc-tui 2>&1 | head -20`
 Expected: Compiles successfully
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/app/edit_utils.rs
+git add cc-tui/src/app/edit_utils.rs
 git commit -m "feat(edit_utils): add word boundary helpers for word-jump support
 
 Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
@@ -140,7 +140,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 2: Add word jump/delete to `handle_edit_key()`
 
 **Files:**
-- Modify: `peri-tui/src/app/edit_utils.rs`（`handle_edit_key` 函数内）
+- Modify: `cc-tui/src/app/edit_utils.rs`（`handle_edit_key` 函数内）
 
 - [ ] **Step 1: Add Ctrl+Left, Ctrl+Right, Ctrl+W, Alt+Backspace arms**
 
@@ -234,15 +234,15 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 /// Alt+Backspace(delete word backward)
 ```
 
-- [ ] **Step 3: Run `cargo build -p peri-tui` to verify compilation**
+- [ ] **Step 3: Run `cargo build -p cc-tui` to verify compilation**
 
-Run: `cargo build -p peri-tui 2>&1 | head -20`
+Run: `cargo build -p cc-tui 2>&1 | head -20`
 Expected: Compiles successfully
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/app/edit_utils.rs
+git add cc-tui/src/app/edit_utils.rs
 git commit -m "feat(edit_utils): add word-jump and word-delete to handle_edit_key
 
 Add Ctrl+Left/Right for word navigation and Ctrl+W/Alt+Backspace for word
@@ -257,7 +257,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 3: Write tests for `handle_edit_key` helpers
 
 **Files:**
-- Create: `peri-tui/src/app/edit_utils_test.rs`
+- Create: `cc-tui/src/app/edit_utils_test.rs`
 
 - [ ] **Step 1: Write tests for `find_word_start` and `find_word_end`**
 
@@ -440,13 +440,13 @@ mod tests {
 
 - [ ] **Step 2: Run tests to verify they pass**
 
-Run: `cargo test -p peri-tui -- edit_utils_test --nocapture 2>&1 | tail -30`
+Run: `cargo test -p cc-tui -- edit_utils_test --nocapture 2>&1 | tail -30`
 Expected: All tests PASS
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/app/edit_utils_test.rs
+git add cc-tui/src/app/edit_utils_test.rs
 git commit -m "test(edit_utils): add tests for word boundary helpers and word jump/delete
 
 Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
@@ -457,7 +457,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 4: Add word operations to `InputState`
 
 **Files:**
-- Modify: `peri-widgets/src/input_field.rs`（在 `cursor_end()` 之后，`paste()` 之前插入）
+- Modify: `cc-widgets/src/input_field.rs`（在 `cursor_end()` 之后，`paste()` 之前插入）
 
 - [ ] **Step 1: Add `cursor_word_left`, `cursor_word_right`, `delete_word_backward` to `InputState`**
 
@@ -609,15 +609,15 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
     }
 ```
 
-- [ ] **Step 2: Run `cargo build -p peri-widgets` to verify compilation**
+- [ ] **Step 2: Run `cargo build -p cc-widgets` to verify compilation**
 
-Run: `cargo build -p peri-widgets 2>&1 | head -20`
+Run: `cargo build -p cc-widgets 2>&1 | head -20`
 Expected: Compiles successfully
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-widgets/src/input_field.rs
+git add cc-widgets/src/input_field.rs
 git commit -m "feat(input_field): add word navigation and deletion to InputState
 
 Add cursor_word_left, cursor_word_right, and delete_word_backward methods
@@ -631,12 +631,12 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 5: Write tests for `InputState` word operations
 
 **Files:**
-- Modify: `peri-widgets/src/input_field_test.rs`
+- Modify: `cc-widgets/src/input_field_test.rs`
 
 - [ ] **Step 1: Read existing test file to understand test conventions**
 
 ```bash
-Read peri-widgets/src/input_field_test.rs first
+Read cc-widgets/src/input_field_test.rs first
 ```
 
 - [ ] **Step 2: Add tests for word operations at end of test file**
@@ -706,13 +706,13 @@ Read peri-widgets/src/input_field_test.rs first
 
 - [ ] **Step 3: Run tests to verify they pass**
 
-Run: `cargo test -p peri-widgets -- input_field_test --nocapture 2>&1 | tail -30`
+Run: `cargo test -p cc-widgets -- input_field_test --nocapture 2>&1 | tail -30`
 Expected: All tests PASS (including new ones)
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-widgets/src/input_field_test.rs
+git add cc-widgets/src/input_field_test.rs
 git commit -m "test(input_field): add tests for word navigation and deletion
 
 Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
@@ -723,7 +723,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 6: Update PluginPanel discover_search to use InputState methods
 
 **Files:**
-- Modify: `peri-tui/src/app/plugin_panel/handlers/plugin_handlers/discover_search.rs`
+- Modify: `cc-tui/src/app/plugin_panel/handlers/plugin_handlers/discover_search.rs`
 
 - [ ] **Step 1: Rewrite `handle_discover_searching` to use InputState methods for all editing keys**
 
@@ -887,15 +887,15 @@ impl PluginPanel {
 
 在 `plugin_panel/mod.rs` 中定位到第 239-241 行（paste 事件中对 `discover_search.insert` 的裸调用）和第 572-588 行（`discover_search_input` / `discover_search_backspace` 辅助函数），这些函数如果只是转发到 `discover_search.insert/backspace`，不需要改动（它们只是粘贴和过滤场景的便捷方法）。
 
-- [ ] **Step 3: Run `cargo build -p peri-tui` to verify compilation**
+- [ ] **Step 3: Run `cargo build -p cc-tui` to verify compilation**
 
-Run: `cargo build -p peri-tui 2>&1 | head -20`
+Run: `cargo build -p cc-tui 2>&1 | head -20`
 Expected: Compiles successfully
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/app/plugin_panel/handlers/plugin_handlers/discover_search.rs
+git add cc-tui/src/app/plugin_panel/handlers/plugin_handlers/discover_search.rs
 git commit -m "feat(plugin_panel): use InputState editing methods in discover search
 
 Replace raw insert/backspace with full cursor operations (Left/Right/Home/End/
@@ -910,7 +910,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 6.5: Update marketplace_add handler to use InputState methods
 
 **Files:**
-- Modify: `peri-tui/src/app/plugin_panel/handlers/plugin_handlers/marketplace.rs`
+- Modify: `cc-tui/src/app/plugin_panel/handlers/plugin_handlers/marketplace.rs`
 
 - [ ] **Step 1: Rewrite `handle_marketplace_add` to use InputState cursor operations**
 
@@ -1034,15 +1034,15 @@ Replace `handle_marketplace_add` function with:
     }
 ```
 
-- [ ] **Step 2: Run `cargo build -p peri-tui` to verify compilation**
+- [ ] **Step 2: Run `cargo build -p cc-tui` to verify compilation**
 
-Run: `cargo build -p peri-tui 2>&1 | head -20`
+Run: `cargo build -p cc-tui 2>&1 | head -20`
 Expected: Compiles successfully
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/app/plugin_panel/handlers/plugin_handlers/marketplace.rs
+git add cc-tui/src/app/plugin_panel/handlers/plugin_handlers/marketplace.rs
 git commit -m "feat(plugin_panel): use InputState editing methods in marketplace add
 
 Replace raw insert/backspace with full cursor operations from InputState,
@@ -1058,8 +1058,8 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 - [ ] **Step 1: Run full test suite**
 
 ```bash
-cargo test -p peri-tui --lib 2>&1 | tail -20
-cargo test -p peri-widgets --lib 2>&1 | tail -20
+cargo test -p cc-tui --lib 2>&1 | tail -20
+cargo test -p cc-widgets --lib 2>&1 | tail -20
 ```
 
 Expected: All tests PASS
@@ -1067,8 +1067,8 @@ Expected: All tests PASS
 - [ ] **Step 2: Run `cargo clippy` on affected crates**
 
 ```bash
-cargo clippy -p peri-tui -- -D warnings 2>&1 | tail -20
-cargo clippy -p peri-widgets -- -D warnings 2>&1 | tail -20
+cargo clippy -p cc-tui -- -D warnings 2>&1 | tail -20
+cargo clippy -p cc-widgets -- -D warnings 2>&1 | tail -20
 ```
 
 Expected: No warnings

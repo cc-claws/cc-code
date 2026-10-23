@@ -6,7 +6,7 @@ COMPATIBLE.md 列出 190 个 ❌ 缺失项，其中部分特性改动量极小�
 
 ## 目标
 
-- 实现 4 项配置系统补全（C1/C2/C4/C6），对齐 Claude Code 的 CLAUDE.md 加载机制
+- 实现 4 项配置系统补全（C1/C2/C4/C6），对齐 参考实现 的 CLAUDE.md 加载机制
 - 实现 3 项 TUI 命令（T1/T2/T5），补全常用交互命令
 - 总改动量控制在 ~300 行以内，不引入新依赖
 
@@ -16,7 +16,7 @@ COMPATIBLE.md 列出 190 个 ❌ 缺失项，其中部分特性改动量极小�
 
 #### C1 — CLAUDE.local.md 支持
 
-Claude Code 支持 `./CLAUDE.local.md` 作为个人项目级配置（不入库），Peri 当前未读取此文件。
+参考实现 支持 `./CLAUDE.local.md` 作为个人项目级配置（不入库），Peri 当前未读取此文件。
 
 **实现位置：** `peri-middlewares/src/agents_md.rs` — `AgentsMdMiddleware::before_agent()`
 
@@ -32,7 +32,7 @@ CLAUDE.md → .claude/CLAUDE.md → AGENTS.md → CLAUDE.local.md
 
 #### C2 — `$schema` URL 字段
 
-Claude Code 的 `settings.json` 支持 `$schema` 字段指向 JSON Schema 文档，编辑器可提供自动补全。
+参考实现 的 `settings.json` 支持 `$schema` 字段指向 JSON Schema 文档，编辑器可提供自动补全。
 
 **实现位置：** `peri-tui/src/config/types.rs` — `PeriConfig` struct
 
@@ -46,7 +46,7 @@ pub schema: Option<String>,
 
 #### C4 — `@import` 外部文件引用
 
-Claude Code 支持 `<!-- @import path -->` 语法在 CLAUDE.md 中引用外部文件内容。
+参考实现 支持 `<!-- @import path -->` 语法在 CLAUDE.md 中引用外部文件内容。
 
 **实现位置：** `peri-middlewares/src/agents_md.rs` — 内容后处理函数
 
@@ -70,7 +70,7 @@ Claude Code 支持 `<!-- @import path -->` 语法在 CLAUDE.md 中引用外部�
 
 #### C6 — CLAUDE.md 排除 glob
 
-Claude Code 支持 `claudeMdExcludes` 配置项，通过 glob 模式跳过特定路径的 CLAUDE.md。
+参考实现 支持 `claudeMdExcludes` 配置项，通过 glob 模式跳过特定路径的 CLAUDE.md。
 
 **实现位置：**
 - `peri-tui/src/config/types.rs` — `PeriConfig` 新增字段

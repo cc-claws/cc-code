@@ -18,9 +18,9 @@ Feature — 开发效率工具
 
 peri 缺少 `/review` 命令。用户无法在 TUI 中快速对 PR 进行 Code Review。
 
-Claude Code（TS 版）已实现 `/review` 命令（`C:\Work\open-cladue\src\commands\review.ts`），核心思路极简：**`prompt` 类型命令，注入一段 review prompt，由 LLM 调用 `gh` CLI 工具完成整个 review 流程**。无子进程、无远程调用、无额外依赖。
+参考实现（TS 版）已实现 `/review` 命令（`C:\Work\open-cladue\src\commands\review.ts`），核心思路极简：**`prompt` 类型命令，注入一段 review prompt，由 LLM 调用 `gh` CLI 工具完成整个 review 流程**。无子进程、无远程调用、无额外依赖。
 
-## 参考实现 — Claude Code `/review`
+## 参考实现：`/review`
 
 **源码**：`C:\Work\open-cladue\src\commands\review.ts`（57 行）
 
@@ -72,7 +72,7 @@ PR number: ${args}
 
 ### 映射到 peri 架构
 
-Claude Code 的 `type: 'prompt'` = peri 的 `CommandKind::Passthrough`。
+参考实现 的 `type: 'prompt'` = peri 的 `CommandKind::Passthrough`。
 
 参考 `init.rs` 的 Passthrough 模式：command 的 `execute()` 返回 `BaseMessage::human(prompt)`，executor 替换原始内容后正常构建 agent。
 
@@ -125,7 +125,7 @@ impl AgentCommand for ReviewCommand {
     }
 }
 
-/// Review prompt — 与 Claude Code TS 版 `LOCAL_REVIEW_PROMPT` 对齐。
+/// Review prompt — 与 参考实现 TS 版 `LOCAL_REVIEW_PROMPT` 对齐。
 /// agent 通过 Bash 工具调用 `gh` CLI 完成 PR 审查。
 static REVIEW_PROMPT: &str = r#"You are an expert code reviewer. Follow these steps:
 

@@ -12,24 +12,24 @@
 
 | File | Responsibility |
 |------|---------------|
-| `peri-middlewares/src/subagent/mod.rs` | 新增 register/deregister callback |
-| `peri-middlewares/src/subagent/tool/define.rs` | 子 agent 注册 AgentRuntime |
-| `peri-acp/src/session/executor.rs` | cancel 触发级联取消 |
-| `peri-acp/src/session/mod.rs` | close_session 清理 |
-| `peri-agent/src/agent/state.rs` | 新增 ancestor_len |
-| `peri-agent/src/agent/compact/micro.rs` | micro-compact 限制范围 |
-| `peri-middlewares/src/compact_middleware.rs` | full-compact 限制范围 + invalidate cache |
-| `peri-tui/src/app/panel_manager.rs` | 新增 Tasks PanelKind/PanelState |
-| `peri-tui/src/app/panels/tasks/` | 新增面板目录 |
-| `peri-tui/src/app/commands/panel/tasks.rs` | /tasks 命令 |
+| `cc-middlewares/src/subagent/mod.rs` | 新增 register/deregister callback |
+| `cc-middlewares/src/subagent/tool/define.rs` | 子 agent 注册 AgentRuntime |
+| `cc-acp/src/session/executor.rs` | cancel 触发级联取消 |
+| `cc-acp/src/session/mod.rs` | close_session 清理 |
+| `cc-agent/src/agent/state.rs` | 新增 ancestor_len |
+| `cc-agent/src/agent/compact/micro.rs` | micro-compact 限制范围 |
+| `cc-middlewares/src/compact_middleware.rs` | full-compact 限制范围 + invalidate cache |
+| `cc-tui/src/app/panel_manager.rs` | 新增 Tasks PanelKind/PanelState |
+| `cc-tui/src/app/panels/tasks/` | 新增面板目录 |
+| `cc-tui/src/app/commands/panel/tasks.rs` | /tasks 命令 |
 
 ---
 
 ### Task 1: AgentRuntime 注册/注销机制
 
 **Files:**
-- Modify: `peri-middlewares/src/subagent/mod.rs`
-- Modify: `peri-middlewares/src/subagent/tool/define.rs`
+- Modify: `cc-middlewares/src/subagent/mod.rs`
+- Modify: `cc-middlewares/src/subagent/tool/define.rs`
 
 - [ ] **Step 1: 在 SubAgentMiddleware 中添加 register/deregister callback**
 
@@ -82,8 +82,8 @@ git commit -m "feat(agent-storage): SubAgentMiddleware register/deregister Agent
 ### Task 2: Executor Cancel 级联
 
 **Files:**
-- Modify: `peri-acp/src/session/executor.rs`
-- Modify: `peri-acp/src/session/mod.rs`
+- Modify: `cc-acp/src/session/executor.rs`
+- Modify: `cc-acp/src/session/mod.rs`
 
 - [ ] **Step 1: execute_prompt 新增 session 引用参数**
 
@@ -168,7 +168,7 @@ git commit -m "feat(agent-storage): executor cancel cascades to child agents"
 ### Task 3: AgentState ancestor_len
 
 **Files:**
-- Modify: `peri-agent/src/agent/state.rs`
+- Modify: `cc-agent/src/agent/state.rs`
 
 - [ ] **Step 1: 添加 ancestor_len 字段**
 
@@ -242,8 +242,8 @@ git commit -m "feat(agent-storage): AgentState.ancestor_len for compact boundary
 ### Task 4: Compact per-thread 适配
 
 **Files:**
-- Modify: `peri-middlewares/src/compact_middleware.rs`（full compact）
-- Modify: `peri-agent/src/agent/compact/micro.rs`（micro compact）
+- Modify: `cc-middlewares/src/compact_middleware.rs`（full compact）
+- Modify: `cc-agent/src/agent/compact/micro.rs`（micro compact）
 
 - [ ] **Step 1: full compact 限制范围**
 
@@ -314,7 +314,7 @@ git commit -m "feat(agent-storage): compact only operates on own messages, inval
 ### Task 5: /tasks 面板 — PanelKind 注册
 
 **Files:**
-- Modify: `peri-tui/src/app/panel_manager.rs`
+- Modify: `cc-tui/src/app/panel_manager.rs`
 
 - [ ] **Step 1: 添加 Tasks variant**
 
@@ -325,7 +325,7 @@ git commit -m "feat(agent-storage): compact only operates on own messages, inval
 
 - [ ] **Step 2: 编译验证**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: FAIL（TasksPanel 未定义，Task 6 定义）
 
 - [ ] **Step 3: Commit（与 Task 6 一起）**
@@ -335,11 +335,11 @@ Expected: FAIL（TasksPanel 未定义，Task 6 定义）
 ### Task 6: /tasks 面板 — TasksPanel 实现
 
 **Files:**
-- Create: `peri-tui/src/app/panels/tasks/mod.rs`
-- Create: `peri-tui/src/app/panels/tasks/agent_list.rs`
-- Create: `peri-tui/src/app/panels/tasks/agent_detail.rs`
-- Create: `peri-tui/src/app/panels/tasks/cron_list.rs`
-- Create: `peri-tui/src/app/commands/panel/tasks.rs`
+- Create: `cc-tui/src/app/panels/tasks/mod.rs`
+- Create: `cc-tui/src/app/panels/tasks/agent_list.rs`
+- Create: `cc-tui/src/app/panels/tasks/agent_detail.rs`
+- Create: `cc-tui/src/app/panels/tasks/cron_list.rs`
+- Create: `cc-tui/src/app/commands/panel/tasks.rs`
 
 - [ ] **Step 1: 定义 TasksPanel state**
 
@@ -526,7 +526,7 @@ tasks-tab-cron = 定时任务
 
 - [ ] **Step 8: 编译验证**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: PASS
 
 - [ ] **Step 9: Commit（与 Task 5 一起）**

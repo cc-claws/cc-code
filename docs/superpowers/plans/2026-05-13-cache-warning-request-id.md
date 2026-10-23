@@ -13,7 +13,7 @@
 ### Task 1: `TokenUsage` 和 `LlmResponse` 新增 `request_id` 字段
 
 **Files:**
-- Modify: `peri-agent/src/llm/types.rs:43-60`
+- Modify: `cc-agent/src/llm/types.rs:43-60`
 
 - [ ] **Step 1: 在 `TokenUsage` 中新增 `request_id` 字段**
 
@@ -39,7 +39,7 @@ pub request_id: Option<String>,
 
 - [ ] **Step 4: 编译验证**
 
-Run: `cargo check -p peri-agent 2>&1 | head -40`
+Run: `cargo check -p cc-agent 2>&1 | head -40`
 Expected: 编译错误指向 `anthropic.rs` 和 `openai.rs` 中构造 `TokenUsage` 和 `LlmResponse` 的位置（缺少 `request_id` 字段）
 
 ---
@@ -47,8 +47,8 @@ Expected: 编译错误指向 `anthropic.rs` 和 `openai.rs` 中构造 `TokenUsag
 ### Task 2: `ChatAnthropic::invoke` 提取 `x-request-id` header
 
 **Files:**
-- Modify: `peri-agent/src/llm/anthropic.rs:557-559`（header 提取点）
-- Modify: `peri-agent/src/llm/anthropic.rs:670-705`（TokenUsage + LlmResponse 构造点）
+- Modify: `cc-agent/src/llm/anthropic.rs:557-559`（header 提取点）
+- Modify: `cc-agent/src/llm/anthropic.rs:670-705`（TokenUsage + LlmResponse 构造点）
 
 - [ ] **Step 1: 在 `resp.text().await` 之前提取 `x-request-id` header**
 
@@ -94,7 +94,7 @@ Ok(LlmResponse {
 
 - [ ] **Step 4: 编译验证**
 
-Run: `cargo check -p peri-agent 2>&1 | head -40`
+Run: `cargo check -p cc-agent 2>&1 | head -40`
 Expected: 编译错误仅指向 `openai.rs`（Task 3 修复）
 
 ---
@@ -102,7 +102,7 @@ Expected: 编译错误仅指向 `openai.rs`（Task 3 修复）
 ### Task 3: `ChatOpenAI::invoke` 提取 request `id` 字段
 
 **Files:**
-- Modify: `peri-agent/src/llm/openai.rs:590-614`（TokenUsage + LlmResponse 构造点）
+- Modify: `cc-agent/src/llm/openai.rs:590-614`（TokenUsage + LlmResponse 构造点）
 
 - [ ] **Step 1: 在 `TokenUsage` 构造中填入 `request_id`**
 
@@ -142,7 +142,7 @@ Ok(LlmResponse {
 
 - [ ] **Step 3: 编译验证**
 
-Run: `cargo check -p peri-agent 2>&1 | head -40`
+Run: `cargo check -p cc-agent 2>&1 | head -40`
 Expected: 编译错误指向 `react_adapter.rs` 和 `anthropic.rs`/`openai.rs` 中 `generate_reasoning` 方法（`Reasoning` 不携带 request_id，但 `usage` 已携带，无需修改 Reasoning）
 
 ---
@@ -150,9 +150,9 @@ Expected: 编译错误指向 `react_adapter.rs` 和 `anthropic.rs`/`openai.rs` �
 ### Task 4: `TokenTracker` 记录 `last_request_id`
 
 **Files:**
-- Modify: `peri-agent/src/agent/token.rs:5-18`（TokenTracker struct）
-- Modify: `peri-agent/src/agent/token.rs:21-36`（accumulate 方法）
-- Test: `peri-agent/src/agent/token.rs`（测试模块）
+- Modify: `cc-agent/src/agent/token.rs:5-18`（TokenTracker struct）
+- Modify: `cc-agent/src/agent/token.rs:21-36`（accumulate 方法）
+- Test: `cc-agent/src/agent/token.rs`（测试模块）
 
 - [ ] **Step 1: 在 `TokenTracker` 中新增 `last_request_id` 字段**
 
@@ -269,7 +269,7 @@ fn make_usage(
 
 - [ ] **Step 6: 运行测试验证**
 
-Run: `cargo test -p peri-agent --lib -- token`
+Run: `cargo test -p cc-agent --lib -- token`
 Expected: 所有测试通过
 
 ---
@@ -277,7 +277,7 @@ Expected: 所有测试通过
 ### Task 5: TUI 警告消息附带 request ID
 
 **Files:**
-- Modify: `peri-tui/src/app/agent_ops.rs:152-171`
+- Modify: `cc-tui/src/app/agent_ops.rs:152-171`
 
 - [ ] **Step 1: 修改警告消息拼接逻辑**
 
@@ -300,7 +300,7 @@ let msg = format!("⚠ Prompt cache 命中率 {}% < 80% (req: {})", percentage, 
 
 - [ ] **Step 2: 编译验证**
 
-Run: `cargo check -p peri-tui 2>&1 | head -40`
+Run: `cargo check -p cc-tui 2>&1 | head -40`
 Expected: 编译通过
 
 - [ ] **Step 3: 全量编译验证**
@@ -320,6 +320,6 @@ Expected: 所有测试通过
 - [ ] **Step 2: 提交**
 
 ```bash
-git add peri-agent/src/llm/types.rs peri-agent/src/llm/anthropic.rs peri-agent/src/llm/openai.rs peri-agent/src/agent/token.rs peri-tui/src/app/agent_ops.rs
+git add cc-agent/src/llm/types.rs cc-agent/src/llm/anthropic.rs cc-agent/src/llm/openai.rs cc-agent/src/agent/token.rs cc-tui/src/app/agent_ops.rs
 git commit -m "feat: 缓存命中率警告显示 API request ID"
 ```

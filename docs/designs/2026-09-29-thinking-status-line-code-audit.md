@@ -16,8 +16,8 @@
 
 **1. Anthropic 路径 `duration_ms` 链路断裂**
 
-- `peri-agent/src/llm/anthropic/stream.rs` 在 `content_block_stop` 时把 `duration_ms` 写入中间 JSON；
-- 但解析入口 `parse_content_blocks`（`peri-agent/src/llm/anthropic/invoke.rs:249-257`）构造 `ContentBlock` 时只取 `thinking`/`signature`，`duration_ms` 被丢弃。
+- `cc-agent/src/llm/anthropic/stream.rs` 在 `content_block_stop` 时把 `duration_ms` 写入中间 JSON；
+- 但解析入口 `parse_content_blocks`（`cc-agent/src/llm/anthropic/invoke.rs:249-257`）构造 `ContentBlock` 时只取 `thinking`/`signature`，`duration_ms` 被丢弃。
 - 后果：Anthropic 模型下 `Thought for Ns` 永远退化为 `Thought for N chars`。OpenAI 路径正常（`reasoning_with_duration`）。
 - 测试盲区：现有测试只断言「请求体不泄漏 duration_ms」，未测「流式解析保留 duration_ms」。
 
@@ -47,7 +47,7 @@
 
 ## 第二轮审计（「连续思考合并」修复复查，2026-09-29）
 
-程序员以 `merge_consecutive_thinking`（`peri-tui/src/app/message_pipeline/transform.rs`）替换原 `inject_action_summary`，并入 `messages_to_view_models()` 后处理链。复查结论：**合并主路径（中间只夹只读工具的连续思考）已实现且结构合理，但存在 1 个语义矛盾 bug、1 个边界文本重复、1 个计数遗漏，且合并行为零测试覆盖。**
+程序员以 `merge_consecutive_thinking`（`cc-tui/src/app/message_pipeline/transform.rs`）替换原 `inject_action_summary`，并入 `messages_to_view_models()` 后处理链。复查结论：**合并主路径（中间只夹只读工具的连续思考）已实现且结构合理，但存在 1 个语义矛盾 bug、1 个边界文本重复、1 个计数遗漏，且合并行为零测试覆盖。**
 
 ### R1 [bug] 「非只读工具不打断段」声明与实现矛盾（跨 Bash 的连续思考不合并）
 
@@ -133,7 +133,7 @@
 
 ### A. 本次改动中的中文命名（风格债，并入 chore PR 清理；非本 PR blocker）
 
-**peri-agent**
+**cc-agent**
 
 | # | 文件 | 现名（违规） | 建议英文名 |
 |---|------|-------------|-----------|
@@ -143,7 +143,7 @@
 | 4 | `llm/anthropic_test.rs` | `test_anthropic请求体thinking字段集合精确` | `test_anthropic_request_thinking_block_exact_fields` |
 | 5 | `llm/openai_test.rs` | `test_reasoning在openai请求中字段集合精确` | `test_reasoning_exact_fields_in_openai_request` |
 
-**peri-widgets**
+**cc-widgets**
 
 | # | 文件 | 现名（违规） | 建议英文名 |
 |---|------|-------------|-----------|
@@ -153,7 +153,7 @@
 | 9 | `spinner/mod.rs` | `test_reset_清空思考追踪状态` | `test_reset_clears_thinking_tracking` |
 | 10 | `spinner/mod.rs` | `test_thinking_elapsed_ms_不在思考中返回零` | `test_thinking_elapsed_ms_returns_zero_when_not_thinking` |
 
-**peri-tui**
+**cc-tui**
 
 | # | 文件 | 现名（违规） | 建议英文名 |
 |---|------|-------------|-----------|
@@ -176,14 +176,14 @@
 
 | 文件 | 违规函数数 | 示例 |
 |------|-----------|------|
-| `peri-tui/src/app/background_shell_test.rs` | 9 | `test_spawn_stall_watchdog_检测stall并通知` |
-| `peri-tui/src/app/background_tasks_panel_test.rs` | 3 | `test_detail_output_大终端显示全部行` |
-| `peri-tui/src/app/shell_command_test.rs` | 7 | `test_poll_agent_shells_前台结束不注入后台通知` |
-| `peri-tui/src/acp_server/requests_test.rs` | 14 | `test_update_config_切换provider后cfg_provider更新` |
-| `peri-tui/src/acp_server/prompt_test.rs` | 4 | `test_strip_leaked_prepends_有历史时剥离头部system消息` |
-| `peri-tui/src/event/keyboard/shortcuts_test.rs` | 2 | `test_shortcuts_ctrl_p_与_alt_p_均触发命令面板` |
-| `peri-tui/src/ui/message_render_test.rs`（本次 diff 外） | 14 | `test_parse_exit_code_非零退出码`、`test_dim_markdown_lines_空文本` |
-| `peri-widgets/src/file_tree_test.rs` | 22 | `test_flatten_展开目录显示子节点` |
+| `cc-tui/src/app/background_shell_test.rs` | 9 | `test_spawn_stall_watchdog_检测stall并通知` |
+| `cc-tui/src/app/background_tasks_panel_test.rs` | 3 | `test_detail_output_大终端显示全部行` |
+| `cc-tui/src/app/shell_command_test.rs` | 7 | `test_poll_agent_shells_前台结束不注入后台通知` |
+| `cc-tui/src/acp_server/requests_test.rs` | 14 | `test_update_config_切换provider后cfg_provider更新` |
+| `cc-tui/src/acp_server/prompt_test.rs` | 4 | `test_strip_leaked_prepends_有历史时剥离头部system消息` |
+| `cc-tui/src/event/keyboard/shortcuts_test.rs` | 2 | `test_shortcuts_ctrl_p_与_alt_p_均触发命令面板` |
+| `cc-tui/src/ui/message_render_test.rs`（本次 diff 外） | 14 | `test_parse_exit_code_非零退出码`、`test_dim_markdown_lines_空文本` |
+| `cc-widgets/src/file_tree_test.rs` | 22 | `test_flatten_展开目录显示子节点` |
 
 > A + B 合计 **99 处**，统一由 `chore/test-naming` PR 清理（规范已在 `CLAUDE.md` 定死，此后新增测试直接走英文）。
 
@@ -216,7 +216,7 @@
 | R1 | 跨 Bash 不合并（注释/实现矛盾） | ✅ 已修 | 非只读工具改为 `_ => k += 1`（跳过不打断）；PRD §2.8 明确「非只读工具**不断开**，仅不计数」，注释与实现一致 |
 | R2 | 同 bubble 多 Reasoning 文本重复 | ✅ 已修 | 写回后 `blocks.retain` 仅保留第一个 Reasoning，其余移除；测试 `test_merge_removes_extra_reasoning_blocks_in_same_bubble` |
 | R3 | 并行工具计数遗漏 | ✅ 已修 | 非只读跳过后后续 Read 仍被扫描计入；测试 `test_parallel_tools_read_counted_alongside_bash` |
-| R4 | 合并行为零测试 | ✅ 已补 | `real_session_replay_test.rs` 新增 4 个合并专项测试 + `real_session_full_test.rs` 真实会话回放测试；`cargo test -p peri-tui --lib message_pipeline` 93 passed |
+| R4 | 合并行为零测试 | ✅ 已补 | `real_session_replay_test.rs` 新增 4 个合并专项测试 + `real_session_full_test.rs` 真实会话回放测试；`cargo test -p cc-tui --lib message_pipeline` 93 passed |
 | R5 | `first_recompute` 空占位 | ✅ 已删 | 函数已移除 |
 | R6 | 部分缺耗时被低估 | ✅ 已修 | `missing_ms` 标记任一段缺耗时 → 整段 `duration_ms=None` 降级；测试 `test_partial_missing_duration_degrades_whole_segment` |
 | R7 | 注释引 §2.8 不存在 | ✅ 已修 | PRD 补 §2.8「连续多轮合并为一行」（含合并规则表、与 §2.3 关系、待确认项）；§8 实现回填已写 |
@@ -229,11 +229,11 @@
 
 | 测试集 | 结果 |
 |--------|------|
-| `peri-widgets` spinner | 16 passed |
-| `peri-agent` 全量 lib | 516 passed |
-| `peri-tui` message_pipeline（含合并专项） | 93 passed |
-| `peri-tui` message_render | 58 passed |
-| `peri-tui` main_ui（含四态/热度） | 58 passed |
+| `cc-widgets` spinner | 16 passed |
+| `cc-agent` 全量 lib | 516 passed |
+| `cc-tui` message_pipeline（含合并专项） | 93 passed |
+| `cc-tui` message_render | 58 passed |
+| `cc-tui` main_ui（含四态/热度） | 58 passed |
 
 ### 剩余问题（轻微，不阻塞）
 
@@ -283,8 +283,8 @@
 | `test_parse_content_blocks_missing_duration_is_none` | ok |
 | `test_begin_thinking_is_idempotent` | ok |
 | `test_merged_char_count_reflects_all_segments_on_fallback` | ok |
-| `peri-agent` anthropic 模块（51 passed） | ok |
-| `peri-tui` message_pipeline（93 passed，含合并专项） | ok |
+| `cc-agent` anthropic 模块（51 passed） | ok |
+| `cc-tui` message_pipeline（93 passed，含合并专项） | ok |
 
 ### 第四轮核对通过项
 

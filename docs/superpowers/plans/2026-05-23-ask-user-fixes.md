@@ -6,7 +6,7 @@
 
 **Architecture:** 三个独立修复点：(1) 在 TUI 解析 Elicitation JSON 时从原始 JSON 中提取每个选项的 `description` 字段；(2) 增大 AskUser 面板高度上限从 60% 到 75%；(3) 在 ask_user 键盘处理中添加 Ctrl+U/Ctrl+D 滚动支持，在鼠标处理中添加滚轮/拖拽滚动条支持。
 
-**Tech Stack:** Rust, ratatui, peri-widgets (ScrollableArea/ScrollState/ScrollbarMetrics)
+**Tech Stack:** Rust, ratatui, cc-widgets (ScrollableArea/ScrollState/ScrollbarMetrics)
 
 **Issue:** `spec/issues/2026-05-23-ask-user-overflow-and-description-missing.md`
 
@@ -16,28 +16,28 @@
 
 | 文件 | 变更 | 职责 |
 |------|------|------|
-| `peri-tui/src/app/agent_ops_interaction.rs` | 修改 | Task 1: 从原始 JSON 提取选项 description |
-| `peri-tui/src/ui/main_ui/mod.rs` | 修改 | Task 2: 增大 AskUser 面板高度上限 |
-| `peri-tui/src/event/keyboard.rs` | 修改 | Task 3: 添加 Ctrl+U/Ctrl+D 滚动快捷键 |
-| `peri-tui/src/app/ask_user_ops.rs` | 修改 | Task 3: 添加滚动操作方法 |
-| `peri-tui/src/ui/main_ui/popups/ask_user.rs` | 修改 | Task 3: 将 ScrollbarMetrics 存储到 prompt 状态 |
-| `peri-tui/src/app/ask_user_prompt.rs` | 修改 | Task 3: 添加 scrollbar_metrics 字段 |
-| `peri-tui/src/event/mouse.rs` | 修改 | Task 4: 添加 ask_user 弹窗鼠标滚轮/拖拽支持 |
+| `cc-tui/src/app/agent_ops_interaction.rs` | 修改 | Task 1: 从原始 JSON 提取选项 description |
+| `cc-tui/src/ui/main_ui/mod.rs` | 修改 | Task 2: 增大 AskUser 面板高度上限 |
+| `cc-tui/src/event/keyboard.rs` | 修改 | Task 3: 添加 Ctrl+U/Ctrl+D 滚动快捷键 |
+| `cc-tui/src/app/ask_user_ops.rs` | 修改 | Task 3: 添加滚动操作方法 |
+| `cc-tui/src/ui/main_ui/popups/ask_user.rs` | 修改 | Task 3: 将 ScrollbarMetrics 存储到 prompt 状态 |
+| `cc-tui/src/app/ask_user_prompt.rs` | 修改 | Task 3: 添加 scrollbar_metrics 字段 |
+| `cc-tui/src/event/mouse.rs` | 修改 | Task 4: 添加 ask_user 弹窗鼠标滚轮/拖拽支持 |
 
 ---
 
 ### Task 1: ACP 路径选项 description 提取
 
 **Files:**
-- Modify: `peri-tui/src/app/agent_ops_interaction.rs:75-120`
+- Modify: `cc-tui/src/app/agent_ops_interaction.rs:75-120`
 
-**背景：** `peri-acp/src/broker/transport_broker.rs` 的 `inject_option_descriptions` 已在 JSON 的 `oneOf`/`anyOf` 数组中注入了 `description` 字段。但 TUI 侧 `handle_acp_elicitation` 先用 `serde_json::from_value::<CreateElicitationRequest>(params)` 反序列化（`EnumOption` 无 description 字段，丢失），然后硬编码 `description: None`。
+**背景：** `cc-acp/src/broker/transport_broker.rs` 的 `inject_option_descriptions` 已在 JSON 的 `oneOf`/`anyOf` 数组中注入了 `description` 字段。但 TUI 侧 `handle_acp_elicitation` 先用 `serde_json::from_value::<CreateElicitationRequest>(params)` 反序列化（`EnumOption` 无 description 字段，丢失），然后硬编码 `description: None`。
 
 **修复策略：** 反序列化后，再从原始 `params` JSON 中读取每个属性的 `oneOf`/`anyOf` 数组里每个选项的 `description` 字段，合并到已构建的 `AskUserOption` 中。
 
 - [ ] **Step 1: 实现 description 提取辅助函数**
 
-在 `peri-tui/src/app/agent_ops_interaction.rs` 文件底部（`handle_interaction_request` 方法之后，模块末尾之前）添加独立辅助函数：
+在 `cc-tui/src/app/agent_ops_interaction.rs` 文件底部（`handle_interaction_request` 方法之后，模块末尾之前）添加独立辅助函数：
 
 ```rust
 /// 从 Elicitation JSON 中提取每个属性的选项 description。
@@ -170,13 +170,13 @@ let req = match serde_json::from_value::<CreateElicitationRequest>(params.clone(
 
 - [ ] **Step 3: 编译验证**
 
-Run: `cargo build -p peri-tui 2>&1 | head -30`
+Run: `cargo build -p cc-tui 2>&1 | head -30`
 Expected: BUILD SUCCEEDED（无类型错误）
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/app/agent_ops_interaction.rs
+git add cc-tui/src/app/agent_ops_interaction.rs
 git commit -m "fix: extract option descriptions from Elicitation JSON in ACP path
 
 EnumOption struct has no description field, so inject_option_descriptions
@@ -189,7 +189,7 @@ reads these injected descriptions from the raw params JSON."
 ### Task 2: 增大 AskUser 面板高度上限
 
 **Files:**
-- Modify: `peri-tui/src/ui/main_ui/mod.rs:310-376`
+- Modify: `cc-tui/src/ui/main_ui/mod.rs:310-376`
 
 **背景：** `active_panel_height` 中 AskUser 面板最大占屏幕 60%（`screen_height * 3 / 5`），和 plugin 面板的 70% 相比太小。选项多/文字长时内容溢出。
 
@@ -217,13 +217,13 @@ fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 
 
 - [ ] **Step 2: 编译验证**
 
-Run: `cargo build -p peri-tui 2>&1 | head -20`
+Run: `cargo build -p cc-tui 2>&1 | head -20`
 Expected: BUILD SUCCEEDED
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/ui/main_ui/mod.rs
+git add cc-tui/src/ui/main_ui/mod.rs
 git commit -m "fix: increase AskUser popup max height from 60% to 75%
 
 Options with long text or many choices need more vertical space.
@@ -235,16 +235,16 @@ Prevents content overflow and reduces scrollbar dependency."
 ### Task 3: 添加键盘滚动支持 (Ctrl+U/Ctrl+D)
 
 **Files:**
-- Modify: `peri-tui/src/app/ask_user_prompt.rs` — 添加 `scrollbar_metrics` 字段
-- Modify: `peri-tui/src/ui/main_ui/popups/ask_user.rs` — 存储 ScrollbarMetrics 到 prompt
-- Modify: `peri-tui/src/app/ask_user_ops.rs` — 添加 `ask_user_scroll` 方法
-- Modify: `peri-tui/src/event/keyboard.rs` — 添加 Ctrl+U/Ctrl+D 绑定
+- Modify: `cc-tui/src/app/ask_user_prompt.rs` — 添加 `scrollbar_metrics` 字段
+- Modify: `cc-tui/src/ui/main_ui/popups/ask_user.rs` — 存储 ScrollbarMetrics 到 prompt
+- Modify: `cc-tui/src/app/ask_user_ops.rs` — 添加 `ask_user_scroll` 方法
+- Modify: `cc-tui/src/event/keyboard.rs` — 添加 Ctrl+U/Ctrl+D 绑定
 
 **背景：** 当前 ask_user 弹窗的滚动仅通过上下键移动光标时自动跟随（`ask_user_move` 中调用 `ensure_cursor_visible`），但没有独立的页面级滚动。`ScrollState` 渲染了滚动条但没有键盘/鼠标交互。需要：(a) 将渲染时得到的 `ScrollbarMetrics` 存下来供事件处理用；(b) 添加页面级滚动方法；(c) 绑定快捷键。
 
 - [ ] **Step 1: 在 AskUserBatchPrompt 添加 scrollbar_metrics 字段**
 
-修改 `peri-tui/src/app/ask_user_prompt.rs`，在 `AskUserBatchPrompt` 结构体中添加字段：
+修改 `cc-tui/src/app/ask_user_prompt.rs`，在 `AskUserBatchPrompt` 结构体中添加字段：
 
 ```rust
 pub struct AskUserBatchPrompt {
@@ -255,7 +255,7 @@ pub struct AskUserBatchPrompt {
     /// 内容滚动偏移
     pub scroll_offset: u16,
     /// 渲染时存储的滚动条几何信息，供鼠标交互使用
-    pub scrollbar_metrics: Option<peri_widgets::ScrollbarMetrics>,
+    pub scrollbar_metrics: Option<cc_widgets::ScrollbarMetrics>,
 }
 ```
 
@@ -266,7 +266,7 @@ scrollbar_metrics: None,
 
 - [ ] **Step 2: 在 render_ask_user_popup 中存储 ScrollbarMetrics**
 
-修改 `peri-tui/src/ui/main_ui/popups/ask_user.rs` 底部的渲染代码（约 176-181 行）：
+修改 `cc-tui/src/ui/main_ui/popups/ask_user.rs` 底部的渲染代码（约 176-181 行）：
 
 当前代码：
 ```rust
@@ -344,7 +344,7 @@ pub fn ask_user_scroll(&mut self, lines: i16) {
 
 - [ ] **Step 4: 在 keyboard.rs 中绑定 Ctrl+U/Ctrl+D**
 
-修改 `peri-tui/src/event/keyboard.rs` 中 ask_user 分支（约 340 行附近），在 `KeyCode::Up`/`KeyCode::Down` 之前添加：
+修改 `cc-tui/src/event/keyboard.rs` 中 ask_user 分支（约 340 行附近），在 `KeyCode::Up`/`KeyCode::Down` 之前添加：
 
 ```rust
 // Ctrl+U / Ctrl+D 页面滚动（与消息区一致）
@@ -364,13 +364,13 @@ Input {
 
 - [ ] **Step 5: 编译验证**
 
-Run: `cargo build -p peri-tui 2>&1 | head -20`
+Run: `cargo build -p cc-tui 2>&1 | head -20`
 Expected: BUILD SUCCEEDED
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-tui/src/app/ask_user_prompt.rs peri-tui/src/app/ask_user_ops.rs peri-tui/src/ui/main_ui/popups/ask_user.rs peri-tui/src/event/keyboard.rs
+git add cc-tui/src/app/ask_user_prompt.rs cc-tui/src/app/ask_user_ops.rs cc-tui/src/ui/main_ui/popups/ask_user.rs cc-tui/src/event/keyboard.rs
 git commit -m "feat: add keyboard scrolling (Ctrl+U/Ctrl+D) for AskUser popup
 
 Store ScrollbarMetrics in prompt state for scroll bounds.
@@ -382,13 +382,13 @@ Sync cursor position after page-level scroll."
 ### Task 4: 添加鼠标滚轮/滚动条交互支持
 
 **Files:**
-- Modify: `peri-tui/src/event/mouse.rs` — 添加 ask_user 弹窗鼠标处理分支
+- Modify: `cc-tui/src/event/mouse.rs` — 添加 ask_user 弹窗鼠标处理分支
 
 **背景：** 当前鼠标事件处理没有 ask_user 弹窗的分支。需要在 `handle_mouse_event` 中检测当前有 ask_user 弹窗打开时，处理滚轮（ScrollUp/ScrollDown）和滚动条拖拽。
 
 - [ ] **Step 1: 找到鼠标事件分发入口，添加 ask_user 分支**
 
-先阅读 `peri-tui/src/event/mouse.rs`，找到面板区域的鼠标处理逻辑。其他面板（如 hooks_panel、mcp_panel）已通过 `PanelComponent` trait 的 `handle_mouse` 处理鼠标。但 ask_user 弹窗不经过 PanelComponent，需要独立处理。
+先阅读 `cc-tui/src/event/mouse.rs`，找到面板区域的鼠标处理逻辑。其他面板（如 hooks_panel、mcp_panel）已通过 `PanelComponent` trait 的 `handle_mouse` 处理鼠标。但 ask_user 弹窗不经过 PanelComponent，需要独立处理。
 
 在鼠标事件处理中，当 `interaction_prompt` 为 `Questions` 时，拦截面板区域的滚轮和拖拽事件：
 
@@ -438,13 +438,13 @@ if let Some(InteractionPrompt::Questions(ref mut p)) = sessions[active]
 
 - [ ] **Step 2: 编译验证**
 
-Run: `cargo build -p peri-tui 2>&1 | head -20`
+Run: `cargo build -p cc-tui 2>&1 | head -20`
 Expected: BUILD SUCCEEDED
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/event/mouse.rs
+git add cc-tui/src/event/mouse.rs
 git commit -m "feat: add mouse scroll/drag support for AskUser popup
 
 Mouse wheel scrolls ±3 lines, clicking scrollbar jumps to position.

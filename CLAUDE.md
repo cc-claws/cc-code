@@ -16,7 +16,7 @@ Rust Agent 框架，7 个 Workspace Crate。
 
 `rmcp` crate（v3.5）直接引用，不再需要本地 patch。
 
-**其他目录**：`scripts/`（启动脚本）、`side-projects/`（实验性项目）。
+**其他目录**：`scripts/`（启动与安装脚本）。
 
 ## 依赖关系
 
@@ -117,7 +117,7 @@ scripts/start-tui.sh                 # 启动 TUI（RELAY_PORT=3001）
 - TUI 路径：TUI 输入 → AcpTuiClient → MpscTransport → ACP Server → executor → ExecutorEvent → TransportEventSink → TUI UI 更新
 - Stdio 路径：SDK → executor + StdioEventSink → stdout JSON-RPC
 
-Stdio 和 TUI 路径共享 `executor::execute_prompt()`。Stdio 当前支持：`session/new`、`session/prompt`、`session/cancel`、`session/set_config_option`。新增 ACP 方法时必须检查两条路径是否都需要实现。
+Stdio 和 TUI 路径共享 `executor::execute_prompt()`。Stdio 当前支持：`initialize`、`session/new`、`session/list`、`session/prompt`、`session/set_mode`、`session/set_model`、`session/set_config_option`、`session/cancel`、`session/close`、`session/resume`、`session/load`、`session/fork`，以及自定义扩展 `session/update_config`（`cc-tui/src/acp_stdio.rs`）。新增 ACP 方法时必须检查两条路径是否都需要实现。
 
 **[TRAP]** Stdio `initialize` 响应必须声明 session capabilities（与 TUI 路径的 `AcpServerConfig` 对齐）。
 
@@ -153,7 +153,7 @@ session/new → frozen_date → frozen_instructions（合并去重后的指引�
 
 **[TRAP]** 用户输入的「是命令还是消息、归谁执行」只允许在 `CommandSystem::resolve` 一处判定（`cc-tui/src/app/command_system.rs`）：`CommandRegistry::find` 供判定、`dispatch` 复用同一份匹配规则执行，避免判定与执行漂移。空闲派发走 `App::route_slash_input`，运行中（`loading`）走 `App::handle_busy_input` —— **禁止在 Enter 分支里手写「是否命令」的判断**：文本一旦入队就丢失身份，出队时会被重新当成普通消息发给模型。命令能否在运行中延后由 `Command::blocked_while_busy` 声明（默认 `true` = 需要空闲 UI；仅 `execute` 只做 `submit_message` 转发的命令返回 `false`），`cc-tui/src/command/mod_test.rs` 有白名单回归测试锁死该分类。
 
-**[TRAP]** Agent 构建和执行统一通过 `peri_acp::session::executor::execute_prompt()`。禁止在 TUI 层直接构建 ReActAgent 或手写事件泵。`build_agent()` 每轮重建的大对象已通过 `AgentPool` session 级缓存复用。（详见 spec/global/domains/agent.md#issue_2026-05-24-build-agent-per-turn-arc-transient-fragmentation）
+**[TRAP]** Agent 构建和执行统一通过 `cc_acp::session::executor::execute_prompt()`。禁止在 TUI 层直接构建 ReActAgent 或手写事件泵。`build_agent()` 每轮重建的大对象已通过 `AgentPool` session 级缓存复用。（详见 spec/global/domains/agent.md#issue_2026-05-24-build-agent-per-turn-arc-transient-fragmentation）
 
 **[TRAP]** TUI 层数据必须通过 ACP 协议到达 ACP 层，禁止直连。（详见 spec/global/domains/agent.md#issue_2026-05-29-clear-keeps-acp-server-history）
 
@@ -207,7 +207,7 @@ session/new → frozen_date → frozen_instructions（合并去重后的指引�
 
 ## CLI 参数
 
-对齐 Claude Code 核心参数体系。所有 camelCase 参数同时支持 kebab-case 别名。clap 4 derive 解析。
+对齐参考实现的核心参数体系。所有 camelCase 参数同时支持 kebab-case 别名。clap 4 derive 解析。
 
 **参数列表**：
 
@@ -232,7 +232,7 @@ session/new → frozen_date → frozen_instructions（合并去重后的指引�
 | `-a/--approve` | 启用语义门审批（等同 `--permission-mode auto`） | TUI |
 | `-y/--yolo` | 免审批模式（YOLO）。**默认不开** —— 不传此参且未设 `YOLO_MODE` 时走 Auto（语义门/审批） | TUI |
 
-**子命令**：`plugin list [--json]` / `plugin install <name@marketplace> [--scope user/project/local]` / `plugin uninstall <id>`。`acp`/`update`/`sync` 子命令保持不变。
+**子命令**：`plugin list [--json]` / `plugin install <name@marketplace> [--scope user/project/local]` / `plugin uninstall <id>`；另有 `acp`、`update` 子命令（`cc-tui/src/main.rs` 的 `Commands` 枚举）。
 
 **`-p` 模式架构**：复用 ACP executor，通过 `PrintEventSink` 收集事件并输出。不启动 TUI、不维持 session。`PrintBroker` 自动批准所有交互。
 
@@ -440,7 +440,13 @@ git push origin npm-v<VERSION>
 
 GitHub Actions 页面手动触发 `Release npm`，输入版本号（此路径由 `release-npm.yml` 的 `Set npm version` 步骤按输入覆盖 `package.json`）。
 
-**CI 流程：** build（5 平台交叉编译：linux x86_64/aarch64、macos x86_64/aarch64、windows x86_64）→ release（GitHub Release + 二进制上传）→ publish（npm publish）
+**CI 流程：** build（5 平台交叉编译：linux x86_64/aarch64、macos x86_64/aarch64、windows x86_64）→ release（GitHub Release + 二进制上传）→ publish（先发 5 个平台包 `@cc-claw/code-<平台>-<架构>`，再发主包 `@cc-claw/code`）
+
+**平台包分发（无安装脚本）：** npm 包不再有 `postinstall`。二进制以可选依赖（`optionalDependencies`）的形式发布为平台包，npm 依 `os`/`cpu` 字段自动只装匹配的那一个，因此 `--ignore-scripts`、pnpm、bun、npm 12+ 的 build-script 禁令都不影响安装，安装期也不访问 GitHub。由 `npm/scripts/build-platform-package.js` 组装（顺带打入 rg，使 Grep 无需系统 ripgrep），`npm/bin/cc-code` 只做 `require.resolve` 定位 + 启动。
+
+**[TRAP] 发布顺序**：主包的 `optionalDependencies` 精确钉住各平台包版本，平台包必须先于主包发布，否则该版本的主包对所有人都会解析失败。`release-npm.yml` 的 `Verify platform packages are resolvable` 步骤就是为此设的前置校验；不要调整这两步的顺序。
+
+**[TRAP] 不要给平台包加 `libc` 字段**：npm 在探测不到宿主 libc 时会直接判定 `EBADPLATFORM` 而跳过整个包，反而把「能装但可能跑不起来」变成「根本装不上」。Linux 发布产物是 glibc 动态链接，musl（Alpine）宿主由 launcher 在启动失败时给出明确提示。
 
 ## 安装渠道与自动更新
 
@@ -449,15 +455,15 @@ GitHub Actions 页面手动触发 `Release npm`，输入版本号（此路径由
 | | npm 渠道 | 官方脚本渠道（推荐） |
 |---|---|---|
 | 安装命令 | `npm install -g @cc-claw/code` | `cc-code update` 或 `curl install.sh \| bash` / `irm install.ps1 \| iex` |
-| 二进制落点 | `<npm prefix>/node_modules/@cc-claw/code/bin/cc-code.exe` | `~/.cc-code/npm-v<VER>/cc-code.exe`（另有 `~/.cc-code/cc-code.exe` 便捷副本） |
-| 入口 | npm 生成的 `<prefix>/cc-code.cmd\|.ps1`（postinstall 会改写为直起 exe，#410） | `~/.cc-code/cc-code.exe` |
+| 二进制落点 | `<npm prefix>/node_modules/@cc-claw/code-<平台>-<架构>/`（平台包，与 `bin/cc-code` launcher 分开） | `~/.cc-code/npm-v<VER>/cc-code.exe`（另有 `~/.cc-code/cc-code.exe` 便捷副本） |
+| 入口 | npm 生成的 `<prefix>/cc-code.cmd\|.ps1` → `bin/cc-code`（node launcher，Windows 上注册 SIGINT/SIGBREAK 空处理器保活） | `~/.cc-code/cc-code.exe` |
 | PATH | npm prefix（用户 PATH，通常靠后） | 安装脚本把 `~/.cc-code` **前插**到用户 PATH 首位 |
 
 ### 为什么官方脚本能"不退出进程就更新"
 
 官方脚本是**并存式更新**：新版解压进独立的 `npm-v<新版本>/` 目录，从不触碰运行中进程锁定的旧 exe，因此无需退出任何会话。安装完成后 `~/.cc-code/cc-code.exe` 副本指向新版本，**新开终端**即生效。
 
-对比之下，`npm install -g` 必须把新版 `copyfile` 覆盖到**同名固定路径**；在 Windows 上该 exe 被运行中的进程占用，会直接 `EBUSY` 报错并回滚（并残留 `@cc-claw/.code-XXXX` 临时目录）。`npm/install.js` 的 `replaceBinary` 退避重命名逻辑只能覆盖 postinstall 场景，救不了 npm 自己那步覆盖复制。
+对比之下，`npm install -g` 必须把新版 `copyfile` 覆盖到**同名固定路径**；在 Windows 上该 exe 被运行中的进程占用，会直接 `EBUSY` 报错并回滚（并残留 `@cc-claw/.code-XXXX` 临时目录）。升级是 npm 自己的复制步骤，任何安装器内的退避重命名都救不了这一步。
 
 **[TRAP]** `cc-code update` **恒定更新官方渠道**（`~/.cc-code`）。若用户当初用 npm 装的，`update` 会在 `~/.cc-code` 新建一份并把该目录前插到 PATH，从而**静默顶掉 npm 那份**——不是文件损坏，而是渠道切换。表现：当前会话 `cc-code --version` 仍旧版（PATH 是启动时快照），新开终端才变新版。诊断顺序：`which -a cc-code`（看解析到哪份）→ 比对 `~/.cc-code/current-version.txt` 与 npm `package.json` 版本。
 

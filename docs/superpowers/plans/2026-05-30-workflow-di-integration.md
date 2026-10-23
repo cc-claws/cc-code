@@ -2,13 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** 将 `peri-workflow` crate 通过依赖注入集成到主项目。`peri-acp` 实现 `AgentRunner` trait（内部调用 `execute_prompt()`），`peri-tui` 挂载 CLI 子命令入口。
+**Goal:** 将 `peri-workflow` crate 通过依赖注入集成到主项目。`cc-acp` 实现 `AgentRunner` trait（内部调用 `execute_prompt()`），`cc-tui` 挂载 CLI 子命令入口。
 
-**Architecture:** 反向注入——`peri-workflow` 不知道 `peri-acp` 的存在。`peri-acp` 新增 `AcpAgentRunner`（impl `peri_workflow::AgentRunner`），封装 `execute_prompt()` 的全部参数。`peri-tui` 新增 `Commands::Workflow` 子命令（非交互模式，复用 `run_print` 的初始化模式）。
+**Architecture:** 反向注入——`peri-workflow` 不知道 `cc-acp` 的存在。`cc-acp` 新增 `AcpAgentRunner`（impl `peri_workflow::AgentRunner`），封装 `execute_prompt()` 的全部参数。`cc-tui` 新增 `Commands::Workflow` 子命令（非交互模式，复用 `run_print` 的初始化模式）。
 
 **依赖方向：**
 ```
-peri-tui  →  peri-acp  →  peri-workflow  →  peri-agent
+cc-tui  →  cc-acp  →  peri-workflow  →  cc-agent
                 ↓                  ↑
             实现 AgentRunner     定义 AgentRunner trait
 ```
@@ -21,28 +21,28 @@ peri-tui  →  peri-acp  →  peri-workflow  →  peri-agent
 
 | 文件 | 变更 | 职责 |
 |------|------|------|
-| `peri-acp/Cargo.toml` | 修改 | 添加 `peri-workflow` 依赖 |
-| `peri-acp/src/workflow.rs` | 创建 | `AcpAgentRunner` 实现 + `WorkflowService` 封装 |
-| `peri-acp/src/lib.rs` | 修改 | 导出 `workflow` 模块 |
-| `peri-acp/src/session/command/mod.rs` | 修改 | 为 `CommandContext` 添加 `agent_resources` 字段 |
-| `peri-acp/src/session/executor.rs` | 修改 | 构造 `CommandContext` 时填充 `agent_resources` |
-| `peri-acp/src/session/command/workflow_cmd.rs` | 创建 | `/workflow` Slash Command（`CommandKind::Immediate`） |
-| `peri-tui/Cargo.toml` | 修改 | 添加 `peri-workflow` 依赖 |
-| `peri-tui/src/main.rs` | 修改 | 新增 `Commands::Workflow` 子命令 |
-| `peri-tui/src/cli_workflow.rs` | 创建 | `run_workflow()` 非交互模式执行逻辑 |
+| `cc-acp/Cargo.toml` | 修改 | 添加 `peri-workflow` 依赖 |
+| `cc-acp/src/workflow.rs` | 创建 | `AcpAgentRunner` 实现 + `WorkflowService` 封装 |
+| `cc-acp/src/lib.rs` | 修改 | 导出 `workflow` 模块 |
+| `cc-acp/src/session/command/mod.rs` | 修改 | 为 `CommandContext` 添加 `agent_resources` 字段 |
+| `cc-acp/src/session/executor.rs` | 修改 | 构造 `CommandContext` 时填充 `agent_resources` |
+| `cc-acp/src/session/command/workflow_cmd.rs` | 创建 | `/workflow` Slash Command（`CommandKind::Immediate`） |
+| `cc-tui/Cargo.toml` | 修改 | 添加 `peri-workflow` 依赖 |
+| `cc-tui/src/main.rs` | 修改 | 新增 `Commands::Workflow` 子命令 |
+| `cc-tui/src/cli_workflow.rs` | 创建 | `run_workflow()` 非交互模式执行逻辑 |
 
 ---
 
-## Task 1: peri-acp 依赖 + AcpAgentRunner 实现
+## Task 1: cc-acp 依赖 + AcpAgentRunner 实现
 
 **Files:**
-- Modify: `peri-acp/Cargo.toml`
-- Create: `peri-acp/src/workflow.rs`
-- Modify: `peri-acp/src/lib.rs`
+- Modify: `cc-acp/Cargo.toml`
+- Create: `cc-acp/src/workflow.rs`
+- Modify: `cc-acp/src/lib.rs`
 
 - [ ] **Step 1: 添加依赖**
 
-在 `peri-acp/Cargo.toml` 的 `[dependencies]` 中添加：
+在 `cc-acp/Cargo.toml` 的 `[dependencies]` 中添加：
 ```toml
 peri-workflow = { path = "../peri-workflow" }
 ```
@@ -50,12 +50,12 @@ peri-workflow = { path = "../peri-workflow" }
 - [ ] **Step 2: 创建 workflow.rs**
 
 注意所有类型路径都已根据实际代码库验证：
-- `LlmProvider` → `crate::provider::LlmProvider`（peri-acp 自身定义，非 `peri_agent::llm`）
-- `ChannelState` → `peri_agent::interaction::ChannelState`
+- `LlmProvider` → `crate::provider::LlmProvider`（cc-acp 自身定义，非 `cc_agent::llm`）
+- `ChannelState` → `cc_agent::interaction::ChannelState`
 - `AgentPool` → `crate::session::agent_pool::AgentPool`
 - `SessionManager` → `crate::session::SessionManager`
 - `FrozenSessionData` → `crate::session::executor::FrozenSessionData`
-- `ExecutorEvent` → `peri_agent::agent::events::AgentEvent`（event_sink.rs 中的别名）
+- `ExecutorEvent` → `cc_agent::agent::events::AgentEvent`（event_sink.rs 中的别名）
 
 ```rust
 //! Workflow 集成层 — 实现 `peri_workflow::AgentRunner` trait，
@@ -64,7 +64,7 @@ peri-workflow = { path = "../peri-workflow" }
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use peri_agent::{
+use cc_agent::{
     agent::AgentCancellationToken,
     interaction::{ChannelState, UserInteractionBroker},
     messages::MessageContent,
@@ -92,25 +92,25 @@ pub struct AcpAgentRunner {
     pub peri_config: Arc<parking_lot::RwLock<PeriConfig>>,
     pub cwd: String,
     pub frozen: Option<FrozenSessionData>,
-    pub permission_mode: Arc<peri_middlewares::prelude::SharedPermissionMode>,
+    pub permission_mode: Arc<cc_middlewares::prelude::SharedPermissionMode>,
     pub event_sink: Arc<dyn EventSink>,
     pub cancel: AgentCancellationToken,
     pub broker: Arc<dyn UserInteractionBroker>,
     pub plugin_skill_dirs: Vec<std::path::PathBuf>,
     pub plugin_agent_dirs: Vec<std::path::PathBuf>,
-    pub hook_groups: Vec<Vec<peri_middlewares::hooks::RegisteredHook>>,
-    pub cron_scheduler: Option<Arc<parking_lot::Mutex<peri_middlewares::cron::CronScheduler>>>,
+    pub hook_groups: Vec<Vec<cc_middlewares::hooks::RegisteredHook>>,
+    pub cron_scheduler: Option<Arc<parking_lot::Mutex<cc_middlewares::cron::CronScheduler>>>,
     pub session_id: String,
-    pub mcp_pool: Option<Arc<peri_middlewares::mcp::McpClientPool>>,
+    pub mcp_pool: Option<Arc<cc_middlewares::mcp::McpClientPool>>,
     pub channel_state: Option<Arc<ChannelState>>,
-    pub tool_search_index: Arc<peri_middlewares::tool_search::ToolSearchIndex>,
+    pub tool_search_index: Arc<cc_middlewares::tool_search::ToolSearchIndex>,
     pub shared_tools: Arc<
-        parking_lot::RwLock<std::collections::HashMap<String, Arc<dyn peri_agent::tools::BaseTool>>>,
+        parking_lot::RwLock<std::collections::HashMap<String, Arc<dyn cc_agent::tools::BaseTool>>>,
     >,
-    pub lsp_servers: Vec<peri_lsp::config::LspServerConfig>,
+    pub lsp_servers: Vec<cc_lsp::config::LspServerConfig>,
     pub langfuse_session: Option<Arc<crate::langfuse::LangfuseSession>>,
     pub pool: Arc<parking_lot::Mutex<AgentPool>>,
-    pub thread_store: Option<Arc<dyn peri_agent::thread::ThreadStore>>,
+    pub thread_store: Option<Arc<dyn cc_agent::thread::ThreadStore>>,
     pub session_manager: Option<SessionManager>,
 }
 
@@ -189,8 +189,8 @@ impl AgentRunner for AcpAgentRunner {
 }
 
 /// 从 PromptResult.messages 中提取最后一条 AI 消息文本并尝试解析为 JSON
-fn extract_agent_output(messages: &[peri_agent::messages::BaseMessage]) -> serde_json::Value {
-    use peri_agent::messages::ContentBlock;
+fn extract_agent_output(messages: &[cc_agent::messages::BaseMessage]) -> serde_json::Value {
+    use cc_agent::messages::ContentBlock;
 
     let last_ai_text = messages.iter().rev().find_map(|msg| {
         if msg.is_ai() {
@@ -217,8 +217,8 @@ fn extract_agent_output(messages: &[peri_agent::messages::BaseMessage]) -> serde
 **关键注意事项：**
 
 1. `execute_prompt` 有 28 个参数。`AcpAgentRunner` 持有全部这些参数的 Arc/Clone——这是资源容器模式。
-2. `provider` 是 `crate::provider::LlmProvider`（peri-acp 自身定义），不是 `peri_agent::llm::LlmProvider`。
-3. `channel_state` 类型是 `peri_agent::interaction::ChannelState`。
+2. `provider` 是 `crate::provider::LlmProvider`（cc-acp 自身定义），不是 `cc_agent::llm::LlmProvider`。
+3. `channel_state` 类型是 `cc_agent::interaction::ChannelState`。
 4. `pool` 类型是 `crate::session::agent_pool::AgentPool`。
 5. `session_manager` 类型是 `crate::session::SessionManager`。
 6. `extract_agent_output` 从 messages 中提取最后 AI 文本，尝试 JSON 解析，失败则包装为 String。
@@ -228,20 +228,20 @@ fn extract_agent_output(messages: &[peri_agent::messages::BaseMessage]) -> serde
 
 - [ ] **Step 3: 导出模块**
 
-在 `peri-acp/src/lib.rs` 的模块声明区域添加：
+在 `cc-acp/src/lib.rs` 的模块声明区域添加：
 ```rust
 pub mod workflow;
 ```
 
 - [ ] **Step 4: 构建验证**
 
-Run: `cargo build -p peri-acp`
+Run: `cargo build -p cc-acp`
 Expected: 编译成功
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-acp/Cargo.toml peri-acp/src/workflow.rs peri-acp/src/lib.rs
+git add cc-acp/Cargo.toml cc-acp/src/workflow.rs cc-acp/src/lib.rs
 git commit -m "feat(acp): 实现 AcpAgentRunner 桥接 workflow 和 agent 执行管线
 
 Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
@@ -252,20 +252,20 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 ## Task 2: `/workflow` ACP Slash Command + CommandContext 扩展
 
 **Files:**
-- Modify: `peri-acp/src/session/command/mod.rs`
-- Modify: `peri-acp/src/session/executor.rs`
-- Create: `peri-acp/src/session/command/workflow_cmd.rs`
+- Modify: `cc-acp/src/session/command/mod.rs`
+- Modify: `cc-acp/src/session/executor.rs`
+- Create: `cc-acp/src/session/command/workflow_cmd.rs`
 
 - [ ] **Step 1: 扩展 CommandContext**
 
-在 `peri-acp/src/session/command/mod.rs` 中，为 `CommandContext` 添加 `agent_resources` 字段。
+在 `cc-acp/src/session/command/mod.rs` 中，为 `CommandContext` 添加 `agent_resources` 字段。
 
-在文件头部 imports 中添加 `peri_agent::interaction::ChannelState` 和其他需要的类型。
+在文件头部 imports 中添加 `cc_agent::interaction::ChannelState` 和其他需要的类型。
 
 在 `CommandContext` 结构体定义之后，添加 `AcpAgentResources` 结构体和 `agent_resources` 字段：
 
 ```rust
-use peri_agent::interaction::ChannelState;
+use cc_agent::interaction::ChannelState;
 use crate::session::agent_pool::AgentPool;
 use crate::langfuse::LangfuseSession;
 use crate::session::SessionManager;
@@ -274,24 +274,24 @@ use crate::session::SessionManager;
 pub struct AcpAgentResources {
     pub provider: crate::provider::LlmProvider,
     pub peri_config: Arc<crate::provider::PeriConfig>,
-    pub permission_mode: Arc<peri_middlewares::prelude::SharedPermissionMode>,
-    pub broker: Arc<dyn peri_agent::interaction::UserInteractionBroker>,
+    pub permission_mode: Arc<cc_middlewares::prelude::SharedPermissionMode>,
+    pub broker: Arc<dyn cc_agent::interaction::UserInteractionBroker>,
     pub plugin_skill_dirs: Vec<std::path::PathBuf>,
     pub plugin_agent_dirs: Vec<std::path::PathBuf>,
-    pub hook_groups: Vec<Vec<peri_middlewares::hooks::RegisteredHook>>,
-    pub cron_scheduler: Option<Arc<parking_lot::Mutex<peri_middlewares::cron::CronScheduler>>>,
-    pub mcp_pool: Option<Arc<peri_middlewares::mcp::McpClientPool>>,
+    pub hook_groups: Vec<Vec<cc_middlewares::hooks::RegisteredHook>>,
+    pub cron_scheduler: Option<Arc<parking_lot::Mutex<cc_middlewares::cron::CronScheduler>>>,
+    pub mcp_pool: Option<Arc<cc_middlewares::mcp::McpClientPool>>,
     pub channel_state: Option<Arc<ChannelState>>,
-    pub tool_search_index: Arc<peri_middlewares::tool_search::ToolSearchIndex>,
+    pub tool_search_index: Arc<cc_middlewares::tool_search::ToolSearchIndex>,
     pub shared_tools: Arc<
         parking_lot::RwLock<
-            std::collections::HashMap<String, Arc<dyn peri_agent::tools::BaseTool>>,
+            std::collections::HashMap<String, Arc<dyn cc_agent::tools::BaseTool>>,
         >,
     >,
-    pub lsp_servers: Vec<peri_lsp::config::LspServerConfig>,
+    pub lsp_servers: Vec<cc_lsp::config::LspServerConfig>,
     pub langfuse_session: Option<Arc<LangfuseSession>>,
     pub pool: Arc<parking_lot::Mutex<AgentPool>>,
-    pub thread_store: Option<Arc<dyn peri_agent::thread::ThreadStore>>,
+    pub thread_store: Option<Arc<dyn cc_agent::thread::ThreadStore>>,
     pub session_manager: Option<SessionManager>,
 }
 ```
@@ -316,7 +316,7 @@ pub struct CommandContext {
 
 - [ ] **Step 2: 在 executor 中填充 agent_resources**
 
-在 `peri-acp/src/session/executor.rs` 中，找到构造 `CommandContext` 的代码块（约第 179 行），添加 `agent_resources` 字段。
+在 `cc-acp/src/session/executor.rs` 中，找到构造 `CommandContext` 的代码块（约第 179 行），添加 `agent_resources` 字段。
 
 当前代码：
 ```rust
@@ -378,7 +378,7 @@ use tracing::info;
 use super::{AgentCommand, AcpAgentResources, CommandContext, CommandKind, CommandResult};
 use crate::session::executor::PromptStopReason;
 use crate::workflow::AcpAgentRunner;
-use peri_agent::agent::events::AgentEvent as ExecutorEvent;
+use cc_agent::agent::events::AgentEvent as ExecutorEvent;
 use peri_workflow::{WorkflowEvent, WorkflowExecutor, WorkflowParser};
 
 /// Workflow 命令。
@@ -472,7 +472,7 @@ impl AgentCommand for WorkflowCommand {
             frozen: None, // workflow 步骤不需要 frozen data
             permission_mode: resources.permission_mode.clone(),
             event_sink: ctx.event_sink.clone(),
-            cancel: peri_agent::agent::AgentCancellationToken::new(),
+            cancel: cc_agent::agent::AgentCancellationToken::new(),
             broker: resources.broker.clone(),
             plugin_skill_dirs: resources.plugin_skill_dirs.clone(),
             plugin_agent_dirs: resources.plugin_agent_dirs.clone(),
@@ -612,7 +612,7 @@ fn parse_args(args: &str) -> (String, HashMap<String, serde_json::Value>) {
 
 - [ ] **Step 4: 注册命令**
 
-在 `peri-acp/src/session/command/mod.rs` 中：
+在 `cc-acp/src/session/command/mod.rs` 中：
 
 添加模块声明：
 ```rust
@@ -632,13 +632,13 @@ pub fn default_command_registry() -> CommandRegistry {
 
 - [ ] **Step 5: 构建验证**
 
-Run: `cargo build -p peri-acp`
+Run: `cargo build -p cc-acp`
 Expected: 编译成功
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-acp/src/
+git add cc-acp/src/
 git commit -m "feat(acp): 添加 /workflow ACP Slash Command 和 CommandContext 资源扩展
 
 Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
@@ -649,13 +649,13 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 ## Task 3: CLI 子命令 `peri workflow`
 
 **Files:**
-- Modify: `peri-tui/Cargo.toml`
-- Modify: `peri-tui/src/main.rs`
-- Create: `peri-tui/src/cli_workflow.rs`
+- Modify: `cc-tui/Cargo.toml`
+- Modify: `cc-tui/src/main.rs`
+- Create: `cc-tui/src/cli_workflow.rs`
 
 - [ ] **Step 1: 添加依赖**
 
-在 `peri-tui/Cargo.toml` 的 `[dependencies]` 中添加：
+在 `cc-tui/Cargo.toml` 的 `[dependencies]` 中添加：
 ```toml
 peri-workflow = { path = "../peri-workflow" }
 ```
@@ -671,7 +671,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use peri_agent::interaction::UserInteractionBroker;
+use cc_agent::interaction::UserInteractionBroker;
 use tracing::info;
 
 /// `peri workflow` 执行入口
@@ -683,7 +683,7 @@ pub async fn run_workflow(
     skip_permissions: bool,
     settings_path: Option<String>,
 ) -> Result<()> {
-    let _telemetry = peri_agent::telemetry::init_tracing("peri-workflow");
+    let _telemetry = cc_agent::telemetry::init_tracing("peri-workflow");
 
     // 加载配置（复用 run_print 的模式）
     let peri_config = match &settings_path {
@@ -741,51 +741,51 @@ pub async fn run_workflow(
 
     // 权限模式
     let permission_mode = if skip_permissions {
-        peri_middlewares::prelude::PermissionMode::Bypass
+        cc_middlewares::prelude::PermissionMode::Bypass
     } else if let Some(ref mode_str) = permission_mode_str {
         match mode_str.as_str() {
-            "bypass" => peri_middlewares::prelude::PermissionMode::Bypass,
-            "default" => peri_middlewares::prelude::PermissionMode::Default,
-            "dont-ask" => peri_middlewares::prelude::PermissionMode::DontAsk,
-            "accept-edit" => peri_middlewares::prelude::PermissionMode::AcceptEdit,
-            "auto-mode" => peri_middlewares::prelude::PermissionMode::AutoMode,
-            _ => peri_middlewares::prelude::PermissionMode::Bypass,
+            "bypass" => cc_middlewares::prelude::PermissionMode::Bypass,
+            "default" => cc_middlewares::prelude::PermissionMode::Default,
+            "dont-ask" => cc_middlewares::prelude::PermissionMode::DontAsk,
+            "accept-edit" => cc_middlewares::prelude::PermissionMode::AcceptEdit,
+            "auto-mode" => cc_middlewares::prelude::PermissionMode::AutoMode,
+            _ => cc_middlewares::prelude::PermissionMode::Bypass,
         }
     } else {
-        peri_middlewares::prelude::PermissionMode::Bypass // 非交互默认 bypass
+        cc_middlewares::prelude::PermissionMode::Bypass // 非交互默认 bypass
     };
-    let shared_permission = peri_middlewares::prelude::SharedPermissionMode::new(permission_mode);
+    let shared_permission = cc_middlewares::prelude::SharedPermissionMode::new(permission_mode);
 
     // cron scheduler
     let cron_scheduler = {
         let scheduler =
-            peri_middlewares::cron::CronScheduler::new(tokio::sync::mpsc::unbounded_channel().0);
+            cc_middlewares::cron::CronScheduler::new(tokio::sync::mpsc::unbounded_channel().0);
         Arc::new(parking_lot::Mutex::new(scheduler))
     };
 
     // 基础资源（bare 模式，不初始化 MCP/插件/LSP）
-    let tool_search_index = Arc::new(peri_middlewares::tool_search::ToolSearchIndex::new());
+    let tool_search_index = Arc::new(cc_middlewares::tool_search::ToolSearchIndex::new());
     let shared_tools = Arc::new(parking_lot::RwLock::new(std::collections::HashMap::new()));
     let pool = Arc::new(parking_lot::Mutex::new(
-        peri_acp::session::agent_pool::AgentPool::new(),
+        cc_acp::session::agent_pool::AgentPool::new(),
     ));
     let broker: Arc<dyn UserInteractionBroker> = Arc::new(WorkflowBroker);
 
     // EventSink（丢弃 agent 事件，workflow 事件通过 mpsc channel 处理）
-    let event_sink: Arc<dyn peri_acp::session::event_sink::EventSink> =
+    let event_sink: Arc<dyn cc_acp::session::event_sink::EventSink> =
         Arc::new(WorkflowEventSink);
 
     let peri_config_arc = Arc::new(parking_lot::RwLock::new(peri_config));
 
     // 构造 AcpAgentRunner
-    let runner = Arc::new(peri_acp::workflow::AcpAgentRunner {
+    let runner = Arc::new(cc_acp::workflow::AcpAgentRunner {
         provider,
         peri_config: peri_config_arc,
         cwd,
         frozen: None,
         permission_mode: shared_permission,
         event_sink,
-        cancel: peri_agent::agent::AgentCancellationToken::new(),
+        cancel: cc_agent::agent::AgentCancellationToken::new(),
         broker,
         plugin_skill_dirs: vec![],
         plugin_agent_dirs: vec![],
@@ -855,24 +855,24 @@ struct WorkflowBroker;
 impl UserInteractionBroker for WorkflowBroker {
     async fn request(
         &self,
-        context: peri_agent::interaction::InteractionContext,
-    ) -> peri_agent::interaction::InteractionResponse {
+        context: cc_agent::interaction::InteractionContext,
+    ) -> cc_agent::interaction::InteractionResponse {
         match context {
-            peri_agent::interaction::InteractionContext::Approval { items } => {
-                peri_agent::interaction::InteractionResponse::Decisions(
+            cc_agent::interaction::InteractionContext::Approval { items } => {
+                cc_agent::interaction::InteractionResponse::Decisions(
                     items
                         .into_iter()
-                        .map(|_| peri_agent::interaction::ApprovalDecision::Approve {
+                        .map(|_| cc_agent::interaction::ApprovalDecision::Approve {
                             source: None,
                         })
                         .collect(),
                 )
             }
-            peri_agent::interaction::InteractionContext::Questions { requests } => {
-                peri_agent::interaction::InteractionResponse::Answers(
+            cc_agent::interaction::InteractionContext::Questions { requests } => {
+                cc_agent::interaction::InteractionResponse::Answers(
                     requests
                         .into_iter()
-                        .map(|q| peri_agent::interaction::QuestionAnswer {
+                        .map(|q| cc_agent::interaction::QuestionAnswer {
                             id: q.id,
                             selected: vec![],
                             text: Some(String::new()),
@@ -888,11 +888,11 @@ impl UserInteractionBroker for WorkflowBroker {
 struct WorkflowEventSink;
 
 #[async_trait]
-impl peri_acp::session::event_sink::EventSink for WorkflowEventSink {
+impl cc_acp::session::event_sink::EventSink for WorkflowEventSink {
     async fn push_event(
         &self,
         _session_id: &str,
-        _event: &peri_agent::agent::events::AgentEvent,
+        _event: &cc_agent::agent::events::AgentEvent,
         _context_window: u32,
     ) {
         // workflow CLI 模式不关心 agent 的流式事件
@@ -908,11 +908,11 @@ impl peri_acp::session::event_sink::EventSink for WorkflowEventSink {
 2. `WorkflowBroker` 和 `WorkflowEventSink` 与 `cli_print.rs` 中的 `PrintBroker`/`PrintEventSink` 模式一致。
 3. bare 模式初始化：不启动 MCP/插件/LSP。如需完整资源，可后续添加 `--no-bare` 选项。
 4. `peri_config_arc` 使用 `Arc<RwLock<PeriConfig>>`，与 `AcpAgentRunner` 字段类型匹配。
-5. `crate::app::agent::LlmProvider` → `peri_acp::provider::LlmProvider`（re-export chain）。
+5. `crate::app::agent::LlmProvider` → `cc_acp::provider::LlmProvider`（re-export chain）。
 
 - [ ] **Step 3: 添加 CLI 子命令**
 
-在 `peri-tui/src/main.rs` 的 `Commands` 枚举中添加：
+在 `cc-tui/src/main.rs` 的 `Commands` 枚举中添加：
 
 ```rust
 #[derive(Subcommand)]
@@ -980,13 +980,13 @@ mod cli_workflow;
 
 - [ ] **Step 4: 构建验证**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: 编译成功
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-tui/Cargo.toml peri-tui/src/main.rs peri-tui/src/cli_workflow.rs
+git add cc-tui/Cargo.toml cc-tui/src/main.rs cc-tui/src/cli_workflow.rs
 git commit -m "feat(tui): 添加 CLI 子命令 \`peri workflow\`
 
 Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
@@ -1002,7 +1002,7 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 - [ ] **Step 1: CLI 模式验证**
 
 ```bash
-cargo run -p peri-tui -- workflow peri/workflows/review-code --param range=HEAD~3
+cargo run -p cc-tui -- workflow peri/workflows/review-code --param range=HEAD~3
 ```
 
 Expected: 打印 workflow 执行流程，Agent 实际调用 LLM，输出审查结果。
@@ -1018,7 +1018,7 @@ Expected: 打印 workflow 执行流程，Agent 实际调用 LLM，输出审查�
 - [ ] **Step 3: 全 workspace 构建 + clippy**
 
 Run: `cargo build && cargo clippy --workspace -- -D warnings 2>&1 | head -50`
-Expected: 0 error，peri-workflow 和 peri-acp 相关 0 warning
+Expected: 0 error，peri-workflow 和 cc-acp 相关 0 warning
 
 - [ ] **Step 4: 最终 Commit（如有修复）**
 
@@ -1037,22 +1037,22 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 
 | 计划中使用的类型 | 实际位置 | 验证 |
 |------------------|----------|------|
-| `crate::provider::LlmProvider` | `peri-acp/src/provider/mod.rs:14` | ✓ |
-| `peri_agent::interaction::ChannelState` | `peri-agent/src/interaction/channel_state.rs` | ✓ |
-| `crate::session::agent_pool::AgentPool` | `peri-acp/src/session/agent_pool.rs` | ✓ |
-| `crate::session::SessionManager` | `peri-acp/src/session/` | ✓ |
-| `peri_agent::agent::events::AgentEvent` as `ExecutorEvent` | event_sink.rs:8 的别名 | ✓ |
-| `peri_agent::interaction::UserInteractionBroker` | peri-agent interaction trait | ✓ |
+| `crate::provider::LlmProvider` | `cc-acp/src/provider/mod.rs:14` | ✓ |
+| `cc_agent::interaction::ChannelState` | `cc-agent/src/interaction/channel_state.rs` | ✓ |
+| `crate::session::agent_pool::AgentPool` | `cc-acp/src/session/agent_pool.rs` | ✓ |
+| `crate::session::SessionManager` | `cc-acp/src/session/` | ✓ |
+| `cc_agent::agent::events::AgentEvent` as `ExecutorEvent` | event_sink.rs:8 的别名 | ✓ |
+| `cc_agent::interaction::UserInteractionBroker` | cc-agent interaction trait | ✓ |
 
 ### 2. 依赖方向
 
 | 依赖 | 方向 | 正确？ |
 |------|------|--------|
-| peri-workflow → peri-agent | ✅ 仅类型依赖 | ✓ |
-| peri-acp → peri-workflow | ✅ 实现 trait + 调用 executor | ✓ |
-| peri-tui → peri-acp | ✅ 已有依赖 | ✓ |
-| peri-tui → peri-workflow | ✅ CLI 子命令直接调用 | ✓ |
-| peri-workflow → peri-acp | ❌ **禁止** | ✓ 未违反 |
+| peri-workflow → cc-agent | ✅ 仅类型依赖 | ✓ |
+| cc-acp → peri-workflow | ✅ 实现 trait + 调用 executor | ✓ |
+| cc-tui → cc-acp | ✅ 已有依赖 | ✓ |
+| cc-tui → peri-workflow | ✅ CLI 子命令直接调用 | ✓ |
+| peri-workflow → cc-acp | ❌ **禁止** | ✓ 未违反 |
 
 ### 3. 占位符扫描
 
@@ -1068,7 +1068,7 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 
 ### 5. PeriConfig 类型适配
 
-- `CommandContext.peri_config`: `Arc<PeriConfig>`（ peri-acp 的 `PeriConfig`）
+- `CommandContext.peri_config`: `Arc<PeriConfig>`（ cc-acp 的 `PeriConfig`）
 - `AcpAgentRunner.peri_config`: `Arc<RwLock<PeriConfig>>`（需要 RwLock 包装）
 - Task 2 Step 3 使用 `Arc::new(RwLock::new(ctx.peri_config.as_ref().clone()))` 转换
 - Task 3 使用 `Arc::new(RwLock::new(peri_config))` 包装

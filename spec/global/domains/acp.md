@@ -7,10 +7,11 @@ ACP（Agent Client Protocol）领域负责通过 stdio 传输为 IDE（如 Curso
 核心职责：
 
 - Session 生命周期：initialize、new、load、resume、cancel、logout、close
-- 请求处理：RequestPermission（HITL 桥接）、$/cancel_request（单请求取消）
+- 请求处理：RequestPermission（HITL 桥接）、session/cancel（会话级取消；无单请求级取消）
 - 更新推送：AvailableCommandsUpdate、SessionNotification 事件流
 - 命令注册表：ACP 层命令由 `cc-acp/src/session/command/mod.rs` 统一注册，当前 7 个：`compact`/`clear`/`rewind`/`init`/`recap`/`commit`/`review`
-- Agent 构建复用：与 TUI 共享 build_bare_agent() 入口
+- Agent 构建复用：与 TUI 共享 cc-acp 的 build_agent() 构建入口
+- 自研扩展方法：session/append_history、session/set_model、session/update_config，及 session/list、session/fork 路由
 
 ## 核心流程
 
@@ -18,7 +19,7 @@ ACP（Agent Client Protocol）领域负责通过 stdio 传输为 IDE（如 Curso
 ACP Client (IDE) → stdio → handle_initialize/session/new/load...
   → assemble_agent() → executor.execute() → SessionNotification 流
   → RequestPermission RPC → AcpInteractionBroker → HITL 审批桥接
-  → $/cancel_request → oneshot cancel → 中断 pending request
+  → session/cancel → 会话级取消当前执行
 ```
 
 ## 技术方案总结
@@ -26,10 +27,10 @@ ACP Client (IDE) → stdio → handle_initialize/session/new/load...
 | 维度 | 选型 |
 |------|------|
 | 传输层 | stdio（stdin/stdout），JSON-RPC 2.0 |
-| Session 管理 | AcpSession，DashMap<SessionId, ...>，支持多 session |
-| Agent 构建 | build_bare_agent() 共享入口，中间件链一致 |
+| Session 管理 | AcpSession，DashMap<String, AcpSession>，支持多 session |
+| Agent 构建 | cc-acp 的 build_agent() 入口（由旧 build_bare_agent() 迁移），TUI 与 stdio 共用，中间件链一致 |
 | 权限桥接 | AcpInteractionBroker 实现 UserInteractionBroker trait |
-| Pending Request | DashMap<RequestId, PendingRequestEntry> + oneshot::Sender |
+| 请求取消 | 仅会话级 session/cancel，无单请求级 pending 追踪 |
 | 命令推送 | AvailableCommandsUpdate，在 session/new/load/resume 三个入口统一发送 |
 | 命令注册 | `session/command/mod.rs` 注册 7 个命令（compact/clear/rewind/init/recap/commit/review），`/recap` 由 `session/command/recap.rs` 拦截（Immediate 类型，直接执行不构建 agent） |
 
@@ -44,7 +45,8 @@ ACP Client (IDE) → stdio → handle_initialize/session/new/load...
 **问题本质:** ACP 协议实现中的两个缺口：(1) $/cancel_request 通知未处理导致无法取消单个请求；(2) AvailableCommandsUpdate 从未发送导致 IDE 端命令补全不可用
 **通用模式:** 协议级通知（notification）与请求（request）是独立通道，废弃的 notification handler 会静默丢弃客户端通知；pending request 追踪需要支持一对一取消（oneshot channel）而非仅全局取消
 **技术决策:** DashMap<RequestId, PendingRequestEntry> 追踪 pending requests，oneshot::Sender<()> 实现单请求取消；build_available_commands() 在 session/new、load、resume 三个入口统一发送
-**涉及文件:** cc-tui/src/acp/dispatch.rs
+**涉及文件:** cc-acp/src/dispatch/（原 cc-tui/src/acp/dispatch.rs 已迁移）
+**现状注记（2026-10-22）:** 当前代码中无 $/cancel_request 与 PendingRequest 追踪实现，现行仅有会话级 session/cancel；上文技术决策未在当前代码中落地。
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-17-acp-dispatch-heavy-file
@@ -52,7 +54,7 @@ ACP Client (IDE) → stdio → handle_initialize/session/new/load...
 **摘要:** ACP dispatch.rs 请求分发逻辑过度集中（1044 行），14 个 pub 函数和所有 handler 实现集中在一个文件
 **状态:** Fixed
 **归档日期:** 2026-05-18
-**涉及文件:** cc-tui/src/acp/dispatch.rs
+**涉及文件:** cc-acp/src/dispatch/（原 cc-tui/src/acp/dispatch.rs 已迁移）
 **说明:** 纯代码组织优化——按 handler 分组拆分为子目录（initialize/session/prompt/permission/helpers），无领域认知提炼。
 
 ### issue_2026-05-19-acp-missing-capabilities
@@ -64,7 +66,7 @@ ACP Client (IDE) → stdio → handle_initialize/session/new/load...
 **问题本质:** TUI ACP Server 的路由层未接通——SessionManager 已有完整基础设施，但 acp_server.rs 缺少 session/load/resume/close/list/fork 路由处理，且 InitializeResponse 的能力声明为空。这是典型的"底层能力已存在但协议层未暴露"的分层架构问题。
 **通用模式:** 协议层路由是基础设施能力的"出口"。当 SessionManager 支持了某操作但 ACP handler 无路由时，外部客户端完全无法使用。新增基础设施能力时，需同步检查所有协议/传输层的路由表是否齐备。
 **架构影响:** ACP 协议中 fs/terminal 代理是面向远程 Agent 场景的——本地 Agent（perihelion）通过 FilesystemMiddleware 直接操作 std::fs 是正确的架构选择，仅在 stdio 连接外部 IDE 时才有实现意义。
-**涉及文件:** cc-tui/src/acp_server.rs, cc-acp/src/event/mapper.rs, cc-acp/src/session/state_builders.rs
+**涉及文件:** cc-tui/src/acp_server/（原单文件 acp_server.rs 已拆分）, cc-acp/src/event/mapper.rs, cc-acp/src/session/state_builders.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-19-acp-stopreason-hardcoded-endturn
@@ -75,7 +77,7 @@ ACP Client (IDE) → stdio → handle_initialize/session/new/load...
 **关键词:** StopReason, PromptResult, 枚举映射, 终止原因
 **问题本质:** executor 返回的 PromptResult 只携带 ok: bool，不包含终止原因的语义信息。协议边界处的语义压缩（正常完成/取消/超限 → 统一 EndTurn）导致 IDE 客户端无法给出差异化 UI 反馈。
 **通用模式:** 内部错误类型的语义信息应在跨越协议/API 边界时保有足够粒度。使用 bool 做结果标识会导致语义坍缩——应使用枚举携带区分性的终止原因。新增 PromptStopReason 中间层枚举是解耦内部 AgentError 和外部 ACP StopReason 的正确模式。
-**涉及文件:** cc-acp/src/session/executor.rs, cc-tui/src/acp_server.rs, cc-tui/src/acp_stdio.rs
+**涉及文件:** cc-acp/src/session/executor.rs, cc-tui/src/acp_server/, cc-tui/src/acp_stdio.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-19-acp-missing-state-notifications
@@ -86,7 +88,7 @@ ACP Client (IDE) → stdio → handle_initialize/session/new/load...
 **关键词:** SessionUpdate, ConfigOptionUpdate, 状态同步, 多客户端
 **问题本质:** set_mode/set_config_option/set_model 等请求处理器变更状态后只返回 response，不推送 session/update 通知。多客户端场景下其他客户端无法感知变更，UI 控件不同步。
 **通用模式:** 任何改变共享状态的请求处理器，在返回 response 后必须主动推送状态变更通知。这是"写操作 + 广播通知"模式——状态变更方可能不是 UI 更新方。遵循 CQRS 思想：命令处理完成后推送事件通知所有订阅者。
-**涉及文件:** cc-tui/src/acp_server.rs, cc-tui/src/acp_stdio.rs, cc-acp/src/event/mapper.rs, cc-acp/src/session/event_sink.rs
+**涉及文件:** cc-tui/src/acp_server/（原单文件 acp_server.rs 已拆分）, cc-tui/src/acp_stdio.rs, cc-acp/src/event/mapper.rs, cc-acp/src/session/event_sink.rs
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-23-tui-image-sent-as-text
@@ -121,6 +123,7 @@ ACP Client (IDE) → stdio → handle_initialize/session/new/load...
 **问题本质:** acp_stdio.rs 硬编码 AutoMode，未考虑与其他模式（TUI Bypass、-p Bypass）的一致性
 **通用模式:** 多入口系统的默认行为必须统一；硬编码默认值应提取为共享常量
 **涉及文件:** cc-tui/src/acp_stdio.rs:184-185, cc-tui/src/main.rs:441-467, cc-tui/src/cli_print.rs:96-109
+**后续变更（2026-10-22 注记）:** 该决策已被反转——stdio 现默认 AutoMode（acp_stdio.rs 注释指出 Bypass 默认等价于全放行、HITL 形同虚设）
 **CLAUDE.md 链接:** false
 
 ### issue_2026-05-21-skills-not-passed-as-acp-commands
@@ -142,11 +145,11 @@ ACP Client (IDE) → stdio → handle_initialize/session/new/load...
 **关键词:** ACP, prompt_capabilities, 协议声明, 能力声明
 **问题本质:** InitializeResponse 未按 ACP 规范声明 prompt_capabilities（图片/音频/嵌入上下文），客户端行为不确定
 **通用模式:** 协议实现必须完整声明所有能力字段（即使不支持也要显式声明为空或 false），不能省略
-**涉及文件:** cc-tui/src/acp_server.rs
+**涉及文件:** cc-tui/src/acp_server/（原单文件 acp_server.rs 已拆分）
 **CLAUDE.md 链接:** false
 
 ---
 
 ## 相关 Feature
 
-- → [tui.md](./tui.md) — ACP 与 TUI 共享 build_bare_agent() Agent 构建入口
+- → [tui.md](./tui.md) — ACP 与 TUI 共享 cc-acp 的 build_agent() Agent 构建入口

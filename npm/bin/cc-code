@@ -1,19 +1,221 @@
 #!/usr/bin/env node
 
+// cc-code launcher.
+//
+// The platform binary ships as a companion optional dependency package
+// (`@cc-claw/code-<platform>-<arch>`), so installing this package runs no
+// install script and touches no network beyond the npm registry:
+//
+//   npm install -g @cc-claw/code
+//
+// npm selects the single platform package whose `os` / `cpu` fields match the
+// host and skips the rest, so exactly one binary is downloaded.
+
+const { spawn } = require("child_process");
 const { existsSync } = require("fs");
-const { join, dirname } = require("path");
-const { execFileSync } = require("child_process");
+const { dirname, join } = require("path");
 
-const dir = dirname(__filename);
-const binPath = existsSync(join(dir, "cc-code-bin"))
-  ? join(dir, "cc-code-bin")
-  : join(dir, "cc-code.exe");
+/// One entry per published platform package. `file` is resolved relative to
+/// the platform package's own root directory.
+const TARGETS = {
+  "win32-x64": { pkg: "@cc-claw/code-win32-x64", file: "cc-code.exe" },
+  "darwin-x64": { pkg: "@cc-claw/code-darwin-x64", file: "bin/cc-code" },
+  "darwin-arm64": { pkg: "@cc-claw/code-darwin-arm64", file: "bin/cc-code" },
+  "linux-x64": { pkg: "@cc-claw/code-linux-x64", file: "bin/cc-code" },
+  "linux-arm64": { pkg: "@cc-claw/code-linux-arm64", file: "bin/cc-code" },
+};
 
-try {
-  execFileSync(binPath, process.argv.slice(2), { stdio: "inherit" });
-} catch (err) {
-  if (err.status !== null) {
-    process.exit(err.status);
-  }
-  throw err;
+/// Platforms cc-code knows about but does not publish a package for. Keyed the
+/// same way as TARGETS so the diagnosis below stays specific instead of falling
+/// back to a generic "unsupported platform".
+const UNPUBLISHED = {
+  "win32-arm64": {
+    pkg: "@cc-claw/code-win32-arm64",
+    hint: [
+      "Windows on ARM has no native build yet. The x64 build runs under",
+      "emulation; install that one instead:",
+      "",
+      "  npm install -g --arch=x64 @cc-claw/code",
+    ],
+  },
+};
+
+function platformKey() {
+  return `${process.platform}-${process.arch}`;
 }
+
+/// Resolve a file inside a platform package, or null when the package (or the
+/// file) is absent.
+///
+/// Resolution goes through `<pkg>/package.json` rather than the binary path so
+/// that it works under npm's flattened layout, pnpm's store layout and bun's
+/// isolated layout alike: in all three the platform package is a real
+/// dependency of this package and therefore resolvable from here.
+function resolveInPackage(pkg, file) {
+  let root;
+  try {
+    root = dirname(require.resolve(`${pkg}/package.json`));
+  } catch {
+    return null;
+  }
+  const full = join(root, file);
+  return existsSync(full) ? full : null;
+}
+
+function missingBinaryMessage(key, target) {
+  const lines = [
+    `cc-code: no binary for ${key}.`,
+    "",
+    "This package installs its binary through the optional dependency",
+    `"${target.pkg}", which is not installed.`,
+    "",
+    "Common causes:",
+    "  - installed with --no-optional / --omit=optional",
+    "  - this platform has no published build",
+  ];
+  if (key === "win32-arm64") {
+    lines.push("", ...UNPUBLISHED["win32-arm64"].hint);
+  } else {
+    lines.push(
+      "",
+      "Reinstall without --no-optional, or use the standalone binary:",
+      "  https://github.com/cc-claws/cc-code#install",
+    );
+  }
+  return lines.join("\n");
+}
+
+function unsupportedPlatformMessage(key) {
+  const known = UNPUBLISHED[key];
+  if (known) {
+    return [`cc-code: no binary for ${key}.`, "", ...known.hint].join("\n");
+  }
+  return (
+    `cc-code: unsupported platform ${key}.\n` +
+    `Supported: ${[...Object.keys(TARGETS), ...Object.keys(UNPUBLISHED)].join(", ")}.`
+  );
+}
+
+/// Windows: a console Ctrl+C is broadcast as CTRL_C_EVENT to every process
+/// attached to the console, this launcher included. A Node process without a
+/// JS handler for SIGINT/SIGBREAK dies on it immediately, which tears the
+/// console process group down from under the child (that is exactly the
+/// regression #410 fixed by rewriting the npm shim to skip Node).
+///
+/// Registering a no-op handler keeps this launcher alive so the binary — which
+/// installs its own SetConsoleCtrlHandler and re-injects a key event — stays
+/// the only process deciding what Ctrl+C means. Nothing is forwarded: the
+/// console already delivered the event to the child directly, and forwarding
+/// would double-handle it.
+function installWindowsCtrlHandlers() {
+  if (process.platform !== "win32") return;
+  const ignore = () => {};
+  process.on("SIGINT", ignore);
+  process.on("SIGBREAK", ignore);
+}
+
+/// True when Node was built for musl (Alpine and friends).
+///
+/// The published Linux binaries link against glibc, so on musl the spawn fails
+/// with a bare ENOENT that looks like a missing file. Detecting the host lets
+/// the error name the actual cause.
+function isMuslHost() {
+  if (process.platform !== "linux") return false;
+  try {
+    const report = process.report.getReport();
+    if (report.header && report.header.glibcVersionRuntime) return false;
+    const so = report.sharedObjects || [];
+    return so.some((f) => f.includes("libc.musl-") || f.includes("ld-musl-"));
+  } catch {
+    return false;
+  }
+}
+
+function launchFailureMessage(key, binPath, err) {
+  if (process.platform === "linux" && err && err.code === "ENOENT") {
+    if (isMuslHost()) {
+      return [
+        `cc-code: cannot run ${binPath}`,
+        "",
+        "This host uses musl libc (Alpine Linux and similar), but the",
+        "published binary is linked against glibc.",
+        "",
+        "Use the standalone install script instead, which does not depend on",
+        "the npm platform package:",
+        "  https://github.com/cc-claws/cc-code#install",
+      ].join("\n");
+    }
+  }
+  return `cc-code: failed to start ${binPath}: ${err ? err.message : "unknown error"}`;
+}
+
+function main() {
+  const key = platformKey();
+  const target = TARGETS[key];
+
+  // Escape hatch, also used by the tests to drive the launcher on a host whose
+  // platform package is not installed.
+  const override = process.env.CC_CODE_BINARY;
+
+  if (!target && !override) {
+    console.error(unsupportedPlatformMessage(key));
+    process.exit(1);
+  }
+
+  let binPath = override;
+  if (!binPath) {
+    binPath = resolveInPackage(target.pkg, target.file);
+    if (!binPath) {
+      console.error(missingBinaryMessage(key, target));
+      process.exit(1);
+    }
+  }
+
+  installWindowsCtrlHandlers();
+
+  let child;
+  try {
+    child = spawn(binPath, process.argv.slice(2), { stdio: "inherit" });
+  } catch (err) {
+    console.error(launchFailureMessage(key, binPath, err));
+    process.exit(1);
+  }
+
+  child.on("error", (err) => {
+    console.error(launchFailureMessage(key, binPath, err));
+    process.exit(1);
+  });
+
+  child.on("exit", (code, signal) => {
+    // Mirror the child's outcome. A null code means death by signal: exiting 0
+    // there would report success for a killed run.
+    if (signal) {
+      // Re-raise so shell callers see the real cause (`$?` = 128 + signo).
+      // SIGINT / SIGBREAK are handled above on Windows and would be swallowed,
+      // so those fall back to a plain failure exit.
+      if (process.platform === "win32") {
+        process.exit(1);
+      }
+      try {
+        process.kill(process.pid, signal);
+        return;
+      } catch {
+        process.exit(1);
+      }
+    }
+    process.exit(code === null ? 1 : code);
+  });
+}
+
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  TARGETS,
+  UNPUBLISHED,
+  platformKey,
+  resolveInPackage,
+  missingBinaryMessage,
+  unsupportedPlatformMessage,
+};

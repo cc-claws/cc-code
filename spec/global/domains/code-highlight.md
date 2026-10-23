@@ -21,7 +21,7 @@ Markdown 解析遇到代码块（```lang）
       是 → highlight_code_block(code, lang)
            → SyntaxSet::find_syntax_by_token(lang)
            → 找到 → syntect HighlightLines → ratatui Span 着色
-           → 未找到 → 回退 theme.code() 统一颜色
+           → 未找到 → 回退 theme.text() 正文色
       否 → 直接使用 theme.code() 统一颜色
   → 单行代码块不做语法高亮
 ```
@@ -35,17 +35,16 @@ Markdown 解析遇到代码块（```lang）
 | Feature flag | markdown-highlight 控制，不影响默认构建 |
 | 初始化 | once_cell::sync::Lazy 延迟加载 SyntaxSet/ThemeSet |
 | 语法集 | two-face 0.5（bat 0.26.1 的扩展语法集），补齐 syntect 默认集缺失的 TypeScript / Kotlin / GraphQL / Dockerfile / CMake 等 |
-| 主题 | Monokai Extended / Monokai Extended Light（内嵌 tmTheme，随 UI 明暗族切换） |
-| 回退 | 未识别语言或无标签 → theme.code() 统一颜色 |
+| 主题 | 按 UI 主题映射：light 族用 two-face 的 `GitHub`、ansi 族用 `ansi`、其余用 Monokai Extended |
+| 回退 | 未识别语言或无标签 → theme.text() 正文色 |
 | 单行代码 | 不做语法高亮，保持 theme.code() |
 
-## 语言识别规则（对齐 CC detectLanguage）
+## 语言识别规则（对齐参考实现 detectLanguage）
 
-`cc-widgets/src/diff/renderer.rs` 的 `detect_language(file_path, first_line)` 对齐 Claude Code
-`packages/color-diff-napi/src/index.ts:423` 的三段式判定，diff 渲染与新建文件预览共用：
+`cc-widgets/src/diff/renderer.rs` 的 `detect_language(file_path, first_line)` 对齐参考实现（参考源码 `packages/color-diff-napi/src/index.ts:423`）的三段式判定，diff 渲染与新建文件预览共用：
 
 1. **文件名表**：`Dockerfile` / `Makefile` / `Rakefile` / `Gemfile` / `CMakeLists`；按文件名与「首个点号前的 stem」匹配（`Makefile.bak`、`CMakeLists.txt` 均可命中）。
-2. **扩展名白名单**：CC 注册的 26 种语言的扩展名别名。白名单外的扩展名一律回退纯文本（例：`.txt`、`.xyz`、`.toml`）。**markdown 例外**：`.md` / `.markdown` / `.mdown` / `.mkdn` 不启用高亮——CC 的 hljs markdown 只产出 `section` / `strong` scope，其主题 scope 表没有对应颜色，渲染结果与纯文本完全一致，因此 peri 直接把 markdown 从 `EXTENSION_LANGS` 移除，保持观感对齐。
+2. **扩展名白名单**：参考实现注册的 26 种语言的扩展名别名。白名单外的扩展名一律回退纯文本（例：`.txt`、`.xyz`、`.toml`）。**markdown 例外**：`.md` / `.markdown` / `.mdown` / `.mkdn` 不启用高亮——参考实现的 hljs markdown 只产出 `section` / `strong` scope，其主题 scope 表没有对应颜色，渲染结果与纯文本完全一致，因此本项目直接把 markdown 从 `EXTENSION_LANGS` 移除，保持观感对齐。
 3. **首行检测**：剥 UTF-8 BOM 后，按 `#!/bin/bash`（含 `/sh`）、`python`、`node`、`ruby`、`perl`、`<?php`、`<?xml` 识别。
 
 映射到 syntect token 时修正歧义项：`.h` → `c`（直接用 `h` 会命中 Objective-C）。
@@ -54,7 +53,7 @@ Markdown 聊天内容里的代码块（```lang）仍按语言标签直接 `find_
 
 ## 扩展语法集（two-face）
 
-历史背景：syntect 默认语法集（Sublime 默认包）缺少 CC 支持的 5 种语言——TypeScript、Kotlin、GraphQL、Dockerfile、CMake，这些文件曾回退纯文本。2026-10-20 起 `SYNTAX_SET` 改为 `two_face::syntax::extra_newlines()`（bat 0.26.1 的语法集），5 种语言全部补齐。
+历史背景：syntect 默认语法集（Sublime 默认包）缺少参考实现支持的 5 种语言——TypeScript、Kotlin、GraphQL、Dockerfile、CMake，这些文件曾回退纯文本。2026-10-20 起 `SYNTAX_SET` 改为 `two_face::syntax::extra_newlines()`（bat 0.26.1 的语法集），5 种语言全部补齐。
 
 探测结果（two-face 接入后实测）：
 
@@ -71,13 +70,13 @@ for tok in ["ts","tsx","kt","kts","graphql","gql","dockerfile","Dockerfile","cma
 - 依赖：`two-face = { version = "0.5", default-features = false, features = ["syntect-onig"] }`，regex 引擎必须与 syntect 一致（onig）。
 - 语法资产比 syntect 默认集大约多 0.6 MiB，会进入最终二进制；首次编译时间相应增加。
 - 内存影响需按 `issue_2026-10-10_php-highlight-memory` 的方法回归（`/gc` 统计、全进程 WorkingSet 采样）。
-- `detect_language` 的白名单仍按 CC 的 26 种语言生效（markdown 例外，见「语言识别规则」）：two-face 多出来的语法（TOML、Swift、Dart 等）不会被自动启用，扩展名仍需显式加入 `EXTENSION_LANGS`。
+- `detect_language` 的白名单仍按参考实现的 26 种语言生效（markdown 例外，见「语言识别规则」）：two-face 多出来的语法（TOML、Swift、Dart 等）不会被自动启用，扩展名仍需显式加入 `EXTENSION_LANGS`。
 
 回归测试：`cc-widgets/src/diff/renderer_test.rs` 的 `test_render_diff_typescript_has_syntax_color`、`test_render_diff_dockerfile_has_syntax_color`、`test_detect_language_by_extension`（`.md` 断言为 `None`）、`test_render_new_file_code_md_falls_back_to_plain_text`。
 
-## 语法主题选择（对齐 CC defaultSyntaxThemeName）
+## 语法主题选择（对齐参考实现 defaultSyntaxThemeName）
 
-`cc-tui/src/ui/theme/mod.rs` 的 `syntax_theme_for()` 按 CC `defaultSyntaxThemeName`
+`cc-tui/src/ui/theme/mod.rs` 的 `syntax_theme_for()` 按参考实现的 `defaultSyntaxThemeName`
 （`color-diff-napi/src/index.ts:183-187`）映射：
 
 | UI 主题 | syntect 主题名 |

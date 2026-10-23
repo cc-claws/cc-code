@@ -4,7 +4,7 @@
 
 # cc-code
 
-**Terminal coding agent powered by open-source models — Rust-built, Claude Code compatible**
+**Terminal coding agent powered by open-source models — Rust-built, `.claude/` ecosystem compatible**
 
 DeepSeek-V4-Pro + Mimo-2.5Pro + GLM-5.1 driven, zero migration from `.claude/` config.
 
@@ -60,7 +60,7 @@ Kimi K2.6 is an open-source, native multimodal agentic model from Moonshot AI, b
 | Prompt Cache | Recompute every turn, wasting tokens | Frozen system prompt, 95-99% cache hit rate |
 | Tool Loading | All tools stuffed into every request | Core tools resident, rest lazy-loaded via Tool Search |
 | IDE Integration | Terminal only | ACP protocol, Zed and other IDEs connect directly |
-| Claude Code Ecosystem | Incompatible | Use `.claude/` config, agents, skills, hooks, MCP directly |
+| `.claude/` Ecosystem | Incompatible | Use `.claude/` config, agents, skills, hooks, MCP directly |
 | Safety Gate | Prompts you for every risky command | JEV semantic gate — a dedicated LLM judge that only prompts when it isn't sure |
 
 ---
@@ -83,7 +83,7 @@ No credentials configured? The deterministic layer still runs and an LLM classif
 | **Rust Native** | Fast startup, low memory, zero runtime overhead |
 | **Context Optimized** | System prompt frozen + dynamic content isolated, no token waste |
 | **Multi-LLM Support** | Anthropic / OpenAI-compatible APIs, DeepSeek, GLM — switch freely |
-| **Claude Code Compatible** | `.claude/` config, agents, skills, hooks, MCP, sub-agents all reusable |
+| **`.claude/` Ecosystem Compatible** | `.claude/` config, agents, skills, hooks, MCP, sub-agents all reusable |
 | **Streaming Markdown** | Code blocks, tables, diffs rendered in real-time |
 | **ACP Protocol** | Connect to Zed and other IDEs, or build your own "Cloud Code" platform |
 | **Auto Compact** | Long sessions auto-compressed, stays fast and cheap |
@@ -95,7 +95,7 @@ No credentials configured? The deterministic layer still runs and an LLM classif
 
 **Interface language:** TUI and CLI help support English and Simplified Chinese. Use `/lang en` or `/lang zh-CN` to save your preference. Without a saved language, startup detects `LC_ALL`, `LANGUAGE`, `LC_MESSAGES` and `LANG`; unsupported locales fall back to English. See [CHANGELOG](./CHANGELOG.md) for unreleased changes.
 
-**Typing UX aligned with Claude Code (v0.6.166):** Suggestion overlays (slash commands / skills / @ files) are now interactive while the agent is running — arrows/Tab navigate, Enter completes only a selected candidate, Esc dismisses the overlay first and interrupts the agent on a second press. "Send now" (steer) with a foreground command running waits a 2s grace period, then moves it to the background automatically. The status-bar permission label now shows a `⏵⏵` prefix. See [CHANGELOG](./CHANGELOG.md).
+**Typing UX aligned with the reference implementation (v0.6.166):** Suggestion overlays (slash commands / skills / @ files) are now interactive while the agent is running — arrows/Tab navigate, Enter completes only a selected candidate, Esc dismisses the overlay first and interrupts the agent on a second press. "Send now" (steer) with a foreground command running waits a 2s grace period, then moves it to the background automatically. The status-bar permission label now shows a `⏵⏵` prefix. See [CHANGELOG](./CHANGELOG.md).
 
 **Sub-agent cancellation (v0.6.139):** Just tell the main agent to stop a sub-task — it calls `Agent(action="stop", task_id="bg-…")` to cancel by exact `task_id` (**no fuzzy matching**, so look-alike sibling tasks are never stopped by mistake). The receipt carries the task summary so the agent can confirm what it stopped; the timeline prints `• Agent "x" was stopped by main Agent`, and the drawer row turns into a **red filled `●`** with `stopped by main Agent` (keyboard stops show `stopped by user`). While waiting, the main viewport shows `✻ Waiting for N background agents to finish`.
 
@@ -103,17 +103,22 @@ No credentials configured? The deterministic layer still runs and an LLM classif
 
 | Feature | Version | Description |
 |---------|---------|-------------|
-| **No Syntax Highlighting in `.md` Previews** | v0.6.177 | Write and Edit previews no longer colour `.md` content. Claude Code recognizes `md` as markdown, but its theme scope tables map neither `section` nor `strong` (the only scopes highlight.js emits for Markdown), so its rendered output is byte-identical to plain text. cc-code was using syntect's Markdown grammar and painting headings and bold text; the markdown extensions are now removed from the language whitelist and fall back to plain text. |
+| **Real OSC 8 Hyperlinks for Tool-Output URLs** | v0.6.182 | URLs in tool results and `!` command output are now genuine terminal hyperlinks. The OSC 8 sequence moved to the output layer (`terminal_backend/hyperlink.rs`), which looks links up by coordinate as bytes are written — stuffing the sequence into a ratatui cell made `Buffer::diff` skip every cell after the link, so trailing text vanished. URLs render bright blue (`38;5;12`) with no artificial underline, hover and click behaviour comes from the terminal, hyperlinking is on by default with `DISABLE_HYPERLINKS=1` as the opt-out, and the old ANSI Cyan + underline styling (`style_urls()`) is deleted (#671). |
+| **Running Timer Survives Event Floods** | v0.6.181 | The `Running… (Xs)` counter and the pulsating `●` indicator no longer freeze while a long Bash command runs. The render worker recreated its 200 ms `sleep` on every loop iteration, so any event arriving faster than 5 Hz (streaming output, per-frame viewport reports) cancelled it before it expired — the tick never ran, and `rebuild` could not compensate because the render key (`content_hash ⊕ detail/diff flags`) carries no elapsed time, so unchanged content reuses the cached lines verbatim. The worker now keeps a monotonic `tick_deadline` and awaits `sleep_until` inside a `biased` select, so the tick fires on schedule however dense the event stream is; the deadline resets when no tool is running (#683). |
+| **Bash Execution Status Alignment** | v0.6.180 | Tool blocks carry an explicit execution phase: a finished command with no output reads `Done` (`(No output)` in detail mode) instead of keeping a stale running indicator, explicit timeouts show as `Running… (Ns · timeout Nm)` and keep a footer note on completion, the backgrounding hint uses a hanging indent and is hidden for sub-agents, and restored history is always shown in the completed state (#675). |
+| **npm Binaries via Platform Optional Dependencies** | v0.6.179 | The `@cc-claw/code` package no longer downloads a binary from an install script. The binary ships as five platform packages (`@cc-claw/code-win32-x64`, `-darwin-x64`, `-darwin-arm64`, `-linux-x64`, `-linux-arm64`) referenced through `optionalDependencies`, so npm installs only the one matching your platform and no postinstall script runs; the `bin/cc-code` launcher resolves and spawns the binary from the platform package (#678). |
+| **OSC 8 Hyperlinks in Markdown Links** | v0.6.178 | Markdown links in the message area now emit OSC 8, so supported terminals (Windows Terminal, iTerm2, WezTerm, kitty…) show a hover affordance and open links with Ctrl/Cmd+click instead of leaving an inert plain-text URL. The sequence never participates in layout or wrap math, and control characters are stripped from URLs so a crafted link cannot terminate the sequence early (#671). |
+| **No Syntax Highlighting in `.md` Previews** | v0.6.177 | Write and Edit previews no longer colour `.md` content. The reference implementation recognizes `md` as markdown, but its theme scope tables map neither `section` nor `strong` (the only scopes highlight.js emits for Markdown), so its rendered output is byte-identical to plain text. cc-code was using syntect's Markdown grammar and painting headings and bold text; the markdown extensions are now removed from the language whitelist and fall back to plain text. |
+| **Markdown Rendering Aligned with the Reference Implementation** | v0.6.176 | Headings, lists, quotes, rules, inline code and tables now render the reference implementation's way: H1 is bold + italic + underlined, H2 and below bold only, and headings carry no foreground colour; unordered lists use `- ` while ordered lists cycle numbers / letters / roman numerals by nesting depth; the quote bar is dim with an italic body; inline code takes the theme's `permission` colour. Tables gained the `MarkdownTable` box-drawing layout with a separator between every row and fall back to a vertical key-value form when too wide, all locked by a 126-case golden parity suite (#666). |
 | **Unified Tool Truncation Hint Style** | v0.6.175 | All tool-output truncation hints (Bash, local `!` shell commands, error summary rows) now share the unified `… +N lines (ctrl+o to expand)` format (singular: `… +1 line`, single-line wrap overflow: `… (ctrl+o to expand)`), fully aligned with diff and new-file code preview styles (#661). Same release completely decouples candidate popups from viewport height measurement, eliminating full-screen latching and blank gaps on 24-row terminals (#659). |
 | **Reliable Write Content Previews** | v0.6.174 | New-file and overwrite previews no longer disappear when UI notifications arrive after the write; append previews no longer duplicate added content. Main and sub-agent writes share a snapshot captured before execution (#654). |
 | **URL Background Matches the Status Bar** | v0.6.173 | Tool-result and `!` output URLs explicitly use the terminal's default background, keeping their ANSI Cyan appearance consistent with status-bar model names (PR #656). |
 | **Welcome Card Shows Model Tier & Update Notice** | v0.6.172 | The empty-session card now names what you are actually running: the title splits into an ACCENT brand and a MUTED version, a `model · (effort effort)` subtitle appears when both are known (omitted entirely rather than inventing defaults), and when a newer release exists the start hint is replaced by `Update available! <current> → <latest>` plus `To update, run: cc-code update`. The check (`cc-tui/src/app/update_check.rs`) runs once per process in the background against the GitHub release list — `npm-v*` tags only, prereleases skipped, highest semantic version wins, the whole request capped at 3s — and the event loop only ever reads the cached result, so rendering never waits on the network; any failure stays silent and the card looks normal. Disable with `CC_CODE_DISABLE_UPDATE_CHECK=1`; disabled automatically under `cargo test`. Same release: an empty session no longer shows the meaningless `Cache - · MEM 19MB` pair in the status bar, and the card border closes correctly in both locales with its height pinned at 7 rows (#653). |
 | **Compact Startup & Growing Terminal Viewport** | v0.6.171 | The terminal starts below the shell output and scrolls only the rows needed as input, replies and panels grow; fullscreen locks once the allocated content fills the host height. The welcome card stays in the scrollable UI prefix, so it scrolls away naturally and never collapses the layout back. Copy, link and highlight coordinates follow the non-zero viewport origin, and exit clears only the rows the app owns (#652). |
-| **ANSI Cyan URL Link Colour in Tool Results** | v0.6.170 | URLs inside tool results and `!` shell-command output were drawn in `theme::cur().ide` (dark `#4782C8`), so the link colour drifted with `/theme` and sat too close in lightness to the body `text_soft`, making URLs slow to spot while scanning. `style_urls()` now pins `Color::Cyan` with an underline — it no longer follows the theme, matching the status bar's model name and branch name. Covers both call sites: `format_prefixed_text()` (every `⎿`-prefixed tool result row — Bash / Read / Grep / Glob) and `format_shell_output_lines()` (`!command` output). URL detection keeps the CC `OutputLine.tsx::URL_IN_JSON` contract and trims trailing `)` `]` `}` `,` `;` `.` `:`; it is still visual only (no OSC 8 — ratatui cells cannot carry escape sequences and `sanitize_display_text()` strips `\x1b`), with clicking provided by the terminal's own URL detection. Markdown links (`[text](url)` → `theme.link()` = SAGE `#4EBA65`) are a separate path and unaffected (#649). |
+| **ANSI Cyan URL Link Colour in Tool Results** | v0.6.170 | URLs inside tool results and `!` shell-command output were drawn in `theme::cur().ide` (dark `#4782C8`), so the link colour drifted with `/theme` and sat too close in lightness to the body `text_soft`, making URLs slow to spot while scanning. `style_urls()` now pins `Color::Cyan` with an underline — it no longer follows the theme, matching the status bar's model name and branch name. Covers both call sites: `format_prefixed_text()` (every `⎿`-prefixed tool result row — Bash / Read / Grep / Glob) and `format_shell_output_lines()` (`!command` output). URL detection keeps the reference implementation's `OutputLine.tsx::URL_IN_JSON` contract and trims trailing `)` `]` `}` `,` `;` `.` `:`; it is still visual only (no OSC 8 — ratatui cells cannot carry escape sequences and `sanitize_display_text()` strips `\x1b`), with clicking provided by the terminal's own URL detection. Markdown links (`[text](url)` → `theme.link()` = SAGE `#4EBA65`) are a separate path and unaffected (#649). |
 | **Viewport-Lazy Detail Rendering** | v0.6.169 | `/config` → Detail Render selects `auto` (default), `cache`, or `virtual`, applied immediately and saved as `config.detail_render_strategy`. Virtual rendering materializes only the current window and shares a 16 MiB rendered-product budget across variants; source history, metadata and a huge visible message remain separate memory costs. See [CHANGELOG](./CHANGELOG.md) for behavior and boundaries (#629, PR #648). |
-| **Bash Output JSON Pretty-Printing (OutputLine Decorator)** | v0.6.168 | Bash / MCP tool results now pass through an `OutputLine` decorator aligned with CC: single-line JSON is expanded to a 2-space indented pretty print behind a precision guard (if a compact re-serialization differs from the original, the line is kept verbatim, so big integers and `1.10`-style literals are never rewritten), non-JSON lines take a fast path, and content over 10,000 chars skips formatting entirely; wrapping and truncation share one ruler — pre-wrap by display width, 3 visible lines plus a `… +N lines (ctrl+o to expand)` hint when collapsed. Same batch: diff deletion rows gained three-tier background shading, tool paths display the CC way, and the status bar labels Edit operations correctly (#642). |
-| **URL Link Colour in Tool Results & `!` Output** | v0.6.167 | URLs inside tool results and `!` shell-command output are found by a hand-written prefix scanner (no regex dependency; trailing `)` / `]` / `}` punctuation is trimmed back off) and rendered in the theme's link colour with an underline. `!` output is split by its existing ANSI colouring first and linkified per segment, so command colours survive; this is visual only (no OSC 8), with clicking still provided by the terminal's own URL detection (#640). |
-> Older releases (v0.6.0 – v0.6.166) are listed in the [CHANGELOG](./CHANGELOG.md).
+| **Bash Output JSON Pretty-Printing (OutputLine Decorator)** | v0.6.168 | Bash / MCP tool results now pass through an `OutputLine` decorator aligned with the reference implementation: single-line JSON is expanded to a 2-space indented pretty print behind a precision guard (if a compact re-serialization differs from the original, the line is kept verbatim, so big integers and `1.10`-style literals are never rewritten), non-JSON lines take a fast path, and content over 10,000 chars skips formatting entirely; wrapping and truncation share one ruler — pre-wrap by display width, 3 visible lines plus a `… +N lines (ctrl+o to expand)` hint when collapsed. Same batch: diff deletion rows gained three-tier background shading, tool paths display the reference implementation's way, and the status bar labels Edit operations correctly (#642). |
+> Older releases (v0.6.0 – v0.6.167) are listed in the [CHANGELOG](./CHANGELOG.md).
 
 ---
 
@@ -127,24 +132,23 @@ Binaries available for macOS (x86_64 / Apple Silicon), Linux (x86_64 / aarch64),
 npm install -g @cc-claw/code
 ```
 
-> [!WARNING]
-> **On npm 12+ (released July 2026), this command alone is not enough.** npm now blocks dependency `postinstall` scripts by default — and that script is what downloads the platform binary. The install reports success, but running `cc-code` then fails with `spawnSync ...cc-code.exe ENOENT`. Allow the script explicitly:
->
-> ```bash
-> npm install -g --allow-scripts=@cc-claw/code @cc-claw/code
-> ```
->
-> To allow it for all global installs instead: `npm config set allow-scripts=@cc-claw/code --location=user`
->
-> Using **pnpm or bun**? They block build scripts too — run `pnpm approve-builds` (or allowlist the package), otherwise `cc-code` ships without its binary.
+No install script runs: the binary ships as a platform-specific optional
+dependency (`@cc-claw/code-<platform>-<arch>`), and npm picks the one that
+matches your OS and architecture. That means plain installs, `--ignore-scripts`,
+pnpm and bun all work, and nothing is fetched from GitHub at install time.
+
+> [!NOTE]
+> Installing with `--omit=optional` / `--no-optional` leaves the package without
+> its binary; `cc-code` then exits with a message explaining how to reinstall.
+
+Windows on ARM has no native build yet — install the x64 build explicitly with
+`npm install -g --arch=x64 @cc-claw/code`.
 
 ### Upgrade
 
 ```bash
 npm update -g @cc-claw/code
 ```
-
-On npm 12+, pass the same flag: `npm update -g --allow-scripts=@cc-claw/code @cc-claw/code`.
 
 ### macOS / Linux (Script)
 
@@ -193,7 +197,7 @@ cc-code/
 │   └── README.md              # LSP operations and config
 ├── langfuse-client/           # Langfuse telemetry client
 │   └── README.md              # Telemetry config and usage
-├── npm/                       # npm package: postinstall script + shell wrapper
+├── npm/                       # npm package: platform optional dependencies + bin launcher
 │   └── README.md              # npm package docs
 ├── scripts/
 │   ├── install.sh             # macOS / Linux installer

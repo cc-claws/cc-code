@@ -42,7 +42,7 @@ Anthropic API / OpenAI API 接收到非法图片 Base64 数据后，在服务端
 
 ## 现状与根因分析
 
-代码定位：`peri-middlewares/src/tools/filesystem/read.rs`
+代码定位：`cc-middlewares/src/tools/filesystem/read.rs`
 
 ### 1. 仅凭扩展名路由到 `read_image`
 
@@ -106,8 +106,8 @@ Ok(ToolContent::image(media_type, base64_data, summary))
 
 ## 涉及文件
 
-- `peri-middlewares/src/tools/filesystem/read.rs`：新增图片魔数检查与文本降级防御逻辑。
-- `peri-middlewares/src/tools/filesystem/read_test.rs`：新增针对伪图片（HTML 内容写入 `.png`、空文件、截断文件）的测试用例。
+- `cc-middlewares/src/tools/filesystem/read.rs`：新增图片魔数检查与文本降级防御逻辑。
+- `cc-middlewares/src/tools/filesystem/read_test.rs`：新增针对伪图片（HTML 内容写入 `.png`、空文件、截断文件）的测试用例。
 
 ## 验收标准
 

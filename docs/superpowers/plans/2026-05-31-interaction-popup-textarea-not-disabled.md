@@ -15,7 +15,7 @@
 ### Task 1: 添加 `App::is_interaction_popup_active()` 辅助方法
 
 **Files:**
-- Modify: `peri-tui/src/app/mod.rs`
+- Modify: `cc-tui/src/app/mod.rs`
 
 - [ ] **Step 1: 在 `impl App` 块中添加辅助方法**
 
@@ -36,14 +36,14 @@ pub fn is_interaction_popup_active(&self) -> bool {
 - [ ] **Step 2: 编译检查**
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -20
+cargo build -p cc-tui 2>&1 | head -20
 ```
 Expected: 编译成功，无新增警告。
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/app/mod.rs
+git add cc-tui/src/app/mod.rs
 git commit -m "feat: add App::is_interaction_popup_active() helper
 
 用于统一检测 AskUser/HITL/OAuth 弹窗是否激活，供事件处理和渲染复用。
@@ -56,7 +56,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 2: 修复 Paste 事件绕过弹窗
 
 **Files:**
-- Modify: `peri-tui/src/event/mod.rs:306-310`
+- Modify: `cc-tui/src/event/mod.rs:306-310`
 
 - [ ] **Step 1: 在 Paste 事件 fallback 前增加弹窗守卫**
 
@@ -86,14 +86,14 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 - [ ] **Step 2: 编译检查**
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -20
+cargo build -p cc-tui 2>&1 | head -20
 ```
 Expected: 编译成功，无新增警告。
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/event/mod.rs
+git add cc-tui/src/event/mod.rs
 git commit -m "fix: block paste into textarea when interaction popup is active
 
 之前 Event::Paste 不检查 interaction_prompt/oauth_prompt，
@@ -107,7 +107,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 3: 修复鼠标点击 textarea 绕过弹窗
 
 **Files:**
-- Modify: `peri-tui/src/event/mod.rs:655-675`
+- Modify: `cc-tui/src/event/mod.rs:655-675`
 
 - [ ] **Step 1: 在 Mouse Down(Left) 的 textarea 点击路径前增加弹窗守卫**
 
@@ -170,14 +170,14 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 - [ ] **Step 2: 编译检查**
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -20
+cargo build -p cc-tui 2>&1 | head -20
 ```
 Expected: 编译成功，无新增警告。
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/event/mod.rs
+git add cc-tui/src/event/mod.rs
 git commit -m "fix: block mouse click on textarea when interaction popup is active
 
 弹窗激活时鼠标点击 textarea 区域不应移动光标或开始选区。
@@ -190,7 +190,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 4: 修复渲染——弹窗激活时 textarea 光标隐藏 + 样式变暗
 
 **Files:**
-- Modify: `peri-tui/src/ui/main_ui/mod.rs`（两处：block 样式 + cursor 隐藏）
+- Modify: `cc-tui/src/ui/main_ui/mod.rs`（两处：block 样式 + cursor 隐藏）
 
 - [ ] **Step 1: 在 textarea block 样式判断中增加弹窗条件**
 
@@ -235,14 +235,14 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 - [ ] **Step 3: 编译检查**
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -20
+cargo build -p cc-tui 2>&1 | head -20
 ```
 Expected: 编译成功，无新增警告。
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/ui/main_ui/mod.rs
+git add cc-tui/src/ui/main_ui/mod.rs
 git commit -m "fix: hide cursor and dim textarea when interaction popup is active
 
 弹窗激活时：
@@ -259,7 +259,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 - [ ] **Step 1: 启动 TUI 并触发 AskUser 弹窗**
 
 ```bash
-cargo run -p peri-tui
+cargo run -p cc-tui
 ```
 
 在 Bypass 权限模式下输入任意需要 AskUser 触发的指令（如某些模型切换操作或在其他 TUI 版本中测试），或使用 issue-create skill 触发多轮提问。

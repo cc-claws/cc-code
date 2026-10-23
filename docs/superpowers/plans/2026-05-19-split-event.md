@@ -13,18 +13,18 @@
 ### Task 1: 创建 `event/` 目录结构
 
 **Files:**
-- Create: `peri-tui/src/event/`
-- Create: `peri-tui/src/event/mod.rs`
-- Create: `peri-tui/src/event/keyboard.rs`
-- Create: `peri-tui/src/event/mouse.rs`
+- Create: `cc-tui/src/event/`
+- Create: `cc-tui/src/event/mod.rs`
+- Create: `cc-tui/src/event/keyboard.rs`
+- Create: `cc-tui/src/event/mouse.rs`
 
 - [ ] **Step 1: Create directory and empty files**
 
 ```bash
-mkdir -p peri-tui/src/event
-touch peri-tui/src/event/mod.rs
-touch peri-tui/src/event/keyboard.rs
-touch peri-tui/src/event/mouse.rs
+mkdir -p cc-tui/src/event
+touch cc-tui/src/event/mod.rs
+touch cc-tui/src/event/keyboard.rs
+touch cc-tui/src/event/mouse.rs
 ```
 
 ---
@@ -32,8 +32,8 @@ touch peri-tui/src/event/mouse.rs
 ### Task 2: 移动鼠标辅助函数到 `mouse.rs`
 
 **Files:**
-- Create: `peri-tui/src/event/mouse.rs` (完整文件)
-- Copy from: `peri-tui/src/event.rs:45-212`
+- Create: `cc-tui/src/event/mouse.rs` (完整文件)
+- Copy from: `cc-tui/src/event.rs:45-212`
 
 - [ ] **Step 1: Write `mouse.rs` — extract helpers from event.rs lines 45-212**
 
@@ -45,7 +45,7 @@ Copy these functions from `event.rs`:
 - `copy_selection_to_clipboard` (lines 158-184)
 - `copy_panel_selection_to_clipboard` (lines 187-212)
 
-Write `peri-tui/src/event/mouse.rs`:
+Write `cc-tui/src/event/mouse.rs`:
 
 ```rust
 use arboard;
@@ -195,7 +195,7 @@ Delete lines 45-212 from `event.rs` (mouse helpers + clipboard functions).
 - [ ] **Step 3: Build to verify**
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -30
+cargo build -p cc-tui 2>&1 | head -30
 ```
 
 Expected: FAIL — `event.rs` still calls removed functions (will be fixed in next task).
@@ -205,8 +205,8 @@ Expected: FAIL — `event.rs` still calls removed functions (will be fixed in ne
 ### Task 3: 移动键盘处理到 `keyboard.rs`
 
 **Files:**
-- Create: `peri-tui/src/event/keyboard.rs` (完整文件)
-- Copy from: `peri-tui/src/event.rs:271-1056` (Event::Key arm)
+- Create: `cc-tui/src/event/keyboard.rs` (完整文件)
+- Copy from: `cc-tui/src/event.rs:271-1056` (Event::Key arm)
 
 - [ ] **Step 1: Write `keyboard.rs`**
 
@@ -276,7 +276,7 @@ Remove lines 271-1056 from `event.rs`.
 - [ ] **Step 3: Build to verify**
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -30
+cargo build -p cc-tui 2>&1 | head -30
 ```
 
 Expected: FAIL — references to `mouse_in_rect` etc. still unresolved (fixed in Task 4).
@@ -286,7 +286,7 @@ Expected: FAIL — references to `mouse_in_rect` etc. still unresolved (fixed in
 ### Task 4: 在 `mod.rs` 中重组 handle_event 为纯分发函数
 
 **Files:**
-- Create: `peri-tui/src/event/mod.rs`
+- Create: `cc-tui/src/event/mod.rs`
 
 - [ ] **Step 1: Write `mod.rs` — Action enum + macros + next_event + dispatch-only handle_event**
 
@@ -423,13 +423,13 @@ pub fn handle_oauth_prompt(app: &mut App, input: tui_textarea::Input) {
 - [ ] **Step 2: Delete old `event.rs`**
 
 ```bash
-rm peri-tui/src/event.rs
+rm cc-tui/src/event.rs
 ```
 
 - [ ] **Step 3: Build**
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -30
+cargo build -p cc-tui 2>&1 | head -30
 ```
 
 Expected: compilation succeeds.
@@ -439,14 +439,14 @@ Expected: compilation succeeds.
 ### Task 5: Update `main.rs` import
 
 **Files:**
-- Modify: `peri-tui/src/main.rs` (or wherever `use crate::event` is)
+- Modify: `cc-tui/src/main.rs` (or wherever `use crate::event` is)
 
 - [ ] **Step 1: Verify import path still works**
 
 `use crate::event::Action;` and `crate::event::next_event()` will resolve to `event/mod.rs` — no change needed since we're using `pub mod event;` with the directory pattern.
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -10
+cargo build -p cc-tui 2>&1 | head -10
 ```
 
 Expected: compilation succeeds.
@@ -458,7 +458,7 @@ Expected: compilation succeeds.
 - [ ] **Step 1: Run all tests**
 
 ```bash
-cargo test -p peri-tui --lib 2>&1 | tail -10
+cargo test -p cc-tui --lib 2>&1 | tail -10
 ```
 
 Expected: All tests pass.
@@ -472,8 +472,8 @@ lefthook run pre-commit
 - [ ] **Step 3: Commit**
 
 ```bash
-cargo fmt -p peri-tui
-git add peri-tui/src/event/ peri-tui/src/event.rs
+cargo fmt -p cc-tui
+git add cc-tui/src/event/ cc-tui/src/event.rs
 git commit -m "refactor: split event.rs into keyboard and mouse submodules
 
 - Extract mouse coordinate helpers + clipboard into event/mouse.rs

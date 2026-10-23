@@ -14,14 +14,14 @@
 
 **Create:**
 ```
-peri-tui/src/acp_server/
+cc-tui/src/acp_server/
 ├── mod.rs       (~250 lines: SessionState + AcpServerConfig + SharedSessions + run_acp_server)
 ├── requests.rs  (~370 lines: handle_request)
 ├── notify.rs    (~110 lines: handle_notification + extract_session_id + send_* helpers)
 ├── prompt.rs    (~125 lines: execute_prompt + execute_prompt helpers)
 └── compact.rs   (~150 lines: execute_compact)
 
-peri-tui/src/app/agent_ops/
+cc-tui/src/app/agent_ops/
 ├── mod.rs        (~370 lines: handle_agent_event dispatcher + re-exports)
 ├── acp_bridge.rs (~55 lines: handle_acp_notification)
 ├── lifecycle.rs  (~310 lines: cleanup_agent_state + handle_done + handle_interrupted + handle_error)
@@ -30,31 +30,31 @@ peri-tui/src/app/agent_ops/
 ```
 
 **Modify:**
-- `peri-tui/src/acp_server.rs` → 替换为 `pub mod acp_server; pub use acp_server::*;`（~3 lines）
-- `peri-tui/src/app/agent_ops.rs` → 替换为 `pub mod agent_ops; pub use agent_ops::*;`（~3 lines）
-- `peri-tui/src/app/mod.rs` → 更新 imports（若有必要）
+- `cc-tui/src/acp_server.rs` → 替换为 `pub mod acp_server; pub use acp_server::*;`（~3 lines）
+- `cc-tui/src/app/agent_ops.rs` → 替换为 `pub mod agent_ops; pub use agent_ops::*;`（~3 lines）
+- `cc-tui/src/app/mod.rs` → 更新 imports（若有必要）
 
 ---
 
 ### Task 1: Convert acp_server.rs → acp_server/ directory
 
 **Files:**
-- Create: `peri-tui/src/acp_server/mod.rs`
-- Create: `peri-tui/src/acp_server/requests.rs`
-- Create: `peri-tui/src/acp_server/notify.rs`
-- Delete: `peri-tui/src/acp_server.rs`
+- Create: `cc-tui/src/acp_server/mod.rs`
+- Create: `cc-tui/src/acp_server/requests.rs`
+- Create: `cc-tui/src/acp_server/notify.rs`
+- Delete: `cc-tui/src/acp_server.rs`
 
 - [ ] **Step 1: Create acp_server/ directory and move file**
 
 ```bash
-mkdir peri-tui/src/acp_server
-cp peri-tui/src/acp_server.rs peri-tui/src/acp_server/mod.rs
+mkdir cc-tui/src/acp_server
+cp cc-tui/src/acp_server.rs cc-tui/src/acp_server/mod.rs
 ```
 
 - [ ] **Step 2: Verify build with the copy**
 
 ```bash
-cargo build -p peri-tui 2>&1
+cargo build -p cc-tui 2>&1
 ```
 Expected: Build succeeds. `pub mod acp_server;` in `main.rs` discovers `acp_server/mod.rs` automatically.
 
@@ -68,8 +68,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use serde_json::Value;
 use tracing::{debug, info};
-use peri_acp::transport::types::AcpError;
-use peri_agent::thread::{ThreadId, ThreadMeta};
+use cc_acp::transport::types::AcpError;
+use cc_agent::thread::{ThreadId, ThreadMeta};
 use agent_client_protocol::schema::{
     AgentCapabilities, CloseSessionResponse, ForkSessionResponse, InitializeResponse,
     ListSessionsResponse, LoadSessionResponse, NewSessionResponse, ProtocolVersion,
@@ -118,13 +118,13 @@ use parking_lot::RwLock;
 use serde_json::Value;
 use tokio::sync::Mutex;
 use tracing::{debug, info};
-use peri_acp::broker::AcpTransportBroker;
-use peri_acp::session::event_sink::TransportEventSink;
-use peri_acp::session::executor;
-use peri_agent::agent::AgentCancellationToken;
-use peri_agent::messages::BaseMessage;
-use peri_agent::thread::{ThreadId, ThreadMeta};
-use peri_middlewares::prelude::*;
+use cc_acp::broker::AcpTransportBroker;
+use cc_acp::session::event_sink::TransportEventSink;
+use cc_acp::session::executor;
+use cc_agent::agent::AgentCancellationToken;
+use cc_agent::messages::BaseMessage;
+use cc_agent::thread::{ThreadId, ThreadMeta};
+use cc_middlewares::prelude::*;
 use crate::app::agent::LlmProvider;
 use crate::config::PeriConfig;
 use super::{AcpServerConfig, SessionState, SharedSessions};
@@ -163,30 +163,30 @@ Expected: ~250 lines.
 - [ ] **Step 8: Delete old acp_server.rs**
 
 ```bash
-rm peri-tui/src/acp_server.rs
+rm cc-tui/src/acp_server.rs
 ```
 
 - [ ] **Step 9: Build and run tests**
 
 ```bash
-cargo build -p peri-tui 2>&1
-cargo test -p peri-tui --lib 2>&1 | tail -10
+cargo build -p cc-tui 2>&1
+cargo test -p cc-tui --lib 2>&1 | tail -10
 ```
 Expected: Build succeeds. All tests pass.
 
 - [ ] **Step 10: Check for external references to acp_server**
 
 ```bash
-grep -r 'acp_server::' peri-tui/src/ --include='*.rs' | grep -v 'acp_server/'
-grep -r 'use crate::acp_server' peri-tui/src/ --include='*.rs'
+grep -r 'acp_server::' cc-tui/src/ --include='*.rs' | grep -v 'acp_server/'
+grep -r 'use crate::acp_server' cc-tui/src/ --include='*.rs'
 ```
 Verify all references still resolve through `acp_server/mod.rs` re-exports.
 
 - [ ] **Step 11: Commit**
 
 ```bash
-git add peri-tui/src/acp_server/
-git rm peri-tui/src/acp_server.rs
+git add cc-tui/src/acp_server/
+git rm cc-tui/src/acp_server.rs
 git commit -m "refactor(acp): split acp_server.rs into sub-modules
 
 acp_server.rs: 929 → acp_server/{mod.rs(250), requests.rs(370),
@@ -199,24 +199,24 @@ Extract: handle_request, notify helpers, execute_prompt, execute_compact."
 ### Task 2: Convert agent_ops.rs → agent_ops/ directory
 
 **Files:**
-- Create: `peri-tui/src/app/agent_ops/mod.rs`
-- Create: `peri-tui/src/app/agent_ops/acp_bridge.rs`
-- Create: `peri-tui/src/app/agent_ops/lifecycle.rs`
-- Create: `peri-tui/src/app/agent_ops/subagent.rs`
-- Create: `peri-tui/src/app/agent_ops/polling.rs`
-- Delete: `peri-tui/src/app/agent_ops.rs`
+- Create: `cc-tui/src/app/agent_ops/mod.rs`
+- Create: `cc-tui/src/app/agent_ops/acp_bridge.rs`
+- Create: `cc-tui/src/app/agent_ops/lifecycle.rs`
+- Create: `cc-tui/src/app/agent_ops/subagent.rs`
+- Create: `cc-tui/src/app/agent_ops/polling.rs`
+- Delete: `cc-tui/src/app/agent_ops.rs`
 
 - [ ] **Step 1: Create agent_ops/ directory and move file**
 
 ```bash
-mkdir peri-tui/src/app/agent_ops
-cp peri-tui/src/app/agent_ops.rs peri-tui/src/app/agent_ops/mod.rs
+mkdir cc-tui/src/app/agent_ops
+cp cc-tui/src/app/agent_ops.rs cc-tui/src/app/agent_ops/mod.rs
 ```
 
 - [ ] **Step 2: Verify build**
 
 ```bash
-cargo build -p peri-tui 2>&1
+cargo build -p cc-tui 2>&1
 ```
 Expected: Build succeeds. `pub mod agent_ops;` in `app/mod.rs` discovers `agent_ops/mod.rs` automatically.
 
@@ -225,7 +225,7 @@ Expected: Build succeeds. `pub mod agent_ops;` in `app/mod.rs` discovers `agent_
 Cut `fn handle_acp_notification` (lines 8-51 in original) from `agent_ops/mod.rs` and paste into `agent_ops/acp_bridge.rs`.
 
 ```rust
-// peri-tui/src/app/agent_ops/acp_bridge.rs
+// cc-tui/src/app/agent_ops/acp_bridge.rs
 use tracing::debug;
 use crate::app::App;
 use super::super::AcpNotification;
@@ -282,14 +282,14 @@ Expected: ~370 lines (dispatcher only).
 - [ ] **Step 8: Delete old agent_ops.rs**
 
 ```bash
-rm peri-tui/src/app/agent_ops.rs
+rm cc-tui/src/app/agent_ops.rs
 ```
 
 - [ ] **Step 9: Build and test**
 
 ```bash
-cargo build -p peri-tui 2>&1
-cargo test -p peri-tui --lib 2>&1 | tail -10
+cargo build -p cc-tui 2>&1
+cargo test -p cc-tui --lib 2>&1 | tail -10
 ```
 Expected: Build succeeds, all tests pass.
 
@@ -297,11 +297,11 @@ Expected: Build succeeds, all tests pass.
 
 ```bash
 echo "=== agent_ops final sizes ==="
-wc -l peri-tui/src/app/agent_ops/mod.rs
-wc -l peri-tui/src/app/agent_ops/acp_bridge.rs
-wc -l peri-tui/src/app/agent_ops/lifecycle.rs
-wc -l peri-tui/src/app/agent_ops/subagent.rs
-wc -l peri-tui/src/app/agent_ops/polling.rs
+wc -l cc-tui/src/app/agent_ops/mod.rs
+wc -l cc-tui/src/app/agent_ops/acp_bridge.rs
+wc -l cc-tui/src/app/agent_ops/lifecycle.rs
+wc -l cc-tui/src/app/agent_ops/subagent.rs
+wc -l cc-tui/src/app/agent_ops/polling.rs
 ```
 
 Expected: mod.rs ≤ 400 lines, all sub-files ≤ 350 lines.
@@ -309,8 +309,8 @@ Expected: mod.rs ≤ 400 lines, all sub-files ≤ 350 lines.
 - [ ] **Step 11: Commit**
 
 ```bash
-git add peri-tui/src/app/agent_ops/
-git rm peri-tui/src/app/agent_ops.rs
+git add cc-tui/src/app/agent_ops/
+git rm cc-tui/src/app/agent_ops.rs
 git commit -m "refactor(agent): split agent_ops.rs into sub-modules
 
 agent_ops.rs: 1053 → agent_ops/{mod.rs(370), acp_bridge.rs(52),
@@ -361,8 +361,8 @@ Expected: Zero warnings.
 - [ ] **Step 6: Final line count summary**
 
 ```bash
-echo "=== ACP Server ===" && wc -l peri-tui/src/acp_server/*.rs
-echo "=== Agent Ops ===" && wc -l peri-tui/src/app/agent_ops/*.rs
+echo "=== ACP Server ===" && wc -l cc-tui/src/acp_server/*.rs
+echo "=== Agent Ops ===" && wc -l cc-tui/src/app/agent_ops/*.rs
 ```
 
 - [ ] **Step 7: Final commit**

@@ -26,7 +26,7 @@ Steps 1-4（增量 markdown）和 Steps 5-7（前缀/cosmetic 优化）可并行
 
 ## Step 1: ContentBlockView::Text 新增 rendered_prefix_len 字段
 
-**文件:** `peri-tui/src/ui/message_view.rs`
+**文件:** `cc-tui/src/ui/message_view.rs`
 
 **改动:**
 
@@ -46,7 +46,7 @@ Steps 1-4（增量 markdown）和 Steps 5-7（前缀/cosmetic 优化）可并行
 
 ## Step 2: 实现 find_last_block_boundary()
 
-**文件:** `peri-tui/src/ui/markdown/mod.rs`
+**文件:** `cc-tui/src/ui/markdown/mod.rs`
 
 **新增函数:** `pub fn find_last_block_boundary(text: &str, prefix_len: usize) -> usize`
 
@@ -65,7 +65,7 @@ Steps 1-4（增量 markdown）和 Steps 5-7（前缀/cosmetic 优化）可并行
 
 ## Step 3: 实现 ensure_rendered_incremental()
 
-**文件:** `peri-tui/src/ui/markdown/mod.rs`
+**文件:** `cc-tui/src/ui/markdown/mod.rs`
 
 **新增函数:** `pub fn ensure_rendered_incremental(block: &mut ContentBlockView, max_width: usize)`
 
@@ -84,7 +84,7 @@ Steps 1-4（增量 markdown）和 Steps 5-7（前缀/cosmetic 优化）可并行
 
 ## Step 4: render_one 使用增量解析
 
-**文件:** `peri-tui/src/ui/render_thread.rs`
+**文件:** `cc-tui/src/ui/render_thread.rs`
 
 **改动（`render_one` 方法，约 line 162）:**
 
@@ -95,7 +95,7 @@ Steps 1-4（增量 markdown）和 Steps 5-7（前缀/cosmetic 优化）可并行
 
 ## Step 5: rebuild() 实现 prefix_stable_len 优化
 
-**文件:** `peri-tui/src/ui/render_thread.rs`
+**文件:** `cc-tui/src/ui/render_thread.rs`
 
 **改动（`rebuild` 方法）:**
 
@@ -111,7 +111,7 @@ Steps 1-4（增量 markdown）和 Steps 5-7（前缀/cosmetic 优化）可并行
 
 ## Step 6: 实现 is_cosmetic_change()
 
-**文件:** `peri-tui/src/ui/render_thread.rs`
+**文件:** `cc-tui/src/ui/render_thread.rs`
 
 **新增函数:** `fn is_cosmetic_change(old: &MessageViewModel, new: &MessageViewModel) -> bool`
 
@@ -128,7 +128,7 @@ Steps 1-4（增量 markdown）和 Steps 5-7（前缀/cosmetic 优化）可并行
 
 ## Step 7: 集成 cosmetic 检测到 rebuild()
 
-**文件:** `peri-tui/src/ui/render_thread.rs`
+**文件:** `cc-tui/src/ui/render_thread.rs`
 
 **改动（rebuild() 渲染循环内）:**
 

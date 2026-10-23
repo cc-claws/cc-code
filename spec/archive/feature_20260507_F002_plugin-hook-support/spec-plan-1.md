@@ -1,6 +1,6 @@
 # Plugin Hook Support 执行计划 (1/2)
 
-**目标:** 实现 Claude Code 兼容的 hook 执行引擎基础层——数据类型、匹配引擎、变量替换、输出解析、SSRF 防护
+**目标:** 实现 参考实现 兼容的 hook 执行引擎基础层——数据类型、匹配引擎、变量替换、输出解析、SSRF 防护
 
 **技术栈:** Rust 2021 / tokio / serde / regex / ipnet (新增依赖)
 
@@ -38,7 +38,7 @@
 ### Task 1: Hook 数据类型定义
 
 **背景:**
-本 Task 实现完整的 Hook 系统数据模型，为后续执行器、中间件、加载器提供类型基础。当前 `peri-middlewares` 没有 `hooks` 模块，所有类型需从零定义。类型定义对齐 Claude Code 的 hooks JSON schema，确保插件配置兼容性。
+本 Task 实现完整的 Hook 系统数据模型，为后续执行器、中间件、加载器提供类型基础。当前 `peri-middlewares` 没有 `hooks` 模块，所有类型需从零定义。类型定义对齐 参考实现 的 hooks JSON schema，确保插件配置兼容性。
 
 **涉及文件:**
 - 新建: `peri-middlewares/src/hooks/types.rs`
@@ -71,7 +71,7 @@
         PostCompact,
     }
     ```
-  - 添加 `#[serde(rename_all = "PascalCase")]` 确保序列化对齐 Claude Code (如 "PreToolUse" 而非 "pre_tool_use")
+  - 添加 `#[serde(rename_all = "PascalCase")]` 确保序列化对齐 参考实现 (如 "PreToolUse" 而非 "pre_tool_use")
   - 原因: 事件名需与 hooks.json 中的 key 精确匹配
 
 - [x] 定义 HookType 枚举（4 种执行类型）
@@ -205,7 +205,7 @@ Hook 系统需要双层匹配机制来精确控制 hook 执行时机——matche
     - matcher 包含 "|" → 按管道符分割，任一 trim 后等于 tool_name 即返回 true
     - matcher 仅含字母数字下划线（`matcher.chars().all(|c| c.is_alphanumeric() || c == '_')`）→ 精确匹配判断
     - 其他情况 → 用 Regex::new(matcher) 编译正则，失败返回 false，成功则用 re.is_match(tool_name) 判断
-  - 原因: 粗粒度匹配在 hook 进程启动前执行，必须支持精确匹配、列表匹配、正则匹配三种模式以覆盖 Claude Code 的 hook 配置语法
+  - 原因: 粗粒度匹配在 hook 进程启动前执行，必须支持精确匹配、列表匹配、正则匹配三种模式以覆盖 参考实现 的 hook 配置语法
 
 - [x] 在同一文件中实现细粒度条件匹配函数
   - 位置: `matches_matcher` 函数之后
@@ -216,7 +216,7 @@ Hook 系统需要双层匹配机制来精确控制 hook 执行时机——matche
     - cond_rule 为空 → 返回 true（仅匹配工具名，不检查输入内容）
     - cond_rule 非空 → 调用 `match_tool_rule(tool_name, tool_input, cond_rule)` 判断
   - 在同一文件中实现辅助函数 `fn match_tool_rule(tool_name: &str, tool_input: &serde_json::Value, rule: &str) -> bool`
-  - `match_tool_rule` 逻辑: 将 tool_input 序列化为 JSON 字符串，使用 `contains()` 检查 rule 是否为子串（与 Claude Code 行为一致，简单字符串包含匹配）
+  - `match_tool_rule` 逻辑: 将 tool_input 序列化为 JSON 字符串，使用 `contains()` 检查 rule 是否为子串（与 参考实现 行为一致，简单字符串包含匹配）
   - 原因: HITL 模块的 classify 方法使用 LLM 做分类，不适合直接复用；if 条件仅用于 4 种工具事件，简单字符串匹配即可满足需求
 
 - [x] 验证匹配函数在 mod.rs 中导出（Task 3 创建 mod.rs 时已包含）

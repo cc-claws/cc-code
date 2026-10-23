@@ -101,11 +101,11 @@ AgentPool 新增字段：
 
 | 文件 | 变更 |
 |------|------|
-| `peri-acp/src/session/agent_pool.rs` | 新增 `subagent_llm_cache: HashMap<String, Arc<dyn BaseModel>>`，`get_or_create_subagent_llm()` 方法，`invalidate()` 增加 `subagent_llm_cache.clear()` |
-| `peri-acp/src/agent/builder.rs` | `build_agent()` 新增 `pool: &Arc<Mutex<AgentPool>>` 参数；`llm_factory` 闭包捕获 `pool` 引用，内部调用 `pool.lock().get_or_create_subagent_llm()` |
-| `peri-acp/src/session/executor.rs` | `build_agent()` 调用处传入 `&pool` |
-| `peri-tui/src/acp_server/requests.rs` | `session/set_model` 和 `session/set_config_option("model")` 新增 `pool.lock().invalidate()` 调用（**当前缺失**，本 feature 需补充） |
-| `peri-acp/src/transport/acp_stdio.rs` | `session/set_model` 和 `session/set_config_option("model")` 新增 `pool.lock().invalidate()` 调用（Stdio 路径同样缺失） |
+| `cc-acp/src/session/agent_pool.rs` | 新增 `subagent_llm_cache: HashMap<String, Arc<dyn BaseModel>>`，`get_or_create_subagent_llm()` 方法，`invalidate()` 增加 `subagent_llm_cache.clear()` |
+| `cc-acp/src/agent/builder.rs` | `build_agent()` 新增 `pool: &Arc<Mutex<AgentPool>>` 参数；`llm_factory` 闭包捕获 `pool` 引用，内部调用 `pool.lock().get_or_create_subagent_llm()` |
+| `cc-acp/src/session/executor.rs` | `build_agent()` 调用处传入 `&pool` |
+| `cc-tui/src/acp_server/requests.rs` | `session/set_model` 和 `session/set_config_option("model")` 新增 `pool.lock().invalidate()` 调用（**当前缺失**，本 feature 需补充） |
+| `cc-acp/src/transport/acp_stdio.rs` | `session/set_model` 和 `session/set_config_option("model")` 新增 `pool.lock().invalidate()` 调用（Stdio 路径同样缺失） |
 
 **`get_or_create_subagent_llm()` 伪代码**：
 
@@ -173,7 +173,7 @@ let llm_factory = Arc::new(move |model_alias: Option<&str>| {
 当前 `BaseModelReactLLM::new()` 接受 `Box<dyn BaseModel>`：
 
 ```rust
-// peri-agent/src/llm/mod.rs (预期)
+// cc-agent/src/llm/mod.rs (预期)
 pub struct BaseModelReactLLM {
     model: Box<dyn BaseModel>,
     // ...

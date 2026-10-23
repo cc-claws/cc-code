@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在 `peri-widgets` 中实现一个通用的文件树组件，类似 VS Code 侧边栏，支持展开/折叠、虚拟滚动、懒加载、选中高亮。
+**Goal:** 在 `cc-widgets` 中实现一个通用的文件树组件，类似 VS Code 侧边栏，支持展开/折叠、虚拟滚动、懒加载、选中高亮。
 
 **Architecture:** 拆为两个核心结构——`FileNode`（树形数据）+ `FileTreeState`（状态管理）+ `FileTree`（StatefulWidget 渲染）。组件内部将树扁平化为 `FlatNode` 列表实现虚拟滚动。展开/折叠通过 `toggle()` 返回 `ToggleResult` 通知调用方按需加载子节点。
 
@@ -14,19 +14,19 @@
 
 | 操作 | 文件 | 职责 |
 |------|------|------|
-| Create | `peri-widgets/src/file_tree.rs` | `FileNode` + `FileTreeState` + `ToggleResult` + `FlatNode` 数据结构和状态逻辑 |
-| Create | `peri-widgets/src/file_tree_test.rs` | 状态逻辑单元测试（flatten、toggle、sort、navigate） |
-| Create | `peri-widgets/src/file_tree_render.rs` | `FileTree` widget（实现 StatefulWidget） |
-| Create | `peri-widgets/src/file_tree_render_test.rs` | 渲染测试（TestBackend + Terminal 验证输出） |
-| Modify | `peri-widgets/src/lib.rs` | 新增 `pub mod file_tree;` + re-export |
+| Create | `cc-widgets/src/file_tree.rs` | `FileNode` + `FileTreeState` + `ToggleResult` + `FlatNode` 数据结构和状态逻辑 |
+| Create | `cc-widgets/src/file_tree_test.rs` | 状态逻辑单元测试（flatten、toggle、sort、navigate） |
+| Create | `cc-widgets/src/file_tree_render.rs` | `FileTree` widget（实现 StatefulWidget） |
+| Create | `cc-widgets/src/file_tree_render_test.rs` | 渲染测试（TestBackend + Terminal 验证输出） |
+| Modify | `cc-widgets/src/lib.rs` | 新增 `pub mod file_tree;` + re-export |
 
 ---
 
 ## Task 1: FileNode 数据结构 + FlatNode + ToggleResult
 
 **Files:**
-- Create: `peri-widgets/src/file_tree.rs`
-- Test: `peri-widgets/src/file_tree_test.rs`
+- Create: `cc-widgets/src/file_tree.rs`
+- Test: `cc-widgets/src/file_tree_test.rs`
 
 - [ ] **Step 1: 写 file_tree.rs 的数据结构定义**
 
@@ -107,7 +107,7 @@ fn flat_node_stores_tree_path() {
 
 - [ ] **Step 3: 运行测试确认失败**
 
-Run: `cargo test -p peri-widgets -- file_tree`
+Run: `cargo test -p cc-widgets -- file_tree`
 Expected: 编译失败（模块未注册）
 
 ---
@@ -115,9 +115,9 @@ Expected: 编译失败（模块未注册）
 ## Task 2: 注册模块 + FileTreeState 基础（new + flatten）
 
 **Files:**
-- Modify: `peri-widgets/src/file_tree.rs`
-- Modify: `peri-widgets/src/lib.rs`
-- Test: `peri-widgets/src/file_tree_test.rs`
+- Modify: `cc-widgets/src/file_tree.rs`
+- Modify: `cc-widgets/src/lib.rs`
+- Test: `cc-widgets/src/file_tree_test.rs`
 
 - [ ] **Step 1: 在 lib.rs 注册模块**
 
@@ -301,14 +301,14 @@ fn flatten_empty_root() {
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `cargo test -p peri-widgets -- file_tree`
+Run: `cargo test -p cc-widgets -- file_tree`
 Expected: 3 tests PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-widgets/src/file_tree.rs peri-widgets/src/file_tree_test.rs peri-widgets/src/lib.rs
-git commit -m "feat(peri-widgets): add FileNode data structures and FileTreeState flatten"
+git add cc-widgets/src/file_tree.rs cc-widgets/src/file_tree_test.rs cc-widgets/src/lib.rs
+git commit -m "feat(cc-widgets): add FileNode data structures and FileTreeState flatten"
 ```
 
 ---
@@ -316,8 +316,8 @@ git commit -m "feat(peri-widgets): add FileNode data structures and FileTreeStat
 ## Task 3: FileTreeState 导航（move_cursor + click + selected）
 
 **Files:**
-- Modify: `peri-widgets/src/file_tree.rs`
-- Test: `peri-widgets/src/file_tree_test.rs`
+- Modify: `cc-widgets/src/file_tree.rs`
+- Test: `cc-widgets/src/file_tree_test.rs`
 
 - [ ] **Step 1: 写导航方法失败的测试**
 
@@ -406,7 +406,7 @@ fn make_dir(name: &str, children: Vec<FileNode>, expanded: bool) -> FileNode {
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `cargo test -p peri-widgets -- file_tree`
+Run: `cargo test -p cc-widgets -- file_tree`
 Expected: FAIL（方法不存在）
 
 - [ ] **Step 3: 实现导航方法**
@@ -453,14 +453,14 @@ pub fn ensure_visible(&mut self, visible_height: u16) {
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `cargo test -p peri-widgets -- file_tree`
+Run: `cargo test -p cc-widgets -- file_tree`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-widgets/src/file_tree.rs peri-widgets/src/file_tree_test.rs
-git commit -m "feat(peri-widgets): add FileTreeState navigation methods"
+git add cc-widgets/src/file_tree.rs cc-widgets/src/file_tree_test.rs
+git commit -m "feat(cc-widgets): add FileTreeState navigation methods"
 ```
 
 ---
@@ -468,8 +468,8 @@ git commit -m "feat(peri-widgets): add FileTreeState navigation methods"
 ## Task 4: toggle + set_children（展开/折叠 + 懒加载）
 
 **Files:**
-- Modify: `peri-widgets/src/file_tree.rs`
-- Test: `peri-widgets/src/file_tree_test.rs`
+- Modify: `cc-widgets/src/file_tree.rs`
+- Test: `cc-widgets/src/file_tree_test.rs`
 
 - [ ] **Step 1: 写 toggle 测试**
 
@@ -573,7 +573,7 @@ fn toggle_empty_loaded_dir_noop() {
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `cargo test -p peri-widgets -- file_tree`
+Run: `cargo test -p cc-widgets -- file_tree`
 Expected: FAIL
 
 - [ ] **Step 3: 实现 toggle 和 set_children**
@@ -670,14 +670,14 @@ fn find_node_by_path_mut(&mut self, target: &str) -> Option<&mut FileNode> {
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `cargo test -p peri-widgets -- file_tree`
+Run: `cargo test -p cc-widgets -- file_tree`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-widgets/src/file_tree.rs peri-widgets/src/file_tree_test.rs
-git commit -m "feat(peri-widgets): add toggle/set_children with lazy loading"
+git add cc-widgets/src/file_tree.rs cc-widgets/src/file_tree_test.rs
+git commit -m "feat(cc-widgets): add toggle/set_children with lazy loading"
 ```
 
 ---
@@ -685,8 +685,8 @@ git commit -m "feat(peri-widgets): add toggle/set_children with lazy loading"
 ## Task 5: sort（目录优先 + 字母序）
 
 **Files:**
-- Modify: `peri-widgets/src/file_tree.rs`
-- Test: `peri-widgets/src/file_tree_test.rs`
+- Modify: `cc-widgets/src/file_tree.rs`
+- Test: `cc-widgets/src/file_tree_test.rs`
 
 - [ ] **Step 1: 写 sort 测试**
 
@@ -764,8 +764,8 @@ fn sort_nodes(&mut self, nodes: &mut [FileNode]) {
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-widgets/src/file_tree.rs peri-widgets/src/file_tree_test.rs
-git commit -m "feat(peri-widgets): add sort (directories first + alphabetical)"
+git add cc-widgets/src/file_tree.rs cc-widgets/src/file_tree_test.rs
+git commit -m "feat(cc-widgets): add sort (directories first + alphabetical)"
 ```
 
 ---
@@ -773,9 +773,9 @@ git commit -m "feat(peri-widgets): add sort (directories first + alphabetical)"
 ## Task 6: FileTree Widget 渲染（StatefulWidget）
 
 **Files:**
-- Create: `peri-widgets/src/file_tree_render.rs`
-- Create: `peri-widgets/src/file_tree_render_test.rs`
-- Modify: `peri-widgets/src/file_tree.rs`（在末尾 mod tests 之前添加 `include!` 渲染模块）
+- Create: `cc-widgets/src/file_tree_render.rs`
+- Create: `cc-widgets/src/file_tree_render_test.rs`
+- Modify: `cc-widgets/src/file_tree.rs`（在末尾 mod tests 之前添加 `include!` 渲染模块）
 
 - [ ] **Step 1: 实现 FileTree widget**
 
@@ -1014,14 +1014,14 @@ fn render_cursor_highlight() {
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `cargo test -p peri-widgets -- file_tree`
+Run: `cargo test -p cc-widgets -- file_tree`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-widgets/src/file_tree_render.rs peri-widgets/src/file_tree_render_test.rs peri-widgets/src/file_tree.rs
-git commit -m "feat(peri-widgets): add FileTree StatefulWidget with virtual scroll rendering"
+git add cc-widgets/src/file_tree_render.rs cc-widgets/src/file_tree_render_test.rs cc-widgets/src/file_tree.rs
+git commit -m "feat(cc-widgets): add FileTree StatefulWidget with virtual scroll rendering"
 ```
 
 ---
@@ -1029,7 +1029,7 @@ git commit -m "feat(peri-widgets): add FileTree StatefulWidget with virtual scro
 ## Task 7: 更新 lib.rs re-export
 
 **Files:**
-- Modify: `peri-widgets/src/lib.rs`
+- Modify: `cc-widgets/src/lib.rs`
 
 - [ ] **Step 1: 添加 re-export**
 
@@ -1042,19 +1042,19 @@ pub use file_tree::file_tree_render::FileTree;
 
 - [ ] **Step 2: 运行全量测试确认无破坏**
 
-Run: `cargo test -p peri-widgets`
+Run: `cargo test -p cc-widgets`
 Expected: ALL PASS
 
 - [ ] **Step 3: 运行 clippy**
 
-Run: `cargo clippy -p peri-widgets -- -D warnings`
+Run: `cargo clippy -p cc-widgets -- -D warnings`
 Expected: 0 warnings
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-widgets/src/lib.rs
-git commit -m "feat(peri-widgets): re-export FileTree types from lib.rs"
+git add cc-widgets/src/lib.rs
+git commit -m "feat(cc-widgets): re-export FileTree types from lib.rs"
 ```
 
 ---

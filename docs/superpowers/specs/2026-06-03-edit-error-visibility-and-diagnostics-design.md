@@ -9,7 +9,7 @@
 
 ## 问题
 
-Edit 工具（`peri-middlewares/src/tools/filesystem/edit.rs`）存在 3 个系统性缺陷：
+Edit 工具（`cc-middlewares/src/tools/filesystem/edit.rs`）存在 3 个系统性缺陷：
 
 1. **错误不可见**：所有错误以 `Ok("Error: ...")` 返回，`is_error` 恒为 false。284 次失败对监控系统和 TUI 错误样式完全不可见。
 2. **错误信息缺乏可操作性**：`old_string not found` 只说"找不到"，不告诉 Agent 文件哪里变了。62% 的失败因文件已被之前的 Edit 修改（内容过期）。

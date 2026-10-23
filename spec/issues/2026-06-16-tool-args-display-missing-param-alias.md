@@ -4,7 +4,7 @@
 
 **日期:** 2026-06-16
 **状态:** Open
-**模块:** peri-tui (tool_display)
+**模块:** cc-tui (tool_display)
 **严重程度:** 中（功能缺失，不影响核心流程）
 
 ## 问题描述
@@ -98,8 +98,8 @@ fn test_format_tool_args_glob_no_strip_cwd() {
 
 ## 关联文件
 
-- `peri-tui/src/app/tool_display.rs` — 主要修改
-- `peri-tui/src/app/tool_display_test.rs` — 新增测试
+- `cc-tui/src/app/tool_display.rs` — 主要修改
+- `cc-tui/src/app/tool_display_test.rs` — 新增测试
 - `spec/plans/2026-06-02-param-alias-path-to-file_path.md` — 相关计划（执行层别名，本 issue 是显示层别名）
 
 ## 关联 Issues

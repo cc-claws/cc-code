@@ -13,7 +13,7 @@
 ### Task 1: 初始化能力声明
 
 **Files:**
-- Modify: `peri-tui/src/acp_server.rs:166-176`
+- Modify: `cc-tui/src/acp_server.rs:166-176`
 
 - [ ] **Step 1: 在 initialize 处理器中声明完整 AgentCapabilities**
 
@@ -58,7 +58,7 @@ use agent_client_protocol::schema::{
 - [ ] **Step 3: 构建验证编译**
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -20
+cargo build -p cc-tui 2>&1 | head -20
 ```
 
 预期：编译通过，无新增错误。
@@ -66,7 +66,7 @@ cargo build -p peri-tui 2>&1 | head -20
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/acp_server.rs
+git add cc-tui/src/acp_server.rs
 git commit -m "feat(acp): declare session capabilities in initialize response
 
 - Declare loadSession, sessionCapabilities.list/close/resume/fork
@@ -80,7 +80,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 2: session/load 路由 — 恢复历史会话并重放消息
 
 **Files:**
-- Modify: `peri-tui/src/acp_server.rs:316` (在 `_` 通配符前插入)
+- Modify: `cc-tui/src/acp_server.rs:316` (在 `_` 通配符前插入)
 
 - [ ] **Step 1: 添加 session/load 处理分支**
 
@@ -100,7 +100,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
     // 从 ThreadStore 加载历史消息
     let history = match cfg
         .thread_store
-        .load_messages(&peri_agent::thread::ThreadId::from(req_session_id.to_string()))
+        .load_messages(&cc_agent::thread::ThreadId::from(req_session_id.to_string()))
         .await
     {
         Ok(msgs) => msgs,
@@ -152,13 +152,13 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 - [ ] **Step 2: 构建验证编译**
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -20
+cargo build -p cc-tui 2>&1 | head -20
 ```
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/acp_server.rs
+git add cc-tui/src/acp_server.rs
 git commit -m "feat(acp): add session/load route handler
 
 - Load messages from ThreadStore by session_id
@@ -173,7 +173,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 3: session/list 路由 — 列出所有历史会话
 
 **Files:**
-- Modify: `peri-tui/src/acp_server.rs` (在 session/load 分支后插入)
+- Modify: `cc-tui/src/acp_server.rs` (在 session/load 分支后插入)
 
 - [ ] **Step 1: 添加 session/list 处理分支**
 
@@ -221,13 +221,13 @@ use std::path::PathBuf;
 - [ ] **Step 2: 检查 ThreadMeta 结构体字段确认字段名**
 
 ```bash
-grep -A10 'pub struct ThreadMeta' /Users/konghayao/code/ai/perihelion/peri-agent/src/thread/mod.rs
+grep -A10 'pub struct ThreadMeta' /Users/konghayao/code/ai/perihelion/cc-agent/src/thread/mod.rs
 ```
 
 - [ ] **Step 3: 构建验证编译**
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -30
+cargo build -p cc-tui 2>&1 | head -30
 ```
 
 预期：如果 ThreadMeta 字段名与代码中不一致，根据实际字段名修正后再编译通过。
@@ -235,7 +235,7 @@ cargo build -p peri-tui 2>&1 | head -30
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/acp_server.rs
+git add cc-tui/src/acp_server.rs
 git commit -m "feat(acp): add session/list route handler
 
 - Delegate to ThreadStore::list_threads()
@@ -250,7 +250,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 4: session/close 路由 — 关闭会话释放资源
 
 **Files:**
-- Modify: `peri-tui/src/acp_server.rs` (在 session/list 分支后插入)
+- Modify: `cc-tui/src/acp_server.rs` (在 session/list 分支后插入)
 
 - [ ] **Step 1: 添加 session/close 处理分支**
 
@@ -277,13 +277,13 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 - [ ] **Step 2: 构建验证编译**
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -20
+cargo build -p cc-tui 2>&1 | head -20
 ```
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/acp_server.rs
+git add cc-tui/src/acp_server.rs
 git commit -m "feat(acp): add session/close route handler
 
 - Remove session from map and cancel any ongoing execution
@@ -297,7 +297,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 5: session/resume 路由 — 断线重连（不重放历史）
 
 **Files:**
-- Modify: `peri-tui/src/acp_server.rs` (在 session/close 分支后插入)
+- Modify: `cc-tui/src/acp_server.rs` (在 session/close 分支后插入)
 
 - [ ] **Step 1: 添加 session/resume 处理分支**
 
@@ -338,13 +338,13 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 - [ ] **Step 2: 构建验证编译**
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -20
+cargo build -p cc-tui 2>&1 | head -20
 ```
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/acp_server.rs
+git add cc-tui/src/acp_server.rs
 git commit -m "feat(acp): add session/resume route handler
 
 - Create empty session if not exists (no history replay, unlike session/load)
@@ -358,7 +358,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Task 6: session/fork 路由 — 复制会话上下文创建分支
 
 **Files:**
-- Modify: `peri-tui/src/acp_server.rs` (在 session/resume 分支后插入)
+- Modify: `cc-tui/src/acp_server.rs` (在 session/resume 分支后插入)
 
 - [ ] **Step 1: 添加 session/fork 处理分支**
 
@@ -380,7 +380,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
         .ok_or_else(|| AcpError::new(-32602, format!("source session not found: {source_id}")))?;
 
     // 创建新 Thread 并复制历史消息
-    let meta = peri_agent::thread::ThreadMeta::new(cwd);
+    let meta = cc_agent::thread::ThreadMeta::new(cwd);
     let new_thread_id = cfg
         .thread_store
         .create_thread(meta)
@@ -420,13 +420,13 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 - [ ] **Step 2: 构建验证编译**
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -20
+cargo build -p cc-tui 2>&1 | head -20
 ```
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/acp_server.rs
+git add cc-tui/src/acp_server.rs
 git commit -m "feat(acp): add session/fork route handler
 
 - Create new thread with copied message history
@@ -471,7 +471,7 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 - [ ] **Step 1: 全量编译检查**
 
 ```bash
-cargo build -p peri-tui 2>&1
+cargo build -p cc-tui 2>&1
 ```
 
 预期：编译通过，无新增 warning。
@@ -479,8 +479,8 @@ cargo build -p peri-tui 2>&1
 - [ ] **Step 2: 运行现有测试**
 
 ```bash
-cargo test -p peri-acp --lib 2>&1 | tail -10
-cargo test -p peri-tui --lib 2>&1 | tail -10
+cargo test -p cc-acp --lib 2>&1 | tail -10
+cargo test -p cc-tui --lib 2>&1 | tail -10
 ```
 
 预期：所有已有测试通过。

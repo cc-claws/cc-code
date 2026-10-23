@@ -15,7 +15,7 @@
 ### Task 1: Fix ThreadStore persistence for compacted messages
 
 **Files:**
-- Modify: `peri-tui/src/acp_server/prompt.rs`
+- Modify: `cc-tui/src/acp_server/prompt.rs`
 
 - [ ] **Step 1: Save history message IDs before history is moved**
 
@@ -24,7 +24,7 @@ In `prompt.rs`, after line 93 (`let history_len = history.len();`), add:
 ```rust
 let history_len = history.len();
 // Save message IDs for compact persistence path (history is moved into execute_prompt below).
-let history_ids: Vec<peri_agent::messages::MessageId> =
+let history_ids: Vec<cc_agent::messages::MessageId> =
     history.iter().map(|m| m.id()).collect();
 ```
 
@@ -73,7 +73,7 @@ Why `history_ids` is safe to delete:
 - [ ] **Step 3: Verify compilation**
 
 ```bash
-cargo build -p peri-tui
+cargo build -p cc-tui
 ```
 
 Expected: PASS
@@ -81,7 +81,7 @@ Expected: PASS
 - [ ] **Step 4: Run existing tests**
 
 ```bash
-cargo test -p peri-tui -p peri-acp --lib
+cargo test -p cc-tui -p cc-acp --lib
 ```
 
 Expected: all existing tests PASS (no new tests in this task — the fix is in the ACP server handler which requires full server setup to test)
@@ -97,7 +97,7 @@ Expected: all existing tests PASS (no new tests in this task — the fix is in t
 - [ ] **Step 6: Check clippy**
 
 ```bash
-cargo clippy -p peri-tui
+cargo clippy -p cc-tui
 ```
 
 Expected: no new warnings
@@ -105,7 +105,7 @@ Expected: no new warnings
 - [ ] **Step 7: Commit**
 
 ```bash
-git add peri-tui/src/acp_server/prompt.rs
+git add cc-tui/src/acp_server/prompt.rs
 git commit -m "fix: persist compacted messages to ThreadStore, delete pre-compact messages
 
 When compact reduces message count (result.messages.len() < history_len),
@@ -121,8 +121,8 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code-best.win>"
 ### Verification Checklist
 
 ```bash
-cargo build -p peri-tui
-cargo test -p peri-tui -p peri-acp --lib
-cargo clippy -p peri-tui
+cargo build -p cc-tui
+cargo test -p cc-tui -p cc-acp --lib
+cargo clippy -p cc-tui
 lefthook run pre-commit
 ```

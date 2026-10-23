@@ -7,7 +7,7 @@
 1. **无 Fork 路径**：所有子 agent 都是独立上下文（Normal 路径），无法复用父 agent 的消息历史。对于需要继承完整上下文的任务（如继续多文件重构、延续父 agent 的分析），Normal 路径需要将所有背景信息塞入 prompt，导致 token 浪费和 prompt 质量下降。
 2. **System Prompt 指导不足**：当前 `11_subagent.md` 仅 21 行，缺少"何时不用 Agent""如何写好 prompt""可用 agent 列表"等关键指导，LLM 的委派决策和 prompt 质量不稳定。
 
-参考 Claude Code 的多 agent 设计（Fork + Normal 双路径 + 丰富的 prompt 指导），对齐用户体验。
+参考 参考实现 的多 agent 设计（Fork + Normal 双路径 + 丰富的 prompt 指导），对齐用户体验。
 
 ## 目标
 
@@ -49,7 +49,7 @@ Fork 子 agent 的 AgentState.messages = [
 
 #### 1.3 Fork 指令模板
 
-参考 Claude Code 的 `buildChildMessage()`，但简化为：
+参考 参考实现 的 `buildChildMessage()`，但简化为：
 
 ```xml
 <fork_directive>
@@ -134,7 +134,7 @@ pub struct SubAgentTool {
 
 #### 3.2 优化方案
 
-重写 `11_subagent.md`，参考 Claude Code 的 `prompt.ts` 结构，分为以下段落：
+重写 `11_subagent.md`，参考 参考实现 的 `prompt.ts` 结构，分为以下段落：
 
 ```markdown
 # SubAgent Delegation
@@ -150,14 +150,14 @@ pub struct SubAgentTool {
 （扩展：增加更多场景）
 
 ## When NOT to use
-（新增：参考 CC 的 "When NOT to use" 段落）
+（新增：参考 参考实现 的 "When NOT to use" 段落）
 - 读取特定文件 → 用 Read 工具
 - 搜索类定义 → 用 Grep 工具
 - 在 2-3 个文件中搜索 → 用 Read 工具
 - 不相关的任务
 
 ## Writing the prompt
-（新增：参考 CC 的 "Writing the prompt" 段落）
+（新增：参考 参考实现 的 "Writing the prompt" 段落）
 - 像 briefing 一个刚进来的聪明同事
 - 解释目标和原因
 - 已排除的可能性
@@ -171,14 +171,14 @@ pub struct SubAgentTool {
 - 明确 scope 边界
 
 ## Usage notes
-（新增：参考 CC 的 usage notes）
+（新增：参考 参考实现 的 usage notes）
 - 包含简短 description
 - 结果不直接对用户可见，需向用户转述
 - 清楚告知 agent 是写代码还是只做研究
 - 可并发启动多个 agent（单消息多 tool_use）
 
 ## Examples
-（新增：2-3 个示例，参考 CC 的 examples）
+（新增：2-3 个示例，参考 参考实现 的 examples）
 ```
 
 #### 3.3 动态 Agent 列表注入
@@ -191,7 +191,7 @@ pub struct SubAgentTool {
 4. 格式化为 `- {agent_type}: {description} (Tools: {tools})` 列表
 5. 替换占位符
 
-> 这与 Claude Code 的 `shouldInjectAgentListInMessages()` 机制类似。CC 为了避免动态列表 bust tools-block cache，将 agent 列表放在 attachment message 而非 tool description 中。我们暂不做此优化，先放在 system prompt 中。
+> 这与 参考实现 的 `shouldInjectAgentListInMessages()` 机制类似。参考实现 为了避免动态列表 bust tools-block cache，将 agent 列表放在 attachment message 而非 tool description 中。我们暂不做此优化，先放在 system prompt 中。
 
 ### 4. 工具描述（AGENT_DESCRIPTION）优化
 

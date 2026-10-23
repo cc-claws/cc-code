@@ -143,11 +143,17 @@ jobs:
       - name: Create tag (manual trigger)
         if: github.event_name == 'workflow_dispatch'
         run: |
-          if git rev-parse "npm-v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
-            echo "Tag npm-v${{ steps.version.outputs.version }} already exists, skipping creation"
+          set -euo pipefail
+          TAG="npm-v${{ steps.version.outputs.version }}"
+          # Ask the remote, not the local checkout: a re-run checks out the tip
+          # of main, which does not contain a tag that was created on an earlier
+          # commit. `git rev-parse` would then report "missing" and the push
+          # would be rejected with "tag already exists".
+          if git ls-remote --tags --exit-code origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists on the remote, skipping creation"
           else
-            git tag "npm-v${{ steps.version.outputs.version }}"
-            git push origin "npm-v${{ steps.version.outputs.version }}"
+            git tag "${TAG}"
+            git push origin "${TAG}"
           fi
 
       - name: Download all artifacts
@@ -191,23 +197,232 @@ jobs:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
           scope: "@cc-claw"
-          
 
-      - name: Set npm version
+      - name: Determine version
+        id: version
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             VERSION="${{ github.event.inputs.version }}"
           else
             VERSION="${GITHUB_REF_NAME#npm-v}"
           fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Download release assets
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+          merge-multiple: true
+
+      - name: Download ripgrep
+        # Bundled into each platform package so a plain npm install needs a
+        # single registry round-trip and no system `rg`. A failure here only
+        # costs the speed-up (Grep falls back to the built-in engine), so the
+        # step is allowed to fail without sinking the release.
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          RG_VERSION=15.0.1
+          # Consumed by the "Build platform packages" step.
+          echo "RG_VERSION=${RG_VERSION}" >> "$GITHUB_ENV"
+          # Keyed by npm platform id — the same ids the build step reads back.
+          # (The upstream asset triples are a different namespace, so mapping
+          # the two by hand is what keeps the bundle from silently missing.)
+          declare -A RG_SUFFIX=(
+            [linux-x64]=x86_64-unknown-linux-musl
+            [linux-arm64]=aarch64-unknown-linux-gnu
+            [darwin-x64]=x86_64-apple-darwin
+            [darwin-arm64]=aarch64-apple-darwin
+            [win32-x64]=x86_64-pc-windows-msvc
+          )
+          mkdir -p rg
+          for platform in "${!RG_SUFFIX[@]}"; do
+            suffix="${RG_SUFFIX[$platform]}"
+            if [ "$platform" = "win32-x64" ]; then ext=zip; else ext=tar.gz; fi
+            asset="ripgrep-v${RG_VERSION}-${suffix}.${ext}"
+            url="https://github.com/microsoft/ripgrep-prebuilt/releases/download/v${RG_VERSION}/${asset}"
+            if ! curl -fsSL -o "rg/${asset}" "$url"; then
+              echo "::warning::ripgrep asset unavailable: ${asset}"
+              continue
+            fi
+            mkdir -p "rg/${platform}"
+            if [ "$ext" = "zip" ]; then
+              # Upstream zip holds a single rg.exe at its root. Keep the .exe
+              # suffix: Rust looks for `rg.exe` on Windows, and npm must ship a
+              # name that stays executable there.
+              unzip -o -j "rg/${asset}" rg.exe -d "rg/${platform}"
+            else
+              # Upstream tar.gz holds a single rg at its root.
+              tar -xzf "rg/${asset}" -C "rg/${platform}" rg
+              chmod +x "rg/${platform}/rg"
+            fi
+            "rg/${platform}/rg" --version 2>/dev/null | head -n1 \
+              || "rg/${platform}/rg.exe" --version 2>/dev/null | head -n1 \
+              || true
+          done
+          find rg -type f \( -name rg -o -name rg.exe \) -exec ls -lh {} \;
+
+      - name: Build platform packages
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          for platform in win32-x64 darwin-x64 darwin-arm64 linux-x64 linux-arm64; do
+            binary=""
+            rg=""
+            case "$platform" in
+              win32-x64)     binary="artifacts/cc-code-windows-x86_64.zip" ;;
+              darwin-x64)    binary="artifacts/cc-code-macos-x86_64.tar.gz" ;;
+              darwin-arm64)  binary="artifacts/cc-code-macos-aarch64.tar.gz" ;;
+              linux-x64)     binary="artifacts/cc-code-linux-x86_64.tar.gz" ;;
+              linux-arm64)   binary="artifacts/cc-code-linux-aarch64.tar.gz" ;;
+            esac
+            if [ ! -f "$binary" ]; then
+              echo "::error::missing release asset $binary"
+              exit 1
+            fi
+            # Extract the single cc-code binary out of the release archive.
+            # A workspace-relative dir is used instead of `mktemp -d`: on the
+            # Windows runners Git Bash hands back an MSYS path that native
+            # Windows tools (node) cannot open.
+            work="extract-${platform}"
+            rm -rf "$work"
+            mkdir -p "$work"
+            case "$binary" in
+              *.zip) unzip -o -j "$binary" 'cc-code-*' -d "$work" ;;
+              *)     tar -xzf "$binary" -C "$work" ;;
+            esac
+            # `find | head` would die of SIGPIPE under `set -o pipefail`;
+            # collect into an array instead.
+            mapfile -t found < <(find "$work" -type f -name 'cc-code*')
+            if [ "${#found[@]}" -eq 0 ]; then
+              echo "::error::no cc-code binary inside $binary"
+              exit 1
+            fi
+            exe="${found[0]}"
+            case "$platform" in
+              win32-x64) rg="rg/win32-x64/rg.exe" ;;
+              darwin-x64) rg="rg/darwin-x64/rg" ;;
+              darwin-arm64) rg="rg/darwin-arm64/rg" ;;
+              linux-x64) rg="rg/linux-x64/rg" ;;
+              linux-arm64) rg="rg/linux-arm64/rg" ;;
+            esac
+            [ -f "$rg" ] || rg=""
+            # Only the runner's own platform can be asked for --version; for the
+            # cross-built ones the README simply omits the number rather than
+            # claiming a version nobody verified.
+            rg_version=""
+            if [ -n "$rg" ]; then
+              rg_version="$("$rg" --version 2>/dev/null | sed -n 's/^ripgrep \([0-9.]*\).*/\1/p' | head -n1 || true)"
+            fi
+            args=(--platform "$platform" --binary "$exe" --version "$VERSION" --out platform-packages)
+            if [ -n "$rg" ]; then
+              args+=(--rg "$rg")
+              if [ -n "$rg_version" ]; then
+                args+=(--rg-version "$rg_version")
+              fi
+            fi
+            node npm/scripts/build-platform-package.js "${args[@]}"
+            rm -rf "$work"
+          done
+          find platform-packages -name package.json -exec sh -c 'echo "--- $1"; cat "$1"' _ {} \;
+
+      - name: Publish platform packages
+        # Must run before the main package: the main package's
+        # optionalDependencies pin these exact versions, and npm install fails
+        # to resolve a dependency that is not on the registry yet.
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          for platform in win32-x64 darwin-x64 darwin-arm64 linux-x64 linux-arm64; do
+            cd "platform-packages/${platform}"
+            # A freshly published package answers 404 on the read API for a few
+            # minutes ("being processed and may take a few minutes to become
+            # available"), so `npm view` cannot tell "already published" from
+            # "not yet published". Publish unconditionally and treat the
+            # version-conflict error as the already-published case instead.
+            if npm publish --access public; then
+              :
+            else
+              status=$?
+              # npm 对重复版本返回 403 + "cannot publish over the previously
+              # published versions"；重跑 workflow 时这是正常路径，不应中断。
+              echo "::warning::publish exited ${status}; checking whether ${VERSION} already exists"
+              if npm view "@cc-claw/code-${platform}@${VERSION}" version >/dev/null 2>&1; then
+                echo "  already published, continuing"
+              else
+                echo "::error::@cc-claw/code-${platform}@${VERSION} failed to publish"
+                exit 1
+              fi
+            fi
+            cd ../..
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Set main package version
+        run: |
+          set -euo pipefail
           cd npm
           # --allow-same-version：支持 package.json 已预 bump 到目标版本的场景
           # （发布前同步维护 version 字段时，npm version 默认会拒绝无变化的设置）
-          npm version "${VERSION}" --no-git-tag-version --allow-same-version
+          npm version "${{ steps.version.outputs.version }}" --no-git-tag-version --allow-same-version
+          # optionalDependencies 的版本必须与主包严格一致（不带 ^），
+          # 否则会解析到与主包不匹配的平台二进制。
+          node -e '
+            const fs = require("fs");
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf-8"));
+            for (const name of Object.keys(pkg.optionalDependencies || {})) {
+              // 仅同步本仓库发布的平台包，避免误改第三方可选依赖。
+              if (name.startsWith("@cc-claw/code-")) {
+                pkg.optionalDependencies[name] = pkg.version;
+              }
+            }
+            fs.writeFileSync("package.json", JSON.stringify(pkg, null, 4) + "\n");
+          '
+          cat package.json
 
-      - name: Publish to npm
+      - name: Verify platform packages are resolvable
+        # Catches the ordering mistake above before the main package is pushed:
+        # a missing platform package makes every install of this version fail.
+        #
+        # This must poll: a package that npm has just accepted answers 404 on
+        # the read API until its processing finishes, so a single immediate
+        # check reports a false negative on an otherwise healthy release.
         run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          PLATFORMS=(win32-x64 darwin-x64 darwin-arm64 linux-x64 linux-arm64)
+          DEADLINE=$((SECONDS + 900))   # 15 分钟总预算，够覆盖 npm 的处理延迟
+          while :; do
+            missing=()
+            for platform in "${PLATFORMS[@]}"; do
+              if ! npm view "@cc-claw/code-${platform}@${VERSION}" version >/dev/null 2>&1; then
+                missing+=("@cc-claw/code-${platform}")
+              fi
+            done
+            if [ "${#missing[@]}" -eq 0 ]; then
+              echo "All ${#PLATFORMS[@]} platform packages resolvable at ${VERSION}."
+              break
+            fi
+            if [ "$SECONDS" -ge "$DEADLINE" ]; then
+              echo "::error::still not resolvable after $((SECONDS / 60))min: ${missing[*]}"
+              exit 1
+            fi
+            echo "  waiting on (${SECONDS}s elapsed): ${missing[*]}"
+            sleep 15
+          done
+
+      - name: Publish main package
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
           cd npm
+          # Re-running a release whose platform packages already landed must not
+          # fail on the version bump alone; treat "already published" as done.
+          if npm view "@cc-claw/code@${VERSION}" version >/dev/null 2>&1; then
+            echo "@cc-claw/code@${VERSION} already published, nothing to do."
+            exit 0
+          fi
           npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

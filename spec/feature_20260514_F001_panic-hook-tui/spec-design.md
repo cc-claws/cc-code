@@ -24,7 +24,7 @@ TUI 运行时，非渲染线程（tokio runtime worker）发生 panic 时，Rust
 
 在 `run_tui()` 函数中，`enable_raw_mode()` 之前安装自定义 panic hook：
 
-**位置**：`peri-tui/src/main.rs` → `run_tui()` 函数开头
+**位置**：`cc-tui/src/main.rs` → `run_tui()` 函数开头
 
 **实现**：
 ```rust

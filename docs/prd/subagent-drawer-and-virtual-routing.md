@@ -58,7 +58,7 @@
 2. **抽屉导航态（Drawer Nav）**：
    * 在空输入框按 **`↓`**，焦点下移进入抽屉，游标所在行**只通过前景色**变亮白（游标 `> ` + 整行文字白），**不设任何底色**（真机定稿，见 §4.11）。
    * **当前查看的视口**保留实心圆点 `●`，**当前选中的行**带有 `> ` 游标。两者解耦。
-   * **打字即交还输入框**（对齐 CC `PromptInput.tsx` 的 type-to-exit footer）：导航键（`↑`/`↓`/`Enter`/`Esc`）与抽屉自己的 `x`（停止该 Agent）留在抽屉，其余可打印字符先退出抽屉再把字符写进输入框——否则用户按 `↓` 看一眼后想说话时字符会被静默吞掉，只能再按一次 `Enter`。
+   * **打字即交还输入框**（对齐参考实现 `PromptInput.tsx` 的 type-to-exit footer）：导航键（`↑`/`↓`/`Enter`/`Esc`）与抽屉自己的 `x`（停止该 Agent）留在抽屉，其余可打印字符先退出抽屉再把字符写进输入框——否则用户按 `↓` 看一眼后想说话时字符会被静默吞掉，只能再按一次 `Enter`。
    * 快捷键提示行随游标位置切换文案（`drawer_hint()`，唯一判据是「游标所指行是否就是当前查看的视口」）：
      * 游标停在**当前查看的那一行**：`↑/↓ to select · ctrl+x ctrl+k to stop all agents`（此时 `Enter`/`x` 无意义，不提示）；
      * 游标移到**其他行**：`Enter to view · x to stop · ctrl+x ctrl+k to stop all agents`。
@@ -340,17 +340,19 @@ impl App {
 
 ```json
 {
-  "action": "spawn | cancel | status",  // 默认为 "spawn"
-  "task_id": "bg-019c...",              // 当 action 为 cancel 或 status 时必填
+  "action": "spawn | stop | status",  // 默认为 "spawn"
+  "task_id": "bg-019c...",              // 当 action 为 stop 或 status 时必填
   "reason": "用户在主会话变更了需求，提前终止此子任务"
 }
 ```
 
-* **主动查询（`action: "status"`）**：
+> **实施状态（2026-10-22 核对）**：已落地的 `action` 枚举只有 `spawn | stop`（`cc-middlewares/src/subagent/tool/define.rs`，停止能力见 §4.4.1）；不存在 `cancel` 取值；`action: "status"` **尚未实现**。
+
+* **主动查询（`action: "status"`，未实现）**：
   * 主 Agent 可在后续轮次主动感知长时间运行的子 Agent 进度（已执行工具步数、当前活动、累计 Token 等），以决定是继续等待还是给用户答复。
-* **主动叫停（`action: "cancel"`）**：
+* **主动叫停（`action: "stop"`，已落地，见 §4.4.1）**：
   * 当主 Agent 评估某个子任务不再需要、或者用户在主会话说“别跑测试了，直接看代码”时；
-  * 主 Agent 能够自主调用 `Agent(action="cancel", task_id="bg-xxx")` 立即终止后台执行；
+  * 主 Agent 能够自主调用 `Agent(action="stop", task_id="bg-xxx")` 立即终止后台执行；
   * 系统级联取消该子任务并杀死底层进程，主时间线打印：
     `• Sub-agent "全量构建测试" cancelled by orchestrator`。
 
@@ -626,7 +628,7 @@ Peri 采用 TUI 与 ACP Server 解耦架构，以下为两端必须对齐的 JSO
 | Crate | 关键文件 | 核心改动 | 预估工时 |
 |---|---|---|---|
 | **`cc-agent`** | `src/agent/events.rs` | 1. 为 `AiReasoning` 补充 `source_agent_id: Option<String>`；<br>2. 补充 `SubagentStarted` 完整载荷（带 `task_preview`、`prompt`，见 §4.17）。 | 0.5 天 |
-| **`cc-middlewares`** | `src/subagent/tool/` | 1. `build_agent.rs`：创建时注入 40 字 Prompt 前缀；<br>2. `execute_bg.rs`：增加 `timeout_secs` 超时包装 + `SubagentStarted.prompt` 透传原文（§4.17）；<br>3. `define.rs`：`Agent` 工具增加 `action: "cancel" \| "status"` 控制协议；<br>4. `SourceAgentIdHandler`：补齐对 `AiReasoning` 的 tag 包装。 | 1 天 |
+| **`cc-middlewares`** | `src/subagent/tool/` | 1. `build_agent.rs`：创建时注入 40 字 Prompt 前缀；<br>2. `execute_bg.rs`：增加 `timeout_secs` 超时包装 + `SubagentStarted.prompt` 透传原文（§4.17）；<br>3. `define.rs`：`Agent` 工具增加 `action: "stop"` 控制协议（已落地；`action: "status"` 未实现）；<br>4. `SourceAgentIdHandler`：补齐对 `AiReasoning` 的 tag 包装。 | 1 天 |
 | **`cc-acp`** | `src/session/executor/` | 1. `session/update` 桥接统一透传 `_peri.sourceAgentId`；<br>2. `session/cancel` 支持按 `targetThreadId` 级联取消。 | 1 天 |
 | **`cc-tui`** | `src/app/chat_session.rs` | 重构数据模型，引入 `BackgroundAgentSession` 与 `active_viewport`。 | 1 天 |
 | **`cc-tui`** | `src/app/agent_ops/` | 1. 实现事件多路分流：带 `source_agent_id` 的事件路由到专属管线；<br>2. 严格拦截 `ToolEnd`，禁止子 Agent 工具污染主状态栏 `session_tool_stats`。 | 1.5 天 |

@@ -32,5 +32,5 @@ ACP 认证相关方法未实现：
 
 ## 涉及文件
 
-- `peri-tui/src/acp/dispatch.rs` —— 需添加 `handle_authenticate` + `handle_logout` handler
-- `peri-tui/src/acp/main_acp.rs` —— 需注册两个 handler 到 Agent builder
+- `cc-tui/src/acp/dispatch.rs` —— 需添加 `handle_authenticate` + `handle_logout` handler
+- `cc-tui/src/acp/main_acp.rs` —— 需注册两个 handler 到 Agent builder

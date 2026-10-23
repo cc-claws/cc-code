@@ -16,27 +16,27 @@
 
 | File | Responsibility |
 |------|---------------|
-| `peri-agent/src/thread/types.rs` | ThreadMeta ��展（新增 parent/snapshot/config 等字段） |
-| `peri-agent/src/thread/store.rs` | ThreadStore trait 新增方法（load_context 等） |
-| `peri-agent/src/thread/sqlite_store.rs` | Schema migration + 新方法实现 |
-| `peri-agent/src/thread/sqlite_store_test.rs` | 新方法的测试 |
-| `peri-agent/src/agent/state.rs` | AgentState 新增 own_thread_id，适配 load_context |
-| `peri-middlewares/src/subagent/mod.rs` | SubAgentMiddleware 适配新模型 |
-| `peri-middlewares/src/subagent/tool/define.rs` | SubAgentTool 重写：创建子 thread |
-| `peri-acp/src/session/mod.rs` | AcpSession 新增 active_agents |
-| `peri-acp/src/session/agent_runtime.rs` | 新文件：AgentRuntime + CancelPolicy |
-| `peri-acp/src/session/executor.rs` | 适配多 agent，compact per-thread |
+| `cc-agent/src/thread/types.rs` | ThreadMeta ��展（新增 parent/snapshot/config 等字段） |
+| `cc-agent/src/thread/store.rs` | ThreadStore trait 新增方法（load_context 等） |
+| `cc-agent/src/thread/sqlite_store.rs` | Schema migration + 新方法实现 |
+| `cc-agent/src/thread/sqlite_store_test.rs` | 新方法的测试 |
+| `cc-agent/src/agent/state.rs` | AgentState 新增 own_thread_id，适配 load_context |
+| `cc-middlewares/src/subagent/mod.rs` | SubAgentMiddleware 适配新模型 |
+| `cc-middlewares/src/subagent/tool/define.rs` | SubAgentTool 重写：创建子 thread |
+| `cc-acp/src/session/mod.rs` | AcpSession 新增 active_agents |
+| `cc-acp/src/session/agent_runtime.rs` | 新文件：AgentRuntime + CancelPolicy |
+| `cc-acp/src/session/executor.rs` | 适配多 agent，compact per-thread |
 
 ---
 
 ### Task 1: 扩展 ThreadMeta 数据结构
 
 **Files:**
-- Modify: `peri-agent/src/thread/types.rs`
+- Modify: `cc-agent/src/thread/types.rs`
 
 - [ ] **Step 1: 写 ThreadMeta 扩展的失败测试**
 
-在 `peri-agent/src/thread/types.rs` 底部添加（暂不修改 struct，先写测试）：
+在 `cc-agent/src/thread/types.rs` 底部添加（暂不修改 struct，先写测试）：
 
 ```rust
 #[cfg(test)]
@@ -67,12 +67,12 @@ mod tests {
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `cargo test -p peri-agent --lib -- thread::types::tests`
+Run: `cargo test -p cc-agent --lib -- thread::types::tests`
 Expected: FAIL（ThreadMeta 没有 parent_thread_id 等字段）
 
 - [ ] **Step 3: 扩展 ThreadMeta 结构体**
 
-在 `peri-agent/src/thread/types.rs` 中修改 `ThreadMeta`：
+在 `cc-agent/src/thread/types.rs` 中修改 `ThreadMeta`：
 
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -148,18 +148,18 @@ impl ThreadMeta {
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `cargo test -p peri-agent --lib -- thread::types::tests`
+Run: `cargo test -p cc-agent --lib -- thread::types::tests`
 Expected: PASS
 
 - [ ] **Step 5: 运行全量编译确认无破坏性变更**
 
-Run: `cargo build -p peri-agent`
+Run: `cargo build -p cc-agent`
 Expected: 可能出现编译错误，因为 sqlite_store.rs 中 `meta_from_row` 和 INSERT/SELECT 语句不包含新字段。将在 Task 2 修复。
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-agent/src/thread/types.rs
+git add cc-agent/src/thread/types.rs
 git commit -m "feat(agent-storage): extend ThreadMeta with parent/snapshot/config fields"
 ```
 
@@ -168,12 +168,12 @@ git commit -m "feat(agent-storage): extend ThreadMeta with parent/snapshot/confi
 ### Task 2: SQLite Schema Migration + Store 适配
 
 **Files:**
-- Modify: `peri-agent/src/thread/sqlite_store.rs`
-- Modify: `peri-agent/src/thread/sqlite_store_test.rs`
+- Modify: `cc-agent/src/thread/sqlite_store.rs`
+- Modify: `cc-agent/src/thread/sqlite_store_test.rs`
 
 - [ ] **Step 1: 写 migration 和新方法的失败测试**
 
-在 `peri-agent/src/thread/sqlite_store_test.rs` 末尾追加：
+在 `cc-agent/src/thread/sqlite_store_test.rs` 末尾追加：
 
 ```rust
     #[tokio::test]
@@ -348,12 +348,12 @@ git commit -m "feat(agent-storage): extend ThreadMeta with parent/snapshot/confi
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `cargo test -p peri-agent --lib -- thread::sqlite_store::tests::test_child_thread`
+Run: `cargo test -p cc-agent --lib -- thread::sqlite_store::tests::test_child_thread`
 Expected: FAIL（新字段不在 schema 中，新方法不存在）
 
 - [ ] **Step 3: 修改 init_schema 添加新字段 + migration**
 
-在 `peri-agent/src/thread/sqlite_store.rs` 的 `init_schema` 方法中，在现有 CREATE TABLE 之后添加 ALTER TABLE migration 语句（SQLite ALTER TABLE ADD COLUMN 是幂等的需要用 try-catch 模式）：
+在 `cc-agent/src/thread/sqlite_store.rs` 的 `init_schema` 方法中，在现有 CREATE TABLE 之后添加 ALTER TABLE migration 语句（SQLite ALTER TABLE ADD COLUMN 是幂等的需要用 try-catch 模式）：
 
 ```rust
     async fn init_schema(&self) -> Result<()> {
@@ -560,7 +560,7 @@ fn meta_from_row(
 
 - [ ] **Step 5: 实现 ThreadStore trait 新增方法**
 
-在 `peri-agent/src/thread/store.rs` 中扩展 trait：
+在 `cc-agent/src/thread/store.rs` 中扩展 trait：
 
 ```rust
 #[async_trait]
@@ -761,7 +761,7 @@ pub trait ThreadStore: Send + Sync {
 
 - [ ] **Step 6: 运行测试确认通过**
 
-Run: `cargo test -p peri-agent --lib -- thread::sqlite_store::tests`
+Run: `cargo test -p cc-agent --lib -- thread::sqlite_store::tests`
 Expected: ALL PASS
 
 - [ ] **Step 7: 运行全量编译**
@@ -772,7 +772,7 @@ Expected: 编译通过（FilesystemThreadStore 也需要实现新 trait 方法�
 - [ ] **Step 8: Commit**
 
 ```bash
-git add peri-agent/src/thread/
+git add cc-agent/src/thread/
 git commit -m "feat(agent-storage): schema migration + ThreadStore new methods (load_context, list_child, list_session, cached_context)"
 ```
 
@@ -781,12 +781,12 @@ git commit -m "feat(agent-storage): schema migration + ThreadStore new methods (
 ### Task 3: FilesystemThreadStore 适配
 
 **Files:**
-- Modify: `peri-agent/src/thread/filesystem.rs`
-- Modify: `peri-agent/src/thread/filesystem_test.rs`（如有必要）
+- Modify: `cc-agent/src/thread/filesystem.rs`
+- Modify: `cc-agent/src/thread/filesystem_test.rs`（如有必要）
 
 - [ ] **Step 1: 为 FilesystemThreadStore 实现新 trait 方法**
 
-FilesystemThreadStore 是测试/开发用的内存实现。在 `peri-agent/src/thread/filesystem.rs` 中为新的 trait 方法提供 stub 实现：
+FilesystemThreadStore 是测试/开发用的内存实现。在 `cc-agent/src/thread/filesystem.rs` 中为新的 trait 方法提供 stub 实现：
 
 ```rust
     async fn load_context(&self, id: &ThreadId) -> Result<Vec<BaseMessage>> {
@@ -839,7 +839,7 @@ Expected: PASS
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-agent/src/thread/filesystem.rs
+git add cc-agent/src/thread/filesystem.rs
 git commit -m "feat(agent-storage): FilesystemThreadStore implements new ThreadStore methods"
 ```
 
@@ -848,18 +848,18 @@ git commit -m "feat(agent-storage): FilesystemThreadStore implements new ThreadS
 ### Task 4: AgentRuntime 定义
 
 **Files:**
-- Create: `peri-acp/src/session/agent_runtime.rs`
-- Modify: `peri-acp/src/session/mod.rs`（添加 mod 声明和 AcpSession 扩展）
+- Create: `cc-acp/src/session/agent_runtime.rs`
+- Modify: `cc-acp/src/session/mod.rs`（添加 mod 声明和 AcpSession 扩展）
 
 - [ ] **Step 1: 创建 AgentRuntime 结构体**
 
-新建 `peri-acp/src/session/agent_runtime.rs`：
+新建 `cc-acp/src/session/agent_runtime.rs`：
 
 ```rust
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
-use peri_agent::thread::ThreadId;
+use cc_agent::thread::ThreadId;
 
 /// agent 取消策略
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -949,7 +949,7 @@ impl AgentRuntime {
 
 - [ ] **Step 2: 在 session/mod.rs 中添加 mod 声明和扩展 AcpSession**
 
-在 `peri-acp/src/session/mod.rs` 中：
+在 `cc-acp/src/session/mod.rs` 中：
 
 添加模块声明：
 ```rust
@@ -1006,13 +1006,13 @@ impl AcpSession {
 
 - [ ] **Step 3: 运行编译确认通过**
 
-Run: `cargo build -p peri-acp`
+Run: `cargo build -p cc-acp`
 Expected: PASS
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-acp/src/session/agent_runtime.rs peri-acp/src/session/mod.rs
+git add cc-acp/src/session/agent_runtime.rs cc-acp/src/session/mod.rs
 git commit -m "feat(agent-storage): AgentRuntime struct + AcpSession active_agents HashMap"
 ```
 
@@ -1021,7 +1021,7 @@ git commit -m "feat(agent-storage): AgentRuntime struct + AcpSession active_agen
 ### Task 5: AgentState 适配 own_thread_id
 
 **Files:**
-- Modify: `peri-agent/src/agent/state.rs`
+- Modify: `cc-agent/src/agent/state.rs`
 
 - [ ] **Step 1: AgentState 已经有 thread_id 字段，确认语义正确**
 
@@ -1055,13 +1055,13 @@ git commit -m "feat(agent-storage): AgentRuntime struct + AcpSession active_agen
 
 - [ ] **Step 3: 运行编译确认通过**
 
-Run: `cargo build -p peri-agent`
+Run: `cargo build -p cc-agent`
 Expected: PASS
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-agent/src/agent/state.rs
+git add cc-agent/src/agent/state.rs
 git commit -m "feat(agent-storage): AgentState::with_thread_context for load_context init"
 ```
 
@@ -1070,8 +1070,8 @@ git commit -m "feat(agent-storage): AgentState::with_thread_context for load_con
 ### Task 6: SubAgentMiddleware 重写
 
 **Files:**
-- Modify: `peri-middlewares/src/subagent/mod.rs`
-- Modify: `peri-middlewares/src/subagent/tool/define.rs`（如果存在，或 SubAgentTool 所在文件）
+- Modify: `cc-middlewares/src/subagent/mod.rs`
+- Modify: `cc-middlewares/src/subagent/tool/define.rs`（如果存在，或 SubAgentTool 所在文件）
 
 这是最核心的变更。SubAgentTool.invoke() 需要从"内存态 agent"改为"创建子 thread + AgentRuntime"。
 
@@ -1170,13 +1170,13 @@ async fn invoke(&self, input: ToolInput) -> Result<ToolOutput, ToolError> {
 
 - [ ] **Step 4: 运行编译确认通过**
 
-Run: `cargo build -p peri-middlewares`
+Run: `cargo build -p cc-middlewares`
 Expected: PASS（可能有编译警告，后续修复）
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-middlewares/src/subagent/
+git add cc-middlewares/src/subagent/
 git commit -m "feat(agent-storage): SubAgentTool creates child thread instead of in-memory agent"
 ```
 
@@ -1185,8 +1185,8 @@ git commit -m "feat(agent-storage): SubAgentTool creates child thread instead of
 ### Task 7: Executor 适配
 
 **Files:**
-- Modify: `peri-acp/src/session/executor.rs`
-- Modify: `peri-acp/src/session/compact_runner.rs`
+- Modify: `cc-acp/src/session/executor.rs`
+- Modify: `cc-acp/src/session/compact_runner.rs`
 
 - [ ] **Step 1: execute_prompt 传递 thread_store 到 SubAgentMiddleware**
 
@@ -1201,13 +1201,13 @@ git commit -m "feat(agent-storage): SubAgentTool creates child thread instead of
 
 - [ ] **Step 3: 运行编译确认通过**
 
-Run: `cargo build -p peri-acp`
+Run: `cargo build -p cc-acp`
 Expected: PASS
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-acp/src/session/
+git add cc-acp/src/session/
 git commit -m "feat(agent-storage): executor passes thread_store to SubAgentMiddleware, compact per-thread"
 ```
 
@@ -1216,8 +1216,8 @@ git commit -m "feat(agent-storage): executor passes thread_store to SubAgentMidd
 ### Task 8: Session 恢复适配
 
 **Files:**
-- Modify: `peri-acp/src/session/mod.rs`（SessionManager 的 resume 逻辑）
-- Modify: `peri-tui/src/acp_server/requests.rs`（session/new 恢复路径）
+- Modify: `cc-acp/src/session/mod.rs`（SessionManager 的 resume 逻辑）
+- Modify: `cc-tui/src/acp_server/requests.rs`（session/new 恢复路径）
 
 - [ ] **Step 1: SessionManager.resume 使用 load_context**
 
@@ -1235,7 +1235,7 @@ Expected: PASS
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-acp/src/session/ peri-tui/src/acp_server/
+git add cc-acp/src/session/ cc-tui/src/acp_server/
 git commit -m "feat(agent-storage): session resume uses load_context, list excludes hidden threads"
 ```
 
@@ -1244,8 +1244,8 @@ git commit -m "feat(agent-storage): session resume uses load_context, list exclu
 ### Task 9: TUI 事件路由适配
 
 **Files:**
-- Modify: `peri-tui/src/app/agent_ops/acp_bridge.rs`
-- Modify: `peri-tui/src/app/agent_ops/subagent.rs`
+- Modify: `cc-tui/src/app/agent_ops/acp_bridge.rs`
+- Modify: `cc-tui/src/app/agent_ops/subagent.rs`
 
 - [ ] **Step 1: source_agent_id 语义更新**
 
@@ -1260,13 +1260,13 @@ git commit -m "feat(agent-storage): session resume uses load_context, list exclu
 
 - [ ] **Step 3: 运行编译确认通过**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: PASS
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/app/agent_ops/
+git add cc-tui/src/app/agent_ops/
 git commit -m "feat(agent-storage): TUI event routing uses thread_id as source_agent_id"
 ```
 
@@ -1275,7 +1275,7 @@ git commit -m "feat(agent-storage): TUI event routing uses thread_id as source_a
 ### Task 10: 集成测试 + 全量验证
 
 **Files:**
-- Modify: `peri-agent/src/thread/sqlite_store_test.rs`（已在 Task 2 添加）
+- Modify: `cc-agent/src/thread/sqlite_store_test.rs`（已在 Task 2 添加）
 - 新增测试场景
 
 - [ ] **Step 1: 写多层嵌套 snapshot 组装的集成测试**

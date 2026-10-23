@@ -6,7 +6,7 @@
 
 **Architecture:** Add `language: Option<&str>` parameter to `build_system_prompt()`, inject a `# Language\nAlways respond in {language}...` paragraph in the dynamic section area. Freeze language at `session/new` time (like date/cwd). Propagate through `FrozenSessionData` and SubAgent `SystemPromptBuilder`.
 
-**Tech Stack:** Rust (peri-acp, peri-tui), no new dependencies.
+**Tech Stack:** Rust (cc-acp, cc-tui), no new dependencies.
 
 ---
 
@@ -14,21 +14,21 @@
 
 | File | Change | Purpose |
 |------|--------|---------|
-| `peri-acp/src/prompt/mod.rs` | Modify | Add `language` param, inject language paragraph |
-| `peri-acp/src/session/executor.rs` | Modify | Add `language` to `FrozenSessionData`, pass through |
-| `peri-acp/src/agent/builder.rs` | Modify | Capture language in SubAgent `SystemPromptBuilder` |
-| `peri-tui/src/acp_server/mod.rs` | Modify | Add `frozen_language` to `SessionState` |
-| `peri-tui/src/acp_server/requests.rs` | Modify | Read language from config, pass to `build_system_prompt` |
-| `peri-tui/src/acp_server/prompt.rs` | Modify | Pass language to `FrozenSessionData` |
-| `peri-tui/src/acp_stdio.rs` | Modify | Add `frozen_language` to `SessionInfo`, pass through |
-| `peri-acp/src/prompt/prompt_test.rs` | Modify | Add language injection test |
+| `cc-acp/src/prompt/mod.rs` | Modify | Add `language` param, inject language paragraph |
+| `cc-acp/src/session/executor.rs` | Modify | Add `language` to `FrozenSessionData`, pass through |
+| `cc-acp/src/agent/builder.rs` | Modify | Capture language in SubAgent `SystemPromptBuilder` |
+| `cc-tui/src/acp_server/mod.rs` | Modify | Add `frozen_language` to `SessionState` |
+| `cc-tui/src/acp_server/requests.rs` | Modify | Read language from config, pass to `build_system_prompt` |
+| `cc-tui/src/acp_server/prompt.rs` | Modify | Pass language to `FrozenSessionData` |
+| `cc-tui/src/acp_stdio.rs` | Modify | Add `frozen_language` to `SessionInfo`, pass through |
+| `cc-acp/src/prompt/prompt_test.rs` | Modify | Add language injection test |
 
 ---
 
 ### Task 1: Core — Add language parameter to build_system_prompt
 
 **Files:**
-- Modify: `peri-acp/src/prompt/mod.rs:105`
+- Modify: `cc-acp/src/prompt/mod.rs:105`
 
 - [ ] **Step 1: Add `language` parameter and inject language section**
 
@@ -49,7 +49,7 @@ pub fn build_system_prompt(
     let mut dynamic_sections: Vec<&str> = Vec::new();
     dynamic_sections.push(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../peri-tui/prompts/sections/07_env.md"
+        "/../cc-tui/prompts/sections/07_env.md"
     )));
     // ... feature-gated sections (10-13) ...
     
@@ -102,7 +102,7 @@ fn map_language_to_instruction(lang: &str) -> &str {
 
 - [ ] **Step 2: Update existing test signatures to pass `None` for language**
 
-Edit `peri-acp/src/prompt/prompt_test.rs` — all 21 test calls to `build_system_prompt` get an extra `None` at the end.
+Edit `cc-acp/src/prompt/prompt_test.rs` — all 21 test calls to `build_system_prompt` get an extra `None` at the end.
 
 Each line goes from:
 ```rust
@@ -117,13 +117,13 @@ There are 21 occurrences — use a global find-and-replace.
 
 - [ ] **Step 3: Build and test the core change**
 
-Run: `cargo test -p peri-acp --lib prompt::tests`
+Run: `cargo test -p cc-acp --lib prompt::tests`
 Expected: All existing tests pass, plus verify builds cleanly.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-acp/src/prompt/mod.rs peri-acp/src/prompt/prompt_test.rs
+git add cc-acp/src/prompt/mod.rs cc-acp/src/prompt/prompt_test.rs
 git commit -m "feat(prompt): add language parameter to build_system_prompt"
 ```
 
@@ -132,8 +132,8 @@ git commit -m "feat(prompt): add language parameter to build_system_prompt"
 ### Task 2: Add language to FrozenSessionData and propagate in executor
 
 **Files:**
-- Modify: `peri-acp/src/session/executor.rs:61-74`
-- Modify: `peri-acp/src/session/executor.rs:309-323`
+- Modify: `cc-acp/src/session/executor.rs:61-74`
+- Modify: `cc-acp/src/session/executor.rs:309-323`
 
 - [ ] **Step 1: Add `language` field to `FrozenSessionData`**
 
@@ -187,7 +187,7 @@ Replace lines 303-323:
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-acp/src/session/executor.rs
+git add cc-acp/src/session/executor.rs
 git commit -m "feat(executor): add language field to FrozenSessionData"
 ```
 
@@ -196,7 +196,7 @@ git commit -m "feat(executor): add language field to FrozenSessionData"
 ### Task 3: Capture language in agent builder's SystemPromptBuilder
 
 **Files:**
-- Modify: `peri-acp/src/agent/builder.rs:249-260`
+- Modify: `cc-acp/src/agent/builder.rs:249-260`
 
 - [ ] **Step 1: Capture `language` in the closure**
 
@@ -221,7 +221,7 @@ Replace lines 249-260:
 - [ ] **Step 2: Commit**
 
 ```bash
-git add peri-acp/src/agent/builder.rs
+git add cc-acp/src/agent/builder.rs
 git commit -m "feat(builder): capture language in SubAgent SystemPromptBuilder"
 ```
 
@@ -230,9 +230,9 @@ git commit -m "feat(builder): capture language in SubAgent SystemPromptBuilder"
 ### Task 4: TUI — Add frozen_language to SessionState and pass through
 
 **Files:**
-- Modify: `peri-tui/src/acp_server/mod.rs:39-54`
-- Modify: `peri-tui/src/acp_server/requests.rs:79-97`
-- Modify: `peri-tui/src/acp_server/prompt.rs:116-125`
+- Modify: `cc-tui/src/acp_server/mod.rs:39-54`
+- Modify: `cc-tui/src/acp_server/requests.rs:79-97`
+- Modify: `cc-tui/src/acp_server/prompt.rs:116-125`
 
 - [ ] **Step 1: Add `frozen_language` to `SessionState`**
 
@@ -258,15 +258,15 @@ In `requests.rs`, after the `frozen_date` is set, read language from `cfg.peri_c
             let frozen_language = cfg.peri_config.read().config.language.clone();  // 🆕
 
             let (frozen_claude_md, frozen_claude_local_md) =
-                peri_middlewares::AgentsMdMiddleware::read_frozen_content(&cwd);
+                cc_middlewares::AgentsMdMiddleware::read_frozen_content(&cwd);
 
-            let frozen_skill_summary = peri_middlewares::SkillsMiddleware::build_frozen_summary(
+            let frozen_skill_summary = cc_middlewares::SkillsMiddleware::build_frozen_summary(
                 &cwd,
                 &cfg.plugin_skill_dirs,
             );
 
-            let features = peri_acp::prompt::PromptFeatures::detect();
-            let system_prompt = peri_acp::prompt::build_system_prompt(
+            let features = cc_acp::prompt::PromptFeatures::detect();
+            let system_prompt = cc_acp::prompt::build_system_prompt(
                 None,
                 &cwd,
                 features,
@@ -364,7 +364,7 @@ Then use it:
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/acp_server/mod.rs peri-tui/src/acp_server/requests.rs peri-tui/src/acp_server/prompt.rs
+git add cc-tui/src/acp_server/mod.rs cc-tui/src/acp_server/requests.rs cc-tui/src/acp_server/prompt.rs
 git commit -m "feat(tui): freeze and propagate language preference through ACP"
 ```
 
@@ -373,7 +373,7 @@ git commit -m "feat(tui): freeze and propagate language preference through ACP"
 ### Task 5: Stdio — Add frozen_language to SessionInfo and pass through
 
 **Files:**
-- Modify: `peri-tui/src/acp_stdio.rs` (SessionInfo struct, session/new, session/prompt)
+- Modify: `cc-tui/src/acp_stdio.rs` (SessionInfo struct, session/new, session/prompt)
 
 - [ ] **Step 1: Add `frozen_language` to `SessionInfo`**
 
@@ -404,7 +404,7 @@ After the `frozen_date` line, add:
 Pass it to `build_system_prompt`:
 
 ```rust
-                    let frozen_system_prompt = peri_acp::prompt::build_system_prompt(
+                    let frozen_system_prompt = cc_acp::prompt::build_system_prompt(
                         None,
                         &cwd_str,
                         features,
@@ -432,7 +432,7 @@ Store in `SessionInfo`:
                                 frozen_date: Some(frozen_date),
                                 frozen_language,  // 🆕
                                 recall_items: Vec::new(),
-                                agent_pool: peri_acp::session::agent_pool::AgentPool::new(),
+                                agent_pool: cc_acp::session::agent_pool::AgentPool::new(),
                             },
                         );
 ```
@@ -460,7 +460,7 @@ In the FrozenSessionData construction (around line 402):
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/acp_stdio.rs
+git add cc-tui/src/acp_stdio.rs
 git commit -m "feat(stdio): freeze and propagate language preference through stdio path"
 ```
 
@@ -469,7 +469,7 @@ git commit -m "feat(stdio): freeze and propagate language preference through std
 ### Task 6: Add language injection test
 
 **Files:**
-- Modify: `peri-acp/src/prompt/prompt_test.rs`
+- Modify: `cc-acp/src/prompt/prompt_test.rs`
 
 - [ ] **Step 1: Add test for language=Some("zh-CN")**
 
@@ -547,14 +547,14 @@ fn test_language_section_after_boundary_marker() {
 - [ ] **Step 5: Run tests**
 
 ```bash
-cargo test -p peri-acp --lib prompt::tests
+cargo test -p cc-acp --lib prompt::tests
 ```
 Expected: All tests pass including new language tests.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-acp/src/prompt/prompt_test.rs
+git add cc-acp/src/prompt/prompt_test.rs
 git commit -m "test(prompt): add language injection tests"
 ```
 
@@ -597,4 +597,4 @@ Expected: No warnings.
 - Language is **frozen at session/new** — never changes mid-session, satisfying "系统提示词稳定性是第一优先级"
 - SubAgents **inherit** language preference via `SystemPromptBuilder` closure capture
 - `None` language → no injection → LLM infers from user input (current behavior preserved as fallback)
-- `peri-tui/src/prompt.rs` is dead code NOT modified (only its tests call it)
+- `cc-tui/src/prompt.rs` is dead code NOT modified (only its tests call it)

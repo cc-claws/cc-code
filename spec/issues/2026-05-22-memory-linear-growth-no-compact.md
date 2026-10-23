@@ -60,7 +60,7 @@ wrap_map 增量优化（Plan 1）实施后，内存增长模式未发生变化�
 
 **与现象 1-4 的差异**：原现象强调「每轮 ~40 MB 线性增长」，本次报告的是「单次 clear 后停在 148 MB 的稳态」——是同一问题的不同切片（前者关注增长速率，后者关注 clear 后的 floor）。
 
-**代码层面已做的清理**（`peri-tui/src/app/thread_ops.rs::new_thread`，行 250-358）：
+**代码层面已做的清理**（`cc-tui/src/app/thread_ops.rs::new_thread`，行 250-358）：
 
 - `view_messages` clear + `shrink_to_fit()`
 - `ephemeral_notes` clear
@@ -72,7 +72,7 @@ wrap_map 增量优化（Plan 1）实施后，内存增长模式未发生变化�
 - 调 `crate::alloc_config::alloc_collect()` 两次（jemalloc epoch advance + 每个 arena purge）
 - 发送 `RenderEvent::Clear` 通知渲染线程
 
-**与原 issue 描述的偏差**：原 issue 说"已切换至 mimalloc"，但当前 `peri-tui/src/main.rs:30-31` 实际是 `#[global_allocator] static GLOBAL: tikv_jemallocator::Jemalloc`——**当前代码库已切回 jemalloc**。`peri-tui/src/alloc_config.rs` 全部基于 `tikv_jemalloc_ctl` / `tikv_jemalloc_sys`，没有 mimalloc 残留。`MALLOC_CONF` 设置为 `dirty_decay_ms:0,muzzy_decay_ms:0,background_thread:true`（最激进归还策略）。
+**与原 issue 描述的偏差**：原 issue 说"已切换至 mimalloc"，但当前 `cc-tui/src/main.rs:30-31` 实际是 `#[global_allocator] static GLOBAL: tikv_jemallocator::Jemalloc`——**当前代码库已切回 jemalloc**。`cc-tui/src/alloc_config.rs` 全部基于 `tikv_jemalloc_ctl` / `tikv_jemalloc_sys`，没有 mimalloc 残留。`MALLOC_CONF` 设置为 `dirty_decay_ms:0,muzzy_decay_ms:0,background_thread:true`（最激进归还策略）。
 
 **怀疑主因**（待排查，未验证）：
 
@@ -144,7 +144,7 @@ RSS 增长/轮 (~40 MB)
 
 ## 2026-06-01 深度排查：分配风暴源定位
 
-通过 3 个并行 agent 对 `peri-agent`/`peri-acp`/`peri-tui`/`peri-middlewares` 全量扫描，定位到碎片化的根本原因是**大块临时分配/释放循环**。
+通过 3 个并行 agent 对 `cc-agent`/`cc-acp`/`cc-tui`/`cc-middlewares` 全量扫描，定位到碎片化的根本原因是**大块临时分配/释放循环**。
 
 ### 根因链条
 
@@ -156,7 +156,7 @@ RSS ~200MB = 活跃对象(~9MB) + 分配器碎片(~70MB) + 非分配器运行时
 
 ### 风暴源 A（最严重）：`before_agent` 每轮 ReAct 迭代全量 clone
 
-**位置**：`peri-middlewares/src/subagent/mod.rs:456-457`
+**位置**：`cc-middlewares/src/subagent/mod.rs:456-457`
 
 ```rust
 if let Some(ref pm) = self.parent_messages {
@@ -170,7 +170,7 @@ if let Some(ref pm) = self.parent_messages {
 
 ### 风暴源 B：`state.history.clone()` 每轮 prompt 全量克隆
 
-**位置**：`peri-tui/src/acp_server/prompt.rs:86`
+**位置**：`cc-tui/src/acp_server/prompt.rs:86`
 
 ```rust
 state.history.clone()  // 可用 std::mem::take 替代
@@ -180,14 +180,14 @@ state.history.clone()  // 可用 std::mem::take 替代
 
 ### 风暴源 C：`prompt_locks` HashMap 泄漏
 
-**位置**：`peri-tui/src/acp_server/mod.rs:87`
+**位置**：`cc-tui/src/acp_server/mod.rs:87`
 
 - `session/prompt` 时 `or_insert` 创建 lock，但 `session/close` **不清理**
 - 每次 `/clear` = 1 废弃 + 1 新 lock 条目（单条目 ~50 bytes，非主因但需修复）
 
 ### 风暴源 D：`Arc::try_unwrap` 失败导致 AgentPool 残留
 
-**位置**：`peri-tui/src/acp_server/mod.rs:165`
+**位置**：`cc-tui/src/acp_server/mod.rs:165`
 
 - `build_agent` 将 pool Arc clone 到中间件链 → 引用计数 > 1 → `try_unwrap` 失败
 - 失败时 AgentPool 中 `reqwest::Client`（~1-2MB）+ LLM 缓存不会被恢复或 invalidate
@@ -213,15 +213,15 @@ state.history.clone()  // 可用 std::mem::take 替代
 
 | 文件 | 角色 |
 |------|------|
-| `peri-tui/src/main.rs:266-268` | `#[global_allocator]` mimalloc + tokio runtime 配置 |
-| `peri-tui/src/mimalloc_config.rs` | `init_mimalloc_conf()` + `alloc_collect()` |
-| `peri-tui/src/app/thread_ops.rs` | `/clear` 路径（new_thread） |
-| `peri-tui/src/acp_server/mod.rs:87` | prompt_locks HashMap（泄漏源 C） |
-| `peri-tui/src/acp_server/prompt.rs:86` | history.clone()（风暴源 B） |
-| `peri-tui/src/acp_server/mod.rs:165` | Arc::try_unwrap 失败（风暴源 D） |
-| `peri-middlewares/src/subagent/mod.rs:456-457` | before_agent 全量 clone（风暴源 A） |
-| `peri-acp/src/session/executor.rs` | execute_prompt 内 event channel + spawn 闭包 |
-| `peri-acp/src/session/agent_pool.rs:47` | subagent_llm_cache |
+| `cc-tui/src/main.rs:266-268` | `#[global_allocator]` mimalloc + tokio runtime 配置 |
+| `cc-tui/src/mimalloc_config.rs` | `init_mimalloc_conf()` + `alloc_collect()` |
+| `cc-tui/src/app/thread_ops.rs` | `/clear` 路径（new_thread） |
+| `cc-tui/src/acp_server/mod.rs:87` | prompt_locks HashMap（泄漏源 C） |
+| `cc-tui/src/acp_server/prompt.rs:86` | history.clone()（风暴源 B） |
+| `cc-tui/src/acp_server/mod.rs:165` | Arc::try_unwrap 失败（风暴源 D） |
+| `cc-middlewares/src/subagent/mod.rs:456-457` | before_agent 全量 clone（风暴源 A） |
+| `cc-acp/src/session/executor.rs` | execute_prompt 内 event channel + spawn 闭包 |
+| `cc-acp/src/session/agent_pool.rs:47` | subagent_llm_cache |
 
 ## 关联 Issue
 

@@ -7,7 +7,7 @@
 
 ## 问题描述
 
-Claude Code 中 StopFailure 仅在 API 错误导致轮次结束时替代 Stop 触发。Peri 当前在 `on_error` 中对所有错误类型都触发 StopFailure，包括用户中断（Interrupted）和最大迭代次数超出（MaxIterationsExceeded）。
+参考实现 中 StopFailure 仅在 API 错误导致轮次结束时替代 Stop 触发。Peri 当前在 `on_error` 中对所有错误类型都触发 StopFailure，包括用户中断（Interrupted）和最大迭代次数超出（MaxIterationsExceeded）。
 
 ## 当前行为
 
@@ -22,7 +22,7 @@ async fn on_error(&self, _state: &mut S, error: &AgentError) -> AgentResult<()> 
 
 ## 预期行为
 
-| 错误类型 | Claude Code | Peri |
+| 错误类型 | 参考实现 | Peri |
 |---------|------------|------|
 | API/LLM 调用失败 | StopFailure | StopFailure ✓ |
 | 用户中断（Ctrl+C） | 不触发任何 Stop 事件 | StopFailure ✗ |

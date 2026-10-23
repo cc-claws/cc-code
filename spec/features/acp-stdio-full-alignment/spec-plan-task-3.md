@@ -2,7 +2,7 @@
 
 **背景：** TUI 路径的 `requests.rs:389-441` 中 `session/fork` handler 的核心业务逻辑是：创建新 ThreadStore entry + 复制源 session 的消息到新 entry。stdio 路径需要相同逻辑。
 
-**注意：** `requests.rs:408` 中 `create_thread(ThreadMeta::new(cwd))` 的 `ThreadMeta` 位于 `peri_agent::thread::ThreadMeta`。
+**注意：** `requests.rs:408` 中 `create_thread(ThreadMeta::new(cwd))` 的 `ThreadMeta` 位于 `cc_agent::thread::ThreadMeta`。
 
 #### 执行步骤
 
@@ -11,8 +11,8 @@
 ```rust
 //! Fork a session: create a new thread and copy messages from source.
 
-use peri_agent::messages::BaseMessage;
-use peri_agent::thread::{ThreadMeta, ThreadStore};
+use cc_agent::messages::BaseMessage;
+use cc_agent::thread::{ThreadMeta, ThreadStore};
 
 /// Fork a session by creating a new thread and copying source messages.
 ///
@@ -33,7 +33,7 @@ pub async fn fork_session(
     if !source_messages.is_empty() {
         if let Err(e) = thread_store
             .append_messages(
-                &peri_agent::thread::ThreadId::from(new_thread_id.clone()),
+                &cc_agent::thread::ThreadId::from(new_thread_id.clone()),
                 source_messages,
             )
             .await
@@ -59,8 +59,8 @@ pub async fn fork_session(
 
 ```rust
 use super::session_fork::fork_session;
-use peri_agent::messages::BaseMessage;
-use peri_agent::thread::{ThreadId, ThreadMeta, ThreadStore};
+use cc_agent::messages::BaseMessage;
+use cc_agent::thread::{ThreadId, ThreadMeta, ThreadStore};
 use std::sync::Mutex;
 
 struct CountingThreadStore {
@@ -82,7 +82,7 @@ impl ThreadStore for CountingThreadStore {
         self.messages.lock().unwrap().push((id.0.clone(), msgs.to_vec()));
         Ok(())
     }
-    async fn list_threads(&self) -> Result<Vec<peri_agent::thread::ThreadInfo>, String> {
+    async fn list_threads(&self) -> Result<Vec<cc_agent::thread::ThreadInfo>, String> {
         Ok(vec![])
     }
 }

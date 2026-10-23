@@ -14,16 +14,16 @@
 
 | 文件 | 操作 | 职责 |
 |------|------|------|
-| `peri-middlewares/src/subagent/tool/define.rs` | 修改 | 将 2 处 `Ok("Error:")` 改为 `Err()`；更新 `subagent_type` 参数描述 |
-| `peri-middlewares/src/subagent/tool/execute_bg.rs` | 修改 | 将 2 处 `Ok("Error:")` 改为 `Err()` |
-| `peri-middlewares/src/subagent/tool/tool_test.rs` | 修改 | 更新 3 个测试的断言方式以匹配 `Err()` 返回 |
+| `cc-middlewares/src/subagent/tool/define.rs` | 修改 | 将 2 处 `Ok("Error:")` 改为 `Err()`；更新 `subagent_type` 参数描述 |
+| `cc-middlewares/src/subagent/tool/execute_bg.rs` | 修改 | 将 2 处 `Ok("Error:")` 改为 `Err()` |
+| `cc-middlewares/src/subagent/tool/tool_test.rs` | 修改 | 更新 3 个测试的断言方式以匹配 `Err()` 返回 |
 
 ---
 
 ### Task 1: define.rs — 将 Ok("Error:") 改为 Err() 返回
 
 **Files:**
-- Modify: `peri-middlewares/src/subagent/tool/define.rs:332,366-370`
+- Modify: `cc-middlewares/src/subagent/tool/define.rs:332,366-370`
 
 - [ ] **Step 1: 修改 define.rs 第 332 行 — prompt 缺失**
 
@@ -65,13 +65,13 @@ let agent_id = match &subagent_type {
 
 - [ ] **Step 3: 运行 cargo check 验证编译**
 
-Run: `cargo check -p peri-middlewares 2>&1 | grep -E "^error"`
+Run: `cargo check -p cc-middlewares 2>&1 | grep -E "^error"`
 Expected: 无输出（编译通过）
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-middlewares/src/subagent/tool/define.rs
+git add cc-middlewares/src/subagent/tool/define.rs
 git commit -m "fix: Agent tool prompt/subagent_type errors return Err() instead of Ok()
 
 Ok(\"Error: ...\") 导致 is_error=false，监控系统完全遗漏了这 3.35% 的工具调用错误。
@@ -85,7 +85,7 @@ Refs: spec/issues/2026-06-05-agent-tool-3-percent-error-rate-subagent-type-missi
 ### Task 2: execute_bg.rs — 将 Ok("Error:") 改为 Err() 返回
 
 **Files:**
-- Modify: `peri-middlewares/src/subagent/tool/execute_bg.rs:39,55-58`
+- Modify: `cc-middlewares/src/subagent/tool/execute_bg.rs:39,55-58`
 
 - [ ] **Step 1: 修改 execute_bg.rs 第 38-42 行 — 并发上限**
 
@@ -133,13 +133,13 @@ let agent_id =
 
 - [ ] **Step 3: 运行 cargo check 验证编译**
 
-Run: `cargo check -p peri-middlewares 2>&1 | grep -E "^error"`
+Run: `cargo check -p cc-middlewares 2>&1 | grep -E "^error"`
 Expected: 无输出（编译通过）
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-middlewares/src/subagent/tool/execute_bg.rs
+git add cc-middlewares/src/subagent/tool/execute_bg.rs
 git commit -m "fix: Agent tool background errors return Err() instead of Ok()
 
 并发上限和 subagent_type 缺失错误从 Ok() 改为 Err()，
@@ -153,7 +153,7 @@ Refs: spec/issues/2026-06-05-agent-tool-3-percent-error-rate-subagent-type-missi
 ### Task 3: define.rs — 改善 subagent_type 参数描述
 
 **Files:**
-- Modify: `peri-middlewares/src/subagent/tool/define.rs:298-301`
+- Modify: `cc-middlewares/src/subagent/tool/define.rs:298-301`
 
 - [ ] **Step 1: 更新 parameters() 中 subagent_type 的描述**
 
@@ -185,13 +185,13 @@ Refs: spec/issues/2026-06-05-agent-tool-3-percent-error-rate-subagent-type-missi
 
 - [ ] **Step 2: 运行 cargo check 验证编译**
 
-Run: `cargo check -p peri-middlewares 2>&1 | grep -E "^error"`
+Run: `cargo check -p cc-middlewares 2>&1 | grep -E "^error"`
 Expected: 无输出
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-middlewares/src/subagent/tool/define.rs
+git add cc-middlewares/src/subagent/tool/define.rs
 git commit -m "docs: clarify Agent tool subagent_type is REQUIRED unless fork=true
 
 历史数据显示 80% 的 Agent 工具错误（36/45）源于 LLM 遗漏 subagent_type。
@@ -205,7 +205,7 @@ Refs: spec/issues/2026-06-05-agent-tool-3-percent-error-rate-subagent-type-missi
 ### Task 4: 更新测试断言以匹配 Err() 返回
 
 **Files:**
-- Modify: `peri-middlewares/src/subagent/tool/tool_test.rs:84-107,111-124,156-171`
+- Modify: `cc-middlewares/src/subagent/tool/tool_test.rs:84-107,111-124,156-171`
 
 - [ ] **Step 1: 更新 test_agent_prompt_missing_returns_error（第 84-107 行）**
 
@@ -308,13 +308,13 @@ assert!(
 
 - [ ] **Step 4: 运行测试验证全部通过**
 
-Run: `cargo test -p peri-middlewares --lib -- subagent::tool 2>&1 | tail -5`
+Run: `cargo test -p cc-middlewares --lib -- subagent::tool 2>&1 | tail -5`
 Expected: `test result: ok. X passed; 0 failed`
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-middlewares/src/subagent/tool/tool_test.rs
+git add cc-middlewares/src/subagent/tool/tool_test.rs
 git commit -m "test: update Agent tool error tests to assert Err() return
 
 测试从 .unwrap() + .contains() 改为 .unwrap_err() + .contains()，
@@ -332,10 +332,10 @@ Refs: spec/issues/2026-06-05-agent-tool-3-percent-error-rate-subagent-type-missi
 
 - [ ] **Step 1: 运行全量测试和 clippy**
 
-Run: `cargo test -p peri-middlewares 2>&1 | tail -3`
+Run: `cargo test -p cc-middlewares 2>&1 | tail -3`
 Expected: `test result: ok`
 
-Run: `cargo clippy -p peri-middlewares 2>&1 | grep -E "^error"`
+Run: `cargo clippy -p cc-middlewares 2>&1 | grep -E "^error"`
 Expected: 无输出
 
 - [ ] **Step 2: 更新 issue 状态**

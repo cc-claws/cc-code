@@ -113,15 +113,15 @@ in your response unless the user explicitly asks you to.</local-command-caveat>
 
 > **备选 C2/C3 已否决**：C2 偏离参考实现且丢失「不要响应」的显式语义；C3 风险最高。
 
-> **新增约束 K12**（**已核实**）：`BaseMessage`（`peri-agent/src/messages/message.rs:59-90`）**无 `isMeta` 字段**，
-> 且全仓无等价的 meta 语义表达（`grep is_meta|isMeta` 在 `peri-agent`/`peri-tui` 非测试代码中无命中）。
+> **新增约束 K12**（**已核实**）：`BaseMessage`（`cc-agent/src/messages/message.rs:59-90`）**无 `isMeta` 字段**，
+> 且全仓无等价的 meta 语义表达（`grep is_meta|isMeta` 在 `cc-agent`/`cc-tui` 非测试代码中无命中）。
 > ⇒ caveat 只能靠**展示层前缀跳过**来对用户隐藏。
 
 ---
 
 ## 2. 可复用的既有模式（已核实）
 
-peri 已有**同类先例**：`shell_notification_display_text`（`peri-tui/src/app/background_shell.rs:299-342`）
+peri 已有**同类先例**：`shell_notification_display_text`（`cc-tui/src/app/background_shell.rs:299-342`）
 —— 后台通知是 `<system-reminder>` 包裹的 XML，**发给 agent 用原文，TUI 展示用友好文本**。
 
 ```rust
@@ -155,12 +155,12 @@ pub fn shell_notification_display_text(raw: &str) -> Option<String> {
 |---|------|------|------|
 | K1 | `execute_prompt` 对非 `/` 前缀内容必进 `agent_executor.execute`；唯一免执行路径为 `/`-前缀 `Immediate` 分支 | `executor.rs:185-227`（早返回）；`:610-617`（正常路径） | `!` 不以 `/` 开头 → **不能复用 `session/prompt`** |
 | K2 | 存在「只写 history」先例 | `requests.rs:315-316` | 直接操作 history 被允许 |
-| K3 | `ThreadStore::append_messages(&ThreadId, &[BaseMessage])` | `peri-agent/src/thread/store.rs:13` | 注入可落盘 |
+| K3 | `ThreadStore::append_messages(&ThreadId, &[BaseMessage])` | `cc-agent/src/thread/store.rs:13` | 注入可落盘 |
 | K4 | `handle_request` 持有 `&mut HashMap<String, SessionState>` | `requests.rs:96-102` | 可将新方法放此；但**无 `prompt_locks`** |
 | K5 | `prompt.rs` 整体回写 history | `prompt.rs:187`/`:207`/`:218` | 并发写入会被覆盖（§4.1.1） |
 | K6 | `!` 与 prompt 由 `loading` 互斥 | `shell_command.rs:119-123`；`normal_keys.rs:157-161` | 不会同时运行 |
 | K7 | `format_command_output` 私有 `fn` | `terminal.rs:76` | 需提可见性 |
-| K8 | `peri-tui` 依赖 `peri-middlewares` | `peri-tui/Cargo.toml:29` | 提升后可调用 |
+| K8 | `cc-tui` 依赖 `cc-middlewares` | `cc-tui/Cargo.toml:29` | 提升后可调用 |
 | K9 | `prompt_locks` 未传入 `handle_request` | `acp_server/mod.rs:94-95`；`requests.rs:96-102` | 串行化需主循环拦截 |
 | K10 | `BaseMessage::Human` 渲染首查 `shell_notification_display_text`，返回 `None` 则走常规 `UserBubble` | `message_view/mod.rs:605-614` | ⚠️ 该函数**实测不识别 `bash-*`** → 片段会渲染为 `UserBubble`（见 §4.6 实证） |
 | K11 | `transform.rs` 已跳过 `System` 消息与「无可见文本的 Ai」 | `transform.rs:70-95` | 提供「跳过渲染」的既有范式 |
@@ -229,7 +229,7 @@ pub fn shell_notification_display_text(raw: &str) -> Option<String> {
 
 - `AcpError`（现仅导入 `IncomingMessage`，`mod.rs:18`）
 - `serde_json::json`
-- `peri_agent::thread::ThreadId`
+- `cc_agent::thread::ThreadId`
 - `sessions` 为 `Arc<tokio::sync::Mutex<..>>`（`mod.rs:81`）→ 需 `.lock().await`
 
 #### 4.1.1 并发论证（v6 重写，B2 / IM-2 双重修正）
@@ -273,18 +273,18 @@ pub fn shell_notification_display_text(raw: &str) -> Option<String> {
 **前置改动**：`format_command_output` 提可见性（K7/K8）
 
 ```rust
-// peri-middlewares/src/middleware/terminal.rs:76
+// cc-middlewares/src/middleware/terminal.rs:76
 - fn format_command_output(stdout: &str, stderr: &str, exit_code: i32) -> String {
 + pub fn format_command_output(stdout: &str, stderr: &str, exit_code: i32) -> String {
 ```
 
-并在 `peri-middlewares/src/middleware/mod.rs:10` 一带再导出。
+并在 `cc-middlewares/src/middleware/mod.rs:10` 一带再导出。
 
 **构造函数**：
 
 ```rust
-// peri-tui/src/app/shell_command.rs
-/// 将前台 ! 命令构造为 role=user 的两条上下文片段（标签形态参照 claude-code-best）。
+// cc-tui/src/app/shell_command.rs
+/// 将前台 ! 命令构造为 role=user 的两条上下文片段（标签形态参照 参考源码）。
 fn shell_context_messages(record: &ShellCommandRecord) -> Vec<BaseMessage> {
     // C1：先注入 caveat（对齐参考实现，防止模型把命令回放误当用户请求）
     let caveat = BaseMessage::human(SHELL_CAVEAT);   // 常量见 §1.1
@@ -356,7 +356,7 @@ if let Some(ref acp_client) = self.acp_client {
 ### 4.4 ACP 客户端方法
 
 ```rust
-// peri-tui/src/acp_client/client.rs（需 +use peri_agent::messages::BaseMessage;）
+// cc-tui/src/acp_client/client.rs（需 +use cc_agent::messages::BaseMessage;）
 pub async fn append_history(
     &self,
     session_id: String,
@@ -477,17 +477,17 @@ if let BaseMessage::Human { content, .. } = msg {
 
 | 文件 | 改动 | 量级 |
 |------|------|------|
-| `peri-middlewares/src/middleware/terminal.rs` | `format_command_output` 加 `pub` | ±1 行 |
-| `peri-middlewares/src/middleware/mod.rs` | 再导出 `format_command_output` | +1 行 |
-| `peri-tui/src/app/background_shell.rs` | `xml_escape` 提 `pub(crate)` | ±1 行 |
-| `peri-tui/src/app/shell_command.rs` | +`shell_context_messages()`（含 caveat）；+`SHELL_CAVEAT` 常量；完成处理末尾 +发送块；**+`use peri_middlewares::middleware::format_command_output;` + `use peri_middlewares::tools::output_persist::truncate_shell_output;`**（现 `:1-12` 均无，见 IM-4.1） | +48 行 |
-| `peri-tui/src/acp_client/client.rs` | +`append_history()`；+`use peri_agent::messages::BaseMessage`（现 `:6-14` 无，已核实） | +18 行 |
-| `peri-tui/src/acp_server/mod.rs` | 主循环 +拦截分支；+`AcpError`、`serde_json::json`、`peri_agent::thread::ThreadId`（现 `:18` 仅导入 `IncomingMessage`，已核实） | +38 行 |
-| **`peri-tui/src/app/message_pipeline/transform.rs`** | **+跳过 `bash-*` 与 `<local-command-caveat>` 的 `Human` 片段**（§4.6 / §1.1；v5 声称"不改"是错的） | +14 行 |
-| `peri-tui/src/app/shell_command_test.rs` | 单测：片段格式 / caveat / 转义 / 截断 / 定向 | +90 行 |
-| `peri-tui/src/app/message_pipeline/message_pipeline_test.rs` | 单测：三类前缀被跳过 + **正常用户消息不被误跳**（反例） | +50 行 |
+| `cc-middlewares/src/middleware/terminal.rs` | `format_command_output` 加 `pub` | ±1 行 |
+| `cc-middlewares/src/middleware/mod.rs` | 再导出 `format_command_output` | +1 行 |
+| `cc-tui/src/app/background_shell.rs` | `xml_escape` 提 `pub(crate)` | ±1 行 |
+| `cc-tui/src/app/shell_command.rs` | +`shell_context_messages()`（含 caveat）；+`SHELL_CAVEAT` 常量；完成处理末尾 +发送块；**+`use cc_middlewares::middleware::format_command_output;` + `use cc_middlewares::tools::output_persist::truncate_shell_output;`**（现 `:1-12` 均无，见 IM-4.1） | +48 行 |
+| `cc-tui/src/acp_client/client.rs` | +`append_history()`；+`use cc_agent::messages::BaseMessage`（现 `:6-14` 无，已核实） | +18 行 |
+| `cc-tui/src/acp_server/mod.rs` | 主循环 +拦截分支；+`AcpError`、`serde_json::json`、`cc_agent::thread::ThreadId`（现 `:18` 仅导入 `IncomingMessage`，已核实） | +38 行 |
+| **`cc-tui/src/app/message_pipeline/transform.rs`** | **+跳过 `bash-*` 与 `<local-command-caveat>` 的 `Human` 片段**（§4.6 / §1.1；v5 声称"不改"是错的） | +14 行 |
+| `cc-tui/src/app/shell_command_test.rs` | 单测：片段格式 / caveat / 转义 / 截断 / 定向 | +90 行 |
+| `cc-tui/src/app/message_pipeline/message_pipeline_test.rs` | 单测：三类前缀被跳过 + **正常用户消息不被误跳**（反例） | +50 行 |
 
-**明确不改**：`peri-agent/*`（`BaseMessage` 结构、`micro.rs`、compact）、`recall` 语义、
+**明确不改**：`cc-agent/*`（`BaseMessage` 结构、`micro.rs`、compact）、`recall` 语义、
 `inject_bg_result_messages`、后台通知链路、`session/prompt` 契约、`handle_request` 签名、
 `prompt.rs` 回写逻辑。
 
@@ -510,7 +510,7 @@ if let BaseMessage::Human { content, .. } = msg {
 
 ### 6.2 IM-4.3 边界：`acp_stdio` 未注册新方法
 
-`run_acp_stdio`（`peri-tui/src/acp_stdio.rs`）有**独立的** `session/prompt` 处理路径，
+`run_acp_stdio`（`cc-tui/src/acp_stdio.rs`）有**独立的** `session/prompt` 处理路径，
 未走 `run_acp_server` 主循环。若 peri 以 stdio 形态作 ACP server（IDE 集成场景），
 `session/append_history` 会命中 `requests.rs` 的兜底分支（method not found）。
 
@@ -553,11 +553,11 @@ stdio 形态下 TUI 侧 `append_history` 会失败 → 静默降级（§4.3 已�
 ## 9. 关联
 
 - `spec/issues/2026-09-30-shell-command-context-injection.md` —— 问题与现状证据
-- `peri-tui/src/app/message_pipeline/transform.rs:66` `messages_to_view_models` —— 片段跳过的唯一收口点（§4.6）
-- `peri-tui/src/app/message_pipeline/reconcile.rs:199` —— 实时路径同样经此转换（§4.6）
-- `peri-middlewares/src/middleware/terminal.rs:76` `format_command_output` —— 复用的格式化
-- `peri-middlewares/src/middleware/terminal.rs:294-318` —— 真实 Bash 成败语义
-- claude-code-best `/d/code/cc-best-src/src/utils/processUserInput/processBashCommand.tsx` —— 本方案蓝本
+- `cc-tui/src/app/message_pipeline/transform.rs:66` `messages_to_view_models` —— 片段跳过的唯一收口点（§4.6）
+- `cc-tui/src/app/message_pipeline/reconcile.rs:199` —— 实时路径同样经此转换（§4.6）
+- `cc-middlewares/src/middleware/terminal.rs:76` `format_command_output` —— 复用的格式化
+- `cc-middlewares/src/middleware/terminal.rs:294-318` —— 真实 Bash 成败语义
+- 参考源码 `/d/code/cc-best-src/src/utils/processUserInput/processBashCommand.tsx` —— 本方案蓝本
 - Codex CLI `codex-rs/core/src/tasks/user_shell.rs` —— user-role 参考
 
 ---
@@ -574,7 +574,7 @@ stdio 形态下 TUI 侧 `append_history` 会失败 → 静默降级（§4.3 已�
 - **E6** `SHELL_CAVEAT` 常量的放置位置（`shell_command.rs` 内 or `background_shell.rs` 与既有
   `shell_notification_display_text` 同处）。**建议**后者，便于「XML 常量集中管理」。
 - **E7** 是否需为 caveat 增加 i18n（参考实现为英文硬编码；peri 有 `LcRegistry`）。
-  **建议**沿用英文（与参考实现及既有注入提示一致，且 `peri-agent` 层无 i18n）。
+  **建议**沿用英文（与参考实现及既有注入提示一致，且 `cc-agent` 层无 i18n）。
 
 ### 已消解项
 

@@ -1,5 +1,7 @@
 # ACP（Agent Client Protocol）实现报告
 
+> **状态注记（2026-10-22）**：本文为 2026-05-16 对外部 perihelion 树的分析记录，正文（含 §6 的 `cc-tui/src/acp/` 9 文件架构、3 个 config option、「AskUser 不支持 ACP」）已被现行实现取代：服务端现为 `cc-tui/src/acp_server/` + `cc-tui/src/acp_stdio.rs`，业务逻辑下沉 `cc-acp/src/dispatch/`；config option 现为 4 个（含 `context_1m`，`cc-tui/src/acp_server/requests.rs`）；AskUser 已通过 `elicitation/create` 实现（`cc-acp/src/broker/transport_broker.rs`、`cc-tui/src/acp_client/client.rs`）。
+
 > 分析目标：`/Users/konghayao/code/knowledgebase`（协议文档 + Rust schema crate）
 > + `/Users/konghayao/code/ai/perihelion/cc-tui/src/acp/`（perihelion 的 ACP 服务端实现）
 > 分析日期：2026-05-16

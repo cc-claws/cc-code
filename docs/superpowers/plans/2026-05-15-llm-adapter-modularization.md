@@ -10,7 +10,7 @@
 
 **关于 spec 中的 re-export 文件：** spec 建议保留 `llm/anthropic.rs` 作为 re-export，但 Rust 不允许同时存在 `anthropic.rs` 和 `anthropic/mod.rs`（冲突）。将 `anthropic.rs` 重命名为 `anthropic/mod.rs` 后，模块路径 `crate::llm::anthropic::ChatAnthropic` 保持不变，`mod.rs` 中的 `pub use anthropic::ChatAnthropic` 也不受影响，因此无需额外的 re-export 文件。
 
-**前置注意事项：** 仓库中已存在空的 `peri-agent/src/llm/anthropic/` 和 `peri-agent/src/llm/openai/` 目录（可能是之前准备阶段创建的）。Rust 编译器发现同名目录会优先选择 `foo/mod.rs` 而非 `foo.rs`，因此在 `git mv` 之前必须删除这些空目录，否则构建立即失败。Task 1 和 Task 5 的 Step 0 处理此问题。
+**前置注意事项：** 仓库中已存在空的 `cc-agent/src/llm/anthropic/` 和 `cc-agent/src/llm/openai/` 目录（可能是之前准备阶段创建的）。Rust 编译器发现同名目录会优先选择 `foo/mod.rs` 而非 `foo.rs`，因此在 `git mv` 之前必须删除这些空目录，否则构建立即失败。Task 1 和 Task 5 的 Step 0 处理此问题。
 
 ---
 
@@ -59,13 +59,13 @@
 将单文件模块转为目录模块。Rust 视 `foo/mod.rs` 与 `foo.rs` 等价，模块路径 `crate::llm::anthropic` 不变。
 
 **Files:**
-- Delete: `peri-agent/src/llm/anthropic.rs`
-- Create: `peri-agent/src/llm/anthropic/mod.rs`（内容与原文件相同，仅更新测试路径）
+- Delete: `cc-agent/src/llm/anthropic.rs`
+- Create: `cc-agent/src/llm/anthropic/mod.rs`（内容与原文件相同，仅更新测试路径）
 
 - [ ] **Step 0: 删除已存在的空目录（防止 Rust 编译器冲突）**
 
 ```bash
-rmdir peri-agent/src/llm/anthropic/
+rmdir cc-agent/src/llm/anthropic/
 ```
 
 如果目录非空，说明之前有残留文件，需先清理。此步骤必须在 `mkdir` 之前执行，否则目录已存在导致 Rust 优先选择 `mod.rs` 而找不到文件。
@@ -73,13 +73,13 @@ rmdir peri-agent/src/llm/anthropic/
 - [ ] **Step 1: 创建目录并移动文件**
 
 ```bash
-mkdir -p peri-agent/src/llm/anthropic
-git mv peri-agent/src/llm/anthropic.rs peri-agent/src/llm/anthropic/mod.rs
+mkdir -p cc-agent/src/llm/anthropic
+git mv cc-agent/src/llm/anthropic.rs cc-agent/src/llm/anthropic/mod.rs
 ```
 
 - [ ] **Step 2: 更新测试文件路径**
 
-在 `peri-agent/src/llm/anthropic/mod.rs` 末尾（原第 1285-1287 行），将测试路径改为上级目录：
+在 `cc-agent/src/llm/anthropic/mod.rs` 末尾（原第 1285-1287 行），将测试路径改为上级目录：
 
 ```rust
 #[cfg(test)]
@@ -90,8 +90,8 @@ mod tests;
 - [ ] **Step 3: 验证编译和测试**
 
 ```bash
-cargo build -p peri-agent
-cargo test -p peri-agent --lib
+cargo build -p cc-agent
+cargo test -p cc-agent --lib
 ```
 
 Expected: 编译通过，所有测试通过。
@@ -99,7 +99,7 @@ Expected: 编译通过，所有测试通过。
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-agent/src/llm/anthropic/
+git add cc-agent/src/llm/anthropic/
 git commit -m "refactor(llm): convert anthropic.rs to anthropic/mod.rs directory module"
 ```
 
@@ -110,12 +110,12 @@ git commit -m "refactor(llm): convert anthropic.rs to anthropic/mod.rs directory
 将缓存相关逻辑从 `mod.rs` 提取到独立子模块。
 
 **Files:**
-- Create: `peri-agent/src/llm/anthropic/cache.rs`
-- Modify: `peri-agent/src/llm/anthropic/mod.rs`（删除已提取代码，添加 `mod cache`）
+- Create: `cc-agent/src/llm/anthropic/cache.rs`
+- Modify: `cc-agent/src/llm/anthropic/mod.rs`（删除已提取代码，添加 `mod cache`）
 
 - [ ] **Step 1: 创建 `cache.rs`**
 
-创建 `peri-agent/src/llm/anthropic/cache.rs`，包含从 `mod.rs` 提取的缓存逻辑。所有项标记为 `pub(super)` 以供同模块内的 `invoke.rs` 和 `stream.rs` 使用：
+创建 `cc-agent/src/llm/anthropic/cache.rs`，包含从 `mod.rs` 提取的缓存逻辑。所有项标记为 `pub(super)` 以供同模块内的 `invoke.rs` 和 `stream.rs` 使用：
 
 ```rust
 use serde_json::{json, Value};
@@ -173,7 +173,7 @@ use super::BaseModel;
 - [ ] **Step 3: 验证编译**
 
 ```bash
-cargo build -p peri-agent
+cargo build -p cc-agent
 ```
 
 Expected: 编译通过。如有 visibility 错误，检查 cache.rs 中的 `pub(super)` 标记。
@@ -181,7 +181,7 @@ Expected: 编译通过。如有 visibility 错误，检查 cache.rs 中的 `pub(
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-agent/src/llm/anthropic/cache.rs peri-agent/src/llm/anthropic/mod.rs
+git add cc-agent/src/llm/anthropic/cache.rs cc-agent/src/llm/anthropic/mod.rs
 git commit -m "refactor(llm): extract anthropic cache logic to cache.rs submodule"
 ```
 
@@ -192,12 +192,12 @@ git commit -m "refactor(llm): extract anthropic cache logic to cache.rs submodul
 将消息转换、响应解析、invoke()、ReactLLM 提取到独立子模块。同时提取 `build_request_body()` 共享函数供 stream.rs 复用。
 
 **Files:**
-- Create: `peri-agent/src/llm/anthropic/invoke.rs`
-- Modify: `peri-agent/src/llm/anthropic/mod.rs`
+- Create: `cc-agent/src/llm/anthropic/invoke.rs`
+- Modify: `cc-agent/src/llm/anthropic/mod.rs`
 
 - [ ] **Step 1: 创建 `invoke.rs`**
 
-创建 `peri-agent/src/llm/anthropic/invoke.rs`。此文件包含：
+创建 `cc-agent/src/llm/anthropic/invoke.rs`。此文件包含：
 
 **imports：**
 ```rust
@@ -469,7 +469,7 @@ use super::BaseModel;
 - [ ] **Step 3: 验证编译**
 
 ```bash
-cargo build -p peri-agent
+cargo build -p cc-agent
 ```
 
 Expected: 编译通过。如报 `duplicate impl` 错误，检查 mod.rs 中是否残留 impl block。
@@ -477,7 +477,7 @@ Expected: 编译通过。如报 `duplicate impl` 错误，检查 mod.rs 中是�
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-agent/src/llm/anthropic/invoke.rs peri-agent/src/llm/anthropic/mod.rs
+git add cc-agent/src/llm/anthropic/invoke.rs cc-agent/src/llm/anthropic/mod.rs
 git commit -m "refactor(llm): extract anthropic invoke, message conversion, and ReactLLM to invoke.rs"
 ```
 
@@ -488,12 +488,12 @@ git commit -m "refactor(llm): extract anthropic invoke, message conversion, and 
 将 `invoke_streaming()` 提取到独立子模块，复用 `invoke.rs` 中的 `build_request_body()` 和 `parse_content_blocks()`。
 
 **Files:**
-- Create: `peri-agent/src/llm/anthropic/stream.rs`
-- Modify: `peri-agent/src/llm/anthropic/mod.rs`
+- Create: `cc-agent/src/llm/anthropic/stream.rs`
+- Modify: `cc-agent/src/llm/anthropic/mod.rs`
 
 - [ ] **Step 1: 创建 `stream.rs`**
 
-创建 `peri-agent/src/llm/anthropic/stream.rs`：
+创建 `cc-agent/src/llm/anthropic/stream.rs`：
 
 ```rust
 use async_trait::async_trait;
@@ -610,8 +610,8 @@ use super::BaseModel;
 - [ ] **Step 3: 验证编译和测试**
 
 ```bash
-cargo build -p peri-agent
-cargo test -p peri-agent --lib
+cargo build -p cc-agent
+cargo test -p cc-agent --lib
 ```
 
 Expected: 编译通过，所有 anthropic 测试通过。
@@ -619,7 +619,7 @@ Expected: 编译通过，所有 anthropic 测试通过。
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-agent/src/llm/anthropic/stream.rs peri-agent/src/llm/anthropic/mod.rs
+git add cc-agent/src/llm/anthropic/stream.rs cc-agent/src/llm/anthropic/mod.rs
 git commit -m "refactor(llm): extract anthropic invoke_streaming to stream.rs, reuse build_request_body"
 ```
 
@@ -630,13 +630,13 @@ git commit -m "refactor(llm): extract anthropic invoke_streaming to stream.rs, r
 与 Task 1 相同的流程，处理 openai 适配器。
 
 **Files:**
-- Delete: `peri-agent/src/llm/openai.rs`
-- Create: `peri-agent/src/llm/openai/mod.rs`
+- Delete: `cc-agent/src/llm/openai.rs`
+- Create: `cc-agent/src/llm/openai/mod.rs`
 
 - [ ] **Step 0: 删除已存在的空目录（防止 Rust 编译器冲突）**
 
 ```bash
-rmdir peri-agent/src/llm/openai/
+rmdir cc-agent/src/llm/openai/
 ```
 
 与 Task 1 同理，必须先删除空目录。
@@ -644,13 +644,13 @@ rmdir peri-agent/src/llm/openai/
 - [ ] **Step 1: 创建目录并移动文件**
 
 ```bash
-mkdir -p peri-agent/src/llm/openai
-git mv peri-agent/src/llm/openai.rs peri-agent/src/llm/openai/mod.rs
+mkdir -p cc-agent/src/llm/openai
+git mv cc-agent/src/llm/openai.rs cc-agent/src/llm/openai/mod.rs
 ```
 
 - [ ] **Step 2: 更新测试文件路径**
 
-在 `peri-agent/src/llm/openai/mod.rs` 末尾：
+在 `cc-agent/src/llm/openai/mod.rs` 末尾：
 
 ```rust
 #[cfg(test)]
@@ -661,8 +661,8 @@ mod tests;
 - [ ] **Step 3: 验证编译和测试**
 
 ```bash
-cargo build -p peri-agent
-cargo test -p peri-agent --lib
+cargo build -p cc-agent
+cargo test -p cc-agent --lib
 ```
 
 Expected: 编译通过，所有测试通过。
@@ -670,7 +670,7 @@ Expected: 编译通过，所有测试通过。
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-agent/src/llm/openai/
+git add cc-agent/src/llm/openai/
 git commit -m "refactor(llm): convert openai.rs to openai/mod.rs directory module"
 ```
 
@@ -681,12 +681,12 @@ git commit -m "refactor(llm): convert openai.rs to openai/mod.rs directory modul
 将消息转换、响应解析、invoke()、消息不变量校验、ReactLLM 提取到独立子模块。同时提取 `build_request_body()` 和 `validate_message_invariants()` 共享函数。
 
 **Files:**
-- Create: `peri-agent/src/llm/openai/invoke.rs`
-- Modify: `peri-agent/src/llm/openai/mod.rs`
+- Create: `cc-agent/src/llm/openai/invoke.rs`
+- Modify: `cc-agent/src/llm/openai/mod.rs`
 
 - [ ] **Step 1: 创建 `invoke.rs`**
 
-创建 `peri-agent/src/llm/openai/invoke.rs`：
+创建 `cc-agent/src/llm/openai/invoke.rs`：
 
 **imports：**
 ```rust
@@ -940,7 +940,7 @@ impl ChatOpenAI {
 - [ ] **Step 3: 验证编译**
 
 ```bash
-cargo build -p peri-agent
+cargo build -p cc-agent
 ```
 
 Expected: 编译通过。
@@ -948,7 +948,7 @@ Expected: 编译通过。
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-agent/src/llm/openai/invoke.rs peri-agent/src/llm/openai/mod.rs
+git add cc-agent/src/llm/openai/invoke.rs cc-agent/src/llm/openai/mod.rs
 git commit -m "refactor(llm): extract openai invoke, message conversion, and ReactLLM to invoke.rs"
 ```
 
@@ -959,12 +959,12 @@ git commit -m "refactor(llm): extract openai invoke, message conversion, and Rea
 将 `invoke_streaming()` 和 `ToolCallAccumulator` 提取到独立子模块。
 
 **Files:**
-- Create: `peri-agent/src/llm/openai/stream.rs`
-- Modify: `peri-agent/src/llm/openai/mod.rs`
+- Create: `cc-agent/src/llm/openai/stream.rs`
+- Modify: `cc-agent/src/llm/openai/mod.rs`
 
 - [ ] **Step 1: 创建 `stream.rs`**
 
-创建 `peri-agent/src/llm/openai/stream.rs`：
+创建 `cc-agent/src/llm/openai/stream.rs`：
 
 ```rust
 use async_trait::async_trait;
@@ -1048,8 +1048,8 @@ impl BaseModel for ChatOpenAI {
 - [ ] **Step 3: 验证编译和测试**
 
 ```bash
-cargo build -p peri-agent
-cargo test -p peri-agent --lib
+cargo build -p cc-agent
+cargo test -p cc-agent --lib
 ```
 
 Expected: 编译通过，所有 openai 测试通过。
@@ -1057,7 +1057,7 @@ Expected: 编译通过，所有 openai 测试通过。
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-agent/src/llm/openai/stream.rs peri-agent/src/llm/openai/mod.rs
+git add cc-agent/src/llm/openai/stream.rs cc-agent/src/llm/openai/mod.rs
 git commit -m "refactor(llm): extract openai invoke_streaming to stream.rs, reuse build_request_body"
 ```
 
@@ -1086,7 +1086,7 @@ Expected: 所有测试通过。
 - [ ] **Step 3: clippy 检查**
 
 ```bash
-cargo clippy -p peri-agent -- -D warnings
+cargo clippy -p cc-agent -- -D warnings
 ```
 
 Expected: 无 warning。
@@ -1094,37 +1094,37 @@ Expected: 无 warning。
 - [ ] **Step 4: 检查最终文件结构**
 
 ```bash
-find peri-agent/src/llm/ -type f | sort
+find cc-agent/src/llm/ -type f | sort
 ```
 
 Expected:
 ```
-peri-agent/src/llm/adapter.rs
-peri-agent/src/llm/adapter_test.rs
-peri-agent/src/llm/anthropic/cache.rs
-peri-agent/src/llm/anthropic/invoke.rs
-peri-agent/src/llm/anthropic/mod.rs
-peri-agent/src/llm/anthropic/stream.rs
-peri-agent/src/llm/anthropic_test.rs
-peri-agent/src/llm/mod.rs
-peri-agent/src/llm/openai/invoke.rs
-peri-agent/src/llm/openai/mod.rs
-peri-agent/src/llm/openai/stream.rs
-peri-agent/src/llm/openai_test.rs
-peri-agent/src/llm/react_adapter.rs
-peri-agent/src/llm/react_adapter_test.rs
-peri-agent/src/llm/retry.rs
-peri-agent/src/llm/retry_test.rs
-peri-agent/src/llm/sse.rs
-peri-agent/src/llm/sse_test.rs
-peri-agent/src/llm/types.rs
-peri-agent/src/llm/types_test.rs
+cc-agent/src/llm/adapter.rs
+cc-agent/src/llm/adapter_test.rs
+cc-agent/src/llm/anthropic/cache.rs
+cc-agent/src/llm/anthropic/invoke.rs
+cc-agent/src/llm/anthropic/mod.rs
+cc-agent/src/llm/anthropic/stream.rs
+cc-agent/src/llm/anthropic_test.rs
+cc-agent/src/llm/mod.rs
+cc-agent/src/llm/openai/invoke.rs
+cc-agent/src/llm/openai/mod.rs
+cc-agent/src/llm/openai/stream.rs
+cc-agent/src/llm/openai_test.rs
+cc-agent/src/llm/react_adapter.rs
+cc-agent/src/llm/react_adapter_test.rs
+cc-agent/src/llm/retry.rs
+cc-agent/src/llm/retry_test.rs
+cc-agent/src/llm/sse.rs
+cc-agent/src/llm/sse_test.rs
+cc-agent/src/llm/types.rs
+cc-agent/src/llm/types_test.rs
 ```
 
 - [ ] **Step 5: 检查各文件行数**
 
 ```bash
-wc -l peri-agent/src/llm/anthropic/*.rs peri-agent/src/llm/openai/*.rs
+wc -l cc-agent/src/llm/anthropic/*.rs cc-agent/src/llm/openai/*.rs
 ```
 
 Expected:

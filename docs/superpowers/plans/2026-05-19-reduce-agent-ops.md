@@ -13,7 +13,7 @@
 ### Task 1: 提取统一清理函数 `cleanup_agent_state`
 
 **Files:**
-- Modify: `peri-tui/src/app/agent_ops.rs:538-882` (Done/Error handlers, Disconnected handler in poll_agent)
+- Modify: `cc-tui/src/app/agent_ops.rs:538-882` (Done/Error handlers, Disconnected handler in poll_agent)
 
 - [ ] **Step 1: Add `cleanup_agent_state` private method to `impl App`**
 
@@ -83,7 +83,7 @@ self.cleanup_agent_state();
 - [ ] **Step 5: Build to verify dedup compiles**
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -10
+cargo build -p cc-tui 2>&1 | head -10
 ```
 
 Expected: compilation succeeds.
@@ -93,7 +93,7 @@ Expected: compilation succeeds.
 ### Task 2: 提取 `handle_done` 私有方法
 
 **Files:**
-- Modify: `peri-tui/src/app/agent_ops.rs:538-674` (Done match arm, 137 lines)
+- Modify: `cc-tui/src/app/agent_ops.rs:538-674` (Done match arm, 137 lines)
 
 - [ ] **Step 1: Extract Done arm body into `handle_done`**
 
@@ -170,7 +170,7 @@ AgentEvent::Done => return self.handle_done(),
 - [ ] **Step 3: Build**
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -10
+cargo build -p cc-tui 2>&1 | head -10
 ```
 
 Expected: compilation succeeds.
@@ -180,7 +180,7 @@ Expected: compilation succeeds.
 ### Task 3: 提取 `handle_interrupted` 和 `handle_error`
 
 **Files:**
-- Modify: `peri-tui/src/app/agent_ops.rs:675-882` (Interrupted + Error arms, ~208 lines)
+- Modify: `cc-tui/src/app/agent_ops.rs:675-882` (Interrupted + Error arms, ~208 lines)
 
 - [ ] **Step 1: Extract Interrupted arm → `handle_interrupted`**
 
@@ -300,7 +300,7 @@ AgentEvent::Error { error: e } => return self.handle_error(e),
 - [ ] **Step 4: Build**
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -10
+cargo build -p cc-tui 2>&1 | head -10
 ```
 
 ---
@@ -308,7 +308,7 @@ cargo build -p peri-tui 2>&1 | head -10
 ### Task 4: 提取 `handle_token_usage_update` 和 `handle_subagent_start`
 
 **Files:**
-- Modify: `peri-tui/src/app/agent_ops.rs:383-535` (TokenUsageUpdate, SubAgentEnd, etc.)
+- Modify: `cc-tui/src/app/agent_ops.rs:383-535` (TokenUsageUpdate, SubAgentEnd, etc.)
 
 - [ ] **Step 1: Extract TokenUsageUpdate → `handle_token_usage_update`**
 
@@ -361,7 +361,7 @@ AgentEvent::TokenUsageUpdate { raw_json } => {
 - [ ] **Step 4: Build**
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -10
+cargo build -p cc-tui 2>&1 | head -10
 ```
 
 ---
@@ -369,15 +369,15 @@ cargo build -p peri-tui 2>&1 | head -10
 ### Task 5: 提取 HITL/AskUser 交互到 `agent_ops_interaction.rs`
 
 **Files:**
-- Create: `peri-tui/src/app/agent_ops_interaction.rs`
-- Modify: `peri-tui/src/app/agent_ops.rs:56-194` (handle_acp_request_permission, handle_acp_elicitation)
-- Modify: `peri-tui/src/app/agent_ops.rs:883-980` (InteractionRequest arm body)
+- Create: `cc-tui/src/app/agent_ops_interaction.rs`
+- Modify: `cc-tui/src/app/agent_ops.rs:56-194` (handle_acp_request_permission, handle_acp_elicitation)
+- Modify: `cc-tui/src/app/agent_ops.rs:883-980` (InteractionRequest arm body)
 
 - [ ] **Step 1: Create `agent_ops_interaction.rs` with three functions**
 
 ```rust
-use peri_acp::transport::types::RequestId;
-use peri_middlewares::hitl::BatchItem;
+use cc_acp::transport::types::RequestId;
+use cc_middlewares::hitl::BatchItem;
 use tokio::sync::oneshot;
 
 use super::App;
@@ -404,8 +404,8 @@ impl App {
     /// Handle InteractionRequest AgentEvent: bridge to HITL/AskUser dialog
     pub(crate) fn handle_interaction_request(
         &mut self,
-        ctx: peri_agent::interaction::InteractionContext,
-        response_tx: tokio::sync::oneshot::Sender<peri_agent::interaction::InteractionResponse>,
+        ctx: cc_agent::interaction::InteractionContext,
+        response_tx: tokio::sync::oneshot::Sender<cc_agent::interaction::InteractionResponse>,
     ) -> (bool, bool, bool) {
         // ... (copy existing body from agent_ops.rs lines 892-980) ...
     }
@@ -433,7 +433,7 @@ pub mod agent_ops_interaction;
 - [ ] **Step 4: Build**
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -10
+cargo build -p cc-tui 2>&1 | head -10
 ```
 
 ---
@@ -475,8 +475,8 @@ pub(crate) fn handle_agent_event(&mut self, event: AgentEvent) -> (bool, bool, b
 - [ ] **Step 2: Build and count lines**
 
 ```bash
-cargo build -p peri-tui 2>&1 | head -10
-wc -l peri-tui/src/app/agent_ops.rs
+cargo build -p cc-tui 2>&1 | head -10
+wc -l cc-tui/src/app/agent_ops.rs
 ```
 
 Expected: `agent_ops.rs` ~600 lines (down from 1385).
@@ -488,7 +488,7 @@ Expected: `agent_ops.rs` ~600 lines (down from 1385).
 - [ ] **Step 1: Run all tests**
 
 ```bash
-cargo test -p peri-tui --lib 2>&1 | tail -10
+cargo test -p cc-tui --lib 2>&1 | tail -10
 ```
 
 Expected: All tests pass.
@@ -496,8 +496,8 @@ Expected: All tests pass.
 - [ ] **Step 2: Commit**
 
 ```bash
-cargo fmt -p peri-tui
-git add peri-tui/src/app/
+cargo fmt -p cc-tui
+git add cc-tui/src/app/
 git commit -m "refactor: eliminate agent_ops duplication with extracted handlers
 
 - Extract cleanup_agent_state() to unify Done/Error/Disconnected cleanup

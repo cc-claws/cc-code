@@ -10,27 +10,27 @@ TUI 领域负责交互式终端界面的实现，包括渲染引擎、事件处�
 - 事件处理：crossterm 输入拦截、命令解析（`/` 前缀）、弹窗状态管理
 - 命令系统：`/model`、`/history`、`/clear`、`/help`、`/compact`、`/config`、`/cost`、`/context`、`/memory`、`/mcp`、`/loop`、`/cron`、`/agents`、`/effort`、`/rename`、`/doctor`、`/commit`、`/review`、`/recap`、`/export`、`/gc`、`/init`、`/lang` 等；Command trait 支持 alias 机制
 - 多会话管理：SQLite 持久化；`/agents` 全页跨项目中心，`/agent-design` 选择 agent 定义；`/history` 面板按 cwd 过滤当前项目，`/tasks` 入口移除
-- 弹窗系统：HITL 紧凑审批面板（工具/动作/目录同行、完整命令换行、Edit 对比；当前工具三项选择固定可见，↑↓ 选择、Tab 切换工具、Enter 确认；超高内容提示剩余行数，无内部滚动），AskUser 问答弹窗（支持 header 短标签 + 选项 description + 动态高度计算）、Model/Agents/Thread/Relay 配置面板
+- 弹窗系统：HITL 紧凑审批面板（工具/动作/目录同行、完整命令换行、Edit 对比；当前工具三项选择固定可见，↑↓ 选择、Tab 切换工具、Enter 确认；超高内容提示剩余行数，无内部滚动），AskUser 问答弹窗（支持 header 短标签 + 选项 description + 动态高度计算）、Model/Agents/Thread 面板
 - SubAgent 展示：底栏抽屉 + 虚拟视口（子 Agent 恒后台）；抽屉行 `●/◯` 视口标记 + `>` 导航游标，Enter 下钻独立视口；旧会话已落库的 SubAgentGroup 仅作历史渲染兼容，不再产生新分组
-- Skill 全文预加载：消息含 `#skill-name` 时通过 SkillPreloadMiddleware 将 skill 全文注入 agent state
-- Setup Wizard：首次启动自动检测配置完整性，三步引导（Provider → API Key → Model Alias），原子写回 settings.json
+- Skill 全文预加载：消息含 `/skill-name` 时通过 SkillPreloadMiddleware 将 skill 全文注入 agent state
+- Setup Wizard：首次启动自动检测配置完整性，四步引导（Choose → Language → Form → Done），原子写回 settings.json
 - 配色系统 v1.1：橙色仅保留最高优先级交互（命令输入框），工具名三级分层（bash=ACCENT / 写操作=WARNING / 只读=MUTED），配置面板边框 MUTED 降噪
-- App 结构体拆分：App 三字段（ServiceRegistry/SessionManager/PanelManager），ChatSession 六子模块（ui/messages/session_panels/agent/commands/metadata）
+- App 结构体：App 单结构体 10 字段（core/session/services/ui/panels/input/runtime/langfuse/theme/input_pump），ChatSession 承载会话状态（20+ 字段）
 - 面板组件化：PanelKind/PanelState 枚举 + PanelComponent trait + PanelManager，新增面板只需实现 trait
 - 配置系统补全：CLAUDE.local.md 支持、`@import` 文件引用（默认限项目根内）、claudeMdExcludes glob 过滤、`$schema` passthrough
 - Welcome Card：左上紧凑卡，实际版本、cwd、使用提示与可选小型吉祥物；启动卡作为纯 UI 前缀跨全屏保留并随消息滚动
-- Sticky Human Message Header：聊天区顶部固定显示最后一条 Human 消息（1-3 行截断），滚动时不随之移动
+- Sticky Human Message Header：已禁用（v0.6.71 起高度恒 0，保留实现不再展示）
 - i18n（Fluent）：`LcRegistry` 按 key 取文案（`/lang` 切 en / zh-CN）；静态构造路径（无 App 上下文，如后台 shell 通知 → `MessageViewModel`）通过**进程级注册表** `i18n::init_global`/`global` 读当前语言，启动与 `/lang` 切换时同步；`FluentBundle` 用 concurrent 变体以满足 `Sync`
 
-### 紧凑启动与增长视口（未发布，#650）
+### 紧凑启动与增长视口（#650，v0.6.171）
 
 `terminal_backend/viewport.rs::ViewportState` 是终端运行级 UI 状态，保存 `origin_row`、`available_rows`、`allocated_rows` 与 `fullscreen_latched`；不持久化、不进入 ACP 消息或 frozen system prompt。正常屏使用真实坐标的固定区域，从 shell 输出下方开始；每次增长时原生滚动所缺行数并上移起点，只有所需内容或已占用高度达到整个宿主高度才一次性进入 alternate screen，不能按 `available_rows` 提前切换而产生大块留白。全屏后恢复现有底部固定输入及消息内部滚动。
 
 `ui/main_ui/viewport_layout.rs` 将消息缓存行数、UI 欢迎前缀、实际可见尾部以及底部区域统一计入所需高度；宽度变化及切全屏前先等待渲染线程完成目标宽度重排，再同步输出切屏、resize 与首帧，合并重复清屏，避免空屏等待。面板、输入上限和后台栏以宿主终端尺寸计算，不能按当前紧凑区域递归缩小。分配高度只增不减，缩短草稿、折叠或结束输出、新建及切换会话都不会撤销全屏锁定。底部启动及后续增长都只滚动必要行数，极小终端直接全屏。
 
-`welcome.rs` 共用文本生成和高度测量：左上卡片只显示真实版本、cwd、开始对话或 `/help`，无 Provider 时补简短 `/login`；宽度至少 56 列且内高足够时显示原有 12×5 半块吉祥物，宽度上限 64 列，文本先清洗再按显示列宽省略。启动卡作为纯 UI 前缀，首条消息及全屏切换后仍保留并随消息滚动，不写入消息历史、系统提示词或消息渲染缓存；其高度单独参与滚动与裁剪。恢复历史不补插，空会话继续显示紧凑卡。
+`welcome.rs` 共用文本生成和高度测量：左上卡片只显示真实版本、cwd、当前模型·effort 副标题、开始对话或 `/help`，无 Provider 时补简短 `/login`，有新版本时显示 Update available 与升级命令；宽度至少 56 列且内高足够时显示原有 12×5 半块吉祥物，宽度上限 64 列，文本先清洗再按显示列宽省略。启动卡作为纯 UI 前缀，首条消息及全屏切换后仍保留并随消息滚动，不写入消息历史、系统提示词或消息渲染缓存；其高度单独参与滚动与裁剪。恢复历史不补插，空会话继续显示紧凑卡。
 
-首次配置向导、Agent Center 使用全屏；普通面板计入实际高度。非零起点的渲染、鼠标与选区共用真实坐标。外部编辑器记录并恢复进入前的模式，临时全屏不改变应用锁定状态；退出先恢复正常屏，再逐行清除应用拥有的正常屏区域，光标回到应用起点，仅留下 Session ID、Resume 和 shell 提示符，不擦除其上方历史。生命周期和界面规则见 [TUI-STYLE](../../../TUI-STYLE.md#终端视口未发布650)，验收场景见 [PRD](../../../docs/prd/growing-terminal-viewport.md)。自动化与 Windows 人工验证已通过，macOS/Linux 待兼容性检查；headless 帧不能替代真实 Windows Terminal / PowerShell 与 Unix/macOS 终端验收。
+首次配置向导、Agent Center 使用全屏；普通面板计入实际高度。非零起点的渲染、鼠标与选区共用真实坐标。外部编辑器记录并恢复进入前的模式，临时全屏不改变应用锁定状态；退出先恢复正常屏，再逐行清除应用拥有的正常屏区域，光标回到应用起点，仅留下 Session ID、Resume 和 shell 提示符，不擦除其上方历史。生命周期和界面规则见 [TUI-STYLE](../../../TUI-STYLE.md#终端视口v06171-650)，验收场景见 [PRD](../../../docs/prd/growing-terminal-viewport.md)。三平台 CI 全绿；headless 帧不能替代真实 Windows Terminal / PowerShell 与 Unix/macOS 终端验收。
 
 ### 文件提及候选
 
@@ -90,7 +90,7 @@ peri/subagent_lifecycle started → 创建 BackgroundAgentSession 句柄 + 抽�
 SubagentEvent（带 source_agent_id 信封）→ 按来源路由到该子会话 pipeline
   → 子视口独立渲染思考/工具/文本；抽屉行更新活动与指标（单箭头 token 流向）
 
-BackgroundTaskCompleted / stopped → 主时间线完成行（• Agent "x" finished · 时长）
+BackgroundTaskCompleted / stopped → 主时间线完成行（● Agent "x" finished · 时长）
   → 抽屉行标终态（✓ completed 转 SAGE 绿 / ✗ stopped|failed 红）；用户离开该视口后才回收句柄与行
 
 历史兼容: 旧会话落库的 SubAgentGroup 仍按原渲染路径显示（仅存量数据）
@@ -120,7 +120,7 @@ submit_message(text)
 | 维度 | 选型 |
 |------|------|
 | 渲染框架 | ratatui ≥0.30，主 UI 线程 + 独立渲染线程 |
-| Markdown 渲染 | pulldown-cmark 0.12（CommonMark 规范，事件驱动，自制 ratatui 渲染器） |
+| Markdown 渲染 | pulldown-cmark 0.13（CommonMark 规范，事件驱动，自制 ratatui 渲染器） |
 | 渲染线程同步 | `parking_lot::RwLock<RenderCache>` + `tokio::sync::Notify` 零 sleep |
 | Headless 测试 | `ratatui::backend::TestBackend`，`#[cfg(test)]` 隔离 |
 | 剪贴板 | `arboard` crate，跨平台，macOS/Linux/Windows |
@@ -129,22 +129,21 @@ submit_message(text)
 | 模型别名 | 四档 Opus/Sonnet/Haiku/Fable，`ProviderConfig.models`（ProviderModels）内聚绑定 Provider+模型名 |
 | 输入缓冲 | `pending_messages: Vec<String>`，Done/Error 时合并发送 |
 | 弹窗滚动 | `scroll_offset: u16`，`ensure_cursor_visible()`，80% 高度上限 |
-| SubAgent 展示 | SubAgentGroup ViewModel；滑动窗口 4 条；RenderEvent::UpdateLastMessage 原地更新 |
-| 远程控制配置 | RelayPanel View/Edit 模式；RemoteControlConfig 持久化到 ~/.peri/settings.json |
+| SubAgent 展示 | 底栏抽屉 + 独立视口（subagent_sessions 按实例管理各自 Pipeline），事件经来源信封路由 |
 | 环境变量注入 | AppConfig.env HashMap，main() 最先调用 inject_env_from_settings()，进程环境变量优先 |
 | 文件组织 | app/ 拆分 8 子文件；ui/ 拆分 popups/、panels/ 子目录；pub(super) 可见性 |
-| App 结构体 | App 三字段（ServiceRegistry/SessionManager/PanelManager），ChatSession 六子模块（ui/messages/session_panels/agent/commands/metadata） |
+| App 结构体 | App 单结构体 10 字段（core/session/services/ui/panels/input/runtime/langfuse/theme/input_pump），ChatSession 承载会话状态（20+ 字段） |
 | 面板组件化 | PanelKind/PanelState 枚举 + PanelComponent trait + PanelManager，双实例（session/global），PanelContext 解耦借用 |
 | SubAgent 显示 | 格式 `Agent(type) #hash`，颜色映射（ERROR/WARNING/SAGE），is_background + bg_hash 字段 |
 | 配置系统 | CLAUDE.local.md 支持、`@import` 文件引用（深度上限 3，默认限项目根内，越界保留占位符）、claudeMdExcludes glob 过滤、`$schema` passthrough |
 | TUI 命令 | `/effort` 切换推理力度、`/rename` 设置会话标题、`/doctor` 健康检查、`/recap` 会话回顾（recap_auto.rs 支持终端失焦自动触发） |
 | 配色方案 | v1.1 降噪：橙色仅用于输入框，工具名 bash=ACCENT/写操作=WARNING/只读=MUTED，面板边框 MUTED |
-| Setup Wizard | 三步引导（Provider → API Key → Model Alias），save_setup() 原子写回 settings.json |
+| Setup Wizard | 四步引导（Choose → Language → Form → Done），save_setup() 原子写回 settings.json |
 | Welcome Card | 左上紧凑卡，宽度上限 64 列、高 5～7 行；窄屏省略吉祥物，目录按显示列宽省略 |
-| Sticky Header | 最后一条 Human 消息 1-3 行截断固定在聊天区顶部 |
+| Sticky Header | 已禁用（高度恒 0，保留实现不再展示） |
 | 历史过滤 | /resume 面板按 cwd 过滤 ThreadMeta，标题含工作区路径 |
 | 定时任务面板 | /loop 注册（cron 表达式 + prompt），/cron 面板管理（导航/删除/切换启用） |
-| /compact 迁移 | 执行后创建新 Thread 保留旧历史，新 Thread 必须以摘要 Human(summary + continuation) 消息开头（禁止使用 System 开头避免 400 错误） |
+| /compact 替换 | 在原会话内以摘要替换历史，摘要为 Human 消息（system-reminder 包裹 summary + continuation），不创建新 Thread |
 | AskUser 高度 | wrapped_line_count 动态换行计算，visible_height 替代硬编码滚动区域 |
 | 弹窗滚动 | `scroll_offset: u16`，`ensure_cursor_visible(visible_height)`，Tab 切换重置 scroll_offset |
 | 消息区滚动 | `scroll_offset: usize` + `scrollbar_min/max_offset: usize`，`usize::MAX` 哨兵 + `clamp(min, max)` 收敛，follow-bottom / `scroll_anchor` / manual offset 三级优先级链 |
@@ -168,7 +167,7 @@ submit_message(text)
 
 ### 20261020_hint-overlay-busy-interaction
 
-**摘要:** Agent 运行中候选浮层可导航（对齐 CC useTypeahead）：↑↓/Tab 不再被 `!loading` 守卫挡掉
+**摘要:** Agent 运行中候选浮层可导航（对齐参考实现的 useTypeahead 行为）：↑↓/Tab 不再被 `!loading` 守卫挡掉
 **关键决策:**
 
 - `Enter` 仅在已选中候选（`hint_cursor.is_some()`）时补全（只改 textarea 不提交），未选中保持 #533 排队语义走 `handle_busy_input`
@@ -190,10 +189,10 @@ submit_message(text)
 
 ### 20261020_permission_mode_symbol
 
-**摘要:** 状态栏权限模式标签前固定显示 `⏵⏵` 前缀（对齐 CC PermissionMode.ts symbol 字段）
+**摘要:** 状态栏权限模式标签前固定显示 `⏵⏵` 前缀（对齐参考实现的权限模式 symbol）
 **关键决策:**
 
-- `status_bar.rs` 新增 `PERMISSION_MODE_SYMBOL` 常量；符号对齐 CC 参考，勿改其他 Unicode 字符
+- `status_bar.rs` 新增 `PERMISSION_MODE_SYMBOL` 常量；符号对齐参考实现，勿改其他 Unicode 字符
 **涉及文件:** `cc-tui/src/ui/main_ui/status_bar.rs`
 
 ### 20260324_F001_tui-clipboard-image-paste
@@ -544,10 +543,10 @@ submit_message(text)
 
 ### feature_20260501_F001_color-system-refactor
 
-**摘要:** TUI 配色对齐 Claude Code Dark 主题，清理 28 处硬编码颜色
+**摘要:** TUI 配色对齐参考实现 Dark 主题，清理 28 处硬编码颜色
 **关键决策:**
 
-- 12 个主题常量 RGB 值从暖棕调更新为 Claude Code Dark 主题值
+- 12 个主题常量 RGB 值从暖棕调更新为参考实现 Dark 主题值
 - ACCENT #D77757、TEXT #FFFFFF、MUTED #999999、ERROR #FF6B80、WARNING #FFC107
 - 清理 17 个文件中 28 处硬编码 Color::White/DarkGray 等，统一引用 theme::*
 - 保持现有命名体系和代码结构不变
@@ -645,13 +644,13 @@ submit_message(text)
 **摘要:** 全部 UI 颜色抽成统一调色板并新增 `/theme` 命令与 7 套主题；状态栏配色固定、不参与主题化
 **关键决策:**
 
-- 全部 UI 颜色抽成统一调色板（69 个与 Claude Code 相同的语义字段 + cc-code 扩展字段），渲染层统一经 `theme::cur().<字段>` 读取，禁止再引入编译期颜色常量或裸 `Color::Rgb`（数据驱动的 ANSI 转义解析除外）
-- `/theme` 提供 8 套主题：`auto`（跟随终端）+ `default`（cc-code 现行配色）+ `dark`/`light`/`light-daltonized`/`dark-daltonized`/`light-ansi`/`dark-ansi`，后六套名称与全部字段与 claude-code-best/claude-code 的 `src/utils/theme.ts` 逐值一致，`palettes_parity_test.rs` 逐字段断言锁定防漂移
+- 全部 UI 颜色抽成统一调色板（69 个语义字段 + cc-code 扩展字段），渲染层统一经 `theme::cur().<字段>` 读取，禁止再引入编译期颜色常量或裸 `Color::Rgb`（数据驱动的 ANSI 转义解析除外）
+- `/theme` 提供 7 套调色板 + `auto` 跟随模式：`default`（cc-code 现行配色）+ `dark`/`light`/`light-daltonized`/`dark-daltonized`/`light-ansi`/`dark-ansi`，后六套名称与全部字段与参考源码的 `src/utils/theme.ts` 逐值一致，`palettes_parity_test.rs` 逐字段断言锁定防漂移
 - `auto` 由 `cc-tui/src/terminal_theme/` 解析：颜色能力（`TERM_PROGRAM=Apple_Terminal` → `*-ansi`，其余真彩色）+ 背景明暗（启动时 OSC 11 查询终端自身背景色后按亮度判定；终端不应答时 macOS 退回系统外观 `AppleInterfaceStyle`，其余按深色兜底），结果按进程缓存；不从 Terminal.app 的 `Default Window Settings` profile 推断——那只代表新建窗口的默认值，窗口可在 `Shell > Show Inspector` 单独指定（本机默认 profile 是黑底的 Pro，实际窗口是白底的 Basic）；OSC 11 的 stdin 读取必须在 `EventReader::start()` 前完成，且只在持久化主题为 `auto` 时预探测
 - 选择面板光标移动实时预览、Enter 确认、Esc 还原，`/theme <name>` 直接切换，选择持久化到配置 `theme` 字段、重启恢复；cc-widgets 的 markdown/diff 渲染同步注入当前调色板
 - `/theme` 面板补齐 session 面板键盘路由（`PanelKind::Theme` 加入键盘与粘贴白名单，此前 `↑`/`↓`/`Esc` 被穿透，v0.6.142）
 - **状态栏例外（v0.6.143）:** 状态栏配色是打磨定稿的固定值，不参与主题化——`ui/main_ui/status_bar.rs` 内经模块内固定配色常量 `sb` 输出，渲染结果与主题系统引入之前逐字节一致
-- **URL 链接色例外（未发布）:** 工具结果行与 `!` 命令输出里的裸 URL 也固定 ANSI Cyan，不随 `/theme` 切换——`message_render/mod.rs::style_urls()` 用 `Color::Cyan` + 下划线（此前是 `theme::cur().ide`，随主题漂移且与正文明度接近），覆盖 `format_prefixed_text()` 与 `format_shell_output_lines()` 两个调用点；Markdown 链接（`theme.link()` = SAGE）是另一条路径，不受影响
+- **URL 超链接（#671，v0.6.182 补全）:** ToolBlock 与 ShellCommand 两类 VM 中的裸 URL 不再人工上色，改为注入 OSC 8 真超链接（`ui/osc8.rs` 算坐标登记，`terminal_backend/hyperlink.rs` 在输出层包裹；**序列绝不进 frame buffer**——`Buffer::diff` 按 `symbol.width()` 跳过后续 cell，序列载荷是可见字符，进 buffer 会让链接后面的文字整段不落笔）。前景色为亮蓝 `38;5;12`（实测与参考实现观感一致；参考源码 `chalk.blue`=SGR 34 在本机偏深）、悬停样式由终端给出；消息区按可见行扫描 `http(s)://` 生成命中区（用户输入气泡除外），OSC 8 与 `link_from_parts` 单击共用同一份数据。启用默认开启、`DISABLE_HYPERLINKS` 显式关闭（旧的 `conpty::hover_available()` 门控衡量的是 ConPTY 鼠标悬停能力，会把 VS Code / tmux / SSH 误判为不支持）。Markdown 链接（`theme.link()` = SAGE）仍走原有着色路径，不受影响
 
 **参考:** 快捷键与色板详见 [TUI-STYLE.md](../../TUI-STYLE.md) 的「主题系统」「状态栏」章节
 
@@ -1431,7 +1430,7 @@ submit_message(text)
 **涉及文件:** cc-tui/src/app/at_mention/{mod.rs,file_search.rs,popup.rs}, cc-tui/src/event/keyboard.rs, cc-tui/src/event/keyboard/normal_keys.rs, cc-tui/src/ui/main_ui/mod.rs, cc-tui/locales/{en,zh-CN}/main.ftl
 **CLAUDE.md 链接:** false
 
-### 后台子任务抽屉与视口路由（未发布）
+### 后台子任务抽屉与视口路由（v0.6.130）
 
 `ChatSession.subagent_sessions` 按实例 ID 管理各自的 `MessagePipeline`、消息、输入草稿、滚动位置及指标。`background_agents` 只保存抽屉顺序，`focused_instance_id` 表示当前视口；`bg_bar_cursor` 单独表示导航游标。事件先按来源路由，再消费状态，主线程不会通过栈顶猜测事件归属。
 
@@ -1439,13 +1438,13 @@ submit_message(text)
 
 交互和视觉参考 [TUI-STYLE](../../../TUI-STYLE.md)，验收契约见 [PRD](../../../docs/prd/subagent-drawer-and-virtual-routing.md)。
 
-启动摘要在主视口有**两态**，同源同一 `SystemNote` VM（`content` = 极简树形，`detail_content` = 详细卡片），由 `detail_mode` 单选渲染：普通模式为 `• N background agents launched` + `├──`/`└──` 任务行；按 `Ctrl+O` 进入详细模式切换为方案 B 卡片（`● Agent(任务预览)` + `└ Backgrounded agent` + `└ Prompt:` + 指令全文，6 列悬挂缩进折行）。`SubagentStarted` 事件必须携带 `prompt` 全文字段（仅 `task_preview` 摘要不足以渲染卡片）；卡片标题的 `●` 必须是系统统一的大实心圆点 `U+25CF`（与 `● Bash(...)` 同字形），`SystemNote` 的 `PartialEq`/`Hash` 必须包含 `detail_content`。详见 PRD §4.17。
+启动摘要在主视口有**两态**，同源同一 `SystemNote` VM（`content` = 极简树形，`detail_content` = 详细卡片），由 `detail_mode` 单选渲染：普通模式为 `● N background agents launched (↓ to manage)` + `├──`/`└──` 任务行；按 `Ctrl+O` 进入详细模式切换为方案 B 卡片（`● Agent(任务预览)` + `└ Backgrounded agent` + `└ Prompt:` + 指令全文，6 列悬挂缩进折行）。`SubagentStarted` 事件必须携带 `prompt` 全文字段（仅 `task_preview` 摘要不足以渲染卡片）；卡片标题的 `●` 必须是系统统一的大实心圆点 `U+25CF`（与 `● Bash(...)` 同字形），`SystemNote` 的 `PartialEq`/`Hash` 必须包含 `detail_content`。详见 PRD §4.17。
 
-**取消链路（PRD §4.4 / §4.4.1 / §4.4.2）**：主 Agent 经 `Agent(action="stop", task_id=…)` 取消（`task_id` 精确匹配，拒绝模糊），与用户按键（`x` / `Ctrl+X Ctrl+K`）共用同一终态链路。渲染侧三项契约：① 停止终态独立成行（`• Agent "x" was stopped by main Agent`，用户停止为 `stopped by user`），不得混入 `finished`/`failed`；② 抽屉停止行用**红色实心 `●`**（`theme::ERROR` = `#FF6B80`）+ 红色 `stopped by …`——`drawer_line()` 新增 `force_filled` 参数在非当前视口时也渲染实心圆点（`◯` 仅用于「非当前视口的活跃行」）；③ 等待计数行 `✻ Waiting for N background agents to finish` 作为临时 `SystemNote`（`ephemeral_notes`）随活跃数刷新，**归零必须移除**（残留会让用户误以为还有任务在跑）。`BackgroundAgentSession.stopped_by_user` 记录停止发起方，供上述来源文案区分。
+**取消链路（PRD §4.4 / §4.4.1 / §4.4.2）**：主 Agent 经 `Agent(action="stop", task_id=…)` 取消（`task_id` 精确匹配，拒绝模糊），与用户按键（`x` / `Ctrl+X Ctrl+K`）共用同一终态链路。渲染侧三项契约：① 停止终态独立成行（`● Agent "x" was stopped by main Agent`，用户停止为 `stopped by user`），不得混入 `finished`/`failed`；② 抽屉停止行用**红色实心 `●`**（`theme::ERROR` = `#FF6B80`）+ 红色 `stopped by …`——`drawer_line()` 新增 `force_filled` 参数在非当前视口时也渲染实心圆点（`◯` 仅用于「非当前视口的活跃行」）；③ 等待计数行 `✻ Waiting for N background agents to finish` 作为临时 `SystemNote`（`ephemeral_notes`）随活跃数刷新，**归零必须移除**（残留会让用户误以为还有任务在跑）。`BackgroundAgentSession.stopped_by_user` 记录停止发起方，供上述来源文案区分。
 
 ### Agent Command Center（#542）
 
-全页视图在 main_ui 和 keyboard 入口独立截流，不扩展 PanelKind。轻量全局元数据用于计数，根会话每页 10 条，选中后 150ms 防抖读取消息；oneshot 接收器绑定页面，关闭后异步结果不进入新页面。重命名/删除固定 thread ID，避免分组或状态变化写错对象。永久删除必须明确确认。
+全页视图在 main_ui 和 keyboard 入口独立截流，不扩展 PanelKind。轻量全局元数据用于计数，根会话每页 20 条，选中后 150ms 防抖读取消息；oneshot 接收器绑定页面，关闭后异步结果不进入新页面。重命名/删除固定 thread ID，避免分组或状态变化写错对象。永久删除必须明确确认。
 
 会话目录由 ThreadMeta.cwd 决定，services.cwd 是当前会话派生缓存；切换同步刷新路径渲染、@、技能、分支、hooks/MCP，严禁改进程 cwd。已存在 ACP session 的 frozen 提示词保持原样；切入另一线程创建其独立冻结上下文。运行任务、Shell、排队消息或审批时拒绝切换；返回当前会话只关闭中心。
 
@@ -1471,4 +1470,4 @@ cache 保留兼容的全量渲染路径；virtual 按视口生成分段共享成
 
 空间契约须分别统计历史/高度等 O(N) 元数据、离屏成品预算和可见内容；16 MiB 只约束离屏成品，不包含视口内超大消息、VM 预解析缓存、剪贴板或仍被旧快照引用的对象，不能据此声称会话 RSS 已封顶。虚拟路径未测量区间的高度为估算，进入视口后使用实际高度修正；滚动与选择保持逻辑行坐标，不能把局部窗口行号当成全局行号。
 
-最后更新：2026-10-21
+最后更新：2026-10-22

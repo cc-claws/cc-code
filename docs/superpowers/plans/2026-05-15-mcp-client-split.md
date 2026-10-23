@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Split `peri-middlewares/src/mcp/client.rs` (1309 lines) into 4 focused files: `client.rs` (struct + core methods), `initialize.rs` (connection bootstrap), `reconnect.rs` (reconnection), `client_oauth.rs` (McpClientPool OAuth methods).
+**Goal:** Split `cc-middlewares/src/mcp/client.rs` (1309 lines) into 4 focused files: `client.rs` (struct + core methods), `initialize.rs` (connection bootstrap), `reconnect.rs` (reconnection), `client_oauth.rs` (McpClientPool OAuth methods).
 
-**Architecture:** Pure mechanical extraction — no logic changes. `client.rs` retains type definitions and shared pub(crate) helpers. Three sibling modules add `impl McpClientPool` blocks for specific lifecycle phases. All external callers use `peri_middlewares::mcp::McpClientPool` — zero API breakage.
+**Architecture:** Pure mechanical extraction — no logic changes. `client.rs` retains type definitions and shared pub(crate) helpers. Three sibling modules add `impl McpClientPool` blocks for specific lifecycle phases. All external callers use `cc_middlewares::mcp::McpClientPool` — zero API breakage.
 
 **Tech Stack:** Rust, `rmcp` crate, `parking_lot`, `tokio`, `thiserror`.
 
@@ -56,13 +56,13 @@ mcp/
 ### Task 1: Create `initialize.rs` — extract `run_initialize()` and `initialize()`
 
 **Files:**
-- Create: `peri-middlewares/src/mcp/initialize.rs`
-- Modify: `peri-middlewares/src/mcp/client.rs` (remove lines 130–358, 904–1081)
-- Modify: `peri-middlewares/src/mcp/mod.rs` (add `pub mod initialize;`)
+- Create: `cc-middlewares/src/mcp/initialize.rs`
+- Modify: `cc-middlewares/src/mcp/client.rs` (remove lines 130–358, 904–1081)
+- Modify: `cc-middlewares/src/mcp/mod.rs` (add `pub mod initialize;`)
 
 - [ ] **Step 1: Create `initialize.rs` with full content**
 
-Create `/Users/konghayao/code/ai/perihelion/peri-middlewares/src/mcp/initialize.rs`:
+Create `/Users/konghayao/code/ai/perihelion/cc-middlewares/src/mcp/initialize.rs`:
 
 ```rust
 use std::path::Path;
@@ -171,9 +171,9 @@ pub mod reconnect;
 - [ ] **Step 5: Build to verify compilation**
 
 ```bash
-cargo build -p peri-middlewares 2>&1
+cargo build -p cc-middlewares 2>&1
 ```
-Expected: `Compiling peri-middlewares...` then success (only warnings allowed).
+Expected: `Compiling cc-middlewares...` then success (only warnings allowed).
 
 If compilation fails with "unresolved import" errors:
 - Verify `pub(crate)` on all 7 helpers in client.rs
@@ -183,7 +183,7 @@ If compilation fails with "unresolved import" errors:
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-middlewares/src/mcp/initialize.rs peri-middlewares/src/mcp/client.rs peri-middlewares/src/mcp/mod.rs
+git add cc-middlewares/src/mcp/initialize.rs cc-middlewares/src/mcp/client.rs cc-middlewares/src/mcp/mod.rs
 git commit -m "refactor(mcp): extract initialize module from client.rs
 
 Move run_initialize() and initialize() to mcp/initialize.rs.
@@ -197,12 +197,12 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code.win>"
 ### Task 2: Create `reconnect.rs` — extract `reconnect()`
 
 **Files:**
-- Create: `peri-middlewares/src/mcp/reconnect.rs`
-- Modify: `peri-middlewares/src/mcp/client.rs` (remove lines 411–589)
+- Create: `cc-middlewares/src/mcp/reconnect.rs`
+- Modify: `cc-middlewares/src/mcp/client.rs` (remove lines 411–589)
 
 - [ ] **Step 1: Create `reconnect.rs` with full content**
 
-Create `/Users/konghayao/code/ai/perihelion/peri-middlewares/src/mcp/reconnect.rs`:
+Create `/Users/konghayao/code/ai/perihelion/cc-middlewares/src/mcp/reconnect.rs`:
 
 ```rust
 use std::sync::Arc;
@@ -242,14 +242,14 @@ Delete lines 411–589 from `client.rs`.
 - [ ] **Step 3: Build to verify**
 
 ```bash
-cargo build -p peri-middlewares 2>&1
+cargo build -p cc-middlewares 2>&1
 ```
 Expected: Success.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-middlewares/src/mcp/reconnect.rs peri-middlewares/src/mcp/client.rs
+git add cc-middlewares/src/mcp/reconnect.rs cc-middlewares/src/mcp/client.rs
 git commit -m "refactor(mcp): extract reconnect module from client.rs
 
 Move reconnect() to mcp/reconnect.rs.
@@ -262,12 +262,12 @@ Co-Authored-By: deepseek-v4-pro <deepseek-ai@claude-code.win>"
 ### Task 3: Create `client_oauth.rs` — extract `start_oauth_flow()` and `clear_oauth()`
 
 **Files:**
-- Create: `peri-middlewares/src/mcp/client_oauth.rs`
-- Modify: `peri-middlewares/src/mcp/client.rs` (remove lines 591–734)
+- Create: `cc-middlewares/src/mcp/client_oauth.rs`
+- Modify: `cc-middlewares/src/mcp/client.rs` (remove lines 591–734)
 
 - [ ] **Step 1: Create `client_oauth.rs` with full content**
 
-Create `/Users/konghayao/code/ai/perihelion/peri-middlewares/src/mcp/client_oauth.rs`:
+Create `/Users/konghayao/code/ai/perihelion/cc-middlewares/src/mcp/client_oauth.rs`:
 
 ```rust
 use std::sync::Arc;
@@ -305,14 +305,14 @@ Delete lines 591–734 from `client.rs`.
 - [ ] **Step 3: Build to verify**
 
 ```bash
-cargo build -p peri-middlewares 2>&1
+cargo build -p cc-middlewares 2>&1
 ```
 Expected: Success.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-middlewares/src/mcp/client_oauth.rs peri-middlewares/src/mcp/client.rs
+git add cc-middlewares/src/mcp/client_oauth.rs cc-middlewares/src/mcp/client.rs
 git commit -m "refactor(mcp): extract client_oauth module from client.rs
 
 Move start_oauth_flow() and clear_oauth() to mcp/client_oauth.rs.
@@ -335,7 +335,7 @@ Expected: All crates compile. No errors.
 - [ ] **Step 2: Run MCP-related tests**
 
 ```bash
-cargo test -p peri-middlewares mcp 2>&1
+cargo test -p cc-middlewares mcp 2>&1
 ```
 Expected: All tests pass. No regressions.
 
@@ -349,7 +349,7 @@ Expected: All tests pass.
 - [ ] **Step 4: Verify file sizes**
 
 ```bash
-wc -l peri-middlewares/src/mcp/client.rs peri-middlewares/src/mcp/initialize.rs peri-middlewares/src/mcp/reconnect.rs peri-middlewares/src/mcp/client_oauth.rs
+wc -l cc-middlewares/src/mcp/client.rs cc-middlewares/src/mcp/initialize.rs cc-middlewares/src/mcp/reconnect.rs cc-middlewares/src/mcp/client_oauth.rs
 ```
 
 Expected approximate: `client.rs` ~620 lines, `initialize.rs` ~250 lines, `reconnect.rs` ~180 lines, `client_oauth.rs` ~150 lines. (Combined should roughly equal original 1309 minus removed whitespace.)
@@ -360,5 +360,5 @@ Expected approximate: `client.rs` ~620 lines, `initialize.rs` ~250 lines, `recon
 
 1. **Spec coverage:** All 4 files from the issue's target structure are created ✓
 2. **Placeholder scan:** No TODOs, no "implement later" — every step has exact code paths or copy instructions ✓
-3. **Type consistency:** `McpClientPool` struct unchanged, external callers use `peri_middlewares::mcp::McpClientPool` — zero API breakage ✓
+3. **Type consistency:** `McpClientPool` struct unchanged, external callers use `cc_middlewares::mcp::McpClientPool` — zero API breakage ✓
 4. **Import completeness:** Each new module lists all needed `use super::client::...` imports ✓

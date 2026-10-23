@@ -13,7 +13,7 @@
 ### Task 1: 提取 `sync_acp_config` 辅助方法
 
 **Files:**
-- Modify: `peri-tui/src/app/mod.rs`
+- Modify: `cc-tui/src/app/mod.rs`
 
 - [ ] **Step 1: 在 `impl App` 中添加 `sync_acp_config` 方法**
 
@@ -43,7 +43,7 @@ fn sync_acp_config(&self) {
 
 - [ ] **Step 2: 修改 `refresh_after_setup` 使用新方法**
 
-将 `peri-tui/src/app/mod.rs` 中 `refresh_after_setup`（L620-636）替换为：
+将 `cc-tui/src/app/mod.rs` 中 `refresh_after_setup`（L620-636）替换为：
 
 ```rust
 pub fn refresh_after_setup(&mut self, cfg: crate::config::PeriConfig) {
@@ -60,7 +60,7 @@ pub fn refresh_after_setup(&mut self, cfg: crate::config::PeriConfig) {
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/app/mod.rs
+git add cc-tui/src/app/mod.rs
 git commit -m "refactor: extract sync_acp_config helper, fix refresh_after_setup race
 
 Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
@@ -71,7 +71,7 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 ### Task 2: Panel Login 三处调用改为使用 `sync_acp_config`
 
 **Files:**
-- Modify: `peri-tui/src/app/panel_login.rs`
+- Modify: `cc-tui/src/app/panel_login.rs`
 
 - [ ] **Step 1: 替换 `login_panel_select_provider` 中的内联 block**
 
@@ -99,18 +99,18 @@ self.sync_acp_config();
 
 - [ ] **Step 4: 验证编译 + clippy**
 
-Run: `cargo clippy -p peri-tui 2>&1 | grep -E "warning|error"`
+Run: `cargo clippy -p cc-tui 2>&1 | grep -E "warning|error"`
 Expected: 无 warning/error
 
 - [ ] **Step 5: 运行测试**
 
-Run: `cargo test -p peri-tui --lib -- test_update_config 2>&1 | tail -10`
+Run: `cargo test -p cc-tui --lib -- test_update_config 2>&1 | tail -10`
 Expected: 3 tests passed
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add peri-tui/src/app/panel_login.rs
+git add cc-tui/src/app/panel_login.rs
 git commit -m "refactor: panel_login uses sync_acp_config helper
 
 Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
@@ -121,7 +121,7 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 ### Task 3: Ctrl+Shift+T 快捷键改用 `sync_acp_config`
 
 **Files:**
-- Modify: `peri-tui/src/event/keyboard/shortcuts.rs`
+- Modify: `cc-tui/src/event/keyboard/shortcuts.rs`
 
 - [ ] **Step 1: 替换 Ctrl+Shift+T 中的内联 block**
 
@@ -133,13 +133,13 @@ app.sync_acp_config();
 
 - [ ] **Step 2: 验证编译 + clippy**
 
-Run: `cargo clippy -p peri-tui 2>&1 | grep -E "warning|error"`
+Run: `cargo clippy -p cc-tui 2>&1 | grep -E "warning|error"`
 Expected: 无 warning/error
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add peri-tui/src/event/keyboard/shortcuts.rs
+git add cc-tui/src/event/keyboard/shortcuts.rs
 git commit -m "refactor: Ctrl+Shift+T uses sync_acp_config helper
 
 Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
@@ -150,8 +150,8 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 ### Task 4: 清理 update_config 处理器中的诊断日志
 
 **Files:**
-- Modify: `peri-tui/src/acp_server/prompt.rs`（移除 `[diag]` 日志）
-- Modify: `peri-tui/src/acp_server/requests.rs`（保留正式 warn 日志，移除多余 info）
+- Modify: `cc-tui/src/acp_server/prompt.rs`（移除 `[diag]` 日志）
+- Modify: `cc-tui/src/acp_server/requests.rs`（保留正式 warn 日志，移除多余 info）
 
 - [ ] **Step 1: 移除 prompt.rs 中的诊断日志**
 
@@ -163,13 +163,13 @@ Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"
 
 - [ ] **Step 3: 验证编译 + 测试**
 
-Run: `cargo test -p peri-tui --lib -- test_update_config 2>&1 | tail -10`
+Run: `cargo test -p cc-tui --lib -- test_update_config 2>&1 | tail -10`
 Expected: 3 tests passed
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add peri-tui/src/acp_server/prompt.rs peri-tui/src/acp_server/requests.rs
+git add cc-tui/src/acp_server/prompt.rs cc-tui/src/acp_server/requests.rs
 git commit -m "chore: clean up diagnostic logs from provider switch fix
 
 Co-Authored-By: glm-5.1 <zai-org@claude-code-best.win>"

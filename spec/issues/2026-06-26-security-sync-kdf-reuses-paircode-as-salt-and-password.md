@@ -12,7 +12,7 @@
 ## 当前行为
 
 ```rust
-// peri-tui/src/sync/crypto.rs:24-34
+// cc-tui/src/sync/crypto.rs:24-34
 pub fn derive_key(pair_code: &str) -> [u8; AES_KEY_LEN] {
     let mut key = [0u8; AES_KEY_LEN];
     pbkdf2::derive(
@@ -59,9 +59,9 @@ PBKDF2 迭代 100,000 次（合理），AES-256-GCM nonce 用 `OsRng`（正确�
 
 ## 涉及文件
 
-- `peri-tui/src/sync/crypto.rs:24-34` — `derive_key` 实现
-- `peri-tui/src/sync/sender.rs` — 调用 `derive_key` 的发送方
-- `peri-tui/src/sync/receiver.rs` — 调用 `derive_key` 的接收方
+- `cc-tui/src/sync/crypto.rs:24-34` — `derive_key` 实现
+- `cc-tui/src/sync/sender.rs` — 调用 `derive_key` 的发送方
+- `cc-tui/src/sync/receiver.rs` — 调用 `derive_key` 的接收方
 
 ## 关联
 

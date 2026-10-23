@@ -206,7 +206,7 @@ impl WebSearchTool {
 ## 不做的事（YAGNI）
 
 - **响应缓存**：首次实现不加缓存，后续按需添加
-- **LLM 摘要**：不做 Haiku 二次摘要（claude-code 有 `applyPromptToMarkdown`），直接返回原文
-- **域名白名单**：不做预审批域名列表（claude-code 有 130+ 域名白名单），所有请求统一走 HITL
+- **LLM 摘要**：不做 Haiku 二次摘要（参考实现 有 `applyPromptToMarkdown`），直接返回原文
+- **域名白名单**：不做预审批域名列表（参考实现 有 130+ 域名白名单），所有请求统一走 HITL
 - **多搜索后端**：仅支持 Exa，不做 Bing/Brave 适配器
 - **OAuth**：Exa 仅需 API Key，无需 OAuth 流程

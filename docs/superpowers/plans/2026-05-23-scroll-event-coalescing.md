@@ -13,7 +13,7 @@
 ### Task 1: Add scroll event coalescing in `next_event()`
 
 **Files:**
-- Modify: `peri-tui/src/event/mod.rs:64-71`
+- Modify: `cc-tui/src/event/mod.rs:64-71`
 
 **Context:** The current `next_event()` reads exactly one event per poll cycle. When a mouse scroll storm occurs, each event triggers a full `handle_event()` → `Action::Redraw` → `terminal.draw()`. We insert a drain loop between `event::read()` and `handle_event()` that only activates for `Scroll` and `Drag` mouse events.
 
@@ -139,12 +139,12 @@ fn coalesce_mouse_events(mut ev: Event) -> Event {
 
 - [ ] **Step 3: Run build to verify compilation**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: Clean build with no errors
 
 - [ ] **Step 4: Manual test — scroll performance**
 
-Run: `cargo run -p peri-tui`
+Run: `cargo run -p cc-tui`
 Test: Open the TUI with a long conversation or generate content, then rapidly scroll the mouse wheel in the message area. Verify:
 - Scrolling still works correctly (direction and amount)
 - No visible lag or stutter
@@ -154,7 +154,7 @@ Test: Open the TUI with a long conversation or generate content, then rapidly sc
 - [ ] **Step 5: Commit**
 
 ```bash
-git add peri-tui/src/event/mod.rs
+git add cc-tui/src/event/mod.rs
 git commit -m "perf(tui): coalesce rapid scroll/drag mouse events to reduce CPU
 
 Drain queued mouse events via non-blocking poll when Scroll or Drag

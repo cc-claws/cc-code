@@ -4,7 +4,7 @@
 
 **Goal:** 废除 TUI↔ACP Server 的 Arc 共享内存，所有配置变更走 ACP 协议。
 
-**Architecture:** TUI 侧乐观更新本地 PeriConfig 后通过 `tokio::spawn(acp.set_config_option / acp.update_config)` fire-and-forget 同步到 ACP Server。ACP Server 自行 `store::load()` 初始化，新增 `config_path` 字段支持持久化。`store.rs` 从 `peri-tui` 迁移到 `peri-acp`。
+**Architecture:** TUI 侧乐观更新本地 PeriConfig 后通过 `tokio::spawn(acp.set_config_option / acp.update_config)` fire-and-forget 同步到 ACP Server。ACP Server 自行 `store::load()` 初始化，新增 `config_path` 字段支持持久化。`store.rs` 从 `cc-tui` 迁移到 `cc-acp`。
 
 **Tech Stack:** Rust, tokio async, ACP JSON-RPC protocol, serde_json, parking_lot::RwLock
 
@@ -15,52 +15,52 @@
 ## 文件结构
 
 ### 迁移
-- 移动: `peri-tui/src/config/store.rs` → `peri-acp/src/provider/store.rs`
-- 移动: `peri-tui/src/config/store_test.rs` → `peri-acp/src/provider/store_test.rs`
+- 移动: `cc-tui/src/config/store.rs` → `cc-acp/src/provider/store.rs`
+- 移动: `cc-tui/src/config/store_test.rs` → `cc-acp/src/provider/store_test.rs`
 
-### 修改（peri-acp）
-- `peri-acp/src/provider/mod.rs` — 新增 `pub mod store;`
-- `peri-acp/Cargo.toml` — 确认 `dirs-next` 已存在
+### 修改（cc-acp）
+- `cc-acp/src/provider/mod.rs` — 新增 `pub mod store;`
+- `cc-acp/Cargo.toml` — 确认 `dirs-next` 已存在
 
-### 修改（peri-tui TUI 侧）
-- `peri-tui/src/config/mod.rs` — re-export 从 `peri_acp::provider::store`
-- `peri-tui/src/config/store.rs` — 删除
-- `peri-tui/src/config/store_test.rs` — 删除（迁移到 peri-acp）
-- `peri-tui/src/app/service_registry.rs` — 删除 `acp_peri_config`/`acp_provider` 字段 + `sync_peri_config_to_acp()`
-- `peri-tui/src/app/mod.rs` — 删除 Arc 赋值 + `refresh_after_setup` 改用 ACP
-- `peri-tui/src/main.rs` — 删除 Arc clone，ACP Server 自行初始化
-- `peri-tui/src/event/keyboard/shortcuts.rs` — 替换 `sync_peri_config_to_acp()` 为 ACP 调用
-- `peri-tui/src/app/panel_model.rs` — 替换同步调用
-- `peri-tui/src/app/model_panel.rs` — 替换 `sync_peri_config_to_acp()` 为 ACP 调用
-- `peri-tui/src/command/session/effort.rs` — 替换为 ACP 调用
-- `peri-tui/src/command/panel/model.rs` — 替换为 ACP 调用
-- `peri-tui/src/app/panel_login.rs` — 替换为 `update_config`
-- `peri-tui/src/app/login_panel/component.rs` — 替换 `sync_peri_config_to_acp()` 为 ACP 调用
-- `peri-tui/src/app/panel_ops.rs` — 删除 Arc None 赋值
-- `peri-tui/src/acp_client/client.rs` — 新增 `update_config` 方法
+### 修改（cc-tui TUI 侧）
+- `cc-tui/src/config/mod.rs` — re-export 从 `cc_acp::provider::store`
+- `cc-tui/src/config/store.rs` — 删除
+- `cc-tui/src/config/store_test.rs` — 删除（迁移到 cc-acp）
+- `cc-tui/src/app/service_registry.rs` — 删除 `acp_peri_config`/`acp_provider` 字段 + `sync_peri_config_to_acp()`
+- `cc-tui/src/app/mod.rs` — 删除 Arc 赋值 + `refresh_after_setup` 改用 ACP
+- `cc-tui/src/main.rs` — 删除 Arc clone，ACP Server 自行初始化
+- `cc-tui/src/event/keyboard/shortcuts.rs` — 替换 `sync_peri_config_to_acp()` 为 ACP 调用
+- `cc-tui/src/app/panel_model.rs` — 替换同步调用
+- `cc-tui/src/app/model_panel.rs` — 替换 `sync_peri_config_to_acp()` 为 ACP 调用
+- `cc-tui/src/command/session/effort.rs` — 替换为 ACP 调用
+- `cc-tui/src/command/panel/model.rs` — 替换为 ACP 调用
+- `cc-tui/src/app/panel_login.rs` — 替换为 `update_config`
+- `cc-tui/src/app/login_panel/component.rs` — 替换 `sync_peri_config_to_acp()` 为 ACP 调用
+- `cc-tui/src/app/panel_ops.rs` — 删除 Arc None 赋值
+- `cc-tui/src/acp_client/client.rs` — 新增 `update_config` 方法
 
 ### 修改（ACP Server 侧）
-- `peri-tui/src/acp_server/mod.rs` — `AcpServerConfig` 新增 `config_path` 字段
-- `peri-tui/src/acp_server/requests.rs` — 扩展 `set_config_option` handler + 新增 `update_config` handler
+- `cc-tui/src/acp_server/mod.rs` — `AcpServerConfig` 新增 `config_path` 字段
+- `cc-tui/src/acp_server/requests.rs` — 扩展 `set_config_option` handler + 新增 `update_config` handler
 
 ---
 
-### Task 1: 迁移 store.rs 到 peri-acp
+### Task 1: 迁移 store.rs 到 cc-acp
 
 **Files:**
-- 移动: `peri-tui/src/config/store.rs` → `peri-acp/src/provider/store.rs`
-- 移动: `peri-tui/src/config/store_test.rs` → `peri-acp/src/provider/store_test.rs`
-- 修改: `peri-acp/src/provider/mod.rs` — 新增 `pub mod store;` + re-export
-- 修改: `peri-tui/src/config/mod.rs` — re-export 从 `peri_acp`
-- 删除: `peri-tui/src/config/store.rs`
-- 删除: `peri-tui/src/config/store_test.rs`
+- 移动: `cc-tui/src/config/store.rs` → `cc-acp/src/provider/store.rs`
+- 移动: `cc-tui/src/config/store_test.rs` → `cc-acp/src/provider/store_test.rs`
+- 修改: `cc-acp/src/provider/mod.rs` — 新增 `pub mod store;` + re-export
+- 修改: `cc-tui/src/config/mod.rs` — re-export 从 `cc_acp`
+- 删除: `cc-tui/src/config/store.rs`
+- 删除: `cc-tui/src/config/store_test.rs`
 
-- [ ] **Step 1: 在 peri-acp 中创建 store 模块**
+- [ ] **Step 1: 在 cc-acp 中创建 store 模块**
 
-将 `peri-tui/src/config/store.rs` 的内容复制到 `peri-acp/src/provider/store.rs`，修改 import：
+将 `cc-tui/src/config/store.rs` 的内容复制到 `cc-acp/src/provider/store.rs`，修改 import：
 
 ```rust
-// peri-acp/src/provider/store.rs
+// cc-acp/src/provider/store.rs
 use super::config::PeriConfig;
 use anyhow::Result;
 use std::path::{Path, PathBuf};
@@ -70,10 +70,10 @@ use std::path::{Path, PathBuf};
 
 - [ ] **Step 2: 迁移测试文件**
 
-将 `peri-tui/src/config/store_test.rs` 复制到 `peri-acp/src/provider/store_test.rs`，修改 import：
+将 `cc-tui/src/config/store_test.rs` 复制到 `cc-acp/src/provider/store_test.rs`，修改 import：
 
 ```rust
-// peri-acp/src/provider/store_test.rs
+// cc-acp/src/provider/store_test.rs
 use super::store::load_from;
 // 其余代码不变
 ```
@@ -86,7 +86,7 @@ use super::store::load_from;
 mod store_tests;
 ```
 
-- [ ] **Step 3: 更新 peri-acp/src/provider/mod.rs**
+- [ ] **Step 3: 更新 cc-acp/src/provider/mod.rs**
 
 在 `pub mod config;` 后添加：
 
@@ -96,18 +96,18 @@ pub mod store;
 pub use store::{config_path, load, load_from, save, save_to, workspace_config_path};
 ```
 
-- [ ] **Step 4: 更新 peri-tui/src/config/mod.rs**
+- [ ] **Step 4: 更新 cc-tui/src/config/mod.rs**
 
 ```rust
 pub mod store;  // 删除此行
 
-// Re-export config types from peri-acp (single source of truth)
-pub use peri_acp::provider::{
+// Re-export config types from cc-acp (single source of truth)
+pub use cc_acp::provider::{
     AppConfig, PeriConfig, ProviderConfig, ProviderModels, ThinkingConfig,
 };
 
-// Re-export store functions from peri-acp
-pub use peri_acp::provider::{config_path, load, load_from, save, save_to, workspace_config_path};
+// Re-export store functions from cc-acp
+pub use cc_acp::provider::{config_path, load, load_from, save, save_to, workspace_config_path};
 
 #[cfg(test)]
 #[path = "types_test.rs"]
@@ -116,29 +116,29 @@ mod tests;
 
 - [ ] **Step 5: 删除旧文件**
 
-删除 `peri-tui/src/config/store.rs` 和 `peri-tui/src/config/store_test.rs`。
+删除 `cc-tui/src/config/store.rs` 和 `cc-tui/src/config/store_test.rs`。
 
 - [ ] **Step 6: 编译验证**
 
-Run: `cargo build -p peri-acp && cargo build -p peri-tui`
+Run: `cargo build -p cc-acp && cargo build -p cc-tui`
 Expected: 编译通过，无错误
 
 - [ ] **Step 7: 运行测试**
 
-Run: `cargo test -p peri-acp -- provider::store`
+Run: `cargo test -p cc-acp -- provider::store`
 Expected: 所有 store 测试通过
 
-Run: `cargo test -p peri-tui -- config`
+Run: `cargo test -p cc-tui -- config`
 Expected: 所有 config 测试通过（types_test.rs）
 
 - [ ] **Step 8: Commit**
 
 ```bash
 git add -A
-git commit -m "refactor: migrate store.rs from peri-tui to peri-acp
+git commit -m "refactor: migrate store.rs from cc-tui to cc-acp
 
-Moves PeriConfig disk I/O (load/save) to peri-acp crate alongside
-the type definition. peri-tui re-exports via pub use."
+Moves PeriConfig disk I/O (load/save) to cc-acp crate alongside
+the type definition. cc-tui re-exports via pub use."
 ```
 
 ---
@@ -146,12 +146,12 @@ the type definition. peri-tui re-exports via pub use."
 ### Task 2: ACP Server 侧扩展 set_config_option + 新增 update_config
 
 **Files:**
-- 修改: `peri-tui/src/acp_server/mod.rs`
-- 修改: `peri-tui/src/acp_server/requests.rs`
+- 修改: `cc-tui/src/acp_server/mod.rs`
+- 修改: `cc-tui/src/acp_server/requests.rs`
 
 - [ ] **Step 1: AcpServerConfig 新增 config_path 字段**
 
-在 `peri-tui/src/acp_server/mod.rs` 的 `AcpServerConfig` 结构体中添加：
+在 `cc-tui/src/acp_server/mod.rs` 的 `AcpServerConfig` 结构体中添加：
 
 ```rust
 pub struct AcpServerConfig {
@@ -162,7 +162,7 @@ pub struct AcpServerConfig {
 
 - [ ] **Step 2: 添加 persist_config 辅助函数**
 
-在 `peri-tui/src/acp_server/requests.rs` 顶部添加：
+在 `cc-tui/src/acp_server/requests.rs` 顶部添加：
 
 ```rust
 use crate::config::save_to;
@@ -256,7 +256,7 @@ fn persist_config(cfg: &AcpServerConfig) {
 
 - [ ] **Step 6: 编译验证**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: 编译通过（config_path 暂未在 main.rs 中传入，先传 `std::path::PathBuf::new()` 占位）
 
 - [ ] **Step 7: Commit**
@@ -276,7 +276,7 @@ git commit -m "feat(acp): extend set_config_option with persistence + add update
 ### Task 3: AcpTuiClient 新增 update_config 方法
 
 **Files:**
-- 修改: `peri-tui/src/acp_client/client.rs`
+- 修改: `cc-tui/src/acp_client/client.rs`
 
 - [ ] **Step 1: 新增 update_config 方法**
 
@@ -306,7 +306,7 @@ pub async fn update_config(&self, config: &crate::config::PeriConfig) -> Result<
 
 - [ ] **Step 2: 编译验证**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: 编译通过
 
 - [ ] **Step 3: Commit**
@@ -321,14 +321,14 @@ git commit -m "feat(tui): add AcpTuiClient::update_config for full PeriConfig sy
 ### Task 4: 删除 Arc 共享 + ServiceRegistry 清理
 
 **Files:**
-- 修改: `peri-tui/src/app/service_registry.rs`
-- 修改: `peri-tui/src/app/mod.rs`
-- 修改: `peri-tui/src/app/panel_ops.rs`
-- 修改: `peri-tui/src/main.rs`
+- 修改: `cc-tui/src/app/service_registry.rs`
+- 修改: `cc-tui/src/app/mod.rs`
+- 修改: `cc-tui/src/app/panel_ops.rs`
+- 修改: `cc-tui/src/main.rs`
 
 - [ ] **Step 1: 删除 ServiceRegistry 中的 Arc 字段和 sync 方法**
 
-在 `peri-tui/src/app/service_registry.rs` 中，删除以下字段：
+在 `cc-tui/src/app/service_registry.rs` 中，删除以下字段：
 
 ```rust
 // 删除这两个字段:
@@ -342,7 +342,7 @@ pub acp_provider: Option<Arc<parking_lot::RwLock<crate::app::agent::LlmProvider>
 
 - [ ] **Step 2: 更新 main.rs 中的 AcpServerConfig 构造**
 
-在 `peri-tui/src/main.rs` 中：
+在 `cc-tui/src/main.rs` 中：
 
 1. 删除 Arc clone 行：
 ```rust
@@ -357,7 +357,7 @@ app.services.acp_peri_config = Some(server_config.peri_config.clone());
 config_path: crate::config::store::config_path(),
 ```
 
-注意：`store` 模块已迁移到 `peri-acp`，通过 re-export 可用 `crate::config::config_path()`。
+注意：`store` 模块已迁移到 `cc-acp`，通过 re-export 可用 `crate::config::config_path()`。
 
 3. 将 `AcpServerConfig` 构造中的 `provider` 和 `peri_config` 改为自行初始化：
 ```rust
@@ -411,7 +411,7 @@ pub fn refresh_after_setup(&mut self, cfg: crate::config::PeriConfig) {
 
 - [ ] **Step 4: 更新 panel_ops.rs 测试初始化**
 
-在 `peri-tui/src/app/panel_ops.rs` 中删除：
+在 `cc-tui/src/app/panel_ops.rs` 中删除：
 ```rust
 // 删除这两行:
 acp_peri_config: None,
@@ -420,7 +420,7 @@ acp_provider: None,
 
 - [ ] **Step 5: 编译验证**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: 编译错误只会出现在仍在调用 `sync_peri_config_to_acp()` 的地方（shortcuts.rs、panel_model.rs 等），这些在 Task 5 中修复。
 
 - [ ] **Step 6: Commit**
@@ -440,13 +440,13 @@ git commit -m "refactor: remove Arc sharing between TUI ServiceRegistry and ACP 
 ### Task 5: 替换所有 sync_peri_config_to_acp 调用点为 ACP 协议调用
 
 **Files:**
-- 修改: `peri-tui/src/event/keyboard/shortcuts.rs`
-- 修改: `peri-tui/src/app/panel_model.rs`
-- 修改: `peri-tui/src/app/model_panel.rs`
-- 修改: `peri-tui/src/command/session/effort.rs`
-- 修改: `peri-tui/src/command/panel/model.rs`
-- 修改: `peri-tui/src/app/panel_login.rs`
-- 修改: `peri-tui/src/app/login_panel/component.rs`
+- 修改: `cc-tui/src/event/keyboard/shortcuts.rs`
+- 修改: `cc-tui/src/app/panel_model.rs`
+- 修改: `cc-tui/src/app/model_panel.rs`
+- 修改: `cc-tui/src/command/session/effort.rs`
+- 修改: `cc-tui/src/command/panel/model.rs`
+- 修改: `cc-tui/src/app/panel_login.rs`
+- 修改: `cc-tui/src/app/login_panel/component.rs`
 
 所有替换遵循同一模式：
 
@@ -475,7 +475,7 @@ if let Some(ref acp_client) = app.acp_client {
 
 - [ ] **Step 1: 替换 shortcuts.rs 中的 Ctrl+T 和 Ctrl+Shift+T**
 
-`peri-tui/src/event/keyboard/shortcuts.rs`
+`cc-tui/src/event/keyboard/shortcuts.rs`
 
 Ctrl+T（约第67行），替换 `app.services.sync_peri_config_to_acp();` 为：
 
@@ -503,7 +503,7 @@ if let Some(ref acp_client) = app.acp_client {
 
 - [ ] **Step 2: 替换 panel_model.rs 中的面板确认**
 
-`peri-tui/src/app/panel_model.rs`
+`cc-tui/src/app/panel_model.rs`
 
 替换 `self.services.sync_peri_config_to_acp();` 和冗余 ACP 调用（第70-84行）为：
 
@@ -527,7 +527,7 @@ if let Some(ref acp_client) = self.acp_client {
 
 - [ ] **Step 3: 替换 model_panel.rs 中的 apply_1m_context 和 apply_confirm**
 
-`peri-tui/src/app/model_panel.rs`
+`cc-tui/src/app/model_panel.rs`
 
 `apply_confirm`（约第406行）中 `ctx.services.sync_peri_config_to_acp();` 替换为：
 
@@ -563,7 +563,7 @@ if let Some(ref acp_client) = ctx.app.acp_client {
 
 - [ ] **Step 4: 替换 effort.rs 中的 /effort 命令**
 
-`peri-tui/src/command/session/effort.rs`
+`cc-tui/src/command/session/effort.rs`
 
 替换 `app.services.sync_peri_config_to_acp();` 为：
 
@@ -579,7 +579,7 @@ if let Some(ref acp_client) = app.acp_client {
 
 - [ ] **Step 5: 替换 command/panel/model.rs 中的 /model 命令**
 
-`peri-tui/src/command/panel/model.rs`
+`cc-tui/src/command/panel/model.rs`
 
 替换 `app.services.sync_peri_config_to_acp();` 为：
 
@@ -595,7 +595,7 @@ if let Some(ref acp_client) = app.acp_client {
 
 - [ ] **Step 6: 替换 panel_login.rs 中的 Login 面板操作**
 
-`peri-tui/src/app/panel_login.rs`
+`cc-tui/src/app/panel_login.rs`
 
 有两处 `sync_peri_config_to_acp()`（约第58行和第160行）。全部替换为：
 
@@ -611,7 +611,7 @@ if let Some(ref acp_client) = self.acp_client {
 
 - [ ] **Step 7: 替换 login_panel/component.rs 中的编辑/删除确认**
 
-`peri-tui/src/app/login_panel/component.rs`
+`cc-tui/src/app/login_panel/component.rs`
 
 有三处 `ctx.services.sync_peri_config_to_acp();`（约第65行、第210行、第258行）。全部替换为：
 
@@ -629,15 +629,15 @@ if let Some(ref acp_client) = ctx.app.acp_client {
 
 - [ ] **Step 8: 编译验证**
 
-Run: `cargo build -p peri-tui`
+Run: `cargo build -p cc-tui`
 Expected: 编译通过，无 `sync_peri_config_to_acp` 引用残留
 
 - [ ] **Step 9: 全局搜索确认无遗漏**
 
-Run: `grep -r "sync_peri_config_to_acp" peri-tui/src/`
+Run: `grep -r "sync_peri_config_to_acp" cc-tui/src/`
 Expected: 无匹配
 
-Run: `grep -r "acp_peri_config\|acp_provider" peri-tui/src/`
+Run: `grep -r "acp_peri_config\|acp_provider" cc-tui/src/`
 Expected: 无匹配（除注释外）
 
 - [ ] **Step 10: Commit**
@@ -663,14 +663,14 @@ All config changes now go through ACP protocol:
 Run: `cargo build`
 Expected: 全量编译通过
 
-- [ ] **Step 2: 运行 peri-acp 测试**
+- [ ] **Step 2: 运行 cc-acp 测试**
 
-Run: `cargo test -p peri-acp`
+Run: `cargo test -p cc-acp`
 Expected: 所有测试通过（含迁移的 store 测试）
 
-- [ ] **Step 3: 运行 peri-tui 测试**
+- [ ] **Step 3: 运行 cc-tui 测试**
 
-Run: `cargo test -p peri-tui`
+Run: `cargo test -p cc-tui`
 Expected: 所有测试通过
 
 - [ ] **Step 4: 运行全量测试**

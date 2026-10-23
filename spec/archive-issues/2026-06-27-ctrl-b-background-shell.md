@@ -22,7 +22,7 @@ Feature — 核心交互能力
 
 当前 peri (cc-code) 的 Shell 命令执行是阻塞式的：用户或 agent 发起一个 shell 命令后，UI 被锁定直到命令结束。长命令（如 `npm test`、`cargo build`）会阻塞整个交互，用户无法继续对话。
 
-TS 版 Claude Code 已实现完整的 Ctrl+B Background Shell 机制（参考 PRD：`C:\Work\open-cladue\docs\ctrl-b-background-shell.html`，已验证 37/37 项声明与源码一致）。
+TS 版 参考实现 已实现完整的 Ctrl+B Background Shell 机制（参考 PRD：`C:\Work\open-cladue\docs\ctrl-b-background-shell.html`，已验证 37/37 项声明与源码一致）。
 
 ## Root Cause — 现有架构限制
 

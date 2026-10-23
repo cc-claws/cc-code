@@ -16,7 +16,7 @@ Shell 输出（Bash/Grep/Glob 等工具的 stdout+stderr）在详细模式（Ctr
 
 ### 问题位置
 
-`peri-tui/src/ui/message_render.rs`
+`cc-tui/src/ui/message_render.rs`
 
 ### 截断逻辑对比
 
@@ -67,7 +67,7 @@ if detail_mode {
 
 ## 修复建议
 
-修改 `peri-tui/src/ui/message_render.rs` 第 324-325 行：
+修改 `cc-tui/src/ui/message_render.rs` 第 324-325 行：
 
 ```rust
 // 修改前
@@ -99,10 +99,10 @@ let max_lines = if detail_mode {
 
 ## 相关文件
 
-- `peri-tui/src/ui/message_render.rs` - 截断逻辑实现
-- `peri-tui/src/ui/render_thread.rs` - detail_mode 状态管理
-- `peri-tui/src/app/thread_ops.rs` - toggle_detail_mode() 方法
-- `peri-tui/src/event/keyboard/shortcuts.rs` - Ctrl+O 快捷键绑定
+- `cc-tui/src/ui/message_render.rs` - 截断逻辑实现
+- `cc-tui/src/ui/render_thread.rs` - detail_mode 状态管理
+- `cc-tui/src/app/thread_ops.rs` - toggle_detail_mode() 方法
+- `cc-tui/src/event/keyboard/shortcuts.rs` - Ctrl+O 快捷键绑定
 
 ## 关联 Issue
 
