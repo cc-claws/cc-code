@@ -724,8 +724,7 @@ pub(super) fn visible_tail(app: &App) -> Vec<Line<'static>> {
     // compact 时紫色，其余橙色；loading 结束后显示总结行：✻ Brewed for Xm Xs
     let spinner_line: Option<Line<'static>> = if app.session_mgr.current().viewport_loading() {
         let session = app.session_mgr.current();
-        let frame =
-            cc_widgets::spinner::animation::tick_to_frame(session.viewport_spinner().tick());
+        let frame = session.viewport_spinner().spinner_frame();
         let verb = session.viewport_spinner().verb();
         let elapsed =
             cc_widgets::spinner::animation::format_elapsed(session.viewport_spinner().elapsed_ms());

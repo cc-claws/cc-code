@@ -27,8 +27,6 @@ pub struct SpinnerState {
     start_time: Instant,
     token_count: usize,
     displayed_tokens: usize,
-    tick: u64,
-    raw_tick: u64,
     /// 最后一次从非 Idle 切换到 Idle 时捕获的耗时（ms），0 表示无记录
     last_summary_elapsed_ms: u64,
     /// 完成态总结行动词（随机过去式英文，如 "Cogitated"）
@@ -49,6 +47,9 @@ pub struct SpinnerState {
     stall_intensity: f32,
     /// 上次推进停滞平滑的时刻
     stall_last_smooth_at: Instant,
+    /// 字形动画的单调时钟起点。**永不重置**——对齐参考实现的全局动画时钟，
+    /// 让菊花在跨回合、跨模式切换时都保持连续的呼吸相位，而不是每轮从 `·` 重新起步。
+    animation_start: Instant,
 }
 
 impl SpinnerState {
@@ -65,8 +66,6 @@ impl SpinnerState {
             start_time: Instant::now(),
             token_count: 0,
             displayed_tokens: 0,
-            tick: 0,
-            raw_tick: 0,
             last_summary_elapsed_ms: 0,
             last_summary_verb: String::new(),
             last_summary_done_at: None,
@@ -77,6 +76,7 @@ impl SpinnerState {
             last_token_at: Instant::now(),
             stall_intensity: 0.0,
             stall_last_smooth_at: Instant::now(),
+            animation_start: Instant::now(),
         }
     }
 
@@ -156,14 +156,13 @@ impl SpinnerState {
         self.token_count = count;
     }
 
+    /// 推进一帧：token 计数平滑 + 停滞强度平滑。
+    ///
+    /// 菊花字形本身由 [`Self::spinner_frame`] 按单调时钟算出（对齐参考实现的时间驱动），
+    /// 不再依赖本函数的调用频率，因此渲染帧率高低不会改变旋转速度。
     pub fn advance_tick(&mut self) {
-        self.raw_tick = self.raw_tick.wrapping_add(1);
         self.displayed_tokens =
             animation::smooth_increment(self.displayed_tokens, self.token_count);
-        // 每 2 个 raw tick 才推进一帧（星号旋转更快）
-        if self.raw_tick.is_multiple_of(2) {
-            self.tick += 1;
-        }
         self.advance_stall();
     }
 
@@ -266,17 +265,19 @@ impl SpinnerState {
         self.thinking_round = 0;
     }
 
-    pub fn tick(&self) -> u64 {
-        self.tick
+    /// 字形动画已运行毫秒数（单调时钟，不随回合/模式重置）
+    pub fn animation_elapsed_ms(&self) -> u64 {
+        self.animation_start.elapsed().as_millis() as u64
     }
 
-    pub fn raw_tick(&self) -> u64 {
-        self.raw_tick
+    /// 当前菊花字形（对齐上游参考实现 2.1.307 的余弦呼吸算法，2 秒往返一次）
+    pub fn spinner_frame(&self) -> char {
+        animation::spinner_frame(self.animation_elapsed_ms())
     }
 
     /// 返回当前 spinner frame 字符，用于终端标题动画
     pub fn title_frame(&self) -> char {
-        animation::tick_to_frame(self.tick)
+        self.spinner_frame()
     }
 
     pub fn verb(&self) -> &str {
@@ -329,14 +330,14 @@ impl SpinnerState {
     }
 
     /// 重置所有字段到初始状态（保留 verb_list）
+    ///
+    /// 注意：**不重置** `animation_start` —— 菊花相位是全局连续的，跨回合不重新起步。
     pub fn reset(&mut self) {
         self.mode = SpinnerMode::Idle;
         self.verb = String::new();
         self.start_time = Instant::now();
         self.token_count = 0;
         self.displayed_tokens = 0;
-        self.tick = 0;
-        self.raw_tick = 0;
         self.last_summary_elapsed_ms = 0;
         self.last_summary_verb = String::new();
         self.last_summary_done_at = None;
@@ -408,7 +409,7 @@ impl WidgetRef for SpinnerWidget<'_> {
     fn render_ref(&self, area: Rect, buf: &mut Buffer) {
         let mut spans: Vec<Span<'_>> = vec![];
 
-        let frame = animation::tick_to_frame(self.state.tick());
+        let frame = self.state.spinner_frame();
         let orange = Style::default().fg(self.primary_color);
         let gray = Style::default().fg(self.secondary_color);
 
@@ -614,5 +615,36 @@ mod tests {
         let mut switch_state = en_state;
         switch_state.set_language("zh");
         assert_eq!(switch_state.verb_list(), verb::EN_VERBS);
+    }
+
+    #[test]
+    fn test_spinner_frame_survives_mode_switch_and_reset() {
+        // 菊花相位是全局单调时钟：切模式、reset 都不应让它从 `·` 重新起步
+        // （对齐参考实现的共享动画时钟，避免每轮开头闪一下首字）
+        let mut state = SpinnerState::new(SpinnerMode::Idle);
+        let baseline = state.animation_elapsed_ms();
+
+        state.set_mode(SpinnerMode::Thinking);
+        assert!(
+            state.animation_elapsed_ms() >= baseline,
+            "切模式不应重置动画时钟"
+        );
+
+        state.reset();
+        assert!(
+            state.animation_elapsed_ms() >= baseline,
+            "reset 不应重置动画时钟"
+        );
+    }
+
+    #[test]
+    fn test_spinner_frame_matches_animation_module_for_same_clock() {
+        let state = SpinnerState::new(SpinnerMode::Responding);
+        assert_eq!(
+            state.spinner_frame(),
+            crate::spinner::animation::spinner_frame(state.animation_elapsed_ms()),
+            "title_frame 与渲染字形必须来自同一套时钟"
+        );
+        assert_eq!(state.title_frame(), state.spinner_frame());
     }
 }
