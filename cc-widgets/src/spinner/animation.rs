@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use ratatui::{
     style::{Color, Style},
     text::Span,
@@ -5,12 +7,45 @@ use ratatui::{
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-const BRAILLE_FRAMES: &[char] = &[
-    '✵', '✶', '✷', '✸', '✹', '✺', '✻', '✼', '❃', '❊', '✼', '✻', '✺', '✸', '✹', '✷',
-];
+/// 默认字形集（对齐上游参考实现 2.1.307 `p` 数组）：`· ✢ * ✶ ✻ ✽`。
+///
+/// 第三位是 ASCII `*` 而非 `✱`/`✳`——后者会被 emoji-regex 判成双宽，
+/// 切帧时导致后续文字左右抖动。
+const SPINNER_CHARS_DEFAULT: [char; 6] = ['·', '✢', '*', '✶', '✻', '✽'];
 
-pub fn tick_to_frame(tick: u64) -> char {
-    BRAILLE_FRAMES[(tick as usize) % BRAILLE_FRAMES.len()]
+/// Ghostty 字形集（对齐上游参考实现 2.1.307 `l` 数组）：`✽` 在 Ghostty 下渲染偏移，
+/// 末位改用 `✻`；`✳` 在 Ghostty 下宽度正确，故第三位保留 `✳`。
+const SPINNER_CHARS_GHOSTTY: [char; 6] = ['·', '✢', '✳', '✶', '✻', '✻'];
+
+/// 单次完整呼吸往返的周期（毫秒），对齐上游参考实现 2.1.307 的 `Kn`。
+pub const SPINNER_CYCLE_MS: u64 = 2000;
+
+/// 当前终端适用的字形集。按 `TERM` 选一次并缓存（30fps 下不能每帧读环境变量）。
+fn spinner_chars() -> &'static [char; 6] {
+    static CACHE: OnceLock<&'static [char; 6]> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        if std::env::var("TERM").as_deref() == Ok("xterm-ghostty") {
+            &SPINNER_CHARS_GHOSTTY
+        } else {
+            &SPINNER_CHARS_DEFAULT
+        }
+    })
+}
+
+/// 按动画时钟（毫秒）取当前字形，对齐上游参考实现 2.1.307 的 `Zn(time)`：
+///
+/// ```text
+/// frame = round( (1 - cos(2π · t / 2000)) / 2 · (字形数 - 1) )
+/// ```
+///
+/// 不是线性步进——余弦缓动让两端字形（`·` 与 `✽`）停留更久、中段更快，
+/// 整体是一个 2 秒的「呼吸」往返，且帧速与渲染帧率解耦（纯时间驱动）。
+pub fn spinner_frame(elapsed_ms: u64) -> char {
+    let chars = spinner_chars();
+    let phase = (elapsed_ms % SPINNER_CYCLE_MS) as f32 / SPINNER_CYCLE_MS as f32;
+    let eased = (1.0 - (phase * std::f32::consts::TAU).cos()) / 2.0;
+    let idx = (eased * (chars.len() - 1) as f32).round() as usize;
+    chars[idx.min(chars.len() - 1)]
 }
 
 pub fn smooth_increment(displayed: usize, target: usize) -> usize {

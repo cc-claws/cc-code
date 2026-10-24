@@ -95,6 +95,13 @@ impl<B, P: WidthProbe> WidthSafeBackend<B, P> {
 
 fn spinner_fallback(symbol: &str) -> Option<&'static str> {
     match symbol {
+        // 上游参考实现 2.1.307 起菊花字形改为 `· ✢ * ✶ ✻ ✽`（Ghostty 用 `✳`）。
+        // `✳`(U+2733) 会被 emoji-regex 判成双宽，`✢`/`✽` 在旧控制台也是缺字，
+        // 这里统一给 ASCII 旋转替代。
+        "✳" => Some("*"),
+        "✢" => Some("+"),
+        "✽" => Some("\\"),
+        // 历史盲文字形（v0.6 之前的帧集）保留映射，避免老快照/兼容路径失效
         "✵" | "✹" | "❃" => Some("|"),
         "✶" | "✺" | "❊" => Some("/"),
         "✷" | "✻" => Some("-"),
