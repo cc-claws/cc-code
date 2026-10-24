@@ -299,6 +299,65 @@ async fn test_http_hook_invalid_url() {
     assert!(matches!(action, HookAction::Block { .. }));
 }
 
+#[tokio::test]
+async fn test_http_hook_circuit_breaker_skips_when_open() {
+    let _guard = crate::hooks::http_health::test_lock().await;
+    let url = "http://127.0.0.1:49998/hook";
+    crate::hooks::http_health::reset_all_http_health_for_test();
+    let health = crate::hooks::http_health::http_health_for(url);
+    health.trip();
+    assert!(health.is_open());
+
+    let hook: HookType = serde_json::from_value(serde_json::json!({
+        "type": "http",
+        "url": url,
+        "timeout": 600
+    }))
+    .unwrap();
+    let input = make_hook_input();
+    let start = std::time::Instant::now();
+    let action = execute_http_hook(&hook, &input).await;
+    let elapsed = start.elapsed();
+
+    assert!(matches!(action, HookAction::Allow));
+    assert!(elapsed < std::time::Duration::from_millis(50));
+    crate::hooks::http_health::reset_all_http_health_for_test();
+}
+
+#[tokio::test]
+async fn test_http_hook_connect_failure_trips_circuit_breaker() {
+    let _guard = crate::hooks::http_health::test_lock().await;
+    let url = "http://127.0.0.1:49999/permission";
+    crate::hooks::http_health::reset_all_http_health_for_test();
+    let health = crate::hooks::http_health::http_health_for(url);
+    assert!(!health.is_open());
+
+    let hook: HookType = serde_json::from_value(serde_json::json!({
+        "type": "http",
+        "url": url,
+        "timeout": 600
+    }))
+    .unwrap();
+    let input = make_hook_input();
+    let start = std::time::Instant::now();
+    let action = execute_http_hook(&hook, &input).await;
+    let elapsed = start.elapsed();
+
+    // 验证即使配置了 600 秒超时，连接失败也在 connect_timeout (800ms) 内快速退出
+    assert!(matches!(action, HookAction::Allow));
+    assert!(elapsed < std::time::Duration::from_secs(3));
+    // 验证熔断已被触发
+    assert!(health.is_open());
+
+    // 验证后续请求直接瞬间跳过
+    let start_second = std::time::Instant::now();
+    let action_second = execute_http_hook(&hook, &input).await;
+    assert!(matches!(action_second, HookAction::Allow));
+    assert!(start_second.elapsed() < std::time::Duration::from_millis(50));
+
+    crate::hooks::http_health::reset_all_http_health_for_test();
+}
+
 // === Wrong hook type dispatch tests ===
 
 #[tokio::test]
