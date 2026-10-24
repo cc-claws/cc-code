@@ -30,3 +30,41 @@ fn test_signed_gap_keeps_negative() {
     assert_eq!(signed_gap(93_600_000, 93_600_000), 0);
     assert_eq!(signed_gap(100, 40), 60);
 }
+
+/// size class 表的占比列：分母为 0（allocated 读不到）时必须显示 `—`，
+/// 不能把「没读到总量」渲染成 `0.0%`。
+#[test]
+fn test_fmt_share_handles_zero_denominator() {
+    assert_eq!(fmt_share(0, 0), "—");
+    assert_eq!(fmt_share(1024, 0), "—");
+    assert_eq!(fmt_share(0, 1024), "0.0%");
+    assert_eq!(fmt_share(1024, 1024), "100.0%");
+    assert_eq!(fmt_share(1, 8), "12.5%");
+    // 与真实 /gc 读数同量级：640 B × 5562 = 3,559,680 / 18,968,656
+    assert_eq!(fmt_share(3_559_680, 18_968_656), "18.8%");
+}
+
+/// size class 表的尺寸列必须精确。
+///
+/// `fmt_bytes` 的精度不足以区分相邻 size class（1024 B 与 1280 B 只差一档取整），
+/// 同一张表里出现两行看不出区别的尺寸就无法定位「哪一档吃了多少」。
+#[test]
+fn test_fmt_bytes_exact_keeps_size_class_distinct() {
+    assert_eq!(
+        fmt_bytes(1024),
+        fmt_bytes(1280),
+        "前提：fmt_bytes 会把这两个相邻 size class 渲染成同一个字符串"
+    );
+    assert_eq!(fmt_bytes_exact(1024), "1,024 B");
+    assert_eq!(fmt_bytes_exact(1280), "1,280 B");
+    assert_eq!(fmt_bytes_exact(786_432), "786,432 B");
+}
+
+#[test]
+fn test_fmt_grouped_thousands() {
+    assert_eq!(fmt_grouped(0), "0");
+    assert_eq!(fmt_grouped(999), "999");
+    assert_eq!(fmt_grouped(1_000), "1,000");
+    assert_eq!(fmt_grouped(29_230), "29,230");
+    assert_eq!(fmt_grouped(1_048_576), "1,048,576");
+}

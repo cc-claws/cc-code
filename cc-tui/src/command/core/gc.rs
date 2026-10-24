@@ -5,6 +5,9 @@ use crate::{app::App, command::Command};
 
 pub struct GcCommand;
 
+/// `/gc` 的 size class 表最多列多少行，其余合并成一行合计（避免 232 个 class 淹没有效信息）。
+const SIZE_CLASS_TOP_N: usize = 12;
+
 impl Command for GcCommand {
     fn name(&self) -> &str {
         "gc"
@@ -54,6 +57,9 @@ impl Command for GcCommand {
         crate::alloc_config::alloc_collect();
 
         let stats_after = crate::alloc_config::query_stats();
+        // breakdown 由下方两处共用（allocator 明细段 + 已知/未识别估算段），只取一次快照，
+        // 保证两段引用的是同一组读数。
+        let breakdown = crate::alloc_config::query_breakdown();
 
         // ── RSS 汇总 ──
         match (stats_before, stats_after) {
@@ -246,7 +252,7 @@ impl Command for GcCommand {
         );
 
         // ── 分配器 breakdown（关键：allocated vs active vs resident）──
-        if let Some(bd) = crate::alloc_config::query_breakdown() {
+        if let Some(bd) = breakdown {
             // active/mapped/retained 的语义**分平台**：
             // - jemalloc（macOS/Linux）：active = 真实活跃页；mapped/retained = 虚拟地址配额
             // - mimalloc（Windows）：active = page_committed（别名 "touched"，历史触及高水位，
@@ -353,6 +359,57 @@ impl Command for GcCommand {
             }
         }
 
+        // ── size class 分布：把 allocated 按分配尺寸精确分解 ──
+        // jemalloc 的 stats.allocated 本身就是各 arena `Σ curregs×reg_size +
+        // Σ curlextents×size`，因此这张表能把「未识别」的字节按尺寸定位。
+        if let Some(classes) = crate::alloc_config::query_size_classes() {
+            let allocated = breakdown.map_or(0, |b| b.allocated);
+            let covered: usize = classes.iter().map(|c| c.bytes()).sum();
+            // 各项占比统一以 allocated 为分母（表内合计在正常情况等于 allocated）；
+            // allocated 读不到时退化为「占表内合计」，不显示 0%。
+            let denom = if allocated > 0 { allocated } else { covered };
+            lines.push(String::new());
+            lines.push(lc.tr("cmd-gc-size-classes-heading"));
+            for c in classes.iter().take(SIZE_CLASS_TOP_N) {
+                lines.push(lc.tr_args(
+                    "cmd-gc-size-class-row",
+                    &[
+                        ("size".into(), fmt_bytes_exact(c.size).into()),
+                        ("objects".into(), fmt_grouped(c.live_objects).into()),
+                        ("bytes".into(), fmt_bytes(c.bytes()).into()),
+                        ("share".into(), fmt_share(c.bytes(), denom).into()),
+                    ],
+                ));
+            }
+            let rest = &classes[SIZE_CLASS_TOP_N.min(classes.len())..];
+            if !rest.is_empty() {
+                let rest_bytes: usize = rest.iter().map(|c| c.bytes()).sum();
+                lines.push(lc.tr_args(
+                    "cmd-gc-size-class-rest",
+                    &[
+                        ("classes".into(), rest.len().to_string().into()),
+                        ("bytes".into(), fmt_bytes(rest_bytes).into()),
+                        ("share".into(), fmt_share(rest_bytes, denom).into()),
+                    ],
+                ));
+            }
+            // 覆盖率校验：逐 class 求和应精确等于 stats.allocated（同一份记账）。
+            // 不等时用有符号差如实显示，不做钳位（钳成 0 会掩盖口径问题）。
+            lines.push(lc.tr_args(
+                "cmd-gc-size-class-coverage",
+                &[
+                    ("covered".into(), fmt_bytes(covered).into()),
+                    ("allocated".into(), fmt_bytes(allocated).into()),
+                    ("share".into(), fmt_share(covered, allocated).into()),
+                    (
+                        "gap".into(),
+                        fmt_signed_delta(signed_gap(covered, allocated), fmt_bytes).into(),
+                    ),
+                ],
+            ));
+            lines.push(lc.tr("cmd-gc-size-class-note"));
+        }
+
         // ── 分配器全量 stats → tracing ──
         {
             lines.push(String::new());
@@ -366,7 +423,7 @@ impl Command for GcCommand {
         }
 
         // ── 已知 vs 未识别 ──
-        if let Some(bd) = crate::alloc_config::query_breakdown() {
+        if let Some(bd) = breakdown {
             // 消息/VM/Markdown/渲染线程缓存/diff 缓存各自持有独立副本，可分别计入估算。
             let known_bytes = origin_bytes
                 + completed_bytes
@@ -734,6 +791,35 @@ fn fmt_signed_delta(delta: isize, fmt: impl Fn(usize) -> String) -> String {
 /// 「两边完全相等」不可区分，而这两种情况的诊断含义相反。
 fn signed_gap(left: usize, right: usize) -> isize {
     left as isize - right as isize
+}
+
+/// 百分比（保留一位小数）。分母为 0 时返回 `—`：读不到总量不应显示成 `0.0%`。
+fn fmt_share(part: usize, whole: usize) -> String {
+    if whole == 0 {
+        return "—".to_string();
+    }
+    format!("{:.1}%", part as f64 * 100.0 / whole as f64)
+}
+
+/// 整数加千位分隔（`4576` → `4,576`），用于对象计数。
+fn fmt_grouped(n: usize) -> String {
+    let digits = n.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, ch) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    out
+}
+
+/// size class 尺寸列：**精确**字节数（`1280` → `1,280 B`）。
+///
+/// 不能沿用 `fmt_bytes`：1280 B 和 1024 B 都会被四舍五入成 `1 KB`，同一张表里
+/// 出现两行相同尺寸会让「哪一档吃了多少」彻底不可读。
+fn fmt_bytes_exact(bytes: usize) -> String {
+    format!("{} B", fmt_grouped(bytes))
 }
 
 fn fmt_bytes(bytes: usize) -> String {

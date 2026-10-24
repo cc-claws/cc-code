@@ -8,6 +8,7 @@
 //! - `alloc_collect()` — reclaim allocator free memory (Windows: current thread heap)
 //! - `query_stats()` — get allocator stats (RSS + allocator allocated)
 //! - `query_breakdown()` — allocated/active/resident/metadata/mapped/retained
+//! - `query_size_classes()` — per size class live object counts (fully decomposes `allocated`)
 //! - `dump_stats()` — print detailed allocator stats to tracing
 //! - `retained_metric_applicable()` — whether `retained` can be non-zero on this platform
 
@@ -43,6 +44,26 @@ pub struct AllocBreakdown {
     pub mapped: usize,
     /// 保留未归还 OS 的字节
     pub retained: usize,
+}
+
+/// 单个 size class 的存活占用（跨全部 arena 汇总）。
+///
+/// 逐 size class 求和**恒等于** `stats.allocated`（jemalloc 的 `allocated` 就是
+/// 各 arena `Σ curregs×reg_size + Σ curlextents×size`），因此这张表能把
+/// `/gc` 里「未识别」的那部分字节按**分配尺寸**直接定位，而不是只能给估算值。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SizeClassUsage {
+    /// jemalloc size class 的字节大小（已含取整，不是请求尺寸）
+    pub size: usize,
+    /// 跨全部 arena 汇总的存活对象数（large class 为存活 extent 数）
+    pub live_objects: usize,
+}
+
+impl SizeClassUsage {
+    /// 该 size class 占用的存活字节（`size × live_objects`）。
+    pub fn bytes(&self) -> usize {
+        self.size * self.live_objects
+    }
 }
 
 /// 当前平台的全局分配器名（用于 /gc 等诊断输出）。
@@ -156,6 +177,178 @@ pub fn retained_metric_applicable() -> bool {
     // Safety: `opt.retain` 是只读 bool mallctl（jemalloc 文档标注访问权限为 `r-`），
     // 名字以 NUL 结尾，`bool` 宽度与 jemalloc 的 bool 一致。
     unsafe { tikv_jemalloc_ctl::raw::read::<bool>(b"opt.retain\0").unwrap_or(true) }
+}
+
+// ── size class 分布（jemalloc only）──────────────────────────────────────────
+
+/// 栈上拼接 mallctl 键（含结尾 NUL），避免在统计路径里用 `format!`。
+///
+/// 非 Windows 上被统计的分配器**就是**本进程的全局分配器，读统计时产生的临时
+/// `String` 会立刻进入 arena 记账，让「逐 class 求和 == allocated」的验算凭空多出
+/// 几 KB 差额、把一次精确分解显示成有误差的估算。此处所有键都在固定缓冲里拼装，
+/// 统计路径不再分配。
+#[cfg(not(target_os = "windows"))]
+struct KeyBuf {
+    buf: [u8; 64],
+    len: usize,
+}
+
+#[cfg(not(target_os = "windows"))]
+impl KeyBuf {
+    fn new() -> Self {
+        KeyBuf {
+            buf: [0; 64],
+            len: 0,
+        }
+    }
+
+    /// 复用同一个缓冲拼下一个键。
+    fn reset(&mut self) {
+        self.len = 0;
+    }
+
+    fn push_str(&mut self, s: &str) {
+        assert!(self.len + s.len() < self.buf.len(), "mallctl key too long");
+        self.buf[self.len..self.len + s.len()].copy_from_slice(s.as_bytes());
+        self.len += s.len();
+    }
+
+    fn push_index(&mut self, mut idx: usize) {
+        let mut digits = [0u8; 20];
+        let mut n = 0;
+        loop {
+            digits[n] = b'0' + (idx % 10) as u8;
+            n += 1;
+            idx /= 10;
+            if idx == 0 {
+                break;
+            }
+        }
+        assert!(self.len + n < self.buf.len(), "mallctl key too long");
+        for i in (0..n).rev() {
+            self.buf[self.len] = digits[i];
+            self.len += 1;
+        }
+    }
+
+    /// 带结尾 NUL 的键字节。
+    fn key(&mut self) -> &[u8] {
+        self.buf[self.len] = 0;
+        &self.buf[..self.len + 1]
+    }
+}
+
+/// 读一个只读 `size_t` mallctl 键（入参须以 NUL 结尾）。
+#[cfg(not(target_os = "windows"))]
+fn read_mallctl_size(key: &[u8]) -> Option<usize> {
+    // Safety: 键以 NUL 结尾；本文件传入的均为只读 size_t 计数器。
+    unsafe { tikv_jemalloc_ctl::raw::read::<usize>(key).ok() }
+}
+
+/// 读取 jemalloc 每个 size class 的存活对象数（跨全部 arena 汇总）。
+///
+/// 只返回存活对象数 > 0 的 class（36 个 small bin + 196 个 large lextent 中绝大多数
+/// 恒为 0，全列只会淹没真正吃内存的几行），按字节数**降序**、同字节数按 size 升序排列。
+///
+/// 任一 size class 的尺寸读取失败时整体返回 `None`（fail-closed，与 `query_stats`
+/// 一致）；单个 arena 未初始化（mallctl 报「unknown/invalid value」）时跳过该 arena，
+/// 不视为错误。全部 arena 都读不到时返回 `None`。
+#[cfg(not(target_os = "windows"))]
+pub fn query_size_classes() -> Option<Vec<SizeClassUsage>> {
+    // `arenas.nbins` / `arenas.nlextents` 是全局 size class 元数据，
+    // `arenas.narenas` 是 arena 槽位总数（含尚未初始化的）。
+    // 注意索引名：small 是 `bins`，large 是 `lextents`——`stats.arenas.<i>.large`
+    // 只是聚合节点（allocated/nmalloc/…），按 class 的计数在 `lextents` 下。
+    // Safety: 三者都是只读 `c_uint`。
+    let (nbins, nlextents, narenas) = unsafe {
+        (
+            tikv_jemalloc_ctl::raw::read::<u32>(b"arenas.nbins\0").ok()? as usize,
+            tikv_jemalloc_ctl::raw::read::<u32>(b"arenas.nlextents\0").ok()? as usize,
+            tikv_jemalloc_ctl::raw::read::<u32>(b"arenas.narenas\0").ok()? as usize,
+        )
+    };
+    if nbins == 0 || narenas == 0 {
+        return None;
+    }
+    let total = nbins + nlextents;
+
+    // 先把所有堆分配做完，**再**推进 epoch 取快照：否则本函数自己申请的这几个
+    // Vec 会落在快照之后，使「逐 class 求和」比 stats.allocated 少掉它们。
+    let mut sizes: Vec<usize> = Vec::with_capacity(total);
+    let mut live: Vec<usize> = vec![0usize; total];
+    let mut classes: Vec<SizeClassUsage> = Vec::with_capacity(total);
+    advance_epoch();
+
+    // 尺寸表与 arena 无关，只读一次；index j 的语义：j < nbins 为 small bin，
+    // 否则为 large lextent 的第 j - nbins 个。
+    let mut kb = KeyBuf::new();
+    for j in 0..nbins {
+        kb.reset();
+        kb.push_str("arenas.bin.");
+        kb.push_index(j);
+        kb.push_str(".size");
+        sizes.push(read_mallctl_size(kb.key())?);
+    }
+    for k in 0..nlextents {
+        kb.reset();
+        kb.push_str("arenas.lextent.");
+        kb.push_index(k);
+        kb.push_str(".size");
+        sizes.push(read_mallctl_size(kb.key())?);
+    }
+
+    let mut kb = KeyBuf::new();
+    let mut initialized_arenas = 0usize;
+    for i in 0..narenas {
+        let mut arena_read = false;
+        for j in 0..nbins {
+            kb.reset();
+            kb.push_str("stats.arenas.");
+            kb.push_index(i);
+            kb.push_str(".bins.");
+            kb.push_index(j);
+            kb.push_str(".curregs");
+            if let Some(n) = read_mallctl_size(kb.key()) {
+                live[j] += n;
+                arena_read = true;
+            }
+        }
+        for k in 0..nlextents {
+            kb.reset();
+            kb.push_str("stats.arenas.");
+            kb.push_index(i);
+            kb.push_str(".lextents.");
+            kb.push_index(k);
+            kb.push_str(".curlextents");
+            if let Some(n) = read_mallctl_size(kb.key()) {
+                live[nbins + k] += n;
+                arena_read = true;
+            }
+        }
+        if arena_read {
+            initialized_arenas += 1;
+        }
+    }
+    if initialized_arenas == 0 {
+        return None;
+    }
+
+    classes.extend(
+        sizes
+            .iter()
+            .copied()
+            .zip(live.iter().copied())
+            .filter(|&(size, objects)| objects > 0 && size > 0)
+            .map(|(size, live_objects)| SizeClassUsage { size, live_objects }),
+    );
+    classes.sort_by(|a, b| b.bytes().cmp(&a.bytes()).then(a.size.cmp(&b.size)));
+    Some(classes)
+}
+
+/// Windows（mimalloc）没有 jemalloc 的 size class 计数接口，不提供该表。
+#[cfg(target_os = "windows")]
+pub fn query_size_classes() -> Option<Vec<SizeClassUsage>> {
+    None
 }
 
 // ── Windows (mimalloc) ─────────────────────────────────────────────────────
