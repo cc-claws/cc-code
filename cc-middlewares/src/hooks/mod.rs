@@ -1,4 +1,5 @@
 pub mod executor;
+pub mod http_health;
 pub mod loader;
 pub mod matcher;
 pub mod middleware;

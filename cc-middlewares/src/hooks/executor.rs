@@ -236,6 +236,16 @@ pub async fn execute_http_hook(hook: &HookType, input: &HookInput) -> HookAction
         };
     }
 
+    let health = crate::hooks::http_health::http_health_for(url);
+    if health.is_open() {
+        tracing::debug!(
+            "HTTP hook skipped because endpoint circuit breaker is open (cooling down {}s): {}",
+            crate::hooks::http_health::CIRCUIT_OPEN_SECS,
+            url
+        );
+        return HookAction::Allow;
+    }
+
     let input_json = match serde_json::to_string(input) {
         Ok(json) => json,
         Err(e) => {
@@ -264,6 +274,7 @@ pub async fn execute_http_hook(hook: &HookType, input: &HookInput) -> HookAction
     }
 
     let client = match reqwest::Client::builder()
+        .connect_timeout(crate::hooks::http_health::connect_timeout())
         .timeout(Duration::from_secs(timeout_secs))
         .build()
     {
@@ -286,6 +297,20 @@ pub async fn execute_http_hook(hook: &HookType, input: &HookInput) -> HookAction
             let body = response.text().await.unwrap_or_default();
 
             if !status.is_success() {
+                // 5xx 视为端点性故障（服务不可用），触发端点熔断。
+                // 4xx（含 404）是请求/配置层面的确定性错误，重试无益，
+                // 但不代表端点不可达，也不该阻断同一端点上的其它 hook。
+                if status.is_server_error() {
+                    let tripped = health.trip();
+                    if tripped {
+                        tracing::warn!(
+                            "HTTP hook returned server error {}, tripping circuit breaker for {}s: url={}",
+                            status,
+                            crate::hooks::http_health::CIRCUIT_OPEN_SECS,
+                            url
+                        );
+                    }
+                }
                 tracing::warn!(
                     "HTTP hook returned non-success status {}: {}",
                     status,
@@ -298,10 +323,25 @@ pub async fn execute_http_hook(hook: &HookType, input: &HookInput) -> HookAction
                 return HookAction::Allow;
             }
 
+            health.reset();
             parse_http_hook_response(&body)
         }
         Err(e) => {
-            tracing::warn!("HTTP hook request failed: {}", e);
+            let tripped = health.trip();
+            if tripped {
+                tracing::warn!(
+                    "HTTP hook request failed, tripping circuit breaker for {}s: url={}, error={}",
+                    crate::hooks::http_health::CIRCUIT_OPEN_SECS,
+                    url,
+                    e
+                );
+            } else {
+                tracing::debug!(
+                    "HTTP hook request failed (already tripped): url={}, error={}",
+                    url,
+                    e
+                );
+            }
             HookAction::Allow
         }
     }

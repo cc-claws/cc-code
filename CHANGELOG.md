@@ -6,6 +6,10 @@ Perihelion Agent 版本变更记录。
 
 ## Unreleased
 
+### Fixes
+
+- **HTTP Hook 连接失败不再拖死主流程**：`execute_http_hook` 原先把配置里的 `timeout`（如 `PermissionRequest` 的 600 秒）直接塞给 `reqwest::Client` 的全局超时，且没有单独的连接超时——审批服务端口未监听时不会立刻 `ECONNREFUSED`，而是挂在 TCP 握手上直到数百秒后才失败，表现为「写文件偶发卡死」。现在把 `connect_timeout` 与业务超时拆开：连接阶段默认 800ms 硬超时（`HTTP_HOOK_CONNECT_TIMEOUT_MS` 可覆盖），只有连接建立后才按配置的超时等待人类决策；新增端点级熔断器（`hooks/http_health.rs`，按 `scheme://host:port` 分桶、进程内共享、300 秒冷却），连接失败或 5xx 时打开熔断，冷却期内该端点的后续 hook 直接 0 延迟放行，不再重复撞墙；请求成功即复位。5xx 视为端点性故障触发熔断，4xx 只记警告（请求/配置层面的确定性错误，重试无益但不代表端点不可达）。
+
 ## v0.6.186 — 2026-10-23
 
 ### Fixes
