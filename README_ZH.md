@@ -103,6 +103,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **`/gc` 按 size class 分解 allocated** | v0.6.188 | `/gc` 现在按分配尺寸分解 `allocated`，不再只留一坨「未识别」字节。它读 jemalloc 各 arena 的 bin / large class 计数器，打印 Top 12 个 size class（存活对象数、字节、占比）与覆盖率校验行。逐 class 求和精确复现 `stats.allocated`，所以这些是真实存活分配——包含估算看不到的 SyntaxSet/ThemeSet、编译正则、tokio/ACP 缓冲——不是估算值。mallctl 键在栈上拼装、查询自身的缓冲在 epoch 快照之前分配好，因为在 jemalloc 作全局分配器时被测量的分配器就是这个进程的分配器：用 `format!` 拼约 4000 个键会让覆盖率在 24.6 MB 上偏出 29,696 B。尺寸列用精确字节数（`1,280 B`），否则 `fmt_bytes` 会把 1024 B 和 1280 B 都渲染成 `1 KB`。Windows 上整段跳过（#716）。 |
 | **Bash 状态行不再断档** | v0.6.186 | 工具块从「排队/等待审批」进入「执行中」时，状态行曾整段消失约 2 秒（上一分支已退出、执行中分支未满 2 秒尚未进入），界面只剩工具头。现执行一开始即显示 `Running…` 占住状态行，耗时秒数与 `ctrl+b` 提示仍保持 2 秒后出现，短命令不因计时刷屏；同步修正渲染线程的跨阈值重建判定，避免裸 `Running…` 让「是否已有状态行」恒为真而使秒数与提示永不出现。排队与审批阶段的 `●` 恢复常亮（仅执行中闪烁）——排队不是「活跃」，等待语义由 `Waiting…` 文案承载（#706）。 |
 | **工具指示器同频闪烁与状态栏优化** | v0.6.185 | 统一未完成工具指示器闪烁频率（`ToolCallStatus::Pending` 与 `Running` 共享 800ms 亮 / 800ms 灭的呼吸周期，只要呈灰色未完成状态即全局同频同相位闪烁，同时打通渲染线程心跳与增量刷新管线，消除 Waiting 状态下的错位与不闪，#698）；状态栏在无活跃 Agent 时不再显示 `· ← 0 agents`（#696）；独立纯动作行首字母大写（如 `Read 1 file`，#694）；中断结果行移除重复 ✗ 符号并统一大写 `Interrupted by user`（#692）。 |
 | **Bash 实时输出、排队与审批状态** | v0.6.184 | Bash 工具块区分排队、等待审批、运行与完成。运行两秒后显示最后五个视觉行、耗时、显式 timeout 与输出字节数；Ctrl+O 展开最多 64 KiB 的保留尾部。实时输出默认启用，可通过 `config.tool_output_streaming` 关闭；主 Agent 与子 Agent 调用相互隔离（#675）。 |
@@ -112,8 +113,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **npm 二进制改由平台可选依赖分发** | v0.6.179 | `@cc-claw/code` 主包不再用安装脚本下载二进制：二进制拆成五个平台包（`@cc-claw/code-win32-x64`、`-darwin-x64`、`-darwin-arm64`、`-linux-x64`、`-linux-arm64`），经 `optionalDependencies` 按宿主 `os`/`cpu` 只装对应一个，安装期不再执行 postinstall 脚本；`bin/cc-code` 启动器从平台包内定位并拉起二进制（#678）。 |
 | **消息区 Markdown 链接输出 OSC 8 超链接** | v0.6.178 | 消息区 Markdown 链接现输出 OSC 8 转义序列，支持的终端（Windows Terminal、iTerm2、WezTerm、kitty 等）可悬停提示、Ctrl/Cmd+点击打开，不再是点不动的纯文本 URL。序列不参与布局与折行计算，URL 内的控制字符会被剥离，避免恶意链接提前终止序列（#671）。 |
 | **`.md` 预览不再着色** | v0.6.177 | Write 与 Edit 预览不再给 `.md` 内容上色。参考实现虽把 `md` 识别为 markdown，但其主题 scope 表没有 highlight.js 产出的 `section` / `strong` 映射，实际渲染输出与纯文本逐字节相同；cc-code 此前用 syntect 的 Markdown 语法，标题与粗体会明显染色。现从高亮白名单移除 markdown 扩展名，回退纯文本，与参考实现观感一致。 |
-| **Markdown 渲染全面对齐参考实现** | v0.6.176 | 标题、列表、引用、分隔线、行内代码与表格逐项对齐参考实现：H1 为加粗+斜体+下划线，H2 及以下仅加粗，且标题不带前景色；无序列表统一 `- `，有序列表按嵌套深度在数字/字母/罗马数字间切换；引用条 DIM、正文斜体；行内代码改用主题 `permission` 色。表格改为 参考实现的框线布局（每行之间补分隔线、表头居中），过宽时回退纵向键值渲染；一致性由 126 例金标准对拍基线锁定（#666）。 |
-> 更早版本（v0.6.0 – v0.6.175）见 [CHANGELOG](./CHANGELOG.md)。
+> 更早版本（v0.6.0 – v0.6.176）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---
 
