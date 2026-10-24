@@ -6,6 +6,10 @@ Perihelion Agent 版本变更记录。
 
 ## Unreleased
 
+### Features
+
+- **`/gc` 按 size class 分解 allocated（#716）**：`/gc` 此前只报 allocated 总量与一条「已知合计估算」，差额一律归入「未识别」，看不出那些字节是几块大缓冲还是几万个中小对象。现新增 size class 段落：读 jemalloc 的 `arenas.nbins` / `arenas.nlextents` / `arenas.narenas`，逐 class 汇总全部 arena 的 `stats.arenas.<i>.bins.<j>.curregs` 与 `stats.arenas.<i>.lextents.<k>.curlextents`，打印 Top 12 + 其余合计 + 覆盖率校验行（`尺寸 × 存活对象数 = 字节`，占比以 allocated 为分母）。jemalloc 的 `allocated` 本身就是 `Σ curregs×reg_size + Σ curlextents×size`，逐 class 求和恒等于它，因此这张表是**精确分解**而非估算，能覆盖旧估算看不到的 SyntaxSet/ThemeSet、编译正则、tokio/ACP 缓冲等。两个实现要点：large class 的计数节点是 `lextents` 而不是 `large`（后者只有 allocated/nmalloc 等聚合字段，按 `large` 拼键会静默读到 0）；统计路径不许有堆分配——非 Windows 上被统计的分配器就是本进程的全局分配器，用 `format!` 拼约 4000 个 mallctl 键产生的临时 `String` 会立刻进入 arena 记账，实测让覆盖率凭空差 29,696 B（24.6 MB 上 0.12%），改用栈上键缓冲并把本函数的 `Vec` 全部提前到 epoch 快照之前分配后差额归零。尺寸列用精确字节数（`1,280 B`），因为 `fmt_bytes` 会把 1024 B 与 1280 B 都渲染成 `1 KB`。Windows（mimalloc）无对应接口，整段跳过而不打印空表。
+
 ### Fixes
 
 - **HTTP Hook 连接失败不再拖死主流程**：`execute_http_hook` 原先把配置里的 `timeout`（如 `PermissionRequest` 的 600 秒）直接塞给 `reqwest::Client` 的全局超时，且没有单独的连接超时——审批服务端口未监听时不会立刻 `ECONNREFUSED`，而是挂在 TCP 握手上直到数百秒后才失败，表现为「写文件偶发卡死」。现在把 `connect_timeout` 与业务超时拆开：连接阶段默认 800ms 硬超时（`HTTP_HOOK_CONNECT_TIMEOUT_MS` 可覆盖），只有连接建立后才按配置的超时等待人类决策；新增端点级熔断器（`hooks/http_health.rs`，按 `scheme://host:port` 分桶、进程内共享、300 秒冷却），连接失败或 5xx 时打开熔断，冷却期内该端点的后续 hook 直接 0 延迟放行，不再重复撞墙；请求成功即复位。5xx 视为端点性故障触发熔断，4xx 只记警告（请求/配置层面的确定性错误，重试无益但不代表端点不可达）。

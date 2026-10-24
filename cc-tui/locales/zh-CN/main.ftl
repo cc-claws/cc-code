@@ -550,6 +550,11 @@ cmd-gc-fragmentation-mimalloc = 碎片: active-allocated={ $fragmentation } （�
 cmd-gc-fragmentation = 碎片: active-allocated={ $fragmentation } | resident-active={ $waste }
 cmd-gc-os-gap = OS RSS({ $rss }) - { $allocator } resident({ $resident }) = { $gap }
 cmd-gc-os-gap-inverted = { "  " }resident 大于内核 RSS：分配器仍计入内核已不再为该进程统计的页（如已 madvise 归还的页），两个读数不可直接比较，负值不代表内存占用下降
+cmd-gc-size-classes-heading = ── jemalloc size class 分布（allocated 按分配尺寸分解）──
+cmd-gc-size-class-row = { "  " }{ $size } × { $objects } = { $bytes }（{ $share }）
+cmd-gc-size-class-rest = { "  " }… 其余 { $classes } 个 size class = { $bytes }（{ $share }）
+cmd-gc-size-class-coverage = { "  " }size class 合计 { $covered }，allocated { $allocated }（覆盖率 { $share }，差 { $gap }）
+cmd-gc-size-class-note = { "  " }与下方估算不同，本表不是估算：每一行都直接来自分配器自身的计数器，求和即 stats.allocated（上一行覆盖率若有差额，是两次读数之间真实发生的分配，不是估算误差）。因此它覆盖了估算看不到的部分——SyntaxSet/ThemeSet、编译正则、tokio/ACP 缓冲等。
 cmd-gc-full-stats-heading = ── { $allocator } 全量统计（见日志）──
 cmd-gc-known-estimate = 已知合计估算: { $known } (消息 { $messages } + VM { $views } + Markdown 缓存 { $markdown } + 渲染缓存 { $render } + diff 缓存 { $diff }) | allocated 内未识别估算: { $gap }
 cmd-gc-known-estimate-overflow = { "  " }估算合计超过 allocated：各估算项互相重叠（同一份渲染结果可能既被 VM 持有又被 Markdown 缓存克隆），且按容器 capacity 估算含冗余，因此超出属估算口径所致，不代表 allocated 少算

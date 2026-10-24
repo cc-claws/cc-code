@@ -551,6 +551,11 @@ cmd-gc-fragmentation-mimalloc = Fragmentation: active-allocated={ $fragmentation
 cmd-gc-fragmentation = Fragmentation: active-allocated={ $fragmentation } | resident-active={ $waste }
 cmd-gc-os-gap = OS RSS({ $rss }) - { $allocator } resident({ $resident }) = { $gap }
 cmd-gc-os-gap-inverted = { "  " }resident is larger than kernel RSS: the allocator still counts pages the kernel no longer reports for this process (e.g. pages already madvised away), so the two figures are not directly comparable — a negative value is not evidence that memory use dropped
+cmd-gc-size-classes-heading = ── jemalloc size classes (allocated decomposed by allocation size) ──
+cmd-gc-size-class-row = { "  " }{ $size } × { $objects } = { $bytes } ({ $share })
+cmd-gc-size-class-rest = { "  " }… remaining { $classes } size classes = { $bytes } ({ $share })
+cmd-gc-size-class-coverage = { "  " }size classes total { $covered } vs allocated { $allocated } (coverage { $share }, difference { $gap })
+cmd-gc-size-class-note = { "  " }Unlike the estimates below, this table is not an estimate: every row comes straight from the allocator's own counters and summing them reproduces stats.allocated (a difference on the coverage line above is real allocation happening between the two readings, not estimation error). It therefore covers what the estimates cannot see — SyntaxSet/ThemeSet, compiled regular expressions, tokio/ACP buffers, …
 cmd-gc-full-stats-heading = ── { $allocator } full statistics (see logs) ──
 cmd-gc-known-estimate = Estimated known total: { $known } (messages { $messages } + VMs { $views } + Markdown cache { $markdown } + render cache { $render } + diff caches { $diff }) | estimated unidentified memory within allocated: { $gap }
 cmd-gc-known-estimate-overflow = { "  " }The estimate exceeds allocated: items overlap (the same rendered result can be held by a view model and cloned into the markdown cache) and are estimated from container capacity, so an excess is expected at the estimate level and does not mean allocated is under-counted
