@@ -147,3 +147,24 @@ fn test_clear_owned_area_at_terminal_bottom_does_not_scroll() {
     assert_eq!(output, b"\x1b[24;1H\x1b[2K\x1b[24;1H");
     assert!(!output.contains(&b'\n'), "末行清理不能引起原生滚动");
 }
+
+#[test]
+fn test_owned_clear_area_starts_at_recorded_top_without_reflow() {
+    let owned = (12u32 << 16) | 24u32;
+    assert_eq!(owned_clear_area(owned, false), Some(Rect::new(0, 12, 1, 12)));
+}
+
+#[test]
+fn test_owned_clear_area_starts_at_screen_top_after_reflow() {
+    // 宿主重排把旧帧搬到了记录起点之上，只清 12..24 会留下顶部边框。
+    let owned = (12u32 << 16) | 24u32;
+    assert_eq!(owned_clear_area(owned, true), Some(Rect::new(0, 0, 1, 24)));
+}
+
+#[test]
+fn test_owned_clear_area_ignores_missing_or_empty_record() {
+    assert_eq!(owned_clear_area(0, false), None);
+    assert_eq!(owned_clear_area(0, true), None);
+    let empty = (12u32 << 16) | 12u32;
+    assert_eq!(owned_clear_area(empty, true), None);
+}
