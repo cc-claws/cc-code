@@ -1,5 +1,6 @@
 use super::*;
 use crate::ui::message_view::MessageViewModel;
+use ratatui::style::Modifier;
 use unicode_segmentation::UnicodeSegmentation;
 
 fn make_image_paths() -> Vec<(usize, PathBuf)> {
@@ -37,10 +38,18 @@ fn test_image_reference_link_matches_label_and_body_line_offset() {
         links[0].url.contains("image%20one.png"),
         "空格必须由 URL 库编码"
     );
-    assert!(lines[2].spans[1]
-        .style
-        .add_modifier
-        .contains(Modifier::UNDERLINED));
+    assert_eq!(
+        lines[2].spans[1].style.fg,
+        Some(crate::ui::theme::cur().text),
+        "附件行用正文前景色，不是 inactive 灰"
+    );
+    assert!(
+        !lines[2].spans[1]
+            .style
+            .add_modifier
+            .contains(Modifier::UNDERLINED),
+        "不再人工加下划线（参考实现同样不加）"
+    );
     assert!(
         lines[2].spans.iter().all(|span| span.style.bg.is_none()),
         "附件行不得继承用户气泡底色"
