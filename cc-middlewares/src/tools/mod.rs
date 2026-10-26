@@ -2,11 +2,13 @@ pub mod ask_user_tool;
 pub mod filesystem;
 pub mod output_filter;
 pub mod output_persist;
+pub mod skill;
 pub mod todo;
 
 pub use ask_user_tool::AskUserTool;
 pub use filesystem::{EditFileTool, GlobFilesTool, GrepTool, ReadFileTool, WriteFileTool};
 pub use output_filter::{filter_command_output, filter_git_status, strip_ansi};
+pub use skill::SkillTool;
 pub use todo::{TodoItem, TodoStatus, TodoWriteTool};
 
 #[cfg(test)]

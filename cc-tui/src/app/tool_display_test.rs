@@ -9,6 +9,45 @@ fn test_format_tool_name_new_names() {
     assert_eq!(format_tool_name("TodoWrite"), "Todo");
     assert_eq!(format_tool_name("AskUserQuestion"), "Ask");
     assert_eq!(format_tool_name("Agent"), "Agent");
+    assert_eq!(format_tool_name("Skill"), "Skill");
+    assert_eq!(format_tool_name_for_stats("Skill"), "Skill");
+}
+
+#[test]
+fn test_format_tool_args_skill_only_shows_name() {
+    let input = serde_json::json!({"skill": "commit", "args": "-m \"fix 中文\""});
+    assert_eq!(
+        format_tool_args("Skill", &input, None).as_deref(),
+        Some("commit"),
+        "对齐 CC：技能工具头仅展示名称，参数不进入摘要"
+    );
+    let input = serde_json::json!({"skill": "example-skill", "args": "  "});
+    assert_eq!(
+        format_tool_args("Skill", &input, None).as_deref(),
+        Some("example-skill"),
+        "空白参数不应留下多余分隔符"
+    );
+    assert_eq!(
+        format_tool_args("Skill", &serde_json::json!({"args": "orphan"}), None),
+        None,
+        "缺少技能名时不应把 args 误认为名称"
+    );
+}
+
+#[test]
+fn test_format_tool_args_skill_sanitizes_and_truncates_unicode() {
+    let input = serde_json::json!({
+        "skill": format!("查询技能 \u{1b}[31m{}\n参数", "中文".repeat(TOOL_ARGS_MAX_CHARS)),
+        "args": "参数不会显示"
+    });
+    let result = format_tool_args("Skill", &input, None).expect("应生成技能摘要");
+    assert!(result.starts_with("查询技能 中文"), "应保留完整中文字符");
+    assert!(result.ends_with('…'), "超长参数应以省略号闭合");
+    assert!(
+        !result.contains('\u{1b}') && !result.contains('\n'),
+        "终端控制序列不能进入摘要"
+    );
+    assert_eq!(result.chars().count(), TOOL_ARGS_MAX_CHARS + 1);
 }
 
 #[test]
@@ -212,11 +251,19 @@ fn test_read_fallback_to_path_alias() {
     // 无 cwd 时 CC `getDisplayPath` 保留绝对路径，不再退化成 basename
     let input = serde_json::json!({"path": "/tmp/test.txt"});
     let result = format_tool_args("Write", &input, None);
-    assert_eq!(result.as_deref(), Some("/tmp/test.txt"), "Write 也应回退到 path");
+    assert_eq!(
+        result.as_deref(),
+        Some("/tmp/test.txt"),
+        "Write 也应回退到 path"
+    );
 
     let input = serde_json::json!({"path": "/tmp/edit.rs"});
     let result = format_tool_args("Edit", &input, None);
-    assert_eq!(result.as_deref(), Some("/tmp/edit.rs"), "Edit 也应回退到 path");
+    assert_eq!(
+        result.as_deref(),
+        Some("/tmp/edit.rs"),
+        "Edit 也应回退到 path"
+    );
 }
 
 #[test]
@@ -456,8 +503,8 @@ fn test_build_diff_input_write_existing_file_uses_old_content() {
         "content": "line1\nline2 changed\n"
     });
     cache_write_old_content("tc-write-update", Some("line1\nline2\n".into()));
-    let di =
-        build_diff_input("Write", &input, Some(cwd), Some("tc-write-update")).expect("应构造 DiffInput");
+    let di = build_diff_input("Write", &input, Some(cwd), Some("tc-write-update"))
+        .expect("应构造 DiffInput");
     assert!(!di.is_new_file, "覆盖已有文件应按 update 渲染");
     assert_eq!(di.old_content, "line1\nline2\n");
     assert_eq!(di.new_content, "line1\nline2 changed\n");
@@ -470,8 +517,8 @@ fn test_build_diff_input_write_new_file_stays_create() {
     let cwd = dir.path().to_str().unwrap();
     let input = serde_json::json!({"file_path": "new.txt", "content": "hello\n"});
     cache_write_old_content("tc-write-create", None);
-    let di =
-        build_diff_input("Write", &input, Some(cwd), Some("tc-write-create")).expect("应构造 DiffInput");
+    let di = build_diff_input("Write", &input, Some(cwd), Some("tc-write-create"))
+        .expect("应构造 DiffInput");
     assert!(di.is_new_file, "文件原本不存在应按 create 渲染");
     assert!(di.old_content.is_empty());
 }

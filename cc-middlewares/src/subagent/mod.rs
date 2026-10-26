@@ -35,6 +35,9 @@ pub struct InheritedInstructions {
 pub(crate) struct SubAgentMiddlewareConfig {
     /// 需要预加载的 skill 名称列表，为空时跳过 SkillPreloadMiddleware
     pub skill_names: Vec<String>,
+    /// 与主 Agent 一致的插件技能目录。
+    pub extra_skill_dirs: Vec<PathBuf>,
+    pub skill_tool: Option<crate::tools::SkillTool>,
     /// 工作目录，用于解析 skill 文件路径
     pub cwd: String,
     /// 父 Agent 的冻结指引（**含父 cwd**；仅当子 Agent cwd 与之一致时才套用）。
@@ -58,6 +61,8 @@ impl SubAgentMiddlewareConfig {
     pub fn for_fork(cwd: &str) -> Self {
         Self {
             skill_names: Vec::new(),
+            extra_skill_dirs: Vec::new(),
+            skill_tool: None,
             cwd: cwd.to_string(),
             inherited_instructions: None,
             instruction_config: None,
@@ -74,6 +79,8 @@ impl SubAgentMiddlewareConfig {
     pub fn for_agent_def(skills: Vec<String>, cwd: &str) -> Self {
         Self {
             skill_names: skills,
+            extra_skill_dirs: Vec::new(),
+            skill_tool: None,
             cwd: cwd.to_string(),
             inherited_instructions: None,
             instruction_config: None,
@@ -174,6 +181,7 @@ pub struct SubAgentMiddleware {
     /// 父 Agent 的冻结指引（含父 cwd），透传给子 Agent 链（见 `SubAgentMiddlewareConfig`）。
     /// `None` = 子 Agent 自行读盘（会话中途改文件会让其 prompt 前缀抖动 → #360）。
     inherited_instructions: Option<InheritedInstructions>,
+    extra_skill_dirs: Vec<PathBuf>,
     permissions: Arc<crate::hitl::HumanInTheLoopMiddleware>,
 }
 
@@ -204,6 +212,7 @@ impl SubAgentMiddleware {
             register_runtime: None,
             deregister_runtime: None,
             inherited_instructions: None,
+            extra_skill_dirs: Vec::new(),
             permissions: Arc::new(crate::hitl::HumanInTheLoopMiddleware::subagent_default()),
         }
     }
@@ -318,6 +327,11 @@ impl SubAgentMiddleware {
         self
     }
 
+    pub fn with_extra_skill_dirs(mut self, dirs: Vec<PathBuf>) -> Self {
+        self.extra_skill_dirs = dirs;
+        self
+    }
+
     /// Build SubAgentTool instance (clone Arc fields, do not transfer ownership)
     pub fn build_tool(&self, cwd: &str) -> SubAgentTool {
         let mut tool = SubAgentTool::new(
@@ -327,6 +341,7 @@ impl SubAgentMiddleware {
             cwd.to_string(),
         );
         tool = tool.with_permissions(Arc::clone(&self.permissions));
+        tool = tool.with_extra_skill_dirs(self.extra_skill_dirs.clone());
         if let Some(ref builder) = self.system_builder {
             tool = tool.with_system_builder(Arc::clone(builder));
         }

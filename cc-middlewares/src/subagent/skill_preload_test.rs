@@ -1,324 +1,306 @@
-    fn write_skill(dir: &std::path::Path, name: &str, desc: &str) {
-        let skill_dir = dir.join(name);
-        std::fs::create_dir_all(&skill_dir).unwrap();
-        let content = format!(
-            "---\nname: '{}'\ndescription: '{}'\n---\n\n# {}\n\nSkill content for {}.\n",
-            name, desc, name, name
-        );
-        std::fs::write(skill_dir.join("SKILL.md"), content).unwrap();
+use super::*;
+use cc_agent::agent::state::AgentState;
+use serde_json::json;
+use std::path::Path;
+
+fn make_skill(directory: &Path, name: &str, body: &str, extra: &str) {
+    let skill_directory = directory.join(name.replace(':', "-"));
+    std::fs::create_dir_all(&skill_directory).unwrap();
+    let content = format!("---\nname: '{name}'\ndescription: '测试技能'\n{extra}---\n\n{body}\n");
+    std::fs::write(skill_directory.join("SKILL.md"), content).unwrap();
+}
+
+fn make_middleware(names: &[&str], directory: &Path) -> SkillPreloadMiddleware {
+    SkillPreloadMiddleware::new(
+        names.iter().map(|name| name.to_string()).collect(),
+        &directory.to_string_lossy(),
+    )
+    .with_skill_tool(SkillTool::new(vec![directory.to_path_buf()]))
+}
+
+fn make_state(directory: &Path, input: Option<&str>) -> AgentState {
+    let mut state = AgentState::new(directory.to_string_lossy().as_ref());
+    if let Some(input) = input {
+        state.add_message(BaseMessage::human(input));
     }
+    state
+}
 
-    #[tokio::test]
-    async fn test_no_op_when_empty_names() {
-        // Arrange
-        let dir = tempdir().unwrap();
-        let mw = SkillPreloadMiddleware::new(vec![], dir.path().to_str().unwrap());
-        let mut state = AgentState::new(dir.path().to_str().unwrap());
+fn make_payload(message: &BaseMessage) -> serde_json::Value {
+    serde_json::from_str(skill_invocation_payload(&message.content()).unwrap()).unwrap()
+}
 
-        // Act
-        mw.before_agent(&mut state).await.unwrap();
+#[test]
+fn test_skill_name_from_token_handles_namespace_and_multiple_tokens() {
+    assert_eq!(skill_name_from_token("/plugin:review"), Some("plugin:review"));
+    assert_eq!(skill_name_from_token("/fix-issue"), Some("fix-issue"));
+    assert_eq!(skill_name_from_token("/api.guide"), Some("api.guide"));
+}
 
-        // Assert
-        assert_eq!(state.messages().len(), 0);
-    }
+#[test]
+fn test_skill_name_from_token_rejects_paths_and_incomplete_tokens() {
+    assert!(skill_name_from_token("/").is_none(), "空 token 不应被当作技能");
+    assert!(skill_name_from_token("/foo/bar").is_none(), "目录路径不应被当作技能");
+    assert!(skill_name_from_token("/review?").is_none(), "不完整指令不应被当作技能");
+    assert!(skill_name_from_token("https://example.com").is_none(), "网址不应被当作技能");
+}
 
-    #[tokio::test]
-    async fn test_inject_single_skill() {
-        // Arrange
-        let dir = tempdir().unwrap();
-        let skills_dir = dir.path().join(".claude").join("skills");
-        std::fs::create_dir_all(&skills_dir).unwrap();
-        write_skill(&skills_dir, "api-guide", "API 开发指南");
+#[tokio::test]
+async fn test_preload_without_user_input_or_explicit_names_is_noop() {
+    let directory = tempfile::tempdir().unwrap();
+    let middleware = make_middleware(&[], directory.path());
+    let mut state = make_state(directory.path(), None);
+    let result = middleware.before_agent(&mut state).await;
+    assert!(result.is_ok());
+    assert!(state.messages().is_empty());
+}
 
-        let mw = SkillPreloadMiddleware::new(
-            vec!["api-guide".to_string()],
-            dir.path().to_str().unwrap(),
-        );
-        let mut state = AgentState::new(dir.path().to_str().unwrap());
+#[tokio::test]
+async fn test_preload_explicit_skill_adds_only_human_metadata() {
+    let directory = tempfile::tempdir().unwrap();
+    make_skill(directory.path(), "review", "完整审查规则", "");
+    let middleware = make_middleware(&["review"], directory.path());
+    let mut state = make_state(directory.path(), None);
+    let result = middleware.before_agent(&mut state).await;
+    assert!(result.is_ok());
+    assert_eq!(state.messages().len(), 1);
+    assert!(matches!(state.messages()[0], BaseMessage::Human { .. }));
+    assert!(!state.messages()[0].has_tool_calls());
+    let payload = make_payload(&state.messages()[0]);
+    assert_eq!(payload["commandName"], "review");
+    assert_eq!(payload["success"], true);
+    assert_eq!(payload["display"], true);
+    assert!(payload["instruction"]
+        .as_str()
+        .is_some_and(|body| body.contains("完整审查规则")));
+}
 
-        // Act
-        mw.before_agent(&mut state).await.unwrap();
+#[tokio::test]
+async fn test_preload_preserves_user_message_and_appends_in_requested_order() {
+    let directory = tempfile::tempdir().unwrap();
+    make_skill(directory.path(), "first", "第一项", "");
+    make_skill(directory.path(), "second", "第二项", "");
+    let middleware = make_middleware(&["second", "first"], directory.path());
+    let mut state = make_state(directory.path(), Some("执行预配置技能"));
+    let original_id = state.messages()[0].id();
+    let result = middleware.before_agent(&mut state).await;
+    assert!(result.is_ok());
+    assert_eq!(state.messages().len(), 3);
+    assert_eq!(state.messages()[0].id(), original_id);
+    assert_eq!(make_payload(&state.messages()[1])["commandName"], "second");
+    assert_eq!(make_payload(&state.messages()[2])["commandName"], "first");
+    assert!(state
+        .messages()
+        .iter()
+        .all(|message| matches!(message, BaseMessage::Human { .. })));
+}
 
-        // Assert: Ai + Tool = 2 条消息
-        assert_eq!(state.messages().len(), 2, "应注入 2 条消息（Ai + Tool）");
-        assert!(
-            matches!(&state.messages()[0], BaseMessage::Ai { .. }),
-            "第一条应为 Ai"
-        );
-        assert!(
-            matches!(&state.messages()[1], BaseMessage::Tool { .. }),
-            "第二条应为 Tool"
-        );
-    }
+#[tokio::test]
+async fn test_preload_slash_preserves_quoted_unicode_arguments() {
+    let directory = tempfile::tempdir().unwrap();
+    make_skill(directory.path(), "review", "参数：$ARGUMENTS", "");
+    let middleware = make_middleware(&[], directory.path());
+    let mut state = make_state(directory.path(), Some("/review 中文  \"two words\" --flag"));
+    let result = middleware.before_agent(&mut state).await;
+    assert!(result.is_ok());
+    assert_eq!(state.messages().len(), 2);
+    let payload = make_payload(&state.messages()[1]);
+    assert_eq!(payload["args"], "中文  \"two words\" --flag");
+    assert!(payload["instruction"]
+        .as_str()
+        .is_some_and(|body| body.contains("中文  \"two words\" --flag")));
+}
 
-    #[tokio::test]
-    async fn test_inject_multiple_skills() {
-        // Arrange
-        let dir = tempdir().unwrap();
-        let skills_dir = dir.path().join(".claude").join("skills");
-        std::fs::create_dir_all(&skills_dir).unwrap();
-        write_skill(&skills_dir, "skill-a", "技能 A");
-        write_skill(&skills_dir, "skill-b", "技能 B");
-        write_skill(&skills_dir, "skill-c", "技能 C");
+#[tokio::test]
+async fn test_preload_multiple_slashes_split_arguments_at_known_skill_tokens() {
+    let directory = tempfile::tempdir().unwrap();
+    make_skill(directory.path(), "first", "$ARGUMENTS", "");
+    make_skill(directory.path(), "second", "$ARGUMENTS", "");
+    let middleware = make_middleware(&[], directory.path());
+    let mut state = make_state(directory.path(), Some("/first one two /second 三 四"));
+    let result = middleware.before_agent(&mut state).await;
+    assert!(result.is_ok());
+    assert_eq!(state.messages().len(), 3);
+    assert_eq!(make_payload(&state.messages()[1])["args"], "one two");
+    assert_eq!(make_payload(&state.messages()[2])["args"], "三 四");
+}
 
-        let mw = SkillPreloadMiddleware::new(
-            vec![
-                "skill-a".to_string(),
-                "skill-b".to_string(),
-                "skill-c".to_string(),
-            ],
-            dir.path().to_str().unwrap(),
-        );
-        let mut state = AgentState::new(dir.path().to_str().unwrap());
+#[tokio::test]
+async fn test_preload_quoted_skill_token_remains_an_argument() {
+    let directory = tempfile::tempdir().unwrap();
+    make_skill(directory.path(), "first", "$ARGUMENTS", "");
+    make_skill(directory.path(), "second", "不应加载", "");
+    let middleware = make_middleware(&[], directory.path());
+    let mut state = make_state(directory.path(), Some("/first \"literal /second value\""));
+    let result = middleware.before_agent(&mut state).await;
+    assert!(result.is_ok());
+    assert_eq!(state.messages().len(), 2, "引号中的技能 token 只是参数");
+    assert_eq!(
+        make_payload(&state.messages()[1])["args"],
+        "\"literal /second value\""
+    );
+}
 
-        // Act
-        mw.before_agent(&mut state).await.unwrap();
+#[tokio::test]
+async fn test_preload_slash_in_sentence_remains_supported() {
+    let directory = tempfile::tempdir().unwrap();
+    make_skill(directory.path(), "review", "$ARGUMENTS", "");
+    let middleware = make_middleware(&[], directory.path());
+    let mut state = make_state(directory.path(), Some("帮我用 /review 调试这个问题"));
+    let result = middleware.before_agent(&mut state).await;
+    assert!(result.is_ok());
+    assert_eq!(state.messages().len(), 2);
+    assert_eq!(make_payload(&state.messages()[1])["args"], "调试这个问题");
+}
 
-        // Assert: Ai + Tool × 3 = 4 条消息
-        assert_eq!(state.messages().len(), 4, "3 个 skill 应注入 4 条消息");
-    }
+#[tokio::test]
+async fn test_preload_skips_unknown_skills_builtin_commands_and_paths() {
+    let directory = tempfile::tempdir().unwrap();
+    make_skill(directory.path(), "review", "审查规则", "");
+    let middleware = make_middleware(&[], directory.path());
+    let mut state = make_state(directory.path(), Some("/help /unknown /review/SKILL.md"));
+    let result = middleware.before_agent(&mut state).await;
+    assert!(result.is_ok());
+    assert_eq!(state.messages().len(), 1, "未匹配可用技能不得加载");
+}
 
-    #[tokio::test]
-    async fn test_skip_missing_skill() {
-        // Arrange
-        let dir = tempdir().unwrap();
-        let skills_dir = dir.path().join(".claude").join("skills");
-        std::fs::create_dir_all(&skills_dir).unwrap();
-        write_skill(&skills_dir, "exists", "存在的 skill");
+#[tokio::test]
+async fn test_preload_explicit_list_skips_missing_names() {
+    let directory = tempfile::tempdir().unwrap();
+    make_skill(directory.path(), "exists", "存在技能", "");
+    let middleware = make_middleware(&["unknown", "exists"], directory.path());
+    let mut state = make_state(directory.path(), None);
+    let result = middleware.before_agent(&mut state).await;
+    assert!(result.is_ok());
+    assert_eq!(state.messages().len(), 1);
+    assert_eq!(make_payload(&state.messages()[0])["commandName"], "exists");
+}
 
-        let mw = SkillPreloadMiddleware::new(
-            vec!["exists".to_string(), "nonexistent".to_string()],
-            dir.path().to_str().unwrap(),
-        );
-        let mut state = AgentState::new(dir.path().to_str().unwrap());
+#[tokio::test]
+async fn test_preload_prefers_exact_namespace_over_basename() {
+    let directory = tempfile::tempdir().unwrap();
+    make_skill(directory.path(), "first:review", "第一插件", "");
+    make_skill(directory.path(), "second:review", "第二插件", "");
+    let middleware = make_middleware(&[], directory.path());
+    let mut state = make_state(directory.path(), Some("/FIRST:REVIEW"));
+    let result = middleware.before_agent(&mut state).await;
+    assert!(result.is_ok());
+    assert_eq!(state.messages().len(), 2);
+    assert_eq!(
+        make_payload(&state.messages()[1])["commandName"],
+        "first:review"
+    );
+}
 
-        // Act
-        mw.before_agent(&mut state).await.unwrap();
+#[tokio::test]
+async fn test_preload_accepts_unique_unqualified_basename() {
+    let directory = tempfile::tempdir().unwrap();
+    make_skill(directory.path(), "plugin:review", "唯一插件", "");
+    let middleware = make_middleware(&[], directory.path());
+    let mut state = make_state(directory.path(), Some("/review"));
+    let result = middleware.before_agent(&mut state).await;
+    assert!(result.is_ok());
+    assert_eq!(state.messages().len(), 2);
+    assert_eq!(
+        make_payload(&state.messages()[1])["commandName"],
+        "plugin:review"
+    );
+}
 
-        // Assert: 只有 "exists" → Ai + Tool = 2 条
-        assert_eq!(state.messages().len(), 2, "不存在的 skill 应静默跳过");
-    }
+#[tokio::test]
+async fn test_preload_rejects_ambiguous_or_different_namespace() {
+    let directory = tempfile::tempdir().unwrap();
+    make_skill(directory.path(), "first:review", "第一插件", "");
+    make_skill(directory.path(), "second:review", "第二插件", "");
+    let middleware = make_middleware(&[], directory.path());
+    let mut state = make_state(directory.path(), Some("/review /third:review"));
+    let result = middleware.before_agent(&mut state).await;
+    assert!(result.is_ok());
+    assert_eq!(state.messages().len(), 1, "不能误选另一个插件的同名技能");
+}
 
-    #[tokio::test]
-    async fn test_no_op_when_all_skills_missing() {
-        // Arrange
-        let dir = tempdir().unwrap();
-        let mw = SkillPreloadMiddleware::new(
-            vec!["nonexistent".to_string()],
-            dir.path().to_str().unwrap(),
-        );
-        let mut state = AgentState::new(dir.path().to_str().unwrap());
+#[tokio::test]
+async fn test_preload_user_can_invoke_model_disabled_skill() {
+    let directory = tempfile::tempdir().unwrap();
+    make_skill(
+        directory.path(),
+        "manual",
+        "仅用户主动加载",
+        "disable-model-invocation: true\n",
+    );
+    let middleware = make_middleware(&[], directory.path());
+    let mut state = make_state(directory.path(), Some("/manual"));
+    let result = middleware.before_agent(&mut state).await;
+    assert!(result.is_ok());
+    assert_eq!(state.messages().len(), 2);
+    assert_eq!(make_payload(&state.messages()[1])["commandName"], "manual");
+}
 
-        // Act
-        mw.before_agent(&mut state).await.unwrap();
+#[tokio::test]
+async fn test_preload_is_idempotent_and_does_not_parse_skill_body() {
+    let directory = tempfile::tempdir().unwrap();
+    make_skill(
+        directory.path(),
+        "review",
+        "正文提及 /other 不应自动加载",
+        "",
+    );
+    make_skill(directory.path(), "other", "另一个技能", "");
+    let middleware = make_middleware(&[], directory.path());
+    let mut state = make_state(directory.path(), Some("/review"));
+    let first = middleware.before_agent(&mut state).await;
+    let second = middleware.before_agent(&mut state).await;
+    assert!(first.is_ok());
+    assert!(second.is_ok());
+    assert_eq!(
+        state.messages().len(),
+        2,
+        "同一轮不重复加载，也不扫描技能正文触发技能"
+    );
+    assert_eq!(make_payload(&state.messages()[1])["commandName"], "review");
+}
 
-        // Assert
-        assert_eq!(state.messages().len(), 0, "全部找不到时应 no-op");
-    }
+#[tokio::test]
+async fn test_preload_new_user_turn_can_reload_same_skill() {
+    let directory = tempfile::tempdir().unwrap();
+    make_skill(directory.path(), "review", "审查规则", "");
+    let middleware = make_middleware(&[], directory.path());
+    let mut state = make_state(directory.path(), Some("/review"));
+    let first = middleware.before_agent(&mut state).await;
+    state.add_message(BaseMessage::ai("done"));
+    state.add_message(BaseMessage::human("/review"));
+    let second = middleware.before_agent(&mut state).await;
+    assert!(first.is_ok());
+    assert!(second.is_ok());
+    assert_eq!(state.messages().len(), 5, "新用户轮次的显式调用应重新加载");
+}
 
-    #[tokio::test]
-    async fn test_message_order() {
-        // Arrange
-        let dir = tempdir().unwrap();
-        let skills_dir = dir.path().join(".claude").join("skills");
-        std::fs::create_dir_all(&skills_dir).unwrap();
-        write_skill(&skills_dir, "skill-x", "技能 X");
-        write_skill(&skills_dir, "skill-y", "技能 Y");
+#[tokio::test]
+async fn test_preload_restored_metadata_is_not_user_input() {
+    let directory = tempfile::tempdir().unwrap();
+    make_skill(directory.path(), "other", "不应自动加载", "");
+    let middleware = make_middleware(&[], directory.path());
+    let mut state = make_state(directory.path(), None);
+    state.add_message(skill_invocation_message(&json!({
+        "success": true,
+        "commandName": "review",
+        "status": "inline",
+        "instruction": "/other"
+    })));
+    let result = middleware.before_agent(&mut state).await;
+    assert!(result.is_ok());
+    assert_eq!(state.messages().len(), 1);
+}
 
-        let mw = SkillPreloadMiddleware::new(
-            vec!["skill-x".to_string(), "skill-y".to_string()],
-            dir.path().to_str().unwrap(),
-        );
-        let mut state = AgentState::new(dir.path().to_str().unwrap());
-
-        // Act
-        mw.before_agent(&mut state).await.unwrap();
-
-        // Assert
-        let msgs = state.messages();
-        assert!(
-            matches!(&msgs[0], BaseMessage::Ai { .. }),
-            "messages[0] 应为 Ai"
-        );
-        assert!(msgs[0].has_tool_calls(), "Ai 消息应包含工具调用");
-        assert_eq!(msgs[0].tool_calls().len(), 2, "Ai 消息应有 2 个工具调用");
-        assert!(
-            matches!(&msgs[1], BaseMessage::Tool { .. }),
-            "messages[1] 应为 Tool"
-        );
-        assert!(
-            matches!(&msgs[2], BaseMessage::Tool { .. }),
-            "messages[2] 应为 Tool"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_tool_call_ids_match() {
-        // Arrange
-        let dir = tempdir().unwrap();
-        let skills_dir = dir.path().join(".claude").join("skills");
-        std::fs::create_dir_all(&skills_dir).unwrap();
-        write_skill(&skills_dir, "my-skill", "My skill");
-
-        let mw =
-            SkillPreloadMiddleware::new(vec!["my-skill".to_string()], dir.path().to_str().unwrap());
-        let mut state = AgentState::new(dir.path().to_str().unwrap());
-
-        // Act
-        mw.before_agent(&mut state).await.unwrap();
-
-        // Assert
-        let msgs = state.messages();
-        let ai_id = &msgs[0].tool_calls()[0].id;
-        if let BaseMessage::Tool { tool_call_id, .. } = &msgs[1] {
-            assert_eq!(
-                tool_call_id, ai_id,
-                "Tool 消息的 tool_call_id 应与 Ai 消息一致"
-            );
-        } else {
-            unreachable!("messages[1] 应为 Tool");
-        }
-    }
-
-    #[tokio::test]
-    async fn test_tool_result_contains_skill_content() {
-        // Arrange
-        let dir = tempdir().unwrap();
-        let skills_dir = dir.path().join(".claude").join("skills");
-        std::fs::create_dir_all(&skills_dir).unwrap();
-        write_skill(&skills_dir, "commit-skill", "提交技能");
-
-        let mw = SkillPreloadMiddleware::new(
-            vec!["commit-skill".to_string()],
-            dir.path().to_str().unwrap(),
-        );
-        let mut state = AgentState::new(dir.path().to_str().unwrap());
-
-        // Act
-        mw.before_agent(&mut state).await.unwrap();
-
-        // Assert
-        let tool_content = state.messages()[1].content();
-        assert!(
-            tool_content.contains("Skill content for commit-skill"),
-            "Tool 结果应包含 skill 全文内容"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_auto_detect_skill_from_human_message() {
-        // Arrange: 模拟主 Agent 场景——skill_names 为空，但 state 中有包含 /skill-name 的 Human 消息
-        let dir = tempdir().unwrap();
-        let skills_dir = dir.path().join(".claude").join("skills");
-        std::fs::create_dir_all(&skills_dir).unwrap();
-        // 使用不与全局 ~/.claude/skills/ 冲突的名称
-        write_skill(&skills_dir, "test-diagnose-auto", "自动检测技能");
-
-        let mw = SkillPreloadMiddleware::new(vec![], dir.path().to_str().unwrap());
-        let mut state = AgentState::new(dir.path().to_str().unwrap());
-        // 模拟 executor 添加用户消息
-        state.add_message(BaseMessage::human("帮我用 /test-diagnose-auto 调试一下"));
-
-        // Act
-        mw.before_agent(&mut state).await.unwrap();
-
-        // Assert: 应自动检测并注入 Ai + Tool = 2 条消息，加上原始 Human 消息共 3 条
-        assert_eq!(state.messages().len(), 3, "应注入 2 条消息（Ai + Tool），加上原始 Human 消息共 3 条");
-        assert!(matches!(&state.messages()[0], BaseMessage::Human { .. }), "第一条应为 Human");
-        assert!(
-            matches!(&state.messages()[1], BaseMessage::Ai { .. }),
-            "第二条应为 Ai（fake Read）"
-        );
-        assert!(
-            matches!(&state.messages()[2], BaseMessage::Tool { .. }),
-            "第三条应为 Tool（skill 内容）"
-        );
-        let tool_content = state.messages()[2].content();
-        assert!(
-            tool_content.contains("Skill content for test-diagnose-auto"),
-            "Tool 结果应包含 skill 全文"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_auto_detect_multiple_skills() {
-        let dir = tempdir().unwrap();
-        let skills_dir = dir.path().join(".claude").join("skills");
-        std::fs::create_dir_all(&skills_dir).unwrap();
-        write_skill(&skills_dir, "skill-a", "技能 A");
-        write_skill(&skills_dir, "skill-b", "技能 B");
-
-        let mw = SkillPreloadMiddleware::new(vec![], dir.path().to_str().unwrap());
-        let mut state = AgentState::new(dir.path().to_str().unwrap());
-        state.add_message(BaseMessage::human("/skill-a /skill-b 帮我看看"));
-
-        mw.before_agent(&mut state).await.unwrap();
-
-        // 1 Human + 1 Ai + 2 Tool = 4 条
-        assert_eq!(state.messages().len(), 4, "2 个 skill 应注入 Ai + 2 Tool = 3 条，加 Human 共 4 条");
-        assert_eq!(state.messages()[1].tool_calls().len(), 2, "Ai 消息应有 2 个 ToolUse");
-    }
-
-    #[tokio::test]
-    async fn test_auto_detect_no_matching_skill() {
-        let dir = tempdir().unwrap();
-        // 不创建任何 skill 文件
-
-        let mw = SkillPreloadMiddleware::new(vec![], dir.path().to_str().unwrap());
-        let mut state = AgentState::new(dir.path().to_str().unwrap());
-        state.add_message(BaseMessage::human("/nonexistent-skill 不存在"));
-
-        mw.before_agent(&mut state).await.unwrap();
-
-        // 只有原始 Human 消息，无注入
-        assert_eq!(state.messages().len(), 1, "找不到 skill 时不应注入任何消息");
-    }
-
-    #[tokio::test]
-    async fn test_auto_detect_no_human_message() {
-        let dir = tempdir().unwrap();
-        let mw = SkillPreloadMiddleware::new(vec![], dir.path().to_str().unwrap());
-        let mut state = AgentState::new(dir.path().to_str().unwrap());
-        // 不添加任何消息
-
-        mw.before_agent(&mut state).await.unwrap();
-
-        assert_eq!(state.messages().len(), 0, "无 Human 消息时应 no-op");
-    }
-
-    #[test]
-    fn test_extract_skill_names_basic() {
-        let names = extract_skill_names_from_text("/diagnose");
-        assert_eq!(names, vec!["diagnose"]);
-    }
-
-    #[test]
-    fn test_extract_skill_names_multiple() {
-        let names = extract_skill_names_from_text("/diagnose /fix-issue /caveman");
-        assert_eq!(names, vec!["diagnose", "fix-issue", "caveman"]);
-    }
-
-    #[test]
-    fn test_extract_skill_names_in_sentence() {
-        let names = extract_skill_names_from_text("帮我用 /diagnose 调试一下这个问题");
-        assert_eq!(names, vec!["diagnose"]);
-    }
-
-    #[test]
-    fn test_extract_skill_names_no_match() {
-        let names = extract_skill_names_from_text("普通消息没有 skill");
-        assert!(names.is_empty());
-    }
-
-    #[test]
-    fn test_extract_skill_names_slash_only() {
-        let names = extract_skill_names_from_text("/");
-        assert!(names.is_empty());
-    }
-
-    #[test]
-    fn test_extract_skill_names_rejects_path_like() {
-        // /foo/bar is one whitespace token; "foo/bar" contains '/' → rejected
-        let names = extract_skill_names_from_text("/foo/bar");
-        assert!(names.is_empty(), "/foo/bar 含 '/' 应被整体拒绝");
-    }
+#[tokio::test]
+async fn test_preload_loading_failure_returns_error_without_partial_messages() {
+    let directory = tempfile::tempdir().unwrap();
+    make_skill(directory.path(), "inline", "内联规则", "");
+    make_skill(directory.path(), "forked", "隔离任务", "context: fork\n");
+    let middleware = make_middleware(&["inline", "forked"], directory.path());
+    let mut state = make_state(directory.path(), Some("执行技能"));
+    let result = middleware.before_agent(&mut state).await;
+    assert!(result.is_err(), "没有 fork 执行上下文时必须返回真实错误");
+    assert_eq!(state.messages().len(), 1, "加载失败不得留下部分注入消息");
+    assert_eq!(state.messages()[0].content(), "执行技能");
+}

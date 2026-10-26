@@ -147,6 +147,7 @@ mod tests {
 
     fn make_ctx(cwd: &str) -> CommandContext {
         CommandContext {
+            invoked_skills: Default::default(),
             session_id: "test-session".to_string(),
             history: vec![],
             cwd: cwd.to_string(),

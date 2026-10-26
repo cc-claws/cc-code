@@ -12,7 +12,7 @@ use crate::{
 
 use super::build_subagent_middlewares;
 
-/// 子 Agent 构建参数（只有后台模式，故取消策略恒为 independent）。
+/// 子 Agent 构建参数；后台 Agent 独立取消，Skill fork 随父调用取消。
 ///
 /// **fork 与普通子 Agent 走同一条构建路径**，差异只有 `fork`；建档、中间件链、
 /// 持久化、工具过滤全部共用，避免同一件事写两遍后只改一处导致的漂移。
@@ -22,6 +22,7 @@ pub(crate) struct AgentBuildOptions {
     pub fork: bool,
     /// fork：子线程记录「从父线程哪条消息分叉」，供历史追溯
     pub snapshot_at_message_id: Option<String>,
+    pub cascade_cancel: bool,
 }
 
 /// Concrete builder type for subagents.
@@ -39,8 +40,7 @@ pub(crate) struct AgentBuildResult {
 impl super::SubAgentTool {
     /// Build a ReActAgent + AgentState from an agent definition.
     ///
-    /// 只服务后台路径（唯一模式）：事件与 `SubagentStarted` 由 `execute_bg` 在
-    /// `tokio::spawn` 里补发，这里不配事件处理器、不取消级联。
+    /// 后台 Agent 与同步 Skill fork 共用；调用方配置事件处理器和执行方式。
     /// `options.fork`: fork 模式（复用主 Agent 系统提示 + 工具全量继承）。
     pub(crate) async fn build_agent_from_def(
         &self,
@@ -52,14 +52,14 @@ impl super::SubAgentTool {
         // 1. Generate child_thread_id
         let child_thread_id = uuid::Uuid::now_v7().to_string();
 
-        // 2. Thread store setup（后台子 Agent 的取消由会话级 cancel_all 管，恒为 independent）
+        // 2. 后台任务独立取消，Skill fork 随父级取消。
         if let Some(ref store) = self.thread_store {
             let mut child_meta = ThreadMeta::new(cwd);
             child_meta.id = child_thread_id.clone();
             child_meta.parent_thread_id = self.parent_thread_id.clone();
             child_meta.snapshot_at_message_id = options.snapshot_at_message_id.clone();
             child_meta.hidden = true;
-            child_meta.cancel_policy = "independent".to_string();
+            child_meta.cancel_policy = if options.cascade_cancel { "cascade" } else { "independent" }.to_string();
             child_meta.title = Some(agent_name.to_string());
             store
                 .create_thread(child_meta)
@@ -68,7 +68,7 @@ impl super::SubAgentTool {
         }
 
         // 3. Filter tools（fork 全量继承主 Agent，filter_tools 内部仍剔除 Agent 防递归）
-        let filtered_tools = if options.fork {
+        let mut filtered_tools = if options.fork {
             self.filter_tools(&ToolsValue::Empty, &ToolsValue::Empty)
         } else {
             self.filter_tools(
@@ -76,6 +76,17 @@ impl super::SubAgentTool {
                 &agent_def.frontmatter.disallowed_tools,
             )
         };
+        // 子代理的激活记录必须独立，不能沿用父工具闭包中的会话 registry。
+        // 保留定义工具白名单：父工具集中没有 Skill 时不擅自添加。
+        let invoked_skills = cc_agent::agent::compact::re_inject::InvokedSkillRegistry::default();
+        let child_skill_tool = crate::tools::SkillTool::new(crate::skills::SkillsMiddleware::resolve_dirs_static(cwd, &self.extra_skill_dirs))
+            .with_session_id(Some(child_thread_id.clone()))
+            .with_invoked_skills(invoked_skills);
+        for tool in &mut filtered_tools {
+            if tool.name() == "Skill" {
+                *tool = Box::new(child_skill_tool.clone());
+            }
+        }
 
         tracing::debug!(
             agent_id = %agent_name,
@@ -107,8 +118,7 @@ impl super::SubAgentTool {
         let mut agent_builder = ReActAgent::new(llm).max_iterations(max_iterations);
 
         // 7. Middlewares（fork 不带 agent.md 的 skills，其余链完全一致）
-        for mw in build_subagent_middlewares(
-            self.permission_config(
+        let mut middleware_config = self.permission_config(
                 if options.fork {
                     SubAgentMiddlewareConfig::for_fork(cwd)
                 } else {
@@ -128,8 +138,9 @@ impl super::SubAgentTool {
                 } else {
                     &agent_def.frontmatter.disallowed_tools
                 },
-            ),
-        ) {
+            );
+        middleware_config.skill_tool = Some(child_skill_tool);
+        for mw in build_subagent_middlewares(middleware_config) {
             agent_builder = agent_builder.add_middleware(mw);
         }
 
@@ -162,8 +173,12 @@ impl super::SubAgentTool {
         }
         .with_context("source_agent_id", child_thread_id.clone());
 
-        // 11. Cancel token：后台子 Agent 独立于父级取消，只由会话级 cancel_all 打断
-        let cancel_token = Some(AgentCancellationToken::new());
+        // 11. 后台任务独立于父级取消；同步 Skill 的取消必须级联。
+        let cancel_token = Some(if options.cascade_cancel {
+            self.cancel.as_ref().map(AgentCancellationToken::child_token).unwrap_or_default()
+        } else {
+            AgentCancellationToken::new()
+        });
 
         Ok(AgentBuildResult {
             builder: agent_builder,

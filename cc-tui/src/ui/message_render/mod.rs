@@ -5,6 +5,7 @@ use ratatui::{
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 pub mod decorators;
+mod skill;
 mod streaming_bash;
 use decorators::{
     ask_user::parse_ask_user_qa_items,
@@ -1537,6 +1538,25 @@ pub fn render_view_model_with_flags(
             if tool_name == "AskUserQuestion" {
                 return (render_ask_user_block(content, *is_error, width), link_hits);
             }
+            if tool_name == "Skill" && *collapsed && !detail_mode {
+                return (
+                    skill::render_collapsed_skill(
+                        args_display.as_deref(),
+                        content,
+                        *is_error,
+                        *phase,
+                        width,
+                        tick,
+                    ),
+                    link_hits,
+                );
+            }
+            let skill_instruction = if tool_name == "Skill" && !*is_error {
+                skill::instruction_for_display(content)
+            } else {
+                None
+            };
+            let content = skill_instruction.as_ref().unwrap_or(content);
 
             let is_running = *phase != crate::ui::message_view::ToolPhase::Finished && !*is_error;
             let background_task = if tool_name == "Bash" && !*is_error {

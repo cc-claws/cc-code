@@ -1,8 +1,13 @@
 pub mod loader;
+pub mod invocation;
 
 pub use loader::{list_skills, load_skill_metadata, SkillMetadata};
 
 use std::path::PathBuf;
+
+/// CC SkillTool/prompt.ts 的发现列表上限；全文只在调用时加载。
+pub const MAX_LISTING_DESC_CHARS: usize = 1536;
+const DEFAULT_LISTING_CHAR_BUDGET: usize = 8_000;
 
 use async_trait::async_trait;
 use cc_agent::{
@@ -42,9 +47,9 @@ pub fn load_global_skills_dir() -> Option<PathBuf> {
 /// 生成摘要系统消息前插到消息历史中。
 ///
 /// 搜索路径（按优先级）：
-/// 1. `{cwd}/.claude/skills/`（项目级，优先）
+/// 1. `{home}/.claude/skills/`（用户级，优先）
 /// 2. 全局配置的 `skills_dir`（可配置）
-/// 3. `{home}/.claude/code/skills/`（用户级）
+/// 3. `{cwd}/.claude/skills/`（项目级）
 pub struct SkillsMiddleware {
     project_skills_dir: Option<PathBuf>,
     global_skills_dir: Option<PathBuf>,
@@ -173,24 +178,37 @@ impl SkillsMiddleware {
 
     /// 生成 skills 摘要系统消息内容
     pub fn build_summary(skills: &[SkillMetadata]) -> String {
+        let visible: Vec<_> = skills.iter().filter(|skill| {
+            std::fs::read_to_string(&skill.path).ok()
+                .and_then(|content| invocation::parse_skill(&content).ok())
+                .is_none_or(|(frontmatter, _)| !frontmatter.disable_model_invocation)
+        }).collect();
+        let name_chars = visible.iter().map(|skill| skill.name.chars().count() + 5).sum::<usize>();
+        let descriptions = visible.iter().map(|skill| skill.description.chars().count().min(MAX_LISTING_DESC_CHARS)).sum::<usize>();
+        // 不丢技能名称；预算不足时均匀缩短描述，与 CC 的发现列表策略一致。
+        let description_limit = if name_chars + descriptions <= DEFAULT_LISTING_CHAR_BUDGET {
+            MAX_LISTING_DESC_CHARS
+        } else {
+            (DEFAULT_LISTING_CHAR_BUDGET.saturating_sub(name_chars) / visible.len().max(1))
+                .clamp(20, MAX_LISTING_DESC_CHARS)
+        };
         let mut lines = vec![
-            "Available skills provide specialized workflows; select those relevant to the task:"
-                .to_string(),
+            "Available skills provide specialized workflows and domain knowledge.".to_string(),
+            "BLOCKING REQUIREMENT: When a skill matches the user's request, invoke Skill with its name BEFORE generating any other response about the task.".to_string(),
             String::new(),
         ];
-
-        for skill in skills {
-            lines.push(format!(
-                "- **{}**: {} {}",
-                skill.name,
-                skill.path.display(),
-                skill.description
-            ));
+        for skill in visible {
+            let description = skill.description.split_whitespace().collect::<Vec<_>>().join(" ");
+            let description = if description.chars().count() > description_limit {
+                format!("{}…", description.chars().take(description_limit.saturating_sub(1)).collect::<String>())
+            } else {
+                description
+            };
+            lines.push(format!("- {}: {}", skill.name, description));
         }
-
         lines.push(String::new());
-        lines.push("To use a skill, read its listed SKILL.md path with Read unless its full instructions are already available. Users may invoke skills explicitly with '/skill-name'. Explicit user requirements take precedence over a skill's default guidance; skills do not grant additional permissions.".to_string());
-
+        lines.push("Use Skill({\"skill\": \"name\", \"args\": \"optional arguments\"}). NEVER read SKILL.md directly with Read, or claim to use a skill without loading it. Users may invoke skills explicitly with '/skill-name'. A <skill-invocation> message means the skill is ALREADY loaded; follow it directly without invoking it again. Explicit user requirements and existing project permissions take precedence over skill defaults.".to_string());
+        lines.push("Correct: User asks '查需求列表' -> invoke Skill({\"skill\": \"example-skill\"}). Forbidden: answer that task from memory before loading the matching skill.".to_string());
         lines.join("\n")
     }
 }

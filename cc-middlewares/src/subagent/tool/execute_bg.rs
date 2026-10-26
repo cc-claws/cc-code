@@ -120,6 +120,7 @@ impl super::SubAgentTool {
                 &cwd,
                 super::build_agent::AgentBuildOptions {
                     fork: is_fork,
+                    cascade_cancel: false,
                     // 记录分叉点：历史里能看出这条 fork 线程从父线程哪条消息长出来
                     snapshot_at_message_id: parent_messages
                         .as_ref()

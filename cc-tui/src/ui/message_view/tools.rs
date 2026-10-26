@@ -1,6 +1,39 @@
 use crate::ui::theme;
 use ratatui::style::Color;
 
+/// 用户侧技能元消息的展示信息；只投影界面，不制造 Assistant/Tool 历史。
+pub(crate) struct SkillInvocationDisplay<'a> {
+    pub command_name: String,
+    pub success: bool,
+    pub display: bool,
+    pub payload: &'a str,
+}
+
+pub(crate) fn skill_invocation_display(content: &str) -> Option<SkillInvocationDisplay<'_>> {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Metadata {
+        command_name: String,
+        success: bool,
+        status: String,
+        #[serde(default)]
+        display: bool,
+    }
+    let payload = cc_agent::agent::compact::re_inject::skill_invocation_payload(content)?;
+    let metadata = serde_json::from_str::<Metadata>(payload).ok()?;
+    if metadata.command_name.trim().is_empty()
+        || !matches!(metadata.status.as_str(), "inline" | "forked")
+    {
+        return None;
+    }
+    Some(SkillInvocationDisplay {
+        command_name: metadata.command_name,
+        success: metadata.success,
+        display: metadata.display,
+        payload,
+    })
+}
+
 /// 旧版 Bash 后台句柄的展示投影；原始 tool_result 保留给模型和历史。
 /// 只识别完整 envelope，不删除普通输出里提到的标签或错误文本。
 pub(crate) struct BackgroundTaskStarted<'a> {
@@ -122,7 +155,7 @@ pub(crate) fn parse_subagent_tool_count(content: &str) -> usize {
 /// 按工具名分配颜色（按操作类型分色）
 pub fn tool_color(name: &str) -> Color {
     match name {
-        "Read" | "Glob" | "Grep" => theme::cur().success,
+        "Read" | "Glob" | "Grep" | "Skill" => theme::cur().success,
         "Write" | "Edit" | "delete_file" | "delete_folder" | "rm" | "rm_rf" => theme::cur().warning,
         "Bash" => theme::cur().bash_border,
         "Agent" | "AskUserQuestion" | "TodoWrite" => theme::cur().thinking,

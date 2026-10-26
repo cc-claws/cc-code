@@ -1,9 +1,33 @@
 use super::*;
+use async_trait::async_trait;
 use cc_agent::{
     agent::{state::AgentState, token::ContextBudget},
+    llm::{LlmRequest, LlmResponse, StopReason},
     messages::{BaseMessage, ContentBlock},
 };
 use std::sync::Arc;
+
+struct MockCompactModel;
+
+#[async_trait]
+impl BaseModel for MockCompactModel {
+    async fn invoke(&self, _request: LlmRequest) -> AgentResult<LlmResponse> {
+        Ok(LlmResponse {
+            message: BaseMessage::ai("<summary>保留当前任务</summary>"),
+            stop_reason: StopReason::EndTurn,
+            usage: None,
+            request_id: None,
+        })
+    }
+
+    fn provider_name(&self) -> &str {
+        "mock"
+    }
+
+    fn model_id(&self) -> &str {
+        "mock-compact"
+    }
+}
 
 fn make_state() -> AgentState {
     AgentState::new("/tmp/test")
@@ -34,6 +58,7 @@ fn make_middleware() -> CompactMiddleware {
         session_id: "test-session".to_string(),
         provider_name: "test-model".to_string(),
         micro_compact_done: AtomicBool::new(false),
+        invoked_skills: InvokedSkillRegistry::default(),
     }
 }
 
@@ -361,4 +386,88 @@ fn test_compact_middleware_reset_micro_compact_flag() {
     // reset 后应恢复为 false
     mw.reset();
     assert!(!mw.micro_compact_done.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn test_do_full_compact_keeps_registry_content_across_replaced_history() {
+    use cc_agent::agent::compact::re_inject::skill_invocation_payload;
+    let registry = InvokedSkillRegistry::default();
+    let instruction = "完整规则\n".repeat(100);
+    registry.record(&serde_json::json!({
+        "success": true,
+        "commandName": "review",
+        "status": "inline",
+        "instruction": instruction,
+    }));
+    let mut mw = CompactMiddleware {
+        model: Some(Arc::new(MockCompactModel)),
+        config: CompactConfig {
+            re_inject_max_tokens_per_file: 10,
+            ..make_config()
+        },
+        ..make_middleware()
+    }
+    .with_invoked_skills(registry);
+    let mut state = make_state();
+    state.add_message(BaseMessage::human("执行审查"));
+    let first = mw.do_full_compact(&mut state).await;
+    assert!(first.is_ok());
+    let first_text = state.messages()[1].content();
+    let first_output: serde_json::Value = serde_json::from_str(
+        skill_invocation_payload(&first_text).expect("compact 应恢复技能元消息"),
+    )
+    .expect("技能元消息应为合法 JSON");
+    assert_eq!(
+        first_output["instruction"]
+            .as_str()
+            .map(|text| text.chars().count()),
+        Some(40)
+    );
+    mw.config.re_inject_max_tokens_per_file = 5000;
+    let second = mw.do_full_compact(&mut state).await;
+    assert!(second.is_ok());
+    let second_text = state.messages()[1].content();
+    let second_output: serde_json::Value = serde_json::from_str(
+        skill_invocation_payload(&second_text).expect("再次 compact 应恢复技能元消息"),
+    )
+    .expect("技能元消息应为合法 JSON");
+    assert_eq!(second_output["instruction"], serde_json::json!(instruction));
+    assert!(state
+        .messages()
+        .iter()
+        .all(|message| matches!(message, BaseMessage::Human { .. })));
+}
+
+#[tokio::test]
+async fn test_do_full_compact_seeds_only_current_agent_messages() {
+    use cc_agent::agent::compact::re_inject::skill_invocation_message;
+    let parent = skill_invocation_message(&serde_json::json!({
+        "success": true,
+        "commandName": "parent",
+        "status": "inline",
+        "instruction": "父代理规则",
+    }));
+    let child = skill_invocation_message(&serde_json::json!({
+        "success": true,
+        "commandName": "child",
+        "status": "inline",
+        "instruction": "子代理规则",
+    }));
+    let parent_id = parent.id();
+    let mut state =
+        AgentState::with_messages("/tmp/test", vec![parent, child]).with_ancestor_len(1);
+    let mw = CompactMiddleware {
+        model: Some(Arc::new(MockCompactModel)),
+        ..make_middleware()
+    };
+    let result = mw.do_full_compact(&mut state).await;
+    assert!(result.is_ok());
+    assert_eq!(state.messages()[0].id(), parent_id, "祖先快照应保持原样");
+    assert_eq!(extract_skill_names(&state.messages()[1..]), vec!["child"]);
+    let recovered = re_inject_with_registry(&[], &make_config(), "", &mw.invoked_skills).await;
+    assert_eq!(
+        extract_skill_names(&recovered.messages),
+        vec!["child"],
+        "registry 只应记录当前子代理调用的技能"
+    );
 }

@@ -39,7 +39,7 @@ use cc_agent::{
 use cc_middlewares::{
     compact_middleware::CompactMiddleware,
     prelude::*,
-    tools::{AskUserTool, TodoItem},
+    tools::{AskUserTool, SkillTool, TodoItem},
 };
 
 use crate::{
@@ -301,11 +301,15 @@ pub fn build_agent(
     // ChannelBroker 对 Questions 立即返回空答案，MultiplexBroker 竞速时 Channel 总是先返回，
     // 导致 AskUserQuestion 弹窗被绕过。
     let ask_user_tool = AskUserTool::new(permission_broker.clone());
+    let skill_dirs = SkillsMiddleware::resolve_dirs_static(&cwd, &plugin_skill_dirs);
+    let invoked_skills = pool.lock().invoked_skills.clone();
 
     // 父工具集（供子 agent 继承）
     let mut parent_tools: Vec<Box<dyn cc_agent::tools::BaseTool>> =
         FilesystemMiddleware::build_tools(&cwd);
     parent_tools.extend(terminal_middleware.build_tools(&cwd));
+    // 子 Agent 继承 Skill 的加载能力；不继承 fork runner，防止隐式递归委派。
+    parent_tools.push(Box::new(SkillTool::new(skill_dirs.clone()).with_session_id(session_id.clone())));
     if let Some(ref pool) = mcp_pool {
         let mcp_tools = cc_middlewares::mcp::build_tool_bridges(pool);
         for tool in mcp_tools {
@@ -429,6 +433,7 @@ pub fn build_agent(
     .with_system_builder(system_builder)
     .with_cancel(cancel.clone())
     .with_parent_messages(parent_messages)
+    .with_extra_skill_dirs(plugin_skill_dirs.clone())
     .with_background_registry(Arc::clone(&background_registry))
     .with_bg_event_sender(bg_event_tx)
     .with_registered_hooks(vec![])
@@ -449,6 +454,10 @@ pub fn build_agent(
     if let Some(deregister) = deregister_runtime {
         subagent = subagent.with_deregister_runtime(deregister);
     }
+    let skill_tool = SkillTool::new(skill_dirs)
+        .with_session_id(session_id.clone())
+        .with_invoked_skills(invoked_skills.clone())
+        .with_fork_tool(subagent.build_tool(&cwd));
 
     // 上下文预算
     let mut context_window = model.context_window();
@@ -491,13 +500,13 @@ pub fn build_agent(
         ))
         .add_middleware(Box::new(AgentDefineMiddleware::new()))
         .add_middleware(Box::new({
-            let mut mw = SkillsMiddleware::new().with_extra_dirs(plugin_skill_dirs);
+            let mut mw = SkillsMiddleware::new().with_global_config().with_extra_dirs(plugin_skill_dirs);
             if let Some(summary) = frozen_skill_summary {
                 mw = mw.with_frozen_summary(summary);
             }
             mw
         }))
-        .add_middleware(Box::new(SkillPreloadMiddleware::new(preload_skills, &cwd)))
+        .add_middleware(Box::new(SkillPreloadMiddleware::new(preload_skills, &cwd).with_skill_tool(skill_tool.clone())))
         .add_middleware(Box::new(cc_middlewares::AtMentionMiddleware::new(
             cwd.clone().into(),
         )))
@@ -570,6 +579,7 @@ pub fn build_agent(
 
     let executor = executor
         .with_event_handler(Arc::clone(&event_handler))
+        .register_tool(Box::new(skill_tool))
         .register_tool(Box::new(ask_user_tool));
 
     // LSP 中间件（条件注册，当有 LSP 服务器配置时）
@@ -612,7 +622,7 @@ pub fn build_agent(
             all_hooks,
             session_id.unwrap_or_default(),
             provider_name.clone(),
-        );
+        ).with_invoked_skills(invoked_skills);
         executor.add_middleware(Box::new(compact_mw))
     } else {
         executor

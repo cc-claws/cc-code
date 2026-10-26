@@ -220,6 +220,7 @@ mod tests {
         model: Option<Arc<dyn cc_agent::llm::BaseModel>>,
     ) -> CommandContext {
         CommandContext {
+            invoked_skills: Default::default(),
             session_id: "test-session".to_string(),
             history,
             cwd: "/tmp".to_string(),
