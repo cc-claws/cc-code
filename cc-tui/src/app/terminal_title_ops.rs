@@ -1,6 +1,8 @@
 use crate::{
     app::App,
-    terminal_title::{sanitize_title, TerminalTitleItem, TerminalTitleStatusKind},
+    terminal_title::{
+        sanitize_title, title_spinner_frame, TerminalTitleItem, TerminalTitleStatusKind,
+    },
 };
 
 impl App {
@@ -59,9 +61,12 @@ impl App {
         let status = self.current_title_status();
         let project = self.project_name();
         let thread_title = self.session_mgr.current().metadata.thread_title.as_deref();
-        let spinner_frame = self.session_mgr.current().spinner_state.title_frame();
-        let mut frame_buf = [0u8; 4];
-        let spinner_str = spinner_frame.encode_utf8(&mut frame_buf);
+        let spinner_elapsed_ms = self
+            .session_mgr
+            .current()
+            .spinner_state
+            .animation_elapsed_ms();
+        let spinner_str = title_spinner_frame(spinner_elapsed_ms);
 
         let activity = match status {
             TerminalTitleStatusKind::ActionRequired => {

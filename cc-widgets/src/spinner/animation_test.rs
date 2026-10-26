@@ -48,7 +48,7 @@ fn test_spinner_frame_only_uses_known_glyphs() {
 
 #[test]
 fn test_spinner_frame_pingpongs_forward_then_back() {
-    // 一个周期 = 正向 0→5 再回 0（端点不重复），对齐参考实现的往返呼吸
+    // 一个周期 = 正向 0→5 再回 0（端点不重复，顶点单帧）
     let mut seen: Vec<char> = Vec::new();
     for t in 0..SPINNER_CYCLE_MS {
         let frame = spinner_frame(t);

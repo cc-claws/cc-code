@@ -1,4 +1,5 @@
 use super::*;
+use crate::terminal_title::TERMINAL_TITLE_FRAME_MS;
 use std::time::Duration;
 
 fn make_app() -> App {
@@ -97,10 +98,9 @@ fn test_app_terminal_title_animates_with_rotating_chrysanthemum() {
     app.refresh_terminal_title();
     let frame1 = app.global_ui.last_terminal_title.clone().unwrap();
 
-    // 菊花按单调时钟呼吸（对齐参考实现：2s 往返、端点停留约 205ms），
-    // 因此必须真的等过一个字形停留窗口，光推进 tick 计数不再改变字形。
-    std::thread::sleep(std::time::Duration::from_millis(300));
-    app.session_mgr.current_mut().spinner_state.advance_tick();
+    // 标题帧按单调时钟每 `TERMINAL_TITLE_FRAME_MS` 交替一次，必须真的等过一个窗口；
+    // 推进 tick 与标题帧无关（标题帧只吃 `animation_elapsed_ms`）。
+    std::thread::sleep(std::time::Duration::from_millis(TERMINAL_TITLE_FRAME_MS + 100));
     app.refresh_terminal_title();
     let frame2 = app.global_ui.last_terminal_title.clone().unwrap();
 
@@ -154,10 +154,9 @@ fn test_app_terminal_title_animates_while_waiting_subagents() {
     app.refresh_terminal_title();
     let frame1 = app.global_ui.last_terminal_title.clone().unwrap();
 
-    // 菊花按单调时钟呼吸（对齐参考实现：2s 往返、端点停留约 205ms），
-    // 因此必须真的等过一个字形停留窗口，光推进 tick 计数不再改变字形。
-    std::thread::sleep(std::time::Duration::from_millis(300));
-    app.session_mgr.current_mut().spinner_state.advance_tick();
+    // 标题帧按单调时钟每 `TERMINAL_TITLE_FRAME_MS` 交替一次，必须真的等过一个窗口；
+    // 推进 tick 与标题帧无关（标题帧只吃 `animation_elapsed_ms`）。
+    std::thread::sleep(std::time::Duration::from_millis(TERMINAL_TITLE_FRAME_MS + 100));
     app.refresh_terminal_title();
     let frame2 = app.global_ui.last_terminal_title.clone().unwrap();
 
