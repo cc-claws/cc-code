@@ -3419,10 +3419,6 @@ fn make_file_tool_block(tool: &str, args: &str) -> MessageViewModel {
 fn test_tool_block_write_path_is_clickable_file_link() {
     let vm = make_file_tool_block("Write", "src/a.rs");
     let (lines, links) = render_view_model_with_links(&vm, Some(1), 80, false, 0);
-    if !crate::ui::osc8::enabled() {
-        assert!(links.is_empty(), "关闭超链接时不得登记命中区");
-        return;
-    }
     assert_eq!(links.len(), 1, "Write 的路径应登记一个命中区");
     assert_eq!(linked_text(&lines, &links[0]), "src/a.rs");
     assert!(
@@ -3441,10 +3437,6 @@ fn test_tool_block_write_path_is_clickable_file_link() {
 fn test_tool_block_edit_path_is_clickable_file_link() {
     let vm = make_file_tool_block("Edit", "src/a.rs");
     let (lines, links) = render_view_model_with_links(&vm, Some(1), 80, false, 0);
-    if !crate::ui::osc8::enabled() {
-        assert!(links.is_empty());
-        return;
-    }
     assert_eq!(links.len(), 1);
     assert_eq!(linked_text(&lines, &links[0]), "src/a.rs");
 }
@@ -3453,10 +3445,6 @@ fn test_tool_block_edit_path_is_clickable_file_link() {
 fn test_tool_block_read_path_link_excludes_line_range_suffix() {
     let vm = make_file_tool_block("Read", "src/a.rs · lines 10-20");
     let (lines, links) = render_view_model_with_links(&vm, Some(1), 80, false, 0);
-    if !crate::ui::osc8::enabled() {
-        assert!(links.is_empty());
-        return;
-    }
     assert_eq!(links.len(), 1, "Read 的路径应登记一个命中区");
     assert_eq!(linked_text(&lines, &links[0]), "src/a.rs", "行号范围不参与链接");
 }
@@ -3475,10 +3463,6 @@ fn test_tool_block_truncated_path_link_stays_within_header_line() {
     let path = "very/long/path/to/some/deep/file.rs";
     let vm = make_file_tool_block("Write", path);
     let (lines, links) = render_view_model_with_links(&vm, Some(1), 40, false, 0);
-    if !crate::ui::osc8::enabled() {
-        assert!(links.is_empty());
-        return;
-    }
     assert!(!links.is_empty(), "截断后仍应保留可点前缀");
     for hit in &links {
         let line_graphemes = lines[hit.line].to_string().graphemes(true).count();
@@ -3501,10 +3485,6 @@ fn test_tool_block_detail_mode_wrapped_path_link_maps_to_visible_segments() {
     let path = "very/long/path/to/some/deep/file.rs";
     let vm = make_file_tool_block("Write", path);
     let (lines, links) = render_view_model_with_links(&vm, Some(1), 40, true, 0);
-    if !crate::ui::osc8::enabled() {
-        assert!(links.is_empty());
-        return;
-    }
     assert!(lines.len() > 1, "窄终端详细模式应折行");
     // 详细模式显示完整绝对路径，折行后每段应是该绝对路径的片段。
     let absolute = super::absolute_link_path(path)
@@ -3547,10 +3527,6 @@ fn test_tool_block_read_detail_header_shows_line_range_outside_link() {
         header.ends_with(" · lines 10-20)"),
         "详细模式按参考实现文案追加行范围: {header}"
     );
-    if !crate::ui::osc8::enabled() {
-        assert!(links.is_empty());
-        return;
-    }
     assert_eq!(links.len(), 1);
     let label = linked_text(&lines, &links[0]);
     assert_eq!(
@@ -3578,10 +3554,6 @@ fn test_tool_block_write_result_line_links_path() {
         *content = "Wrote 3 lines src/a.rs".to_string();
     }
     let (lines, links) = render_view_model_with_links(&vm, Some(1), 120, false, 0);
-    if !crate::ui::osc8::enabled() {
-        assert!(links.is_empty());
-        return;
-    }
     assert_eq!(links.len(), 2, "header 与结果行路径都应可点: {lines:?}");
     let hit = links
         .iter()
@@ -3596,4 +3568,43 @@ fn test_tool_block_write_result_line_links_path() {
         "结果行文案不变: {}",
         lines[hit.line]
     );
+}
+
+#[test]
+fn test_tool_block_read_without_range_links_relative_path() {
+    // 无行范围的 Read（如 `● Read(Cargo.toml)`）同样要登记可点链接
+    let vm = make_file_tool_block("Read", "Cargo.toml");
+    let (lines, links) = render_view_model_with_links(&vm, Some(1), 80, false, 0);
+    assert_eq!(links.len(), 1, "无范围时也应有链接: {lines:?}");
+    assert_eq!(linked_text(&lines, &links[0]), "Cargo.toml");
+    assert!(links[0].url.ends_with("/Cargo.toml"), "{}", links[0].url);
+}
+
+/// 只读工具组（Read 单条也会被聚合）的详细模式同样要登记路径链接。
+#[test]
+fn test_tool_call_group_detail_read_path_is_clickable() {
+    use crate::ui::message_view::{MessageViewModel, ToolCategory, ToolEntry};
+
+    let vm = MessageViewModel::ToolCallGroup {
+        category: ToolCategory::Read,
+        tools: vec![ToolEntry {
+            tool_name: "Read".to_string(),
+            display_name: "Read".to_string(),
+            args_display: Some("Cargo.toml".to_string()),
+            content: "Read 96 lines".to_string(),
+            is_error: false,
+        }],
+        collapsed: true,
+        standalone_action: None,
+        content_hash: 0,
+    };
+    let (lines, links) = render_view_model_with_links(&vm, Some(1), 120, true, 0);
+    assert_eq!(links.len(), 1, "工具组里的 Read 路径应可点: {lines:?}");
+    let label = linked_text(&lines, &links[0]);
+    assert!(
+        label.ends_with("Cargo.toml"),
+        "详细模式应显示绝对路径: {label}"
+    );
+    assert!(label.contains('/') || label.contains('\\'), "应为绝对路径: {label}");
+    assert!(links[0].url.starts_with("file:///"), "{}", links[0].url);
 }

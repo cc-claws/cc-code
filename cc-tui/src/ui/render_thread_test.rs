@@ -2030,3 +2030,102 @@ fn test_image_attachment_rows_keep_layout_links_and_copy_coordinates_aligned() {
         assert_eq!(columns.columns, 5..15);
     }
 }
+
+/// Read 工具头的路径链接必须能穿过真实 wrap_map 往返（渲染 → 折行表 → 点击命中）。
+#[test]
+fn test_read_tool_header_link_survives_wrap_map_roundtrip() {
+    use crate::ui::message_render::render_view_model_with_links;
+    use crate::ui::message_view::{MessageViewModel, ToolPhase};
+
+    let vm = MessageViewModel::ToolBlock {
+        tool_name: "Read".to_string(),
+        tool_call_id: "tc_read".to_string(),
+        display_name: "Read".to_string(),
+        args_display: Some("Cargo.toml".to_string()),
+        content: "Read 85 lines".to_string(),
+        is_error: false,
+        collapsed: true,
+        color: crate::ui::theme::cur().text,
+        diff_input: None,
+        phase: ToolPhase::Finished,
+        live_output: None,
+        source_agent_id: None,
+        started_at: None,
+        timeout_ms: None,
+        shell_backgrounded: false,
+        content_hash: 0,
+    };
+    let (lines, links) = render_view_model_with_links(&vm, Some(1), 80, false, 0);
+    let header = &lines[0];
+    eprintln!("header = {:?}", header.to_string());
+    eprintln!("links = {:?}", links);
+    let hit = links.first().expect("Read 行应有链接");
+    let (_total, wrap_map) = RenderTask::build_wrap_map(&lines, 80);
+    let pos = (hit.line, hit.g_start as u16);
+    assert_eq!(
+        crate::event::find_clicked_link(pos, &wrap_map, &links, 80).as_deref(),
+        Some(hit.url.as_str()),
+        "路径起点应能命中链接"
+    );
+    // 路径中间任意一点也应命中
+    let mid = (hit.line, (hit.g_start + (hit.g_end - hit.g_start) / 2) as u16);
+    assert_eq!(
+        crate::event::find_clicked_link(mid, &wrap_map, &links, 80).as_deref(),
+        Some(hit.url.as_str()),
+    );
+}
+
+/// 完整重建管线（dedup + 行映射）必须把工具头路径链接带进 cache.links。
+#[test]
+fn test_rebuild_produces_tool_path_links_in_cache() {
+    use crate::ui::message_view::{MessageViewModel, ToolPhase};
+
+    let cache = Arc::new(RwLock::new(RenderCache::new()));
+    let notify = Arc::new(Notify::new());
+    let mut task = RenderTask {
+        last_messages: Vec::new(),
+        message_lines: Vec::new(),
+        message_links: Vec::new(),
+        message_hashes: Vec::new(),
+        cache: Arc::clone(&cache),
+        notify,
+        width: 80,
+        show_tool_messages: false,
+        diff_visible: false,
+        detail_mode: false,
+        theme_fingerprint: crate::ui::theme::fingerprint(),
+        alt_lines: Vec::new(),
+        alt_links: Vec::new(),
+        alt_keys: Vec::new(),
+        alt_epochs: Vec::new(),
+        line_epochs: Vec::new(),
+        epoch_seq: 0,
+        wrap_segs: [Vec::new(), Vec::new()],
+    };
+    let vm = MessageViewModel::ToolBlock {
+        tool_name: "Read".to_string(),
+        tool_call_id: "tc_read".to_string(),
+        display_name: "Read".to_string(),
+        args_display: Some("Cargo.toml".to_string()),
+        content: "Read 96 lines".to_string(),
+        is_error: false,
+        collapsed: true,
+        color: crate::ui::theme::cur().text,
+        diff_input: None,
+        phase: ToolPhase::Finished,
+        live_output: None,
+        source_agent_id: None,
+        started_at: None,
+        timeout_ms: None,
+        shell_backgrounded: false,
+        content_hash: 0,
+    };
+    task.rebuild(vec![vm]);
+    let c = cache.read();
+    eprintln!("cache.links = {:?}", c.links);
+    eprintln!("cache.lines = {:?}", c.lines.iter().map(|l| l.to_string()).collect::<Vec<_>>());
+    assert!(
+        c.links.iter().any(|h| h.url.contains("Cargo.toml")),
+        "工具头路径链接必须进入 cache.links"
+    );
+}

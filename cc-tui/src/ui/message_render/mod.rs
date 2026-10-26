@@ -633,11 +633,10 @@ fn format_write_summary_line(
     Some((line, path_start, path.to_string()))
 }
 
-/// Write 结果行里的路径 → `file://` 链接目标；超链接关闭或无法绝对化时返回 None。
+/// Write 结果行里的路径 → `file://` 链接目标；路径无法绝对化时返回 None。
+///
+/// 与 [`tool_file_url`] 一致：命中区登记不受 `osc8::enabled()` 影响。
 fn write_target_url(path_text: &str) -> Option<String> {
-    if !super::osc8::enabled() {
-        return None;
-    }
     Some(url::Url::from_file_path(absolute_link_path(path_text)?).ok()?.to_string())
 }
 
@@ -816,11 +815,12 @@ fn tool_path_text<'a>(tool: &str, args: &'a str) -> Option<&'a str> {
     }
 }
 
-/// 工具头路径的 OSC 8 `file://` 链接目标；超链接关闭或路径无法绝对化时返回 None。
+/// 工具头路径的 OSC 8 `file://` 链接目标；路径无法绝对化时返回 None。
+///
+/// 注意：这里**不**看 `osc8::enabled()`。该开关只控制输出层是否写 OSC 8 序列
+/// （`hyperlink::begin_frame`），点击命中区是独立数据——与 `bare_url_hits` 等
+/// 既有链接一致。若把两者绑在一起，`DISABLE_HYPERLINKS=1` 会让点击一并失效。
 fn tool_file_url(tool: &str, args: &str) -> Option<String> {
-    if !super::osc8::enabled() {
-        return None;
-    }
     let path = absolute_link_path(tool_path_text(tool, args)?)?;
     Some(url::Url::from_file_path(path).ok()?.to_string())
 }
@@ -2737,7 +2737,37 @@ pub fn render_view_model_with_flags(
                                 + 2;
                             let max_args_width =
                                 header_args_width(width, prefix_width + 2, detail_mode);
-                            let summary = tool_args_header(&entry.tool_name, args, max_args_width);
+                            // 与单条 ToolBlock 的详细模式一致：Write/Edit/Read 显示完整绝对路径
+                            let verbose = verbose_tool_args(&entry.tool_name, args);
+                            let summary =
+                                tool_args_header(&entry.tool_name, &verbose, max_args_width);
+                            let header_line = lines.len().saturating_sub(1);
+                            let args_start_g = indicator.graphemes(true).count()
+                                + 1
+                                + entry.display_name.graphemes(true).count()
+                                + 1;
+                            // 只读工具组里的 Read 路径同样可点：命中区只覆盖路径本身
+                            if let (Some(url), Some(path_text)) = (
+                                tool_file_url(&entry.tool_name, args),
+                                tool_path_text(&entry.tool_name, args),
+                            ) {
+                                let path_display = verbose_display_path(path_text)
+                                    .unwrap_or_else(|| path_text.to_string());
+                                let path_g = path_display.graphemes(true).count();
+                                let visible_g = summary.graphemes(true).count();
+                                let truncated = verbose.graphemes(true).count() > visible_g;
+                                let visible =
+                                    path_g.min(visible_g.saturating_sub(usize::from(truncated)));
+                                if visible > 0 {
+                                    link_hits.push(cc_widgets::markdown::LinkHit {
+                                        line: header_line,
+                                        g_start: args_start_g,
+                                        g_end: args_start_g + visible,
+                                        url,
+                                        recolor: false,
+                                    });
+                                }
+                            }
                             if let Some(last_line) = lines.last_mut() {
                                 last_line.spans.push(Span::styled(
                                     format!("({})", summary),
