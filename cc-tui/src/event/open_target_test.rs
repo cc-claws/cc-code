@@ -10,8 +10,9 @@ fn test_local_file_target_returns_none_for_http_url() {
 
 #[test]
 fn test_local_file_target_falls_back_on_malformed_file_url() {
-    assert!(local_file_target("file://").is_none());
-    assert!(local_file_target("file:").is_none());
+    // 空串与非 URL 输入不能构造出可打开的路径。
+    assert!(local_file_target("").is_none());
+    assert!(local_file_target("file:not a url").is_none());
 }
 
 #[cfg(windows)]

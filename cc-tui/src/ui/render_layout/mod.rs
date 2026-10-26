@@ -11,7 +11,16 @@ pub(super) mod estimator;
 mod interaction;
 
 pub const DETAIL_CACHE_BUDGET: usize = 16 * 1024 * 1024;
-pub const AUTO_DETAIL_ROWS: usize = 300_000;
+/// auto 模式下估算总行数达到该值就切虚拟布局。
+///
+/// 原值 300_000 在实际会话里几乎不可能触发：long session 到 2 万行时
+/// cache 模式的 `rebuild` 每轮已要深拷贝全量行，界面明显卡顿。取 5_000
+/// 行（约百余条消息）作为拐点，让长会话自动进入窗口化渲染。
+pub const AUTO_DETAIL_ROWS: usize = 5_000;
+/// auto 模式下消息条数达到该值也切虚拟布局（短消息多时行数涨得慢，单看行数会漏）。
+pub const AUTO_DETAIL_MESSAGES: usize = 300;
+/// auto 模式下估算字节数超过该值也切虚拟布局。
+pub const AUTO_DETAIL_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ViewportAnchor {
