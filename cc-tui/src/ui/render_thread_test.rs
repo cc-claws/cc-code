@@ -1938,6 +1938,60 @@ fn test_bare_url_links_only_for_tool_and_shell_output() {
     let (_, links) = RenderTask::render_one(&mut user.clone(), 0, 100, false, false);
     assert!(links.is_empty(), "用户输入不得变成链接");
 }
+
+/// 端到端：pipeline 构建的流式气泡交给渲染线程后必须被填充渲染内容。
+///
+/// 流式文本块现在以空 `rendered` 交出，渲染内容完全依赖 `render_one` 里的
+/// `ensure_rendered_incremental`；一旦有人给某条渲染路径加 AssistantBubble
+/// 却不经过 `render_one`，这里会最先失败。
+#[test]
+fn test_streaming_bubble_render_fills_rendered() {
+    use crate::app::message_pipeline::MessagePipeline;
+    use crate::ui::message_view::ContentBlockView;
+
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.push_chunk("hello **world**\n\nsecond line");
+    let mut vm = pipeline.build_streaming_bubble();
+
+    // render_one 是关联函数，不依赖 RenderTask 实例
+    let (lines, _links) = RenderTask::render_one(&mut vm, 1, 80, false, false);
+    let plain = lines
+        .iter()
+        .map(|l| {
+            l.spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        plain.contains("hello") && plain.contains("second line"),
+        "流式文本必须被渲染出来，实际: {plain}"
+    );
+
+    // 渲染后缓存必须回填，否则下一帧仍会重新解析
+    let MessageViewModel::AssistantBubble { blocks, .. } = &vm else {
+        panic!("应为 AssistantBubble");
+    };
+    let Some(ContentBlockView::Text {
+        raw,
+        rendered_prefix_len,
+        rendered_prefix_lines,
+        dirty,
+        ..
+    }) = blocks
+        .iter()
+        .rev()
+        .find(|b| matches!(b, ContentBlockView::Text { .. }))
+    else {
+        panic!("应存在 Text 块");
+    };
+    assert_eq!(*rendered_prefix_len, raw.len(), "渲染后应记录已渲染前缀");
+    assert!(*rendered_prefix_lines > 0, "渲染后应有行数缓存");
+    assert!(!*dirty, "渲染完成后应清除脏标记");
+}
+
 #[test]
 fn test_image_attachment_rows_keep_layout_links_and_copy_coordinates_aligned() {
     let mut message = MessageViewModel::user("正文 [Image #1] [Image #2]".into());

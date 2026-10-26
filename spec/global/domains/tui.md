@@ -54,6 +54,18 @@ Arc<RwLock<RenderCache>>
 terminal.draw(main_ui::render)
 ```
 
+#### 流式渲染三档与解析归属
+
+`streaming_mode`（settings 的 `streaming_mode` 字段，缺省 `streaming`）只控制界面如何呈现流式内容，不改变请求内容：
+
+- `streaming`（默认）：chunk 累积后由渲染线程按自适应节流重绘。**流式文本块不在 pipeline 侧预解析**——交出去的是 `dirty=true` + 空 `rendered` + `rendered_prefix_len=0`，markdown 解析统一由渲染线程的 `ensure_rendered_incremental` 完成。
+- `block`：chunk 先进缓冲区，由 `BlockBoundaryScanner` 按行判定块边界（围栏外的空行、围栏闭合各算一次块结束），跨调用保留围栏状态且只扫新增行；不再用「最后一行是否以 ``` 开头」的启发式，正文出现裸围栏行不会误判。
+- `none`：只累积文本，流式期间不重绘，轮末由 StateSnapshot 一次性显示。
+
+流式显示快照会挂起未完成的长行：最后一个换行之后的内容超过 200 字符时暂不进入 `raw`，等换行到达再显示，避免长段落每帧重排；尚未出现换行时整段照常显示，保证短回答首字即时可见。挂起只影响显示快照，`current_ai_text` 始终保存全文，最终消息由 StateSnapshot 的完整文本落地。
+
+**通用模式:** pipeline 侧不要预解析 markdown 并把 `rendered_prefix_len` 设为全文长度——这会让渲染线程的增量入口（`raw.len() == rendered_prefix_len` 时直接返回）短路，同一份文本在每帧被解析两次（宽度匹配时一次、不匹配时两次）。解析归属留给渲染线程，pipeline 只负责组织 VM。
+
 ### 事件处理循环
 
 ```
@@ -1470,4 +1482,4 @@ cache 保留兼容的全量渲染路径；virtual 按视口生成分段共享成
 
 空间契约须分别统计历史/高度等 O(N) 元数据、离屏成品预算和可见内容；16 MiB 只约束离屏成品，不包含视口内超大消息、VM 预解析缓存、剪贴板或仍被旧快照引用的对象，不能据此声称会话 RSS 已封顶。虚拟路径未测量区间的高度为估算，进入视口后使用实际高度修正；滚动与选择保持逻辑行坐标，不能把局部窗口行号当成全局行号。
 
-最后更新：2026-10-22
+最后更新：2026-10-26

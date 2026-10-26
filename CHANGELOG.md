@@ -4,11 +4,11 @@ Perihelion Agent 版本变更记录。
 
 ---
 
-## Unreleased
+## v0.6.193 — 2026-10-26
 
 ### Features
 
-- **用户图片附件落盘与可点击引用（Phase 1）**：发送时仅保存输入中仍有 `[Image #N]` 占位符的图片，文件写入 `std::env::temp_dir()/cc-code-images/<session_uuid>/<image_id>.<ext>`，扩展名按媒体类型确定；删掉占位符的图片不发送、不写盘。写盘失败只记 `warn`，不阻断图片发送给模型。用户正文下每图一行 `  ⎿  [Image #N]`；保存成功且超链接开启时复用既有 OSC 8 通道，引用带下划线，可由支持的终端打开本地图片；`DISABLE_HYPERLINKS=1` 或缺少保存路径时降级为无下划线、不可点击的纯灰字。新消息不再追加 `[N image(s)]` 数量尾巴，已有历史文本不回改。路径索引仅在会话内存中保存，清会话时清空索引但不删文件，临时文件清理由系统或用户处理；恢复会话不保证链接可用。本期不向模型注入本地路径或缩放元数据，不包含 Phase 2 的恢复会话懒加载及待发送阶段链接。
+- **用户图片附件落盘与可点击引用（Phase 1）**：发送时仅保存输入中仍有 `[Image #N]` 占位符的图片，文件写入 `std::env::temp_dir()/cc-code-images/<session_uuid>/<image_id>.<ext>`，扩展名按媒体类型确定；删掉占位符的图片不发送、不写盘。写盘失败只记 `warn`，不阻断图片发送给模型。用户正文下每图一行 `  ⎿  [Image #N]`；引用为正文前景色且不带人工下划线（与参考实现逐项一致，可点性由终端对 OSC 8 自身的呈现决定），保存成功且超链接开启时复用既有 OSC 8 通道，可由支持的终端打开本地图片；`DISABLE_HYPERLINKS=1` 或缺少保存路径时降级为不可点击的普通文本。新消息不再追加 `[N image(s)]` 数量尾巴，已有历史文本不回改。路径索引仅在会话内存中保存，清会话时清空索引但不删文件，临时文件清理由系统或用户处理；恢复会话不保证链接可用。本期不向模型注入本地路径或缩放元数据，不包含 Phase 2 的恢复会话懒加载及待发送阶段链接。
 
 - **`Skill` 成为一级核心工具，技能触发不再走 `Read`（#730）**：此前技能只能靠模型自己用 `Read` 打开 `SKILL.md` 触发，界面上表现为一次普通文件读取；`/skill-name` 这类显式调用还会由中间件伪造 `Ai[ToolUse: Read]` + `Tool[ToolResult]` 插入历史——对强制校验 thinking 回传的模型来说，这条没有 thinking 的伪工具消息随时会引爆 400。现在新增核心工具 `Skill`（`cc-middlewares/src/tools/skill.rs`），`invoke` 返回技能指令全文与 camelCase 元数据（`commandName` / `status` / `allowedTools` / `instruction`），`tool_use(Skill)` 由模型自己发起、thinking 块自然产出，协议层面天然合法。配套改动：核心工具白名单 11 → 12；技能查找、frontmatter 解析、`$ARGUMENTS` 与 `${CLAUDE_SKILL_DIR}` 插值抽到 `skills/invocation.rs` 由工具与 Slash 共用；`SkillPreloadMiddleware` 改为注入 Human 元指令而非伪造 Ai 消息；`context: fork` 的技能在隔离子代理中执行并等待结果，取消随父调用级联；压缩恢复废弃「扫描技能目录路径」的启发式，改为按工具名精确配对，只恢复最近激活的技能正文。TUI 侧新增专属折叠卡片（默认收成一行 `Successfully loaded skill`，结果行取 `text_soft`、`⎿` 前缀保持 `inactive`，与普通工具块的写法区分开），`Skill` 纳入默认折叠白名单，折叠态高度固定 2 行，避免长正文撑爆视口与高度估算抖动。系统提示词与 `13_skills.md` 同步改为阻塞性调用契约并附正反例。
 
@@ -17,6 +17,8 @@ Perihelion Agent 版本变更记录。
 ### Fixes
 
 - **后台任务通知改用模型描述（#738）**：后台 Bash 的完成通知与等待输入（stall）通知此前只显示命令原文前 80 字符，而 Bash 工具的 `description` 参数（模型写的用途说明）在 `cc-middlewares` 里被 `let _description = …` 直接丢弃，人在对话流里读到的是一串 `cd … && export …`。现在 `ShellRequest` 携带 `description`，经 `AgentShellRegistration` / `AgentShellSlot` 透传到通知生成：两类通知的 XML 在 `<command>` 之外新增 `<description>`（仅非空时写入；命令原文保留，模型仍靠它与 task-id 定位任务），展示层优先取描述、缺失才回退命令。同批修显示层两处：截断改用 `truncate_to_display_width`（CJK 不再超宽，`…` 收口，替换按字符数的 `truncate_chars`）；状态只保留括号内细节，不再渲染成 `(completed (exit 0))` 的双层括号。非 TUI 路径（`InlineShellExecutor`）拿不到描述，行为与旧版一致。
+
+- **流式渲染不再每帧重复解析 Markdown，block 档围栏判定改用状态机（#739）**：流式气泡此前在 App 侧预解析 markdown，并把 `rendered_prefix_len` 报成全文长度、`dirty=false`——渲染线程的增量入口（`raw.len() == rendered_prefix_len` 时直接返回）因此短路；当终端内容宽度（终端宽 − 2）不等于 80 时，渲染线程还会按实际宽度再解析一遍，同一份文本每帧被解析两次。现构造气泡只交 `dirty=true` + 空 `rendered`，解析统一归渲染线程。同批把流式显示改为挂起未完成的长行：最后一个换行之后的内容超过 200 字符时暂不进入显示快照，等换行到达再显示，长段落不再每帧重排；尚未出现换行时整段照常显示，短回答与首字仍逐字可见，挂起只影响显示快照，最终消息由 StateSnapshot 的完整文本落地。block 档的块边界改由新增的 `BlockBoundaryScanner` 判定——按行扫描、跨调用保留围栏状态、只扫新增行，删掉「最后一行是否以 ` ``` ` 开头」的启发式；围栏内空行不再提前提交、正文出现裸围栏行不再误判，围栏闭合视为块结束。debug profile 下 2000 行文本单次全量解析约 121ms，改后构造流式气泡约 0.37ms；终端宽度恰为 82 列时改前改后都是一次解析，无额外收益。
 
 - **终端标题的闪烁符号改为 `◐` / `◑` 两帧交替**：标题栏此前与消息区共用同一套 6 字呼吸字形（`· ✢ * ✶ ✻ ✽`），其中 `✻` 在标题位置看着像一片雪花反复明灭。现为标题单独拆出帧源——`◐`（左半黑）/ `◑`（右半黑）两帧，每 960ms 换一帧、一轮 1920ms（与参考实现的 960ms 帧间隔一致——此前取 400ms，比参考实现快 2.4 倍，观感接近频闪），由单调时钟驱动（`animation_elapsed_ms`）而非 tick 计数，与状态机解耦：换回合、切模式、`reset()` 都不重置相位。消息区 loading 行不受影响，仍走余弦呼吸那套字形。帧位由 `TERMINAL_TITLE_SPINNER_FRAMES` 承担——该常量原先挂着 10 帧盲文（历史呼吸算法的预留帧集），一直没有接入渲染，本次改为承载标题实际使用的两帧。另补多路复用器降级：检测到 `TMUX` / `STY` 环境变量时标题停在静态首帧、Action Required 也不再逐秒交替——tmux / screen 会转发 OSC 0 标题写，逐帧闪烁会让外层 tab 一起抖；该判定读一次即缓存（环境变量在进程内不变）。
 
