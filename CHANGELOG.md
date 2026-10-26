@@ -4,6 +4,20 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.194 — 2026-10-26
+
+### Features
+
+- **`Write` / `Edit` / `Read` 工具头的路径可点击（对齐参考实现）**：工具调用行的路径现在包成 OSC 8 `file://` 链接，点击由系统默认程序打开文件；Write 的 `Wrote N lines to <path>` 结果行路径同样可点（与参考实现 2.1.310 一致，此前按旧版源码判定为不可点）。链接目标是绝对路径（`~/` 与相对路径按 cwd 还原），显示文本仍保持相对路径 / `~` 记法，`DISABLE_HYPERLINKS=1` 时退回纯文本，摘要被截断时链接只覆盖可见前缀。打开方式对齐参考实现：`file:` 链接在 Windows 上直接 exec `explorer.exe`（不经 `cmd` 再解析一次命令行，含 `"` `%` `,` `=` 的路径放弃打开），macOS / Linux 走 `open` / `xdg-open`，非 `file:` 的 URL 行为不变。同批把 Read 的行范围显示改成参考实现口径：紧凑头只显示路径，详细模式显示 ` · lines 起-止`（无 limit 时 ` · from line 起`，offset 或 limit 任一存在就显示、起始行缺省为 1），详细模式下三者均显示完整绝对路径。摘要不再用 `:起-止` 拼进路径串——文件名自带 `:123` 时旧格式会被当成行号范围，把显示和链接一起指错；改成固定文案后由渲染层按 ` · ` 标记切分，不再从数字位置反推。
+
+### Fixes
+
+- **附件引用行与工具路径不再被染成链接蓝**：`⎿ [Image #N]`、`Write`/`Edit`/`Read` 工具头的路径、`Wrote N lines to <path>` 结果行都被登记为 OSC 8 链接，而输出层 `hyperlink::decorate` 会把每个链接 cell 的前景色统一改写成 `LightBlue`，把渲染层设的颜色盖掉——用户看到的是蓝色，而不是这些元素各自的配色。现给 `LinkHit` 增加 `recolor` 标记并在整条链路透传（`LinkHit` → `LinkColumns` → `register`）：上述文件路径链接传 `false`，只包 OSC 8 保持可点、不动前景色；Markdown 链接与工具输出里的裸 URL 仍传 `true`，维持既有亮蓝。附件引用行的前景色同步由正文纯白改为 `text_soft`，与 `⎿ Successfully loaded skill` 同档。
+
+- **长会话自动切虚拟布局**：`AUTO_DETAIL_ROWS` 从 300_000 降到 5_000，并新增消息条数（300 条）与估算字节（16 MB）两个触发维度。2 万渲染行的会话此前始终走全量重建路径，每次消息变化都要深拷贝整张行表，界面明显卡顿；现在超过任一阈值即切窗口化渲染，重建成本从全量行降到视口级。
+
+- **测试不再包含本机业务路径**：`message_render` 的工具组用例曾把本机业务项目目录写死为测试输入，现改为运行时构造的绝对路径，断言也改为平台无关（`file:` 短写法的解析结果各平台不一致，不再作为契约）。
+
 ## v0.6.193 — 2026-10-26
 
 ### Features
@@ -14,11 +28,9 @@ Perihelion Agent 版本变更记录。
 
 - **`/gc` 按 size class 分解 allocated（#716）**：`/gc` 此前只报 allocated 总量与一条「已知合计估算」，差额一律归入「未识别」，看不出那些字节是几块大缓冲还是几万个中小对象。现新增 size class 段落：读 jemalloc 的 `arenas.nbins` / `arenas.nlextents` / `arenas.narenas`，逐 class 汇总全部 arena 的 `stats.arenas.<i>.bins.<j>.curregs` 与 `stats.arenas.<i>.lextents.<k>.curlextents`，打印 Top 12 + 其余合计 + 覆盖率校验行（`尺寸 × 存活对象数 = 字节`，占比以 allocated 为分母）。jemalloc 的 `allocated` 本身就是 `Σ curregs×reg_size + Σ curlextents×size`，逐 class 求和恒等于它，因此这张表是**精确分解**而非估算，能覆盖旧估算看不到的 SyntaxSet/ThemeSet、编译正则、tokio/ACP 缓冲等。两个实现要点：large class 的计数节点是 `lextents` 而不是 `large`（后者只有 allocated/nmalloc 等聚合字段，按 `large` 拼键会静默读到 0）；统计路径不许有堆分配——非 Windows 上被统计的分配器就是本进程的全局分配器，用 `format!` 拼约 4000 个 mallctl 键产生的临时 `String` 会立刻进入 arena 记账，实测让覆盖率凭空差 29,696 B（24.6 MB 上 0.12%），改用栈上键缓冲并把本函数的 `Vec` 全部提前到 epoch 快照之前分配后差额归零。尺寸列用精确字节数（`1,280 B`），因为 `fmt_bytes` 会把 1024 B 与 1280 B 都渲染成 `1 KB`。Windows（mimalloc）无对应接口，整段跳过而不打印空表。
 
-- **`Write` / `Edit` / `Read` 工具头的路径可点击（对齐参考实现）**：工具调用行的路径现在包成 OSC 8 `file://` 链接，点击由系统默认程序打开文件；Write 的 `Wrote N lines to <path>` 结果行路径同样可点（与参考实现 2.1.310 一致，此前按旧版源码判定为不可点）。链接目标是绝对路径（`~/` 与相对路径按 cwd 还原），显示文本仍保持相对路径 / `~` 记法，`DISABLE_HYPERLINKS=1` 时退回纯文本，摘要被截断时链接只覆盖可见前缀。打开方式对齐参考实现：`file:` 链接在 Windows 上直接 exec `explorer.exe`（不经 `cmd` 再解析一次命令行，含 `"` `%` `,` `=` 的路径放弃打开），macOS / Linux 走 `open` / `xdg-open`，非 `file:` 的 URL 行为不变。同批把 Read 的行范围显示改成参考实现口径：紧凑头只显示路径，详细模式显示 ` · lines 起-止`（无 limit 时 ` · from line 起`，offset 或 limit 任一存在就显示、起始行缺省为 1），详细模式下三者均显示完整绝对路径。摘要不再用 `:起-止` 拼进路径串——文件名自带 `:123` 时旧格式会被当成行号范围，把显示和链接一起指错；改成固定文案后由渲染层按 ` · ` 标记切分，不再从数字位置反推。
 
 ### Fixes
 
-- **附件引用行与工具路径不再被染成链接蓝**：`⎿ [Image #N]`、`Write`/`Edit`/`Read` 工具头的路径、`Wrote N lines to <path>` 结果行都被登记为 OSC 8 链接，而输出层 `hyperlink::decorate` 会把每个链接 cell 的前景色统一改写成 `LightBlue`，把渲染层设的颜色盖掉——用户看到的是蓝色，而不是这些元素各自的配色。现给 `LinkHit` 增加 `recolor` 标记并在整条链路透传（`LinkHit` → `LinkColumns` → `register`）：上述文件路径链接传 `false`，只包 OSC 8 保持可点、不动前景色；Markdown 链接与工具输出里的裸 URL 仍传 `true`，维持既有亮蓝。附件引用行的前景色同步由正文纯白改为 `text_soft`，与 `⎿ Successfully loaded skill` 同档。
 - **后台任务通知渲染对齐参考实现（#747）**：通知此前是灰色系统提示行、无前缀，文案为 `Background shell completed: <描述> (exit 0)`。现在 `shell-notify-*` 改写为整句 summary（`Background command "<描述>" completed (exit code 0)`，失败 / 停止 / 超时 / 等待输入各有句式，中英同步），并给 `MessageViewModel::SystemNote` 增加 `tone` 语义色：带 tone 的通知行渲染为 `● ` + 主题 success/error/warning 整行着色，多条合并取最严重的语义色（错误 > 警告 > 成功）；普通系统提示（compact 摘要、子 Agent 提示等）渲染保持不变。
 
 - **后台任务通知改用模型描述（#738）**：后台 Bash 的完成通知与等待输入（stall）通知此前只显示命令原文前 80 字符，而 Bash 工具的 `description` 参数（模型写的用途说明）在 `cc-middlewares` 里被 `let _description = …` 直接丢弃，人在对话流里读到的是一串 `cd … && export …`。现在 `ShellRequest` 携带 `description`，经 `AgentShellRegistration` / `AgentShellSlot` 透传到通知生成：两类通知的 XML 在 `<command>` 之外新增 `<description>`（仅非空时写入；命令原文保留，模型仍靠它与 task-id 定位任务），展示层优先取描述、缺失才回退命令。同批修显示层两处：截断改用 `truncate_to_display_width`（CJK 不再超宽，`…` 收口，替换按字符数的 `truncate_chars`）；状态只保留括号内细节，不再渲染成 `(completed (exit 0))` 的双层括号。非 TUI 路径（`InlineShellExecutor`）拿不到描述，行为与旧版一致。
