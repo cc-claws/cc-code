@@ -277,3 +277,35 @@ fn test_terminal_title_frame_set_is_half_circle_pair() {
         "标题帧集合应为左半黑 / 右半黑两帧"
     );
 }
+
+#[test]
+fn test_title_spinner_frame_holds_each_frame_for_960ms() {
+    // 每帧 960ms，一轮两帧 1920ms
+    assert_eq!(title_spinner_frame(0), "◐");
+    assert_eq!(title_spinner_frame(959), "◐", "未满 960ms 不应换帧");
+    assert_eq!(title_spinner_frame(960), "◑", "满 960ms 换第二帧");
+    assert_eq!(title_spinner_frame(1919), "◑");
+    assert_eq!(title_spinner_frame(1920), "◐", "1920ms 回到首帧");
+}
+
+#[test]
+fn test_title_spinner_frame_period_is_two_frames() {
+    assert_eq!(TERMINAL_TITLE_FRAME_MS, 960, "帧间隔须对齐参考实现的 960ms");
+    assert_eq!(TERMINAL_TITLE_SPINNER_FRAMES.len(), 2);
+    for ms in (0..3840).step_by(120) {
+        let frame = title_spinner_frame(ms);
+        assert!(
+            TERMINAL_TITLE_SPINNER_FRAMES.contains(&frame),
+            "{ms}ms 取到了帧集外的字形 {frame:?}"
+        );
+    }
+}
+
+#[test]
+fn test_title_prefix_frame_freezes_under_multiplexer() {
+    // tmux/screen 下停闪：任何时刻都固定首帧
+    for ms in [0, 960, 1920, 5000] {
+        assert_eq!(title_prefix_frame(ms, true), "◐", "{ms}ms 在 mux 下应静止");
+        assert_eq!(title_prefix_frame(ms, false), title_spinner_frame(ms));
+    }
+}

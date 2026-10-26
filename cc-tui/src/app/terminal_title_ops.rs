@@ -1,7 +1,8 @@
 use crate::{
     app::App,
     terminal_title::{
-        sanitize_title, title_spinner_frame, TerminalTitleItem, TerminalTitleStatusKind,
+        is_under_terminal_multiplexer, sanitize_title, title_prefix_frame, TerminalTitleItem,
+        TerminalTitleStatusKind,
     },
 };
 
@@ -66,7 +67,9 @@ impl App {
             .current()
             .spinner_state
             .animation_elapsed_ms();
-        let spinner_str = title_spinner_frame(spinner_elapsed_ms);
+        // tmux / screen 下停闪：多路复用器会转发 OSC 0，逐帧写会让外层 tab 抖动
+        let multiplexed = is_under_terminal_multiplexer();
+        let spinner_str = title_prefix_frame(spinner_elapsed_ms, multiplexed);
 
         let activity = match status {
             TerminalTitleStatusKind::ActionRequired => {
@@ -74,7 +77,8 @@ impl App {
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_secs();
-                if now_sec.is_multiple_of(2) {
+                // 多路复用器下同样停闪：外层 tab 会被逐秒的标题写抖到
+                if multiplexed || now_sec.is_multiple_of(2) {
                     "[ ! ] Action Required"
                 } else {
                     "[ . ] Action Required"
