@@ -92,7 +92,7 @@ launch_agent 工具调用
 | 错误处理 | LLM 层 `anyhow::Result`，工具层结构化错误信息（`is_error: true`） |
 | 测试 | `MockLLM::tool_then_answer()` 脚本回放，无需真实 API |
 | 子 Agent 中间件 | AgentsMdMiddleware → SkillsMiddleware → SkillPreloadMiddleware → TodoMiddleware；system prompt 由 AgentSystemBuilder 动态构建 |
-| skill 预加载 | SkillPreloadMiddleware：fake read_file 工具调用+ToolResult 消息对注入，frontmatter.skills 声明 |
+| skill 预加载 | SkillPreloadMiddleware：与 SkillTool 共用加载器，以 Human 元指令追加全文，frontmatter.skills 声明；不伪造 Ai/Tool |
 | System Prompt | ReActAgent.with_system_prompt()：内置字段，execute() 在 run_before_agent 之后固定 prepend；子 agent 的 system prompt 由 AgentSystemBuilder 动态构建（无 PrependSystemMiddleware） |
 | ask_user_question | 工具名对齐参考实现；questions 数组（1-4 个）；header 短标签；options.description；始终允许自定义输入 |
 | 事件携带 message_id | TextChunk/ToolStart/ToolEnd 均携带 message_id，Web 前端可 update-in-place |
@@ -100,7 +100,7 @@ launch_agent 工具调用
 | 子 Agent 模型 | agent.md frontmatter model 字段（sonnet/opus/haiku/inherit），alias 解析在 TUI 层完成 |
 | 定时任务 | CronMiddleware 提供 CronRegister/CronList/CronRemove 三个工具；croner 3 解析表达式；内存任务表上限 20 |
 | 后台执行 | BackgroundTaskRegistry(max=3) + mpsc unbounded 通道；invoke_background() 不 await；结果注入为 Human 消息；Done 后保持通道存活 + 自动 continuation |
-| 工具延迟加载 | 核心工具（11 个）直接加载，非核心工具通过 SearchExtraTools 按需发现、ExecuteExtraTool 代理执行；Prompt 缓存会话级 |
+| 工具延迟加载 | 核心工具（12 个，含 Skill）直接加载，非核心工具通过 SearchExtraTools 按需发现、ExecuteExtraTool 代理执行；Prompt 缓存会话级 |
 | Web 工具 | WebMiddleware 注入 WebFetch（HTML→Markdown）和 WebSearch（Tavily API），支持域名过滤和实时抓取 |
 | trait 清理 | ReactLLM 的推理方法仍为 generate_reasoning（执行器经 llm_step 调用，无 generate() 统一）；废弃 trait 标记 #[deprecated] |
 | 会话回顾 /recap | `cc-agent/src/agent/recap/mod.rs`：独立 `aux_model`（与 compact_model 解耦，不受 compact 开关影响），单轮生成、禁用工具、不写 history；input token 远小于完整 history |
@@ -848,4 +848,4 @@ launch_agent 工具调用
 - → [message-pipeline.md](./message-pipeline.md) — MessagePipeline 统一管线
 - → [code-architecture.md](./code-architecture.md) — Relay Server 移除
 
-最后更新：2026-10-16
+最后更新：2026-10-26

@@ -194,6 +194,9 @@ settings.json
 CLAUDE.local.md
 .mcp.json
 
+# 本地临时工作目录：调试产物、备份、CI 日志，不入库
+temp/
+
 # .claude/CLAUDE.md 是参考实现工具加载的个人规则文件，
 # 之前误传过 adim 钉钉/PowerShell/PHP 那套无关内容，统一忽略。
 # 项目级开发规范写在根目录 CLAUDE.md。
