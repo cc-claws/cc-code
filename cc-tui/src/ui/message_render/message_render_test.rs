@@ -3377,3 +3377,58 @@ fn test_bash_output_collapse_hint_matches_unified_style_single_line() {
         "Bash 输出截断 1 行应使用单数 '… +1 line (ctrl+o to expand)'，实际: {text}"
     );
 }
+
+/// 后台任务通知的渲染契约：`●` 前缀 + 状态色。
+///
+/// 对齐参考实现的 `UserAgentNotificationMessage`：
+/// `<Text color={color}>{BLACK_CIRCLE}</Text> {summary}`——圆点与正文同色，
+/// 颜色由 status 决定（completed→success / failed→error / killed→warning）。
+#[test]
+fn test_system_note_with_tone_renders_dot_prefix_in_status_color() {
+    use crate::ui::message_view::NoteTone;
+    // Arrange
+    let content = "Background command \"Run the test suite\" completed (exit code 0)";
+    for (tone, expected) in [
+        (NoteTone::Success, crate::ui::theme::cur().success),
+        (NoteTone::Error, crate::ui::theme::cur().error),
+        (NoteTone::Warning, crate::ui::theme::cur().warning),
+    ] {
+        let vm = MessageViewModel::SystemNote {
+            content: content.to_string(),
+            content_hash: 0,
+            detail_content: None,
+            tone: Some(tone),
+        };
+        // Act
+        let lines = render_view_model(&vm, None, 80, false, 0);
+        // Assert
+        assert_eq!(lines.len(), 1, "通知应渲染为一行: {:?}", lines);
+        assert_eq!(lines[0].spans[0].content.as_ref(), "● ", "应以 ● 前缀开头");
+        assert_eq!(lines[0].spans[0].style.fg, Some(expected), "● 应使用状态色");
+        assert_eq!(
+            lines[0].spans[1].style.fg,
+            Some(expected),
+            "正文应使用状态色"
+        );
+    }
+}
+
+/// 普通系统提示（无 tone）不带 `●`，颜色保持既有灰色——回归锁，防止通知样式外溢。
+#[test]
+fn test_system_note_without_tone_keeps_plain_style() {
+    // Arrange
+    let vm = MessageViewModel::SystemNote {
+        content: "Compacted conversation history".to_string(),
+        content_hash: 0,
+        detail_content: None,
+        tone: None,
+    };
+    // Act
+    let lines = render_view_model(&vm, None, 80, false, 0);
+    // Assert
+    let rendered: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
+    assert!(
+        !rendered.starts_with('●'),
+        "普通系统提示不应带 ● 前缀: {rendered}"
+    );
+}
