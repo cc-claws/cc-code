@@ -18,11 +18,11 @@ fn test_terminal_title_format_idle_named() {
 
 #[test]
 fn test_terminal_title_format_working_unnamed() {
-    let item = TerminalTitleItem::new(TerminalTitleStatusKind::Working, "peri", None, Some("⠋"));
+    let item = TerminalTitleItem::new(TerminalTitleStatusKind::Working, "peri", None, Some("◐"));
     assert_eq!(
         item.format_title(),
-        "⠋ peri",
-        "未命名时 Working 为 ⠋ project"
+        "◐ peri",
+        "未命名时 Working 为 ◐ project"
     );
 }
 
@@ -32,22 +32,22 @@ fn test_terminal_title_format_working_named() {
         TerminalTitleStatusKind::Working,
         "peri",
         Some("fix-bug"),
-        Some("⠙"),
+        Some("◑"),
     );
     assert_eq!(
         item.format_title(),
-        "⠙ fix-bug | peri",
-        "已命名时 Working 为 ⠙ thread | project"
+        "◑ fix-bug | peri",
+        "已命名时 Working 为 ◑ thread | project"
     );
 }
 
 #[test]
 fn test_terminal_title_format_thinking_unnamed() {
-    let item = TerminalTitleItem::new(TerminalTitleStatusKind::Thinking, "peri", None, Some("⠋"));
+    let item = TerminalTitleItem::new(TerminalTitleStatusKind::Thinking, "peri", None, Some("◐"));
     assert_eq!(
         item.format_title(),
-        "⠋ peri",
-        "未命名时 Thinking 为 ⠋ project"
+        "◐ peri",
+        "未命名时 Thinking 为 ◐ project"
     );
 }
 
@@ -57,12 +57,12 @@ fn test_terminal_title_format_thinking_named() {
         TerminalTitleStatusKind::Thinking,
         "peri",
         Some("fix-bug"),
-        Some("⠋"),
+        Some("◐"),
     );
     assert_eq!(
         item.format_title(),
-        "⠋ fix-bug | peri",
-        "已命名时 Thinking 为 ⠋ thread | project"
+        "◐ fix-bug | peri",
+        "已命名时 Thinking 为 ◐ thread | project"
     );
 }
 
@@ -247,5 +247,33 @@ fn test_extract_thread_title_empty_or_whitespace() {
         extract_thread_title("   \n\t  "),
         None,
         "纯空白字符应返回 None"
+    );
+}
+#[test]
+fn test_title_spinner_frame_alternates_each_window() {
+    assert_eq!(title_spinner_frame(0), "◐", "第 0 个窗口应为首帧");
+    assert_eq!(
+        title_spinner_frame(TERMINAL_TITLE_FRAME_MS - 1),
+        "◐",
+        "同一窗口内不应换帧"
+    );
+    assert_eq!(
+        title_spinner_frame(TERMINAL_TITLE_FRAME_MS),
+        "◑",
+        "跨过一个窗口应切到次帧"
+    );
+    assert_eq!(
+        title_spinner_frame(TERMINAL_TITLE_FRAME_MS * 2),
+        "◐",
+        "两帧一轮后应回到首帧"
+    );
+}
+
+#[test]
+fn test_terminal_title_frame_set_is_half_circle_pair() {
+    assert_eq!(
+        TERMINAL_TITLE_SPINNER_FRAMES,
+        ["◐", "◑"],
+        "标题帧集合应为左半黑 / 右半黑两帧"
     );
 }

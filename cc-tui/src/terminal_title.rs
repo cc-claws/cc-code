@@ -8,9 +8,29 @@ use unicode_segmentation::UnicodeSegmentation;
 /// 终端标题最大字符数上限（对齐 Codex: MAX_TERMINAL_TITLE_CHARS = 240）
 pub const MAX_TERMINAL_TITLE_CHARS: usize = 240;
 
-/// 终端标题 Spinner 动画帧集合（对齐 Codex: 10 帧盲文点阵）
-pub const TERMINAL_TITLE_SPINNER_FRAMES: [&str; 10] =
-    ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+/// 终端标题 Spinner 帧集合：`◐` / `◑`（左半黑 / 右半黑）两帧交替。
+///
+/// 标题栏只有一列宽度可用，两帧半圆交替比消息区那套 6 字呼吸更省视觉噪音。
+/// 消息区 loading 行仍走 [`cc_widgets::spinner::animation::spinner_frame`] 的
+/// 呼吸字形集，两者互不影响。
+///
+/// 历史：本常量原先是呼吸算法预留的 10 帧盲文点阵（`⠋⠙⠹…`），一直没接入渲染，
+/// 标题实际取的是消息区同一套字形。现在正式承载标题自己的帧位。
+pub const TERMINAL_TITLE_SPINNER_FRAMES: [&str; 2] = ["◐", "◑"];
+
+/// 标题帧停留时长（毫秒）：两帧交替一轮 800ms。
+///
+/// 按渲染帧率(≈30fps)量级换帧会糊成频闪，这里是「人眼可辨」的量级。
+pub const TERMINAL_TITLE_FRAME_MS: u64 = 400;
+
+/// 按动画时钟（毫秒）取终端标题当前帧。
+///
+/// 与状态机解耦：只吃单调时钟，不随回合/模式重置（同 spinner 的动画时钟）。
+pub fn title_spinner_frame(elapsed_ms: u64) -> &'static str {
+    let index =
+        (elapsed_ms / TERMINAL_TITLE_FRAME_MS) as usize % TERMINAL_TITLE_SPINNER_FRAMES.len();
+    TERMINAL_TITLE_SPINNER_FRAMES[index]
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TerminalTitleStatusKind {
@@ -79,7 +99,7 @@ impl<'a> TerminalTitleItem<'a> {
             TerminalTitleStatusKind::Idle => main_title,
             TerminalTitleStatusKind::Done => format!("✴ {main_title}"),
             TerminalTitleStatusKind::Working | TerminalTitleStatusKind::Thinking => {
-                let spinner = self.activity.unwrap_or("⠋");
+                let spinner = self.activity.unwrap_or(TERMINAL_TITLE_SPINNER_FRAMES[0]);
                 format!("{spinner} {main_title}")
             }
             TerminalTitleStatusKind::ActionRequired => {

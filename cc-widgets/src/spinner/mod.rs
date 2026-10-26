@@ -275,11 +275,6 @@ impl SpinnerState {
         animation::spinner_frame(self.animation_elapsed_ms())
     }
 
-    /// 返回当前 spinner frame 字符，用于终端标题动画
-    pub fn title_frame(&self) -> char {
-        self.spinner_frame()
-    }
-
     pub fn verb(&self) -> &str {
         &self.verb
     }
@@ -643,8 +638,7 @@ mod tests {
         assert_eq!(
             state.spinner_frame(),
             crate::spinner::animation::spinner_frame(state.animation_elapsed_ms()),
-            "title_frame 与渲染字形必须来自同一套时钟"
+            "渲染字形必须直接来自动画模块的同一套时钟"
         );
-        assert_eq!(state.title_frame(), state.spinner_frame());
     }
 }
