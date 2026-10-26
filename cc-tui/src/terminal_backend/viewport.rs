@@ -161,6 +161,15 @@ pub fn mark_screen_reflow() {
     SCREEN_REFLOWED.store(true, Ordering::Relaxed);
 }
 
+/// 绘制前清掉受管区域之上的残留行。Fixed 视口的清理只覆盖自己的行，
+/// reflow 把旧帧搬到视口上方后不清这段，顶部就会留下一份重复的旧帧。
+pub fn clear_rows_from_top(writer: &mut impl Write, bottom: u16) -> io::Result<()> {
+    for row in 0..bottom {
+        write!(writer, "\x1b[{};1H\x1b[2K", u32::from(row) + 1)?;
+    }
+    writer.flush()
+}
+
 /// 退出时要清理的行范围。reflow 后从屏幕顶部开始，否则从记录的应用起点开始。
 fn owned_clear_area(owned: u32, reflowed: bool) -> Option<Rect> {
     if owned == 0 {

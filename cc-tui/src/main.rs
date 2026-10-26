@@ -1244,9 +1244,9 @@ async fn draw_app(terminal: &mut Terminal<TuiBackend<io::Stdout>>, app: &mut App
     let size = terminal.size()?;
     // 尺寸变化会让宿主 reflow 正常屏内容，旧帧可能落到受管区域之上；记下这次风险，
     // 退出时改为从屏幕顶部清理，否则顶部会残留边框。
-    if app.global_ui.viewport.terminal_size != Size::default()
-        && app.global_ui.viewport.terminal_size != size
-    {
+    let reflowed = app.global_ui.viewport.terminal_size != Size::default()
+        && app.global_ui.viewport.terminal_size != size;
+    if reflowed {
         viewport::mark_screen_reflow();
     }
     app.global_ui.viewport.terminal_size = size;
@@ -1265,7 +1265,7 @@ async fn draw_app(terminal: &mut Terminal<TuiBackend<io::Stdout>>, app: &mut App
         terminal.backend_mut(),
         ratatui::crossterm::terminal::BeginSynchronizedUpdate
     )?;
-    let draw_result = draw_prepared_app(terminal, app, size, plan);
+    let draw_result = draw_prepared_app(terminal, app, size, plan, reflowed);
     // 绘制失败也必须结束同步输出，避免终端停留在等待提交的状态。
     let end_result = execute!(
         terminal.backend_mut(),
@@ -1282,6 +1282,7 @@ fn draw_prepared_app(
     app: &mut App,
     size: ratatui::layout::Size,
     plan: viewport::ViewportPlan,
+    reflowed: bool,
 ) -> Result<()> {
     if plan.scroll_rows > 0 {
         execute!(
@@ -1309,7 +1310,13 @@ fn draw_prepared_app(
         .current_mut()
         .ui
         .take_terminal_clear_redraw();
-    if clear_requested && !resized {
+    if reflowed {
+        // 宿主 reflow 把旧帧搬到了视口上方（同 #718 的退出残留），而 Fixed 视口
+        // 的清理只覆盖自己的行；尺寸变化后补清上方残留并整帧重画，否则顶部会
+        // 留下旧欢迎卡/边框的副本。
+        viewport::clear_rows_from_top(terminal.backend_mut(), plan.area.top())?;
+    }
+    if (clear_requested || reflowed) && !resized {
         terminal.clear()?;
     }
     // Frame buffer 仅在 draw closure 内可访问，因此 snapshot 在 closure 内克隆、结束后写回 app。

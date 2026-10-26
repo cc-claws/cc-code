@@ -149,6 +149,24 @@ fn test_clear_owned_area_at_terminal_bottom_does_not_scroll() {
 }
 
 #[test]
+fn test_clear_rows_from_top_erases_reflow_leftovers_above_viewport() {
+    let mut output = Vec::new();
+    clear_rows_from_top(&mut output, 3).expect("清理视口上方残留");
+    assert_eq!(
+        output, b"\x1b[1;1H\x1b[2K\x1b[2;1H\x1b[2K\x1b[3;1H\x1b[2K",
+        "只擦除第 1 至 3 行，不追加换行、不移动视口起点"
+    );
+    assert!(!output.contains(&b'\n'), "上方残留清理不能引起原生滚动");
+}
+
+#[test]
+fn test_clear_rows_from_top_with_zero_rows_writes_nothing() {
+    let mut output = Vec::new();
+    clear_rows_from_top(&mut output, 0).expect("无残留行应安全返回");
+    assert!(output.is_empty(), "视口起点为 0 时不能写任何控制序列");
+}
+
+#[test]
 fn test_owned_clear_area_starts_at_recorded_top_without_reflow() {
     let owned = (12u32 << 16) | 24u32;
     assert_eq!(owned_clear_area(owned, false), Some(Rect::new(0, 12, 1, 12)));
