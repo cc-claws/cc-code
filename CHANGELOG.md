@@ -16,6 +16,8 @@ Perihelion Agent 版本变更记录。
 
 ### Fixes
 
+- **后台任务通知改用模型描述（#738）**：后台 Bash 的完成通知与等待输入（stall）通知此前只显示命令原文前 80 字符，而 Bash 工具的 `description` 参数（模型写的用途说明）在 `cc-middlewares` 里被 `let _description = …` 直接丢弃，人在对话流里读到的是一串 `cd … && export …`。现在 `ShellRequest` 携带 `description`，经 `AgentShellRegistration` / `AgentShellSlot` 透传到通知生成：两类通知的 XML 在 `<command>` 之外新增 `<description>`（仅非空时写入；命令原文保留，模型仍靠它与 task-id 定位任务），展示层优先取描述、缺失才回退命令。同批修显示层两处：截断改用 `truncate_to_display_width`（CJK 不再超宽，`…` 收口，替换按字符数的 `truncate_chars`）；状态只保留括号内细节，不再渲染成 `(completed (exit 0))` 的双层括号。非 TUI 路径（`InlineShellExecutor`）拿不到描述，行为与旧版一致。
+
 - **终端标题的闪烁符号改为 `◐` / `◑` 两帧交替**：标题栏此前与消息区共用同一套 6 字呼吸字形（`· ✢ * ✶ ✻ ✽`），其中 `✻` 在标题位置看着像一片雪花反复明灭。现为标题单独拆出帧源——`◐`（左半黑）/ `◑`（右半黑）两帧，每 960ms 换一帧、一轮 1920ms（与参考实现的 960ms 帧间隔一致——此前取 400ms，比参考实现快 2.4 倍，观感接近频闪），由单调时钟驱动（`animation_elapsed_ms`）而非 tick 计数，与状态机解耦：换回合、切模式、`reset()` 都不重置相位。消息区 loading 行不受影响，仍走余弦呼吸那套字形。帧位由 `TERMINAL_TITLE_SPINNER_FRAMES` 承担——该常量原先挂着 10 帧盲文（历史呼吸算法的预留帧集），一直没有接入渲染，本次改为承载标题实际使用的两帧。另补多路复用器降级：检测到 `TMUX` / `STY` 环境变量时标题停在静态首帧、Action Required 也不再逐秒交替——tmux / screen 会转发 OSC 0 标题写，逐帧闪烁会让外层 tab 一起抖；该判定读一次即缓存（环境变量在进程内不变）。
 
 - **HTTP Hook 连接失败不再拖死主流程**：`execute_http_hook` 原先把配置里的 `timeout`（如 `PermissionRequest` 的 600 秒）直接塞给 `reqwest::Client` 的全局超时，且没有单独的连接超时——审批服务端口未监听时不会立刻 `ECONNREFUSED`，而是挂在 TCP 握手上直到数百秒后才失败，表现为「写文件偶发卡死」。现在把 `connect_timeout` 与业务超时拆开：连接阶段默认 800ms 硬超时（`HTTP_HOOK_CONNECT_TIMEOUT_MS` 可覆盖），只有连接建立后才按配置的超时等待人类决策；新增端点级熔断器（`hooks/http_health.rs`，按 `scheme://host:port` 分桶、进程内共享、300 秒冷却），连接失败或 5xx 时打开熔断，冷却期内该端点的后续 hook 直接 0 延迟放行，不再重复撞墙；请求成功即复位。5xx 视为端点性故障触发熔断，4xx 只记警告（请求/配置层面的确定性错误，重试无益但不代表端点不可达）。

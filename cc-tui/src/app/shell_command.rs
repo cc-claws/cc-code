@@ -92,6 +92,7 @@ pub(crate) fn background_agent_slot(
     slot.stall_watchdog = Some(super::background_shell::spawn_stall_watchdog(
         slot.task_id.clone(),
         slot.command.clone(),
+        slot.description.clone(),
         slot.output_path.clone(),
         bg_event_tx,
     ));
@@ -435,6 +436,7 @@ impl App {
         let watchdog = super::background_shell::spawn_stall_watchdog(
             id.clone(),
             command.clone(),
+            None,
             output_path.clone(),
             self.services.bg_event_tx.clone(),
         );
@@ -517,6 +519,7 @@ impl App {
             let watchdog = super::background_shell::spawn_stall_watchdog(
                 slot.task_id.clone(),
                 slot.command.clone(),
+                slot.description.clone(),
                 slot.output_path.clone(),
                 self.services.bg_event_tx.clone(),
             );
@@ -673,6 +676,7 @@ impl App {
                     let watchdog = super::background_shell::spawn_stall_watchdog(
                         slot.task_id.clone(),
                         slot.command.clone(),
+                        slot.description.clone(),
                         slot.output_path.clone(),
                         bg_event_tx.clone(),
                     );
@@ -700,6 +704,7 @@ impl App {
                 let n = super::background_shell::agent_shell_completion_notification(
                     &slot.task_id,
                     &slot.command,
+                    slot.description.as_deref(),
                     outcome,
                     &slot.output_path,
                 );
@@ -871,6 +876,7 @@ impl App {
         let watchdog = super::background_shell::spawn_stall_watchdog(
             id.clone(),
             command.clone(),
+            None,
             output_path.clone(),
             self.services.bg_event_tx.clone(),
         );

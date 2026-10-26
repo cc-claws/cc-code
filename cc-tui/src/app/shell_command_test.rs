@@ -156,6 +156,7 @@ fn make_agent_shell_registration(
         execution_timeout_ms: 600_000,
         timeout_ms: 300_000,
         command: command.to_string(),
+        description: None,
         cwd: ".".to_string(),
         output_path: PathBuf::from("/tmp/cc-agent-shell.output"),
         exit_signal: Arc::clone(&exit_signal),

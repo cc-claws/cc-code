@@ -217,7 +217,13 @@ impl BaseTool for BashTool {
             .as_u64()
             .unwrap_or(120_000)
             .clamp(1, 600_000);
-        let _description = input["description"].as_str();
+        // 模型给的用途描述：仅作为通知/展示的人读标识，不参与执行。
+        // 空串与纯空白视同未提供，避免通知里出现 `Background shell completed:  ()`。
+        let description = input["description"]
+            .as_str()
+            .map(str::trim)
+            .filter(|d| !d.is_empty())
+            .map(str::to_string);
         let execution_timeout_ms = match input.get("execution_timeout") {
             None => 600_000,
             Some(value) => value
@@ -242,6 +248,7 @@ impl BaseTool for BashTool {
             invocation: cc_agent::tools::ToolInvocationContext::current(),
             command: command.to_string(),
             original_command: user_command.clone(),
+            description,
             shell: cc_agent::shell::ShellDialect::Bash,
             cwd: self.cwd.clone(),
             timeout_ms,

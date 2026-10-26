@@ -389,6 +389,7 @@ fn make_agent_shell(task_id: &str, command: &str, backgrounded: bool) -> AgentSh
         execution_timeout_ms: 600_000,
         timeout_ms: 120_000,
         command: command.to_string(),
+        description: None,
         cwd: ".".to_string(),
         output_path: PathBuf::from("unused.output"),
         exit_signal: std::sync::Arc::new(cc_agent::shell::ExitSignal::new()),

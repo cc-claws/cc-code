@@ -429,6 +429,7 @@ async fn test_steer_arms_grace_then_backgrounds_stuck_shell() {
         execution_timeout_ms: 600_000,
         timeout_ms: 300_000,
         command: "sleep 590".to_string(),
+        description: None,
         cwd: ".".to_string(),
         output_path: std::path::PathBuf::from("unused.output"),
         exit_signal: Arc::new(ExitSignal::new()),

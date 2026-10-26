@@ -517,9 +517,10 @@ fn test_human_background_shell_notification_renders_as_system_note() {
             // 语言无关：具体前缀文案随进程语言（全局注册表）而定，此处只验证
             // 已转换为可读系统提示（保留命令/状态、不泄露 XML）。
             assert!(content.contains("npm test"), "应保留命令摘要: {}", content);
+            assert!(content.contains("(exit 0)"), "应保留退出码: {}", content);
             assert!(
-                content.contains("completed (exit 0)"),
-                "应保留状态文本: {}",
+                !content.contains("(completed ("),
+                "状态不应再被包成双层括号: {}",
                 content
             );
             assert!(
@@ -544,9 +545,10 @@ fn test_message_view_constructors_convert_background_shell_xml_to_system_note() 
             MessageViewModel::SystemNote { content, .. } => {
                 // 语言无关（见上）：验证已转换为可读提示并保留命令、不泄露 XML。
                 assert!(content.contains("git fetch"), "应保留命令摘要: {}", content);
+                assert!(content.contains("(exit 0)"), "应保留退出码: {}", content);
                 assert!(
-                    content.contains("completed (exit 0)"),
-                    "应保留状态文本: {}",
+                    !content.contains("(completed ("),
+                    "状态不应再被包成双层括号: {}",
                     content
                 );
                 assert!(
