@@ -18,10 +18,11 @@ pub const MAX_TERMINAL_TITLE_CHARS: usize = 240;
 /// 标题实际取的是消息区同一套字形。现在正式承载标题自己的帧位。
 pub const TERMINAL_TITLE_SPINNER_FRAMES: [&str; 2] = ["◐", "◑"];
 
-/// 标题帧停留时长（毫秒）：两帧交替一轮 800ms。
+/// 标题帧停留时长（毫秒）：两帧交替一轮 1920ms。
 ///
-/// 按渲染帧率(≈30fps)量级换帧会糊成频闪，这里是「人眼可辨」的量级。
-pub const TERMINAL_TITLE_FRAME_MS: u64 = 400;
+/// 按渲染帧率(≈30fps)量级换帧会糊成频闪；参考实现用的是同一量级的 960ms/帧，
+/// 这里保持一致，避免标题比参考实现快 2.4 倍而显得像频闪。
+pub const TERMINAL_TITLE_FRAME_MS: u64 = 960;
 
 /// 按动画时钟（毫秒）取终端标题当前帧。
 ///
@@ -30,6 +31,28 @@ pub fn title_spinner_frame(elapsed_ms: u64) -> &'static str {
     let index =
         (elapsed_ms / TERMINAL_TITLE_FRAME_MS) as usize % TERMINAL_TITLE_SPINNER_FRAMES.len();
     TERMINAL_TITLE_SPINNER_FRAMES[index]
+}
+
+/// 当前是否运行在终端多路复用器（tmux / screen）下。
+///
+/// 多路复用器会转发 OSC 0 标题写，动画会让外层 tab 标题持续抖动，因此这类环境下
+/// 标题应停在静态前缀而不是逐帧闪烁。环境变量在进程生命周期内不变，读一次即缓存。
+pub fn is_under_terminal_multiplexer() -> bool {
+    static CACHE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *CACHE.get_or_init(|| {
+        ["TMUX", "STY"]
+            .iter()
+            .any(|key| std::env::var_os(key).is_some_and(|v| !v.is_empty()))
+    })
+}
+
+/// 取标题前缀的当前帧；多路复用器下固定落在首帧（静态），不参与闪烁。
+pub fn title_prefix_frame(elapsed_ms: u64, multiplexed: bool) -> &'static str {
+    if multiplexed {
+        TERMINAL_TITLE_SPINNER_FRAMES[0]
+    } else {
+        title_spinner_frame(elapsed_ms)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
