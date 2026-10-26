@@ -833,3 +833,36 @@ fn max_line_width(block: &ContentBlockView) -> usize {
         0
     }
 }
+
+#[test]
+fn test_block_boundary_scanner_incremental_lines() {
+    let mut scanner = BlockBoundaryScanner::new();
+    // 未完成的行不参与判定
+    assert!(!scanner.scan("para one"));
+    assert!(!scanner.scan("para one\n"));
+    // 空行（段落分隔）即块边界
+    assert!(scanner.scan("para one\n\n"));
+}
+
+#[test]
+fn test_block_boundary_scanner_code_fence_is_single_block() {
+    let mut scanner = BlockBoundaryScanner::new();
+    // 开围栏：不算边界
+    assert!(!scanner.scan("```rust\n"));
+    // 围栏内的空行不算边界
+    assert!(!scanner.scan("```rust\n\n"));
+    assert!(scanner.in_code_fence());
+    // 围栏闭合：整块结束
+    assert!(scanner.scan("```rust\n\ncode\n```\n"));
+    assert!(!scanner.in_code_fence());
+}
+
+#[test]
+fn test_block_boundary_scanner_reset_on_truncated_text() {
+    let mut scanner = BlockBoundaryScanner::new();
+    scanner.scan("alpha\n```\n");
+    assert!(scanner.in_code_fence());
+    // 文本被整体替换（变短）：状态必须重置，不能沿用旧围栏
+    scanner.scan("beta\n");
+    assert!(!scanner.in_code_fence());
+}

@@ -1988,13 +1988,38 @@ fn test_push_chunk_block_code_fence() {
     let mut pipeline = MessagePipeline::new("/tmp".to_string());
     pipeline.set_streaming_mode(StreamingMode::Block);
     pipeline.push_chunk("```rust\n");
-    assert!(pipeline.inside_code_fence);
+    assert!(pipeline.block_scanner.in_code_fence());
     assert_eq!(pipeline.current_ai_text, "");
     pipeline.push_chunk("fn main() {}\n");
     assert_eq!(pipeline.current_ai_text, "");
     pipeline.push_chunk("```\n");
-    assert!(!pipeline.inside_code_fence);
+    assert!(!pipeline.block_scanner.in_code_fence());
     assert_eq!(pipeline.current_ai_text, "```rust\nfn main() {}\n```\n");
+    assert!(pipeline.block_pending_flush);
+}
+
+/// 围栏在同一 chunk 内打开、且围栏内出现空行时，不能把空行当成块边界提前提交。
+/// 旧实现先检查 `contains("\\n\\n")` 再检测围栏，会把这类文本提前 flush。
+#[test]
+fn test_push_chunk_block_fence_opened_in_same_chunk() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.set_streaming_mode(StreamingMode::Block);
+    pipeline.push_chunk("intro\n```rust\n\n");
+    assert_eq!(
+        pipeline.current_ai_text, "",
+        "围栏内的空行不应触发块提交，实际: {}",
+        pipeline.current_ai_text
+    );
+    assert!(!pipeline.block_pending_flush);
+    assert!(pipeline.block_scanner.in_code_fence());
+
+    // 围栏闭合 = 块结束，整段（含围栏前的段落）一次提交
+    pipeline.push_chunk("fn main() {}\n```\n");
+    assert_eq!(
+        pipeline.current_ai_text,
+        "intro\n```rust\n\nfn main() {}\n```\n"
+    );
+    assert!(!pipeline.block_scanner.in_code_fence());
     assert!(pipeline.block_pending_flush);
 }
 
@@ -2352,5 +2377,80 @@ fn test_resumed_session_shows_shell_command_once() {
         !vms.iter()
             .any(|vm| format!("{vm:?}").contains("local-command-caveat")),
         "caveat 不应出现在视图中"
+    );
+}
+
+/// 取流式气泡里文本块的 raw（无文本块时返回空串）
+fn streaming_text_raw(pipeline: &MessagePipeline) -> String {
+    let MessageViewModel::AssistantBubble { blocks, .. } = pipeline.build_streaming_bubble() else {
+        panic!("流式气泡应为 AssistantBubble");
+    };
+    blocks
+        .iter()
+        .rev()
+        .find_map(|b| match b {
+            ContentBlockView::Text { raw, .. } => Some(raw.clone()),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
+/// 流式气泡不在 pipeline 侧解析 markdown：交出去的是脏空块，由渲染线程增量解析
+#[test]
+fn test_build_streaming_bubble_defers_markdown_parse() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.push_chunk("hello world");
+    let vm = pipeline.build_streaming_bubble();
+    let MessageViewModel::AssistantBubble {
+        blocks,
+        is_streaming,
+        ..
+    } = vm
+    else {
+        panic!("流式气泡应为 AssistantBubble");
+    };
+    assert!(is_streaming);
+    let ContentBlockView::Text {
+        raw,
+        rendered,
+        dirty,
+        rendered_prefix_len,
+        rendered_prefix_lines,
+        rendered_width,
+        ..
+    } = &blocks[0]
+    else {
+        panic!("首个块应为 Text");
+    };
+    assert_eq!(raw, "hello world");
+    assert!(*dirty, "流式文本块必须标脏，交给渲染线程解析");
+    assert_eq!(*rendered_prefix_len, 0, "pipeline 不应声称已渲染");
+    assert_eq!(*rendered_prefix_lines, 0);
+    assert_eq!(*rendered_width, 0);
+    let has_text = rendered
+        .lines
+        .iter()
+        .any(|l| l.spans.iter().any(|s| !s.content.is_empty()));
+    assert!(!has_text, "pipeline 不应预解析 markdown");
+}
+
+/// 未完成的长行暂不进入视图，短尾照常显示（首个 token 立即可见）
+#[test]
+fn test_build_streaming_bubble_holds_long_unfinished_line() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    let long_tail = "x".repeat(250);
+    pipeline.push_chunk(&format!("first line\n{long_tail}"));
+    assert_eq!(
+        streaming_text_raw(&pipeline),
+        "first line\n",
+        "超过阈值的未完成行应暂不显示"
+    );
+
+    let mut short = MessagePipeline::new("/tmp".to_string());
+    short.push_chunk("short tail");
+    assert_eq!(
+        streaming_text_raw(&short),
+        "short tail",
+        "未出现换行时整段照常显示"
     );
 }

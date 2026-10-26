@@ -290,8 +290,8 @@ pub struct MessagePipeline {
     // ── Block 模式缓冲 ──
     /// Block 模式下累积未完成 block 的 chunk
     block_buffer: String,
-    /// Block 模式下是否处于代码围栏内部
-    inside_code_fence: bool,
+    /// Block 模式的块边界扫描器（持有围栏状态与已扫描位置，只扫新增行）
+    block_scanner: crate::ui::markdown::BlockBoundaryScanner,
     /// Block 模式下是否有待 flush 的内容
     block_pending_flush: bool,
     // ── 轮次追踪 ──
@@ -320,7 +320,7 @@ impl MessagePipeline {
             throttle_last_fire: None,
             streaming_mode: StreamingMode::default(),
             block_buffer: String::new(),
-            inside_code_fence: false,
+            block_scanner: crate::ui::markdown::BlockBoundaryScanner::new(),
             block_pending_flush: false,
             completed_len_at_round_start: 0,
             has_snapshot_this_round: false,
@@ -342,7 +342,7 @@ impl MessagePipeline {
             self.flush_block_buffer();
         }
         self.streaming_mode = mode;
-        self.inside_code_fence = false;
+        self.block_scanner.reset();
         tracing::info!(?mode, "streaming mode changed");
     }
 
@@ -674,50 +674,27 @@ impl MessagePipeline {
     // ─── Block 模式缓冲区管理 ────────────────────────────────────────────
 
     /// Block 模式下追加 chunk 到缓冲区并检测 block 边界。返回 true 表示检测到边界。
+    ///
+    /// 边界判定交给 [`crate::ui::markdown::BlockBoundaryScanner`]：按行扫描、
+    /// 跨调用保留围栏状态，只扫新增行。旧实现用「最后一行是否以 ``` 开头」
+    /// 的启发式判断围栏，正文中出现一整行裸 ``` 会误判成围栏开合。
     fn push_chunk_block(&mut self, chunk: &str) -> bool {
         self.block_buffer.push_str(chunk);
-
-        if self.inside_code_fence {
-            if self.detect_code_fence_close() {
-                self.inside_code_fence = false;
-                return true;
-            }
-        } else {
-            if self.block_buffer.contains("\n\n") {
-                return true;
-            }
-            if self.detect_code_fence_open() {
-                self.inside_code_fence = true;
-            }
-        }
-        false
-    }
-
-    fn detect_code_fence_open(&self) -> bool {
-        self.block_buffer
-            .lines()
-            .last()
-            .is_some_and(|line| line.trim_start().starts_with("```"))
-    }
-
-    fn detect_code_fence_close(&self) -> bool {
-        self.block_buffer
-            .lines()
-            .last()
-            .is_some_and(|line| line.trim() == "```")
+        self.block_scanner.scan(&self.block_buffer)
     }
 
     fn flush_block_buffer(&mut self) {
         if !self.block_buffer.is_empty() {
             self.current_ai_text.push_str(&self.block_buffer);
             self.block_buffer.clear();
+            self.block_scanner.reset();
             self.block_pending_flush = true;
         }
     }
 
     fn force_flush_block(&mut self) {
         self.flush_block_buffer();
-        self.inside_code_fence = false;
+        self.block_scanner.reset();
     }
 
     /// 按首次出现的顺序登记工具，Start 只更新 Pending 已登记的参数。

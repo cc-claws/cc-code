@@ -39,6 +39,78 @@ pub fn parse_markdown_default_rich(input: &str) -> MarkdownDoc {
 
 /// 从 `text` 的 `[0..prefix_len]` 范围内找到最后一个块级边界。
 ///
+/// 增量块边界扫描器（流式）。
+///
+/// 与 [`find_last_block_boundary`] 同一套判定规则（围栏外的空行视为块边界、
+/// 行首 3+ 个反引号或波浪号切换围栏），差别是**保留跨调用状态**：
+/// 记录已扫描到的行首位置与围栏开关，因此每来一个 chunk 只扫新增的完整行，
+/// 不需要每次重新扫描整段缓冲区。
+#[derive(Debug, Default, Clone)]
+pub struct BlockBoundaryScanner {
+    /// 已扫描到的位置，恒为行首（未完成的行不计入）
+    scanned: usize,
+    /// 是否位于代码围栏内部
+    in_code_fence: bool,
+}
+
+impl BlockBoundaryScanner {
+    /// 创建扫描器
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 重置状态（缓冲区被清空时调用）
+    pub fn reset(&mut self) {
+        self.scanned = 0;
+        self.in_code_fence = false;
+    }
+
+    /// 当前是否位于代码围栏内部
+    pub fn in_code_fence(&self) -> bool {
+        self.in_code_fence
+    }
+
+    /// 扫描 `text` 中尚未处理的完整行，返回是否出现块边界。
+    ///
+    /// 未完成的行（没有结尾换行）留到下次扫描，避免把半行误判成空行或围栏。
+    pub fn scan(&mut self, text: &str) -> bool {
+        if self.scanned > text.len() {
+            self.reset();
+        }
+        let mut pos = self.scanned;
+        let mut found = false;
+        while let Some(rel) = text[pos..].find('\n') {
+            let line_end = pos + rel;
+            let line = &text[pos..line_end];
+            if is_fence_line(line) {
+                let was_inside = self.in_code_fence;
+                self.in_code_fence = !was_inside;
+                // 围栏闭合本身就是一段完整块的结束
+                if was_inside {
+                    found = true;
+                }
+            } else if !self.in_code_fence && line.trim().is_empty() {
+                found = true;
+            }
+            pos = line_end + 1;
+        }
+        self.scanned = pos;
+        found
+    }
+}
+
+/// 判断一行是否是代码围栏行（行首最多 3 个空格，紧跟 3+ 个反引号或波浪号）。
+fn is_fence_line(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    let Some(fence_char) = trimmed.chars().next() else {
+        return false;
+    };
+    if fence_char != '`' && fence_char != '~' {
+        return false;
+    }
+    trimmed.chars().take_while(|&c| c == fence_char).count() >= 3
+}
+
 /// 块级边界定义为不在代码围栏内的 `\n\n`（双换行/空行）。
 /// 使用前向扫描追踪代码围栏状态，正确处理未闭合围栏。
 ///
