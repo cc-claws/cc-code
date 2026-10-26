@@ -306,3 +306,58 @@ async fn test_thread_switch_ignores_late_title_generation_from_previous_session(
     );
     Ok(())
 }
+#[tokio::test(flavor = "multi_thread")]
+async fn test_new_thread_clears_image_index_without_deleting_files() -> anyhow::Result<()> {
+    let (mut app, _) = App::new_headless(80, 24).await;
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("image.png");
+    std::fs::write(&path, b"image")?;
+    let metadata = &mut app.session_mgr.current_mut().metadata;
+    metadata.image_paths.insert(1, path.clone());
+    metadata.next_image_id = 8;
+    assert!(app.new_thread_in_cwd(directory.path().to_string_lossy().into_owned()));
+    assert!(app.session_mgr.current().metadata.image_paths.is_empty());
+    assert_eq!(app.session_mgr.current().metadata.next_image_id, 1);
+    assert_eq!(
+        std::fs::read(path)?,
+        b"image",
+        "清会话只能清索引，不能删除原图"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_open_thread_clears_image_paths_and_reserves_historical_identifiers(
+) -> anyhow::Result<()> {
+    let (mut app, _) = App::new_headless(80, 24).await;
+    let directory = tempfile::tempdir()?;
+    let cwd = directory.path().to_string_lossy().into_owned();
+    let id = app
+        .services
+        .thread_store
+        .create_thread(ThreadMeta::new(&cwd))
+        .await?;
+    app.services
+        .thread_store
+        .append_message(
+            &id,
+            cc_agent::messages::BaseMessage::human("旧图片 [Image #42]"),
+        )
+        .await?;
+    app.session_mgr
+        .current_mut()
+        .metadata
+        .image_paths
+        .insert(42, directory.path().join("another-session.png"));
+    assert!(app.open_thread(id), "历史会话应可以恢复");
+    assert!(
+        app.session_mgr.current().metadata.image_paths.is_empty(),
+        "旧会话不能复用另一会话的路径"
+    );
+    assert_eq!(
+        app.session_mgr.current_mut().metadata.alloc_image_id(),
+        43,
+        "新图片编号必须避开旧引用"
+    );
+    Ok(())
+}

@@ -33,6 +33,7 @@ async fn test_scrollbar_hover_edge_drag_leave_and_focus_loss() {
                 visual_row_end: i + 1,
                 plain_text: format!("历史 {i}"),
                 char_widths: vec![],
+                copy_prefix_graphemes: 0,
             })
             .collect();
     }

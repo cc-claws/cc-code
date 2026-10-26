@@ -28,7 +28,7 @@ impl App {
                 .render_tx
                 .try_send(RenderEvent::Rebuild(vms));
         } else {
-            let vms = session.messages.view_messages.clone();
+            let vms = self.resolve_render_vms(session);
             let adjusted_anchor = anchor_message_idx.min(vms.len().saturating_sub(1));
             let _ = session
                 .messages
@@ -45,7 +45,13 @@ impl App {
     /// - 未聚焦：返回内存中的 view_messages
     /// - 聚焦后台 agent：读取该子线程的独立内存视图
     fn resolve_render_vms(&self, session: &ChatSession) -> Vec<MessageViewModel> {
-        session.current_view_messages().to_vec()
+        let mut messages = session.current_view_messages().to_vec();
+        if session.focused_instance_id.is_none() {
+            for message in &mut messages {
+                message.set_image_paths(&session.metadata.image_paths);
+            }
+        }
+        messages
     }
 
     /// 从 pipeline 规范状态触发 RebuildAll（统一入口）。

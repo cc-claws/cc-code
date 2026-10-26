@@ -142,6 +142,7 @@ fn make_wrap_map_entry(
         visual_row_end: end,
         plain_text: text.to_string(),
         char_widths,
+        copy_prefix_graphemes: 0,
     }
 }
 

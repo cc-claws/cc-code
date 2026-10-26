@@ -8,6 +8,8 @@ Perihelion Agent 版本变更记录。
 
 ### Features
 
+- **用户图片附件落盘与可点击引用（Phase 1）**：发送时仅保存输入中仍有 `[Image #N]` 占位符的图片，文件写入 `std::env::temp_dir()/cc-code-images/<session_uuid>/<image_id>.<ext>`，扩展名按媒体类型确定；删掉占位符的图片不发送、不写盘。写盘失败只记 `warn`，不阻断图片发送给模型。用户正文下每图一行 `  ⎿  [Image #N]`；保存成功且超链接开启时复用既有 OSC 8 通道，引用带下划线，可由支持的终端打开本地图片；`DISABLE_HYPERLINKS=1` 或缺少保存路径时降级为无下划线、不可点击的纯灰字。新消息不再追加 `[N image(s)]` 数量尾巴，已有历史文本不回改。路径索引仅在会话内存中保存，清会话时清空索引但不删文件，临时文件清理由系统或用户处理；恢复会话不保证链接可用。本期不向模型注入本地路径或缩放元数据，不包含 Phase 2 的恢复会话懒加载及待发送阶段链接。
+
 - **`Skill` 成为一级核心工具，技能触发不再走 `Read`（#730）**：此前技能只能靠模型自己用 `Read` 打开 `SKILL.md` 触发，界面上表现为一次普通文件读取；`/skill-name` 这类显式调用还会由中间件伪造 `Ai[ToolUse: Read]` + `Tool[ToolResult]` 插入历史——对强制校验 thinking 回传的模型来说，这条没有 thinking 的伪工具消息随时会引爆 400。现在新增核心工具 `Skill`（`cc-middlewares/src/tools/skill.rs`），`invoke` 返回技能指令全文与 camelCase 元数据（`commandName` / `status` / `allowedTools` / `instruction`），`tool_use(Skill)` 由模型自己发起、thinking 块自然产出，协议层面天然合法。配套改动：核心工具白名单 11 → 12；技能查找、frontmatter 解析、`$ARGUMENTS` 与 `${CLAUDE_SKILL_DIR}` 插值抽到 `skills/invocation.rs` 由工具与 Slash 共用；`SkillPreloadMiddleware` 改为注入 Human 元指令而非伪造 Ai 消息；`context: fork` 的技能在隔离子代理中执行并等待结果，取消随父调用级联；压缩恢复废弃「扫描技能目录路径」的启发式，改为按工具名精确配对，只恢复最近激活的技能正文。TUI 侧新增专属折叠卡片（默认收成一行 `Successfully loaded skill`，结果行取 `text_soft`、`⎿` 前缀保持 `inactive`，与普通工具块的写法区分开），`Skill` 纳入默认折叠白名单，折叠态高度固定 2 行，避免长正文撑爆视口与高度估算抖动。系统提示词与 `13_skills.md` 同步改为阻塞性调用契约并附正反例。
 
 - **`/gc` 按 size class 分解 allocated（#716）**：`/gc` 此前只报 allocated 总量与一条「已知合计估算」，差额一律归入「未识别」，看不出那些字节是几块大缓冲还是几万个中小对象。现新增 size class 段落：读 jemalloc 的 `arenas.nbins` / `arenas.nlextents` / `arenas.narenas`，逐 class 汇总全部 arena 的 `stats.arenas.<i>.bins.<j>.curregs` 与 `stats.arenas.<i>.lextents.<k>.curlextents`，打印 Top 12 + 其余合计 + 覆盖率校验行（`尺寸 × 存活对象数 = 字节`，占比以 allocated 为分母）。jemalloc 的 `allocated` 本身就是 `Σ curregs×reg_size + Σ curlextents×size`，逐 class 求和恒等于它，因此这张表是**精确分解**而非估算，能覆盖旧估算看不到的 SyntaxSet/ThemeSet、编译正则、tokio/ACP 缓冲等。两个实现要点：large class 的计数节点是 `lextents` 而不是 `large`（后者只有 allocated/nmalloc 等聚合字段，按 `large` 拼键会静默读到 0）；统计路径不许有堆分配——非 Windows 上被统计的分配器就是本进程的全局分配器，用 `format!` 拼约 4000 个 mallctl 键产生的临时 `String` 会立刻进入 arena 记账，实测让覆盖率凭空差 29,696 B（24.6 MB 上 0.12%），改用栈上键缓冲并把本函数的 `Vec` 全部提前到 epoch 快照之前分配后差额归零。尺寸列用精确字节数（`1,280 B`），因为 `fmt_bytes` 会把 1024 B 与 1280 B 都渲染成 `1 KB`。Windows（mimalloc）无对应接口，整段跳过而不打印空表。
@@ -19,6 +21,12 @@ Perihelion Agent 版本变更记录。
 - **HTTP Hook 连接失败不再拖死主流程**：`execute_http_hook` 原先把配置里的 `timeout`（如 `PermissionRequest` 的 600 秒）直接塞给 `reqwest::Client` 的全局超时，且没有单独的连接超时——审批服务端口未监听时不会立刻 `ECONNREFUSED`，而是挂在 TCP 握手上直到数百秒后才失败，表现为「写文件偶发卡死」。现在把 `connect_timeout` 与业务超时拆开：连接阶段默认 800ms 硬超时（`HTTP_HOOK_CONNECT_TIMEOUT_MS` 可覆盖），只有连接建立后才按配置的超时等待人类决策；新增端点级熔断器（`hooks/http_health.rs`，按 `scheme://host:port` 分桶、进程内共享、300 秒冷却），连接失败或 5xx 时打开熔断，冷却期内该端点的后续 hook 直接 0 延迟放行，不再重复撞墙；请求成功即复位。5xx 视为端点性故障触发熔断，4xx 只记警告（请求/配置层面的确定性错误，重试无益但不代表端点不可达）。
 
 - **菊花动画对齐上游参考实现 2.1.307**：原实现是 16 个盲文字形（`✵✶✷✸✹✺✻✼❃❊…`）按 `tick % 16` 线性步进，帧速直接由渲染帧率决定（帧率一抖旋转就忽快忽慢），字形集也与参考实现对不上。现改为参考实现的算法：字形集换成 `· ✢ * ✶ ✻ ✽`（Ghostty 用 `· ✢ ✳ ✶ ✻ ✻`，规避 `✽` 在该终端的偏移与 `✳` 被判双宽），帧号由**余弦缓动**算出——`round((1 - cos(2π·t/2000)) / 2 · 5)`，2 秒一次往返，两端字形停留更久、中段更快，是一段「呼吸」而非匀速转圈；并且完全由**单调时钟驱动**，跨回合、跨模式切换、`reset()` 都不重置相位，渲染帧率高低不再影响旋转速度。终端标题与消息区底部共用同一帧源；兼容终端的 ASCII 降级表与宽度探测字形表补上 `✢`/`✽`/`✳`。`SpinnerState` 随之删除已无用的 `tick`/`raw_tick` 计数。
+
+## v0.6.192 — 2026-10-26
+
+### Fixes
+
+- **状态栏段间分隔符改用次要信息色（#735）**：状态栏第一行的 ` | ` 分隔符（上下文仪表 / 项目名 / token 统计 / 计时之间）此前走 `plain_style()`，即 `Color::Reset`——终端默认前景色，深色终端下通常是纯白，比同一行的模型名、cwd、token 数字都亮，形成一条抢眼的竖线阵列。现改为从 `SbColors` 取 `muted`：default 主题为 `Rgb(153, 153, 153)`，其余主题取该主题调色板的 `inactive`（不写死色值），与 `tok:` 数值、提示文字同层级，只承担断句职责。改动仅影响分隔符配色，文本内容、列宽与布局不变。
 
 ## v0.6.186 — 2026-10-23
 

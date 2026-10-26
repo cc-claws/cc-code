@@ -17,30 +17,14 @@ pub fn format_placeholder(image_id: usize) -> String {
 /// 部分残留（如 `[Image` 或 `Image #1]`）不匹配，不会返回。
 /// 重复出现的同一 image_id 会被多次返回（调用方按需去重）。
 pub fn parse_placeholders(text: &str) -> Vec<usize> {
-    let mut result = Vec::new();
-    let mut cursor = 0;
-    let bytes = text.as_bytes();
-
-    while cursor < bytes.len() {
-        let remaining = &text[cursor..];
-        if let Some(id) = parse_placeholder_at_start(remaining) {
-            result.push(id);
-            // 跳过整个占位符
-            let placeholder_len = format_placeholder(id).len();
-            cursor += placeholder_len;
-        } else {
-            // 跳过一个 UTF-8 字符
-            let next_char_len = utf8_char_len(bytes[cursor]);
-            cursor += next_char_len;
-        }
-    }
-
-    result
-}
-
-/// 检查字符串是否以 `[Image #N]` 开头，是则返回 N，否则返回 None。
-fn parse_placeholder_at_start(s: &str) -> Option<usize> {
-    parse_placeholder_with_len(s).map(|(id, _)| id)
+    // 消息区会反复扫描历史：只检查标记起点，避免逐字符复制剩余全文。
+    text.match_indices("[Image #")
+        .filter_map(|(offset, _)| {
+            text.get(offset..)
+                .and_then(parse_placeholder_with_len)
+                .map(|(id, _)| id)
+        })
+        .collect()
 }
 
 /// 验证字符串恰好是一个 `[Image #N]` 占位符（不多不少）。
@@ -54,49 +38,27 @@ pub fn parse_single_placeholder(s: &str) -> Option<(usize, usize)> {
     }
 }
 
-/// 与 `parse_placeholder_at_start` 同语义，但额外返回占位符字符长度。
+/// 解析开头的占位符，同时返回实际字符长度（含前导零）。
 fn parse_placeholder_with_len(s: &str) -> Option<(usize, usize)> {
     let prefix = "[Image #";
-    let s_chars: Vec<char> = s.chars().collect();
-    let prefix_chars: Vec<char> = prefix.chars().collect();
-
-    if s_chars.len() < prefix_chars.len() + 2 {
-        return None;
-    }
-    if s_chars[..prefix_chars.len()] != prefix_chars[..] {
-        return None;
-    }
-
-    let mut digits_len = 0usize;
     let mut image_id = 0usize;
-    let mut i = prefix_chars.len();
-    while i < s_chars.len() && s_chars[i].is_ascii_digit() {
-        image_id = image_id * 10 + (s_chars[i] as usize - '0' as usize);
-        digits_len += 1;
-        i += 1;
+    for (index, character) in s.strip_prefix(prefix)?.chars().enumerate() {
+        if character == ']' {
+            return (index > 0).then_some((image_id, prefix.len() + index + 1));
+        }
+        if !character.is_ascii_digit() {
+            return None;
+        }
+        image_id = image_id
+            .checked_mul(10)?
+            .checked_add(character as usize - '0' as usize)?;
     }
-    if digits_len == 0 || i >= s_chars.len() || s_chars[i] != ']' {
-        return None;
-    }
-
-    Some((image_id, i + 1))
+    None
 }
 
-/// 返回 UTF-8 字符的首字节所对应的字符长度（字节为单位）。
-fn utf8_char_len(first_byte: u8) -> usize {
-    if first_byte < 0x80 {
-        1
-    } else if first_byte >> 5 == 0b110 {
-        2
-    } else if first_byte >> 4 == 0b1110 {
-        3
-    } else if first_byte >> 3 == 0b11110 {
-        4
-    } else {
-        // 无效 UTF-8 首字节，按 1 推进避免死循环
-        1
-    }
-}
+#[cfg(test)]
+#[path = "image_placeholder_scan_test.rs"]
+mod scan_tests;
 
 /// 从 `pending_attachments` 中筛出 textarea 中仍存在的占位符对应附件。
 ///

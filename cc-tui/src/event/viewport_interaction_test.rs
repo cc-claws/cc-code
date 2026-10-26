@@ -26,6 +26,7 @@ fn make_window(app: &mut App, start: usize) {
                 visual_row_start: row,
                 visual_row_end: row + 1,
                 char_widths: vec![1; plain_text.len()],
+                copy_prefix_graphemes: 0,
                 plain_text,
             }
         })

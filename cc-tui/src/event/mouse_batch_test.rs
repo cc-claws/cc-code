@@ -122,6 +122,7 @@ async fn test_mouse_batch_long_history_matches_individual_scrolls_with_one_redra
                 visual_row_end: i + 1,
                 plain_text: format!("历史行 {i}"),
                 char_widths: vec![],
+                copy_prefix_graphemes: 0,
             })
             .collect();
         cache.total_lines = 10_000;

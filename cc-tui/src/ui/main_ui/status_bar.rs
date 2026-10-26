@@ -1034,8 +1034,13 @@ fn dim_style() -> Style {
     plain_style().add_modifier(Modifier::DIM)
 }
 
+/// 段间分隔符 ` | `。
+///
+/// 取 `muted` 而非 `plain_style()`：后者是 `Color::Reset`（终端默认前景色，通常纯白），
+/// 在整行彩色/灰色信息里是最扎眼的一列，抢走正文注意力。退到次要信息色后与
+/// `tok:`、提示文字同层级，只承担断句职责。
 fn status_separator() -> Span<'static> {
-    Span::styled(" | ", plain_style())
+    Span::styled(" | ", fg_style(SbColors::current().muted))
 }
 
 /// 将 (key, desc) 对列表格式化为 Span 列表

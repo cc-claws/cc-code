@@ -162,6 +162,7 @@ impl App {
         self.arm_steer_foreground_grace();
         let session = self.session_mgr.current_mut();
         let message = &mut session.messages.pending_messages[index];
+        session.metadata.store_images(&message.attachments);
         let content = message.content();
         message.sending = true;
         let tx = session.messages.steering_result_tx.clone();
