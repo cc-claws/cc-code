@@ -36,6 +36,10 @@ mod hover_test;
 #[path = "welcome_prefix_test.rs"]
 mod welcome_prefix_test;
 
+#[cfg(test)]
+#[path = "open_target_test.rs"]
+mod open_target_test;
+
 #[cfg(all(test, windows))]
 #[path = "hover_console_test.rs"]
 mod hover_console_test;
@@ -1453,19 +1457,23 @@ fn handle_oauth_prompt(app: &mut App, input: Input) {
     }
 }
 
-/// 打开系统默认浏览器访问指定 URL
+/// 打开系统默认程序访问指定 URL
 ///
+/// `file://` 链接（工具头里的文件路径）先还原成本地路径，交给同一套
+/// `start` / `open` / `xdg-open` 链路用默认程序打开。
 /// 统一使用 `Stdio::null()` 隔离句柄，避免子进程继承 TUI 持有的终端管道
 /// 污染画面或阻塞退出（Windows 下 `cmd /C start` 尤其明显）。
 pub(crate) fn open_browser_url(url: &str) {
     use std::process::Stdio;
+
+    let url = local_file_target(url).unwrap_or_else(|| url.to_string());
 
     #[cfg(target_os = "windows")]
     {
         // `start` 首个带引号的参数会被当作窗口标题，显式传空标题，
         // 避免含空格/& 的 URL 被 cmd 解析为多段命令。
         let _ = std::process::Command::new("cmd")
-            .args(["/C", "start", "", url])
+            .args(["/C", "start", "", url.as_str()])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -1474,7 +1482,7 @@ pub(crate) fn open_browser_url(url: &str) {
     #[cfg(target_os = "macos")]
     {
         let _ = std::process::Command::new("open")
-            .arg(url)
+            .arg(&url)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -1483,12 +1491,24 @@ pub(crate) fn open_browser_url(url: &str) {
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         let _ = std::process::Command::new("xdg-open")
-            .arg(url)
+            .arg(&url)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn();
     }
+}
+
+/// `file://` URL → 本地路径字符串；非 `file:` 或无法还原时返回 None。
+fn local_file_target(url: &str) -> Option<String> {
+    if !url.starts_with("file:") {
+        return None;
+    }
+    let parsed = url::Url::parse(url).ok()?;
+    if parsed.scheme() != "file" {
+        return None;
+    }
+    Some(parsed.to_file_path().ok()?.to_string_lossy().into_owned())
 }
 
 /// 在 render_cache 的超链接命中区中查找被点击的 URL

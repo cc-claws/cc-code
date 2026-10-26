@@ -305,18 +305,18 @@ fn test_grep_truncates_at_200() {
 
 #[test]
 fn test_read_offset_limit_shows_range() {
-    // offset=100, limit=50 → 显示 100-149
+    // offset=100, limit=50 → 显示 100-149（参考实现的 ` · lines 起-止` 文案）
     let input = serde_json::json!({"file_path": "/tmp/main.rs", "offset": 100, "limit": 50});
     let result = format_tool_args("Read", &input, None);
-    assert_eq!(result.as_deref(), Some("/tmp/main.rs:100-149"));
+    assert_eq!(result.as_deref(), Some("/tmp/main.rs · lines 100-149"));
 }
 
 #[test]
 fn test_read_offset_only_shows_open_range() {
-    // 只有 offset 无 limit → 显示 offset-
+    // 只有 offset 无 limit → 显示 from line 起（参考实现的 verbose 文案）
     let input = serde_json::json!({"file_path": "/tmp/main.rs", "offset": 855});
     let result = format_tool_args("Read", &input, None);
-    assert_eq!(result.as_deref(), Some("/tmp/main.rs:855-"));
+    assert_eq!(result.as_deref(), Some("/tmp/main.rs · from line 855"));
 }
 
 #[test]
@@ -347,7 +347,15 @@ fn test_read_limit_only_no_offset() {
 fn test_read_offset_limit_with_cwd() {
     let input = serde_json::json!({"file_path": "/home/user/project/src/main.rs", "offset": 10, "limit": 20});
     let result = format_tool_args("Read", &input, Some("/home/user/project/"));
-    assert_eq!(result.as_deref(), Some("src/main.rs:10-29"));
+    assert_eq!(result.as_deref(), Some("src/main.rs · lines 10-29"));
+}
+
+#[test]
+fn test_read_summary_keeps_filename_with_colon_digits() {
+    // 文件名自带 `:123` 时，紧凑摘要不得把它当成行号范围剥掉
+    let input = serde_json::json!({"file_path": "/tmp/a:123"});
+    let result = format_tool_args("Read", &input, None);
+    assert_eq!(result.as_deref(), Some("/tmp/a:123"));
 }
 
 #[test]

@@ -367,11 +367,14 @@ pub fn format_tool_args(
                 let mut display = strip_cwd(p, cwd);
                 let offset = input["offset"].as_u64().filter(|&v| v > 1);
                 let limit = input["limit"].as_u64();
+                // 对齐参考实现的 verbose 文案（` · lines 起-止` / ` · from line 起`）。
+                // 用固定文案而不是 `:起-止`，渲染层据此切分路径与范围，不必从
+                // 数字位置反推，避免文件名自带 `:123` 时被误当成行号范围。
                 if let Some(offset) = offset {
                     if let Some(limit) = limit {
-                        display.push_str(&format!(":{}-{}", offset, offset + limit - 1));
+                        display.push_str(&format!(" · lines {}-{}", offset, offset + limit - 1));
                     } else {
-                        display.push_str(&format!(":{}-", offset));
+                        display.push_str(&format!(" · from line {offset}"));
                     }
                 }
                 display
