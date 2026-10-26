@@ -370,6 +370,7 @@ fn push_link_hits_for_wrapped(
                     g_start: prefix_g + seg.out_g_offset + (is - seg.in_g_start),
                     g_end: prefix_g + seg.out_g_offset + (ie - seg.in_g_start),
                     url: hit.url.clone(),
+                    recolor: hit.recolor,
                 });
             }
         }
@@ -1795,6 +1796,7 @@ pub fn render_view_model_with_flags(
                                 g_start: base + seg.out_g_offset + (is - seg.in_g_start),
                                 g_end: base + seg.out_g_offset + (ie - seg.in_g_start),
                                 url: url.clone(),
+                                recolor: true,
                             });
                         }
                     }
@@ -1827,6 +1829,7 @@ pub fn render_view_model_with_flags(
                                     g_start: args_start_g,
                                     g_end: args_start_g + visible,
                                     url,
+                                    recolor: true,
                                 });
                             }
                         }
@@ -2034,6 +2037,7 @@ pub fn render_view_model_with_flags(
                                                     + seg.out_g_offset
                                                     + (ie - seg.in_g_start),
                                                 url: url.clone(),
+                                                recolor: true,
                                             });
                                         }
                                     }

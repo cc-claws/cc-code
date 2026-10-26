@@ -915,6 +915,7 @@ impl<'a> RenderState<'a> {
                         g_start: seg.out_g_offset + (is - seg.in_g_start),
                         g_end: seg.out_g_offset + (ie - seg.in_g_start),
                         url: url.clone(),
+                        recolor: true,
                     });
                 }
             }

@@ -8,7 +8,7 @@ Perihelion Agent 版本变更记录。
 
 ### Features
 
-- **用户图片附件落盘与可点击引用（Phase 1）**：发送时仅保存输入中仍有 `[Image #N]` 占位符的图片，文件写入 `std::env::temp_dir()/cc-code-images/<session_uuid>/<image_id>.<ext>`，扩展名按媒体类型确定；删掉占位符的图片不发送、不写盘。写盘失败只记 `warn`，不阻断图片发送给模型。用户正文下每图一行 `  ⎿  [Image #N]`；引用为正文前景色且不带人工下划线（与参考实现逐项一致，可点性由终端对 OSC 8 自身的呈现决定），保存成功且超链接开启时复用既有 OSC 8 通道，可由支持的终端打开本地图片；`DISABLE_HYPERLINKS=1` 或缺少保存路径时降级为不可点击的普通文本。新消息不再追加 `[N image(s)]` 数量尾巴，已有历史文本不回改。路径索引仅在会话内存中保存，清会话时清空索引但不删文件，临时文件清理由系统或用户处理；恢复会话不保证链接可用。本期不向模型注入本地路径或缩放元数据，不包含 Phase 2 的恢复会话懒加载及待发送阶段链接。
+- **用户图片附件落盘与可点击引用（Phase 1）**：发送时仅保存输入中仍有 `[Image #N]` 占位符的图片，文件写入 `std::env::temp_dir()/cc-code-images/<session_uuid>/<image_id>.<ext>`，扩展名按媒体类型确定；删掉占位符的图片不发送、不写盘。写盘失败只记 `warn`，不阻断图片发送给模型。用户正文下每图一行 `  ⎿  [Image #N]`；引用取 `text_soft`（与 `Skill` 卡片结果行同档，不用正文纯白）、不带人工下划线，保存成功且超链接开启时复用既有 OSC 8 通道，可由支持的终端打开本地图片；`DISABLE_HYPERLINKS=1` 或缺少保存路径时降级为不可点击的普通文本。新消息不再追加 `[N image(s)]` 数量尾巴，已有历史文本不回改。路径索引仅在会话内存中保存，清会话时清空索引但不删文件，临时文件清理由系统或用户处理；恢复会话不保证链接可用。本期不向模型注入本地路径或缩放元数据，不包含 Phase 2 的恢复会话懒加载及待发送阶段链接。
 
 - **`Skill` 成为一级核心工具，技能触发不再走 `Read`（#730）**：此前技能只能靠模型自己用 `Read` 打开 `SKILL.md` 触发，界面上表现为一次普通文件读取；`/skill-name` 这类显式调用还会由中间件伪造 `Ai[ToolUse: Read]` + `Tool[ToolResult]` 插入历史——对强制校验 thinking 回传的模型来说，这条没有 thinking 的伪工具消息随时会引爆 400。现在新增核心工具 `Skill`（`cc-middlewares/src/tools/skill.rs`），`invoke` 返回技能指令全文与 camelCase 元数据（`commandName` / `status` / `allowedTools` / `instruction`），`tool_use(Skill)` 由模型自己发起、thinking 块自然产出，协议层面天然合法。配套改动：核心工具白名单 11 → 12；技能查找、frontmatter 解析、`$ARGUMENTS` 与 `${CLAUDE_SKILL_DIR}` 插值抽到 `skills/invocation.rs` 由工具与 Slash 共用；`SkillPreloadMiddleware` 改为注入 Human 元指令而非伪造 Ai 消息；`context: fork` 的技能在隔离子代理中执行并等待结果，取消随父调用级联；压缩恢复废弃「扫描技能目录路径」的启发式，改为按工具名精确配对，只恢复最近激活的技能正文。TUI 侧新增专属折叠卡片（默认收成一行 `Successfully loaded skill`，结果行取 `text_soft`、`⎿` 前缀保持 `inactive`，与普通工具块的写法区分开），`Skill` 纳入默认折叠白名单，折叠态高度固定 2 行，避免长正文撑爆视口与高度估算抖动。系统提示词与 `13_skills.md` 同步改为阻塞性调用契约并附正反例。
 
@@ -17,6 +17,8 @@ Perihelion Agent 版本变更记录。
 - **`Write` / `Edit` / `Read` 工具头的路径可点击（对齐参考实现）**：工具调用行的路径现在包成 OSC 8 `file://` 链接，点击由系统默认程序打开文件；Write 的 `Wrote N lines to <path>` 结果行路径同样可点（与参考实现 2.1.310 一致，此前按旧版源码判定为不可点）。链接目标是绝对路径（`~/` 与相对路径按 cwd 还原），显示文本仍保持相对路径 / `~` 记法，`DISABLE_HYPERLINKS=1` 时退回纯文本，摘要被截断时链接只覆盖可见前缀。打开方式对齐参考实现：`file:` 链接在 Windows 上直接 exec `explorer.exe`（不经 `cmd` 再解析一次命令行，含 `"` `%` `,` `=` 的路径放弃打开），macOS / Linux 走 `open` / `xdg-open`，非 `file:` 的 URL 行为不变。同批把 Read 的行范围显示改成参考实现口径：紧凑头只显示路径，详细模式显示 ` · lines 起-止`（无 limit 时 ` · from line 起`，offset 或 limit 任一存在就显示、起始行缺省为 1），详细模式下三者均显示完整绝对路径。摘要不再用 `:起-止` 拼进路径串——文件名自带 `:123` 时旧格式会被当成行号范围，把显示和链接一起指错；改成固定文案后由渲染层按 ` · ` 标记切分，不再从数字位置反推。
 
 ### Fixes
+
+- **图片附件引用行不再被染成链接蓝**：`⎿ [Image #N]` 被登记为 OSC 8 链接后，输出层 `hyperlink::decorate` 会把每个链接 cell 的前景色统一改写成 `LightBlue`，把渲染层设的颜色盖掉——用户看到的是蓝色，而不是设计要求的应用层颜色。现给 `LinkHit` 增加 `recolor` 标记并在整条链路透传（`LinkHit` → `LinkColumns` → `register`）：附件引用传 `false`，只包 OSC 8 保持可点、不动前景色；Markdown 链接与工具输出 URL 仍传 `true`，维持既有亮蓝。前景色同步由正文纯白改为 `text_soft`，与 `⎿ Successfully loaded skill` 同档。
 
 - **终端标题的闪烁符号改为 `◐` / `◑` 两帧交替**：标题栏此前与消息区共用同一套 6 字呼吸字形（`· ✢ * ✶ ✻ ✽`），其中 `✻` 在标题位置看着像一片雪花反复明灭。现为标题单独拆出帧源——`◐`（左半黑）/ `◑`（右半黑）两帧，每 960ms 换一帧、一轮 1920ms（与参考实现的 960ms 帧间隔一致——此前取 400ms，比参考实现快 2.4 倍，观感接近频闪），由单调时钟驱动（`animation_elapsed_ms`）而非 tick 计数，与状态机解耦：换回合、切模式、`reset()` 都不重置相位。消息区 loading 行不受影响，仍走余弦呼吸那套字形。帧位由 `TERMINAL_TITLE_SPINNER_FRAMES` 承担——该常量原先挂着 10 帧盲文（历史呼吸算法的预留帧集），一直没有接入渲染，本次改为承载标题实际使用的两帧。另补多路复用器降级：检测到 `TMUX` / `STY` 环境变量时标题停在静态首帧、Action Required 也不再逐秒交替——tmux / screen 会转发 OSC 0 标题写，逐帧闪烁会让外层 tab 一起抖；该判定读一次即缓存（环境变量在进程内不变）。
 

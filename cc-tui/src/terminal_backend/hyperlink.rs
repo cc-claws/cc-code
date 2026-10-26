@@ -19,8 +19,8 @@ use ratatui::buffer::Cell;
 use ratatui::style::Color;
 
 thread_local! {
-    /// 本线程本帧登记的超链接 cell：(屏幕列, 屏幕行) → URL。
-    static LINKS: RefCell<HashMap<(u16, u16), String>> = RefCell::new(HashMap::new());
+    /// 本线程本帧登记的超链接 cell：(屏幕列, 屏幕行) → (URL, 是否染成链接色)。
+    static LINKS: RefCell<HashMap<(u16, u16), (String, bool)>> = RefCell::new(HashMap::new());
     /// 本线程本帧是否注入 OSC 8。
     static ENABLED: FlagCell<bool> = const { FlagCell::new(false) };
 }
@@ -41,11 +41,14 @@ pub fn begin_frame(enabled: bool) {
 }
 
 /// 登记一个链接 cell。未启用时什么也不做，避免白白攒一张不会被读的表。
-pub fn register(x: u16, y: u16, url: &str) {
+///
+/// `recolor` 为 `false` 时只包 OSC 8、保留 cell 自身前景色（附件引用行等
+/// 由正文色承载的链接），见 [`decorate`]。
+pub fn register(x: u16, y: u16, url: &str, recolor: bool) {
     if !ENABLED.with(FlagCell::get) {
         return;
     }
-    LINKS.with(|table| table.borrow_mut().insert((x, y), url.to_string()));
+    LINKS.with(|table| table.borrow_mut().insert((x, y), (url.to_string(), recolor)));
 }
 
 /// 若 `(x, y)` 是登记的链接 cell，返回「包好 OSC 8 + 链接色」的 cell 副本。
@@ -55,11 +58,13 @@ pub fn decorate(x: u16, y: u16, cell: &Cell) -> Option<Cell> {
     if !ENABLED.with(FlagCell::get) || cell.symbol().trim().is_empty() {
         return None;
     }
-    let url = LINKS.with(|table| table.borrow().get(&(x, y)).cloned())?;
+    let (url, recolor) = LINKS.with(|table| table.borrow().get(&(x, y)).cloned())?;
     let mut decorated = cell.clone();
     decorated.set_symbol(&format!("{}{}{}", open(&url), cell.symbol(), CLOSE));
-    // CC 只给链接文字上蓝色，不加下划线（下划线由终端在悬停时给出）。
-    decorated.set_style(cell.style().fg(LINK_COLOR));
+    if recolor {
+        // CC 只给链接文字上蓝色，不加下划线（下划线由终端在悬停时给出）。
+        decorated.set_style(cell.style().fg(LINK_COLOR));
+    }
     Some(decorated)
 }
 

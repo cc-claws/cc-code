@@ -62,6 +62,7 @@ pub fn bare_url_hits(plain_text: &str, line: usize) -> Vec<LinkHit> {
                 g_start,
                 g_end,
                 url: plain_text[byte_start..byte_end].to_string(),
+                recolor: true,
             })
         })
         .collect()
@@ -78,6 +79,8 @@ fn grapheme_index(text: &str, byte: usize) -> Option<usize> {
 pub struct LinkColumns {
     pub columns: std::ops::Range<u16>,
     pub url: String,
+    /// 输出层是否把该区间改写成链接色，语义同 [`LinkHit::recolor`]。
+    pub recolor: bool,
 }
 
 /// 把一行内的 grapheme 命中区换算为显示列区间。
@@ -124,6 +127,7 @@ pub fn graphemes_to_columns(
     (end > start).then(|| LinkColumns {
         columns: start..end,
         url: hit.url.clone(),
+        recolor: hit.recolor,
     })
 }
 
@@ -165,7 +169,7 @@ pub fn link_cells(
     cells: impl Iterator<Item = (u16, (u16, u16))>,
     links: &[LinkColumns],
     area: ratatui::layout::Rect,
-) -> Vec<((u16, u16), String)> {
+) -> Vec<((u16, u16), String, bool)> {
     let mut out = Vec::new();
     for (column, (x, y)) in cells {
         if !area.contains(ratatui::layout::Position::new(x, y)) {
@@ -174,7 +178,7 @@ pub fn link_cells(
         let Some(link) = links.iter().find(|link| link.columns.contains(&column)) else {
             continue;
         };
-        out.push(((x, y), link.url.clone()));
+        out.push(((x, y), link.url.clone(), link.recolor));
     }
     out
 }
@@ -190,6 +194,7 @@ mod tests {
             g_start,
             g_end,
             url: url.to_string(),
+            recolor: true,
         }
     }
 
@@ -244,6 +249,7 @@ mod tests {
         let links = vec![LinkColumns {
             columns: 4..8,
             url: "https://example.com".to_string(),
+            recolor: true,
         }];
         let cells = link_cells(
             (0..10u16).map(|column| (column, (5 + column, 3))),
@@ -253,7 +259,7 @@ mod tests {
         assert_eq!(
             cells,
             (4..8u16)
-                .map(|column| ((5 + column, 3), "https://example.com".to_string()))
+                .map(|column| ((5 + column, 3), "https://example.com".to_string(), true))
                 .collect::<Vec<_>>(),
             "只有命中区内的列才应登记，坐标按屏幕位置平移"
         );
@@ -266,6 +272,7 @@ mod tests {
         let links = vec![LinkColumns {
             columns: 0..2,
             url: "https://example.com".to_string(),
+            recolor: true,
         }];
         let cells = link_cells(
             [(0u16, (0u16, 0u16)), (1, (1, 0)), (2, (9, 9))].into_iter(),

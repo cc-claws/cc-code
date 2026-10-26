@@ -49,6 +49,7 @@ async fn test_welcome_prefix_preserves_message_selection_links_and_drag_coordina
             g_start: 1,
             g_end: 4,
             url: "https://example.com/message".into(),
+            recolor: true,
         }];
     }
     let area = Rect::new(4, 3, 80, 20);
