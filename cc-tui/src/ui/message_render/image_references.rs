@@ -1,7 +1,7 @@
 use super::{push_link_hits_for_wrapped, wrap_line_spans_rich, BranchPrefix};
 use cc_widgets::markdown::LinkHit;
 use ratatui::{
-    style::{Modifier, Style},
+    style::Style,
     text::{Line, Span},
 };
 use std::path::PathBuf;
@@ -23,12 +23,8 @@ pub(super) fn append(
             .then(|| paths.iter().find(|(image_id, _)| *image_id == id))
             .flatten()
             .and_then(|(_, path)| url::Url::from_file_path(path).ok());
-        let style = Style::default().fg(crate::ui::theme::cur().inactive);
-        let style = if url.is_some() {
-            style.add_modifier(Modifier::UNDERLINED)
-        } else {
-            style
-        };
+        // 与参考实现一致：正文前景色、无人工下划线，可点性由终端 OSC 8 自身表现。
+        let style = Style::default().fg(crate::ui::theme::cur().text);
         let wrapped = wrap_line_spans_rich(
             Line::from(Span::styled(label.clone(), style)),
             width.saturating_sub(BranchPrefix::WIDTH).max(1),
