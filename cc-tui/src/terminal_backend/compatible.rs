@@ -9,8 +9,11 @@ use unicode_width::UnicodeWidthStr;
 
 pub trait WidthProbe {
     fn width(&mut self, symbol: &str) -> Option<usize>;
-    /// Native console fonts can lack spinner glyphs even when their width is correct.
-    fn prefer_ascii_spinner(&self) -> bool {
+    /// Native console fonts can lack glyphs even when their width is correct.
+    ///
+    /// 缺字形不会改变列宽（宿主照样按 1 列推进，只是画成方框），宽度测量看不见，
+    /// 所以这类宿主必须在测量之前就用 [`ascii_fallback`] 的定向表直接替换。
+    fn prefer_ascii_fallback(&self) -> bool {
         false
     }
     /// Return true when the terminal's width policy may have changed.
@@ -69,12 +72,12 @@ impl<B, P: WidthProbe> WidthSafeBackend<B, P> {
                 self.symbols.clear();
             }
             let expected = symbol.width();
-            let spinner = self
+            let degraded = self
                 .probe
-                .prefer_ascii_spinner()
-                .then(|| spinner_fallback(symbol))
+                .prefer_ascii_fallback()
+                .then(|| ascii_fallback(symbol))
                 .flatten();
-            let replacement = spinner.map(str::to_owned).or_else(|| {
+            let replacement = degraded.map(str::to_owned).or_else(|| {
                 self.probe
                     .width(symbol)
                     .filter(|&actual| actual != expected)
@@ -93,7 +96,13 @@ impl<B, P: WidthProbe> WidthSafeBackend<B, P> {
     }
 }
 
-fn spinner_fallback(symbol: &str) -> Option<&'static str> {
+/// 定向 ASCII 降级表：宽度正常但字形可能缺失的字形。
+///
+/// 表内字形分两类用途：
+/// 1. 动画帧——列宽分歧时也要保留旋转语义（见 [`fallback_symbol`]）；
+/// 2. 传统 conhost 原生窗口的缺字字形——缺字不改变列宽，探针量不出差异，
+///    必须由 [`WidthProbe::prefer_ascii_fallback`] 在测量之前直接替换。
+fn ascii_fallback(symbol: &str) -> Option<&'static str> {
     match symbol {
         // 上游参考实现 2.1.307 起菊花字形改为 `· ✢ * ✶ ✻ ✽`（Ghostty 用 `✳`）。
         // `✳`(U+2733) 会被 emoji-regex 判成双宽，`✢`/`✽` 在旧控制台也是缺字，
@@ -106,6 +115,13 @@ fn spinner_fallback(symbol: &str) -> Option<&'static str> {
         "✶" | "✺" | "❊" => Some("/"),
         "✷" | "✻" => Some("-"),
         "✸" | "✼" => Some("\\"),
+        // `❯`(U+276F) 是输入框提示符与用户消息气泡前缀（`SYMBOL_CURSOR`）。
+        // 它落在 Dingbats 区间，传统 conhost 的字体覆盖很差：缺字时画成方框，
+        // 光标仍只推进 1 列，宽度探针判定「一致」而放行，故只能定向替换为 `>`。
+        "❯" => Some(">"),
+        // `⏵`(U+23F5) 是状态栏权限 pill 的前缀（`PERMISSION_MODE_SYMBOL` = `⏵⏵`）。
+        // Misc Technical Symbols 同属控制台字体覆盖盲区，两个 `⏵` 会画成两个方框。
+        "⏵" => Some(">"),
         _ => None,
     }
 }
@@ -115,8 +131,8 @@ pub(super) fn fallback_symbol(symbol: &str, width: usize) -> String {
     if width == 0 {
         return String::new();
     }
-    if let Some(spinner) = spinner_fallback(symbol) {
-        let mut result = spinner.to_owned();
+    if let Some(ascii) = ascii_fallback(symbol) {
+        let mut result = ascii.to_owned();
         result.extend(std::iter::repeat_n(' ', width - 1));
         return result;
     }

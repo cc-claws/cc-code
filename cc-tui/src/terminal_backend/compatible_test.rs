@@ -49,7 +49,7 @@ struct MockProbeState {
     widths: HashMap<String, usize>,
     calls: Vec<String>,
     changed: bool,
-    ascii_spinner: bool,
+    ascii_fallback: bool,
 }
 
 struct MockProbe {
@@ -57,8 +57,8 @@ struct MockProbe {
 }
 
 impl WidthProbe for MockProbe {
-    fn prefer_ascii_spinner(&self) -> bool {
-        self.state.borrow().ascii_spinner
+    fn prefer_ascii_fallback(&self) -> bool {
+        self.state.borrow().ascii_fallback
     }
 
     fn width(&mut self, symbol: &str) -> Option<usize> {
@@ -82,7 +82,7 @@ impl WidthProbe for MockProbe {
 fn test_width_safe_backend_native_console_spinner_keeps_animating() {
     // 缺字仍占一列：必须按宿主策略降级，不能只依靠列宽差异。
     let (probe, state) = make_probe(&[]);
-    state.borrow_mut().ascii_spinner = true;
+    state.borrow_mut().ascii_fallback = true;
     let backend = WidthSafeBackend::with_probe(TestBackend::new(64, 1), probe);
     let mut terminal = Terminal::new(backend).expect("构造测试终端");
     let frames = [
@@ -126,6 +126,67 @@ fn test_width_safe_backend_native_console_spinner_keeps_animating() {
         terminal.backend().inner.buffer()[(0, 0)].symbol(),
         "-",
         "完成总结也不能输出缺失字形"
+    );
+}
+
+#[test]
+fn test_width_safe_backend_native_console_degrades_cursor_prefix() {
+    // `❯`(U+276F) 缺字形时传统 conhost 仍按 1 列推进，宽度探针量出的就是 1 列，
+    // 与 unicode-width 一致，宽度分歧分支永远走不到，只能由缺字表定向降级。
+    let (probe, state) = make_probe(&[]);
+    state.borrow_mut().ascii_fallback = true;
+    let mut backend = WidthSafeBackend::with_probe(TestBackend::new(10, 1), probe);
+    let cell = Cell::new("❯");
+    assert!(backend.draw([(0, 0, &cell)].into_iter()).is_ok());
+    assert_eq!(
+        backend.inner.buffer()[(0, 0)].symbol(),
+        ">",
+        "原生控制台必须把提示符降级为 >"
+    );
+    assert_eq!(cell.symbol(), "❯", "输出降级不得改变逻辑帧");
+}
+
+#[test]
+fn test_width_safe_backend_modern_console_preserves_cursor_prefix() {
+    // 现代宿主（Windows Terminal 走 DirectWrite 字体回退）能正常显示 ❯，不得降级。
+    let (probe, _) = make_probe(&[]);
+    let mut backend = WidthSafeBackend::with_probe(TestBackend::new(10, 1), probe);
+    let cell = Cell::new("❯");
+    assert!(backend.draw([(0, 0, &cell)].into_iter()).is_ok());
+    assert_eq!(backend.inner.buffer()[(0, 0)].symbol(), "❯");
+}
+
+#[test]
+fn test_width_safe_backend_native_console_degrades_permission_pill_symbol() {
+    // 状态栏权限 pill 前缀 `⏵⏵`（U+23F5 ×2）同属控制台字体覆盖盲区，
+    // 缺字时画成两个方框，同样量不出列宽差异。
+    let (probe, state) = make_probe(&[]);
+    state.borrow_mut().ascii_fallback = true;
+    let mut backend = WidthSafeBackend::with_probe(TestBackend::new(10, 1), probe);
+    let cells: Vec<Cell> = ["⏵", "⏵"].iter().map(|s| Cell::new(s)).collect();
+    assert!(backend
+        .draw(cells.iter().enumerate().map(|(x, cell)| (x as u16, 0, cell)))
+        .is_ok());
+    assert_eq!(backend.inner.buffer()[(0, 0)].symbol(), ">");
+    assert_eq!(
+        backend.inner.buffer()[(1, 0)].symbol(),
+        ">",
+        "两个 ⏵ 都要降级为 >"
+    );
+}
+
+#[test]
+fn test_width_safe_backend_wide_cursor_prefix_falls_back_to_gt() {
+    // 列宽分歧路径同样要落到 `>`，不能命中 `_ => '?'` 显示成无语义问号。
+    // `fallback_symbol` 收的是逻辑列宽（`unicode-width` 判定的 1 列），不补空格。
+    let (probe, _) = make_probe(&[("❯", 2)]);
+    let mut backend = WidthSafeBackend::with_probe(TestBackend::new(10, 1), probe);
+    let cell = Cell::new("❯");
+    assert!(backend.draw([(0, 0, &cell)].into_iter()).is_ok());
+    assert_eq!(
+        backend.inner.buffer()[(0, 0)].symbol(),
+        ">",
+        "宽度分歧时也降级为 >"
     );
 }
 
