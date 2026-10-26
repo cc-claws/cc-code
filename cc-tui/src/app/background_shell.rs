@@ -435,7 +435,8 @@ fn render_notification_block(
                 "shell-notify-waiting-input",
                 &[("subject".to_string(), subject.into())],
             ),
-            tone: crate::ui::message_view::NoteTone::Warning,
+            // 参考实现的 stall 通知没有 `<status>`，渲染时落到默认前景色。
+            tone: crate::ui::message_view::NoteTone::Neutral,
         }),
         _ => None,
     }
@@ -454,6 +455,14 @@ fn notification_for_status(
     let detail = status_detail(status);
     let exit_code = detail.and_then(parse_exit_code);
     let subject_arg = || ("subject".to_string(), subject.to_string().into());
+    // 负退出码（channel 异常兜底）与 128+n（被信号终止）在参考实现里属于
+    // killed → `was stopped`，不应渲染成红字失败。
+    if matches!(exit_code, Some(code) if code < 0 || (128..=165).contains(&code)) {
+        return ShellNotificationDisplay {
+            text: lc.tr_args("shell-notify-stopped", &[subject_arg()]),
+            tone: NoteTone::Warning,
+        };
+    }
     if status.starts_with("failed") {
         let text = match exit_code {
             Some(code) => lc.tr_args(

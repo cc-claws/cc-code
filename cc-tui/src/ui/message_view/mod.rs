@@ -72,20 +72,24 @@ impl ToolOutputPreview {
 /// 目前只有后台任务通知使用：状态决定颜色，与参考实现
 /// `UserAgentNotificationMessage` 的 `getStatusColor` 一致（completed→success、
 /// failed→error、killed→warning）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NoteTone {
     Success,
     Error,
     Warning,
+    /// 无状态语义（如等待输入）：圆点用默认前景色，对应参考实现里
+    /// statusless 通知落到 `'text'` 的行为。
+    Neutral,
 }
 
 impl NoteTone {
-    /// 合并多条通知时的取色优先级：错误 > 警告 > 成功（数值越小越优先）。
+    /// 合并多条通知时的取色优先级：错误 > 警告 > 无状态 > 成功（数值越小越优先）。
     pub fn severity(self) -> u8 {
         match self {
             NoteTone::Error => 0,
             NoteTone::Warning => 1,
-            NoteTone::Success => 2,
+            NoteTone::Neutral => 2,
+            NoteTone::Success => 3,
         }
     }
 }
@@ -491,9 +495,13 @@ impl Hash for MessageViewModel {
             MessageViewModel::SystemNote {
                 content,
                 detail_content,
+                tone,
                 ..
             } => {
                 3u8.hash(state);
+                // tone 影响渲染颜色，必须参与 hash（内容完全相同的通知
+                // 换状态后要靠它触发重建）。
+                tone.hash(state);
                 content.hash(state);
                 detail_content.hash(state);
             }

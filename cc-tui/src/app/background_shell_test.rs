@@ -601,5 +601,77 @@ fn test_notification_text_matches_reference_implementation() {
         "Background command \"Run the test suite\" appears to be waiting for interactive input",
         "等待输入文案必须与参考实现逐字一致"
     );
-    assert_eq!(display.tone, NoteTone::Warning);
+    assert_eq!(display.tone, NoteTone::Neutral, "stall 通知无语义状态色");
+}
+
+/// 参考实现把「被信号杀掉 / 负退出码」归入 killed → `was stopped`（warning），
+/// 不应渲染成红字失败。
+#[test]
+fn test_notification_treats_signal_exit_as_stopped() {
+    // Arrange
+    let lc_en = crate::i18n::LcRegistry::new(Some("en"));
+    let path = Path::new("/tmp/peri/tasks/abc.output");
+    for code in [-1, 130, 143] {
+        let msg = agent_shell_completion_notification(
+            "abc",
+            "cargo test",
+            Some("Run the test suite"),
+            &cc_agent::shell::ShellOutcome::Exited(code),
+            path,
+        );
+        // Act
+        let display = shell_notification_display_text_with(&msg, &lc_en).expect("应识别完成通知");
+        // Assert
+        assert_eq!(
+            display.text, "Background command \"Run the test suite\" was stopped",
+            "exit {code} 应归入 was stopped"
+        );
+        assert_eq!(display.tone, NoteTone::Warning, "killed 语义应为 warning");
+    }
+}
+
+/// 无退出码的 terminated（用户停止）与带原因文本的 failed 也要落在正确句式上。
+#[test]
+fn test_notification_covers_terminated_and_failure_reason() {
+    // Arrange
+    let lc_en = crate::i18n::LcRegistry::new(Some("en"));
+    let path = Path::new("/tmp/peri/tasks/abc.output");
+    // Act + Assert：terminated（无退出码）
+    let msg = agent_shell_completion_notification(
+        "abc",
+        "cargo test",
+        Some("Run the test suite"),
+        &cc_agent::shell::ShellOutcome::Cancelled,
+        path,
+    );
+    let display = shell_notification_display_text_with(&msg, &lc_en).expect("应识别完成通知");
+    assert_eq!(
+        display.text,
+        "Background command \"Run the test suite\" was stopped"
+    );
+    // Act + Assert：失败但带原因文本（非 exit 码）
+    let msg = agent_shell_completion_notification(
+        "abc",
+        "cargo test",
+        Some("Run the test suite"),
+        &cc_agent::shell::ShellOutcome::Failed("os error 2".to_string()),
+        path,
+    );
+    let display = shell_notification_display_text_with(&msg, &lc_en).expect("应识别完成通知");
+    assert_eq!(
+        display.text,
+        "Background command \"Run the test suite\" failed (os error 2)"
+    );
+    assert_eq!(display.tone, NoteTone::Error);
+}
+
+/// `parse_exit_code` 只接受 `exit <整数>`，其余细节一律回退到普通失败分支。
+#[test]
+fn test_parse_exit_code_accepts_only_integer_exit_details() {
+    assert_eq!(parse_exit_code("exit 0"), Some(0));
+    assert_eq!(parse_exit_code("exit 143"), Some(143));
+    assert_eq!(parse_exit_code("exit -1"), Some(-1));
+    assert_eq!(parse_exit_code("exit abc"), None);
+    assert_eq!(parse_exit_code("execution deadline exceeded"), None);
+    assert_eq!(parse_exit_code("os error 2"), None);
 }

@@ -3392,6 +3392,8 @@ fn test_system_note_with_tone_renders_dot_prefix_in_status_color() {
         (NoteTone::Success, crate::ui::theme::cur().success),
         (NoteTone::Error, crate::ui::theme::cur().error),
         (NoteTone::Warning, crate::ui::theme::cur().warning),
+        // stall 通知无语义状态：圆点用默认前景色（参考实现 statusless 落到 'text'）
+        (NoteTone::Neutral, crate::ui::theme::cur().text),
     ] {
         let vm = MessageViewModel::SystemNote {
             content: content.to_string(),
@@ -3401,14 +3403,16 @@ fn test_system_note_with_tone_renders_dot_prefix_in_status_color() {
         };
         // Act
         let lines = render_view_model(&vm, None, 80, false, 0);
-        // Assert
-        assert_eq!(lines.len(), 1, "通知应渲染为一行: {:?}", lines);
-        assert_eq!(lines[0].spans[0].content.as_ref(), "● ", "应以 ● 前缀开头");
+        // Assert：整行必须是「● + 正文」，圆点只出现一次（曾因 first_prefix
+        // 重复传入而渲染成 `● ● …`，只查 spans[0] 的断言抓不到）。
+        let rendered: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(rendered, format!("● {content}"), "整行应为「● + 正文」");
+        assert_eq!(rendered.matches('●').count(), 1, "圆点不得重复: {rendered}");
         assert_eq!(lines[0].spans[0].style.fg, Some(expected), "● 应使用状态色");
         assert_eq!(
             lines[0].spans[1].style.fg,
-            Some(expected),
-            "正文应使用状态色"
+            Some(crate::ui::theme::cur().text),
+            "正文应使用默认前景色（参考实现只给 ● 着色）"
         );
     }
 }
