@@ -1,20 +1,45 @@
 use cc_agent::messages::BaseMessage;
+use ratatui::text::Text;
 
 use crate::{
     app::tool_display,
-    ui::{
-        markdown::parse_markdown_default_rich,
-        message_view::{aggregate_tool_groups, tool_color, ContentBlockView, MessageViewModel},
-    },
+    ui::message_view::{aggregate_tool_groups, tool_color, ContentBlockView, MessageViewModel},
 };
 
 use super::MessagePipeline;
+
+/// 流式尾部未完成行的挂起阈值（字符数）。
+///
+/// 超过该长度时，最后一个换行之后的内容暂不进入 VM，等换行到达再一次性显示，
+/// 避免长段落每帧重排最后一行。阈值以内的短句照常逐字流出，保证首字即时可见。
+const STREAMING_TAIL_HOLD_CHARS: usize = 200;
+
+/// 计算流式气泡应显示的文本范围。
+///
+/// 尚未出现换行时整段照常显示（短回答保持逐字观感）；出现换行后，
+/// 若未完成行超过 [`STREAMING_TAIL_HOLD_CHARS`] 则先隐藏它。
+fn visible_streaming_text(text: &str) -> &str {
+    let Some(nl) = text.rfind('\n') else {
+        return text;
+    };
+    let tail = &text[nl + 1..];
+    if tail.chars().count() >= STREAMING_TAIL_HOLD_CHARS {
+        &text[..=nl]
+    } else {
+        text
+    }
+}
 
 impl MessagePipeline {
     /// 构建当前流式 AI 消息的 AssistantBubble ViewModel。
     ///
     /// 包含 Reasoning block + 已输出的文本 + 已完成的 tool_use blocks。
     /// 不包含 pending tools——它们在 build_tail_vms 中另行处理。
+    ///
+    /// **不在 pipeline 侧解析 markdown**：文本块以 `dirty=true` + 空 `rendered` 交出去，
+    /// 由渲染线程的 [`crate::ui::markdown::ensure_rendered_incremental`] 按增量解析。
+    /// 早期版本在这里全量解析并声称已渲染（`rendered_prefix_len = raw.len()`），
+    /// 使渲染线程的增量路径直接短路，每帧重复解析整篇文本。
     pub fn build_streaming_bubble(&self) -> MessageViewModel {
         let mut blocks: Vec<ContentBlockView> = Vec::new();
         if !self.current_ai_reasoning.is_empty() {
@@ -26,19 +51,18 @@ impl MessagePipeline {
                 text: self.current_ai_reasoning.clone(),
             });
         }
-        if !self.current_ai_text.trim().is_empty() {
-            let doc = parse_markdown_default_rich(&self.current_ai_text);
-            let rendered_prefix_lines = doc.text.lines.len();
+        let display_text = visible_streaming_text(&self.current_ai_text);
+        if !display_text.trim().is_empty() {
             let mut scanner = crate::ui::markdown::TableHoldbackScanner::new();
             scanner.set_streaming(true);
             blocks.push(ContentBlockView::Text {
-                raw: self.current_ai_text.clone(),
-                rendered: doc.text,
-                rendered_links: doc.links,
-                dirty: false,
-                rendered_prefix_len: self.current_ai_text.len(),
-                rendered_prefix_lines,
-                rendered_width: crate::ui::markdown::DEFAULT_MARKDOWN_WIDTH,
+                raw: display_text.to_string(),
+                rendered: Text::raw(""),
+                rendered_links: Vec::new(),
+                dirty: true,
+                rendered_prefix_len: 0,
+                rendered_prefix_lines: 0,
+                rendered_width: 0,
                 holdback_scanner: scanner,
             });
         }
