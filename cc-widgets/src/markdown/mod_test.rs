@@ -1142,3 +1142,144 @@ fn test_hr_spacing_matches_cc() {
     assert_eq!(lines[0], "---");
     assert_eq!(lines[1], "文字");
 }
+
+// ── 表格内链接命中区（Issue #703）─────────────────────────────
+
+#[test]
+fn test_table_link_hit_issue_example() {
+    // Issue 原例 + 前置段落（验证表格起始行偏移换算）
+    let md = "前言\n\n| 项目 | 状态 | 详情 |\n| --- | --- | --- |\n| Pull Request | [#702 MERGED](https://github.com/cc-claws/cc-code/pull/702) | Merge commit: 735c0406 |\n| 关联 Issue | [#701 CLOSED](https://github.com/cc-claws/cc-code/issues/701) | 自动完成关闭 |";
+    let doc = parse_markdown_with_links(md, &default_theme(), 80);
+    assert_eq!(doc.links.len(), 2, "表格内两个链接都应被提取");
+    assert_eq!(
+        doc.links[0].url,
+        "https://github.com/cc-claws/cc-code/pull/702"
+    );
+    assert_eq!(
+        extract_link_label(&doc, &doc.links[0]),
+        "#702 MERGED",
+        "第一行链接命中区应精确落在锚文本上"
+    );
+    assert_eq!(
+        doc.links[1].url,
+        "https://github.com/cc-claws/cc-code/issues/701"
+    );
+    assert_eq!(
+        extract_link_label(&doc, &doc.links[1]),
+        "#701 CLOSED",
+        "第二行链接命中区应精确落在锚文本上"
+    );
+}
+
+#[test]
+fn test_table_link_hit_header_and_two_in_one_cell() {
+    let md = "| [H](https://h.com) | B |\n| --- | --- |\n| [A](https://a.com) 和 [B](https://b.com) | x |";
+    let doc = parse_markdown_with_links(md, &default_theme(), 80);
+    assert_eq!(doc.links.len(), 3, "表头链接 + 同格双链接都应被提取");
+    // 顺序：表头行在前，同格内按源码顺序
+    assert_eq!(extract_link_label(&doc, &doc.links[0]), "H");
+    assert_eq!(doc.links[0].url, "https://h.com");
+    assert_eq!(extract_link_label(&doc, &doc.links[1]), "A");
+    assert_eq!(doc.links[1].url, "https://a.com");
+    assert_eq!(extract_link_label(&doc, &doc.links[2]), "B");
+    assert_eq!(doc.links[2].url, "https://b.com");
+}
+
+#[test]
+fn test_table_link_hit_alignments() {
+    // 长表头拉出 padding，覆盖左 / 居中 / 右三种对齐的列偏移
+    let md = "| LongHeaderL | LongHeaderC | LongHeaderR |\n| --- | :---: | ---: |\n| [A](https://a.com) | [B](https://b.com) | [C](https://c.com) |";
+    let doc = parse_markdown_with_links(md, &default_theme(), 80);
+    assert_eq!(doc.links.len(), 3);
+    assert_eq!(extract_link_label(&doc, &doc.links[0]), "A");
+    assert_eq!(
+        extract_link_label(&doc, &doc.links[1]),
+        "B",
+        "居中列的左 padding 应计入命中区"
+    );
+    assert_eq!(
+        extract_link_label(&doc, &doc.links[2]),
+        "C",
+        "右对齐列的左 padding 应计入命中区"
+    );
+}
+
+#[test]
+fn test_table_link_hit_cjk_label() {
+    // CJK 显示宽 2 列、grapheme 1 个：前缀换算必须按 grapheme 计，不能按列宽
+    let md = "| 项目 | 状态 |\n| --- | --- |\n| 中文说明 | [中文链接](https://example.com) |";
+    let doc = parse_markdown_with_links(md, &default_theme(), 80);
+    assert_eq!(doc.links.len(), 1);
+    assert_eq!(doc.links[0].url, "https://example.com");
+    assert_eq!(
+        extract_link_label(&doc, &doc.links[0]),
+        "中文链接",
+        "CJK 前缀列后命中区仍应精确"
+    );
+}
+
+#[test]
+fn test_table_link_hit_wrapped_across_lines() {
+    // 窄视口下无空格长标签硬断词折行，拆出的多段应共享 URL 且拼回原标签
+    let md = "| 项目 | 详情 |\n| --- | --- |\n| 链接 | [verylonglinklabeltextthatwraps](https://example.com/x) |";
+    let doc = parse_markdown_with_links(md, &default_theme(), 30);
+    assert!(
+        doc.links.len() >= 2,
+        "折行后链接应拆成多段命中区，实际 {:?}",
+        doc.links
+    );
+    for hit in &doc.links {
+        assert_eq!(hit.url, "https://example.com/x");
+    }
+    let labels: String = doc
+        .links
+        .iter()
+        .map(|h| extract_link_label(&doc, h))
+        .collect();
+    assert_eq!(labels, "verylonglinklabeltextthatwraps");
+}
+
+#[test]
+fn test_table_link_hit_vertically_centered_cell() {
+    // 第二列折成 3 行，单行链接格垂直居中落在中间行：行号必须含垂直偏移
+    let md = "| 链接 | 说明 |\n| --- | --- |\n| [L](https://l.com) | aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj kkkk llll |";
+    let doc = parse_markdown_with_links(md, &default_theme(), 40);
+    assert_eq!(doc.links.len(), 1);
+    assert_eq!(
+        extract_link_label(&doc, &doc.links[0]),
+        "L",
+        "垂直居中后命中区行号应指向链接实际所在行"
+    );
+}
+
+#[test]
+fn test_table_link_hit_url_as_label() {
+    // 锚文本即 URL 时走退化分支：显示 URL 本身，且应可点
+    let md =
+        "| 项目 | 详情 |\n| --- | --- |\n| 链接 | [https://example.com/x](https://example.com/x) |";
+    let doc = parse_markdown_with_links(md, &default_theme(), 80);
+    assert_eq!(doc.links.len(), 1);
+    assert_eq!(doc.links[0].url, "https://example.com/x");
+    assert_eq!(
+        extract_link_label(&doc, &doc.links[0]),
+        "https://example.com/x"
+    );
+}
+
+#[test]
+fn test_table_link_hit_mailto_excluded() {
+    let md =
+        "| 联系 | 邮箱 |\n| --- | --- |\n| 作者 | [mail@example.com](mailto:mail@example.com) |";
+    let doc = parse_markdown_with_links(md, &default_theme(), 80);
+    assert!(
+        doc.links.is_empty(),
+        "mailto 在表格内同样只显示邮箱、不产生命中区"
+    );
+}
+
+#[test]
+fn test_table_without_links_has_no_hits() {
+    let md = "| A | B |\n| --- | --- |\n| 1 | 2 |";
+    let doc = parse_markdown_with_links(md, &default_theme(), 80);
+    assert!(doc.links.is_empty(), "无链接表格不应产生命中区");
+}

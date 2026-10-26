@@ -28,12 +28,40 @@ pub(crate) struct ListState {
 
 type CellContent = Vec<Span<'static>>;
 
+/// 单元格内已闭合的链接段，cell-local grapheme 坐标
+///（`End(Link)` 在表格内按 `inline_g_len` / `frame.start` 计，与 `current_cell` 同坐标系）。
+type CellLinkRange = (usize, usize, String);
+
+#[derive(Debug, Default)]
+struct CellData {
+    spans: CellContent,
+    links: Vec<CellLinkRange>,
+}
+
+/// 单元格折行后的一行：渲染 spans + 与 spans 的 grapheme 序列一一对应的
+/// cell-local 输入下标。`src` 严格递增（词内 grapheme 与词间分隔空格都带真实
+/// 输入下标；折行点丢弃的空格不出现在任何行里），命中区映射靠它把
+/// cell-local 链接段切到折行后的行内偏移。
+#[derive(Debug)]
+struct CellLine {
+    spans: Vec<Span<'static>>,
+    src: Vec<usize>,
+}
+
+/// 单元格的折行结果：行 + 该格内全部链接段（cell-local 坐标）。
+#[derive(Debug)]
+struct WrappedCell {
+    lines: Vec<CellLine>,
+    links: Vec<CellLinkRange>,
+}
+
 #[derive(Debug, Default)]
 struct TableBuilder {
     alignments: Vec<Alignment>,
-    rows: Vec<Vec<CellContent>>,
-    current_row: Vec<CellContent>,
+    rows: Vec<Vec<CellData>>,
+    current_row: Vec<CellData>,
     current_cell: CellContent,
+    current_cell_links: Vec<CellLinkRange>,
     in_head: bool,
 }
 
@@ -47,7 +75,8 @@ impl TableBuilder {
 
     fn push_cell(&mut self) {
         let cell = std::mem::take(&mut self.current_cell);
-        self.current_row.push(cell);
+        let links = std::mem::take(&mut self.current_cell_links);
+        self.current_row.push(CellData { spans: cell, links });
     }
 
     fn push_row(&mut self) {
@@ -67,7 +96,7 @@ impl TableBuilder {
         &self,
         max_width: usize,
         _theme: &dyn MarkdownTheme,
-    ) -> (Vec<usize>, Vec<Vec<Vec<Vec<Span<'static>>>>>) {
+    ) -> (Vec<usize>, Vec<Vec<WrappedCell>>) {
         let num_cols = self.rows.first().map(|r| r.len()).unwrap_or(0);
         if num_cols == 0 {
             return (vec![], vec![]);
@@ -79,7 +108,7 @@ impl TableBuilder {
                 self.rows
                     .iter()
                     .filter_map(|row| row.get(c))
-                    .map(|cell| cell_min_width(cell))
+                    .map(|cell| cell_min_width(&cell.spans))
                     .max()
                     .unwrap_or(MIN_COLUMN_WIDTH)
             })
@@ -89,7 +118,7 @@ impl TableBuilder {
                 self.rows
                     .iter()
                     .filter_map(|row| row.get(c))
-                    .map(|cell| cell_width(cell).max(MIN_COLUMN_WIDTH))
+                    .map(|cell| cell_width(&cell.spans).max(MIN_COLUMN_WIDTH))
                     .max()
                     .unwrap_or(MIN_COLUMN_WIDTH)
                     .max(MIN_COLUMN_WIDTH)
@@ -138,7 +167,7 @@ impl TableBuilder {
                 .collect()
         };
 
-        // Step 4: 折行每个单元格
+        // Step 4: 折行每个单元格（折行结果附带 cell-local 链接段，供命中区映射）
         let wrapped_rows = self
             .rows
             .iter()
@@ -147,7 +176,10 @@ impl TableBuilder {
                     .enumerate()
                     .map(|(col, cell)| {
                         let width = col_widths.get(col).copied().unwrap_or(0);
-                        wrap_cell_spans(cell, width, needs_hard_wrap)
+                        WrappedCell {
+                            lines: wrap_cell_spans(&cell.spans, width, needs_hard_wrap),
+                            links: cell.links.clone(),
+                        }
                     })
                     .collect()
             })
@@ -156,24 +188,33 @@ impl TableBuilder {
         (col_widths, wrapped_rows)
     }
 
-    /// 渲染表格，支持自动换行。
+    /// 渲染表格，支持自动换行；同时返回表格内链接的命中区。
     ///
     /// 整体对齐 CC `MarkdownTable.tsx`：表头强制居中、每行之间补分隔线、
     /// 折行过多或越界时退回纵向 key-value 格式。
-    fn render_with_wrap(self, max_width: usize, theme: &dyn MarkdownTheme) -> Vec<Line<'static>> {
+    ///
+    /// 命中区映射：返回的 `LinkHit.line` 是表格内的相对行号（调用方在
+    /// `End(Table)` 处加上表格起始行）；`g_start`/`g_end` 是最终行 plain_text
+    /// 的 grapheme 区间，含边框、空格与对齐 padding。纵向回退格式把值压成
+    /// 纯文本（链接样式本身已丢弃），故不产出命中区。
+    fn render_with_wrap(
+        self,
+        max_width: usize,
+        theme: &dyn MarkdownTheme,
+    ) -> (Vec<Line<'static>>, Vec<LinkHit>) {
         let (allocated_widths, wrapped_rows) = self.wrap_cells(max_width, theme);
         if wrapped_rows.is_empty() {
-            return Vec::new();
+            return (Vec::new(), Vec::new());
         }
 
         // 任一单元格行数超过阈值 → 纵向 key-value 格式（对齐 CC `MAX_ROW_LINES`）
         let max_row_lines = wrapped_rows
             .iter()
-            .map(|row| row.iter().map(|c| c.len()).max().unwrap_or(1))
+            .map(|row| row.iter().map(|c| c.lines.len()).max().unwrap_or(1))
             .max()
             .unwrap_or(1);
         if max_row_lines > MAX_ROW_LINES {
-            return self.render_vertical(max_width);
+            return (self.render_vertical(max_width), Vec::new());
         }
 
         // 列宽直接采用分配结果（对齐 CC：用 `columnWidths` 画边框与对齐，
@@ -183,34 +224,38 @@ impl TableBuilder {
         // 越界兜底：整表超出终端安全边距时退回纵向格式（对齐 CC 的二次校验）
         let total_width = 1 + col_widths.iter().map(|w| w + 3).sum::<usize>();
         if total_width > max_width.saturating_sub(SAFETY_MARGIN) {
-            return self.render_vertical(max_width);
+            return (self.render_vertical(max_width), Vec::new());
         }
 
         let mut lines: Vec<Line<'static>> = Vec::new();
+        let mut links: Vec<LinkHit> = Vec::new();
         lines.push(Line::from(make_border(&col_widths, '┌', '┬', '┐', '─')));
 
         for (row_idx, row) in wrapped_rows.iter().enumerate() {
-            let max_lines = row.iter().map(|c| c.len()).max().unwrap_or(1);
+            let max_lines = row.iter().map(|c| c.lines.len()).max().unwrap_or(1);
             // 单元格垂直居中（对齐 CC 的 verticalOffsets）
             let vertical_offsets: Vec<usize> = row
                 .iter()
-                .map(|cell_lines| (max_lines.saturating_sub(cell_lines.len())) / 2)
+                .map(|cell| (max_lines.saturating_sub(cell.lines.len())) / 2)
                 .collect();
 
             for line_idx in 0..max_lines {
                 // 边框不带颜色：CC 的表格框线是纯文本，走终端默认色
                 let mut spans = vec![Span::raw("│".to_string())];
+                // 当前行已产出的 grapheme 数（行首 │ 计 1），用于命中区列换算
+                let mut line_g = 1usize;
 
-                for (col_idx, cell_lines) in row.iter().enumerate() {
+                for (col_idx, cell) in row.iter().enumerate() {
                     let col_w = col_widths.get(col_idx).copied().unwrap_or(0);
                     spans.push(Span::raw(" "));
+                    line_g += 1;
 
                     let offset = vertical_offsets[col_idx];
                     let content_idx = line_idx as isize - offset as isize;
-                    if content_idx >= 0 && (content_idx as usize) < cell_lines.len() {
-                        let line_spans = &cell_lines[content_idx as usize];
+                    if content_idx >= 0 && (content_idx as usize) < cell.lines.len() {
+                        let cell_line = &cell.lines[content_idx as usize];
                         let content_width: usize =
-                            line_spans.iter().map(|s| s.content.width()).sum();
+                            cell_line.spans.iter().map(|s| s.content.width()).sum();
                         let padding = col_w.saturating_sub(content_width);
 
                         // 表头强制居中；数据行用 markdown 声明的对齐方式
@@ -222,13 +267,45 @@ impl TableBuilder {
                                 .copied()
                                 .unwrap_or(Alignment::None)
                         };
-                        push_aligned(&mut spans, line_spans, padding, align);
+                        let left_pad = match align {
+                            Alignment::Center => padding / 2,
+                            Alignment::Right => padding,
+                            Alignment::None | Alignment::Left => 0,
+                        };
+                        // 该格链接段 → 最终行命中区：内容区 grapheme 起点 =
+                        // 列前空格 + 左 padding；段内偏移由 src 下标换算。
+                        for (ls, le, url) in &cell.links {
+                            let mut seg_start = None;
+                            let mut seg_end = None;
+                            for (i, &s) in cell_line.src.iter().enumerate() {
+                                if s >= *ls && s < *le {
+                                    if seg_start.is_none() {
+                                        seg_start = Some(i);
+                                    }
+                                    seg_end = Some(i);
+                                }
+                            }
+                            if let (Some(si), Some(ei)) = (seg_start, seg_end) {
+                                links.push(LinkHit {
+                                    // lines[0] 是顶边框，当前行下标 = 已有行数
+                                    line: lines.len(),
+                                    g_start: line_g + left_pad + si,
+                                    g_end: line_g + left_pad + ei + 1,
+                                    url: url.clone(),
+                                    recolor: true,
+                                });
+                            }
+                        }
+                        push_aligned(&mut spans, &cell_line.spans, padding, align);
+                        line_g += spans_g_len(&cell_line.spans) + padding;
                     } else {
                         spans.push(Span::raw(" ".repeat(col_w)));
+                        line_g += col_w;
                     }
 
                     spans.push(Span::raw(" "));
                     spans.push(Span::raw("│".to_string()));
+                    line_g += 2;
                 }
 
                 lines.push(Line::from(spans));
@@ -241,7 +318,7 @@ impl TableBuilder {
         }
 
         lines.push(Line::from(make_border(&col_widths, '└', '┴', '┘', '─')));
-        lines
+        (lines, links)
     }
 
     /// 纵向 key-value 格式（对齐 CC `renderVerticalFormat`）。
@@ -254,7 +331,12 @@ impl TableBuilder {
         }
         let headers: Vec<String> = self.rows[0]
             .iter()
-            .map(|cell| cell.iter().map(|s| s.content.as_ref()).collect::<String>())
+            .map(|cell| {
+                cell.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
+            })
             .collect();
 
         let separator: String = "─".repeat(max_width.saturating_sub(1).min(40));
@@ -272,6 +354,7 @@ impl TableBuilder {
                     .cloned()
                     .unwrap_or_else(|| format!("Column {}", col_idx + 1));
                 let value = cell
+                    .spans
                     .iter()
                     .map(|s| s.content.as_ref())
                     .collect::<String>()
@@ -489,45 +572,71 @@ fn cell_min_width(cell: &[Span]) -> usize {
 ///
 /// `hard=true` 时超长单词按 grapheme 硬断（对应 `wrap-ansi` 的 hard 模式）；
 /// 否则当单词放不下时整体换行，形成单行超宽（由调用方裁剪）。
-fn wrap_cell_spans(cell: &[Span], max_width: usize, hard: bool) -> Vec<Vec<Span<'static>>> {
+/// 单元格折行：与旧实现逐 grapheme 等价（词切分、硬断词、去尾空格均不变），
+/// 但每行额外返回与 spans 的 grapheme 序列一一对应的 cell-local 输入下标，
+/// 供表格链接命中区映射使用。词间分隔空格取其真实输入下标；
+/// 折行点丢弃的空格不出现在任何行里。
+fn wrap_cell_spans(cell: &[Span], max_width: usize, hard: bool) -> Vec<CellLine> {
     if cell.is_empty() {
-        return vec![Vec::new()];
+        return vec![CellLine {
+            spans: Vec::new(),
+            src: Vec::new(),
+        }];
     }
-    // 先按词切分，保留每个 grapheme 的样式
-    let mut words: Vec<Vec<(String, Style)>> = vec![Vec::new()];
+    // 先按词切分，保留每个 grapheme 的样式与输入下标。
+    // 词结构与旧实现（每 span 按 ' ' 切分）完全一致：空词（如连续空格产生）
+    // 同样保留，折行时每个非首词前补的空格取该词 sep_before 处的真实空格。
+    struct Word {
+        items: Vec<(String, Style, usize)>,
+        sep_before: Option<usize>,
+    }
+    let mut words: Vec<Word> = vec![Word {
+        items: Vec::new(),
+        sep_before: None,
+    }];
+    let mut idx = 0usize;
     for span in cell {
         let style = span.style;
         // 按 ASCII 空格切词（与 wrap-ansi 的 splitWords 一致）
         for (i, part) in span.content.split(' ').enumerate() {
             if i > 0 {
-                words.push(Vec::new());
+                // 切分点处的分隔空格，其输入下标就是当前 idx
+                words.push(Word {
+                    items: Vec::new(),
+                    sep_before: Some(idx),
+                });
+                idx += 1; // 跳过分隔空格
             }
-            let mut graphemes = part.graphemes(true).peekable();
-            if graphemes.peek().is_some() {
+            for g in part.graphemes(true) {
                 words
                     .last_mut()
                     .unwrap()
-                    .extend(graphemes.map(|g| (g.to_string(), style)));
+                    .items
+                    .push((g.to_string(), style, idx));
+                idx += 1;
             }
         }
     }
 
-    fn word_width(w: &[(String, Style)]) -> usize {
-        w.iter().map(|(g, _)| g.width()).sum()
+    fn word_width(w: &[(String, Style, usize)]) -> usize {
+        w.iter().map(|(g, _, _)| g.width()).sum()
     }
 
-    let mut rows: Vec<Vec<(String, Style)>> = vec![Vec::new()];
+    let mut rows: Vec<Vec<(String, Style, usize)>> = vec![Vec::new()];
     let mut row_width = 0usize;
     let mut is_first = true;
 
     for word in words {
-        let w_width = word_width(&word);
+        let w_width = word_width(&word.items);
         if !is_first {
             // wrap-ansi：词间补一个空格（trim:false 时行首也补）
             if row_width > 0 {
+                // 非首词一定由分隔空格产生，sep_before 必有值；
+                // 万一缺失用 usize::MAX 占位，使其不落入任何链接段。
+                let sep_src = word.sep_before.unwrap_or(usize::MAX);
                 rows.last_mut()
                     .unwrap()
-                    .push((" ".to_string(), Style::default()));
+                    .push((" ".to_string(), Style::default(), sep_src));
                 row_width += 1;
             }
         }
@@ -535,13 +644,13 @@ fn wrap_cell_spans(cell: &[Span], max_width: usize, hard: bool) -> Vec<Vec<Span<
 
         // hard 模式下超长单词逐 grapheme 断行
         if hard && w_width > max_width {
-            for (g, style) in word {
+            for (g, style, src) in word.items {
                 let gw = g.width();
                 if row_width > 0 && row_width + gw > max_width {
                     rows.push(Vec::new());
                     row_width = 0;
                 }
-                rows.last_mut().unwrap().push((g, style));
+                rows.last_mut().unwrap().push((g, style, src));
                 row_width += gw;
             }
             continue;
@@ -551,23 +660,24 @@ fn wrap_cell_spans(cell: &[Span], max_width: usize, hard: bool) -> Vec<Vec<Span<
             rows.push(Vec::new());
             row_width = 0;
         }
-        for (g, style) in word {
-            rows.last_mut().unwrap().push((g, style));
+        for (g, style, src) in word.items {
+            rows.last_mut().unwrap().push((g, style, src));
         }
         row_width += w_width;
     }
 
     // 右侧去尾空格（对齐 wrap-ansi trim !== false 的可见空白裁剪），
-    // 再合并相邻同 style 的 grapheme 减少 span 数量。
+    // 再合并相邻同 style 的 grapheme 减少 span 数量；src 与 grapheme 序列对齐。
     let mut out = Vec::with_capacity(rows.len());
     for mut row in rows {
-        while matches!(row.last(), Some((g, _)) if g == " ") {
+        while matches!(row.last(), Some((g, _, _)) if g == " ") {
             row.pop();
         }
         let mut spans: Vec<Span<'static>> = Vec::new();
+        let mut src: Vec<usize> = Vec::new();
         let mut buf = String::new();
         let mut buf_style: Option<Style> = None;
-        for (g, style) in row {
+        for (g, style, s) in row {
             if buf_style.is_some() && buf_style != Some(style) {
                 spans.push(Span::styled(std::mem::take(&mut buf), buf_style.unwrap()));
                 buf_style = Some(style);
@@ -575,14 +685,18 @@ fn wrap_cell_spans(cell: &[Span], max_width: usize, hard: bool) -> Vec<Vec<Span<
                 buf_style = Some(style);
             }
             buf.push_str(&g);
+            src.push(s);
         }
         if !buf.is_empty() {
             spans.push(Span::styled(buf, buf_style.unwrap_or_default()));
         }
-        out.push(spans);
+        out.push(CellLine { spans, src });
     }
     if out.is_empty() {
-        out.push(Vec::new());
+        out.push(CellLine {
+            spans: Vec::new(),
+            src: Vec::new(),
+        });
     }
     out
 }
@@ -840,7 +954,10 @@ impl<'a> RenderState<'a> {
 
         // 未闭合的链接（跨 SoftBreak）：把本行已产出的部分先登记为一段，
         // 下一行的起点归零，等 End(Link) 时再补齐后续行。
-        if !self.link_stack.is_empty() {
+        // 表格内不走这条路：单元格内容不进 current_spans，frame.start 是
+        // cell-local 坐标，归零会破坏表格链接段（见 #703）；单元格内的
+        // HardBreak（`<br>`）不产生可登记的行，保留帧起点即可。
+        if !self.link_stack.is_empty() && self.table.is_none() {
             let g_end = spans_g_len(&spans);
             for frame in self.link_stack.iter_mut() {
                 if g_end > frame.start {
@@ -1435,22 +1552,35 @@ impl<'a> RenderState<'a> {
                     return;
                 }
 
-                // 表格内不登记链接命中区（表格行是独立渲染的，命中区映射不适用）
+                // 表格内同样登记：frame.start / g_end 是 cell-local 坐标，
+                // 随 current_cell 进 TableBuilder，折行映射见 render_with_wrap。
                 if link_text == url || !self.hyperlinks || !has_text {
                     // 退化为纯 URL：截断已有链接文字，写入 URL 本身
                     self.truncate_inline(frame.start);
                     let start_g = frame.start;
                     let end_g = start_g + url.graphemes(true).count();
                     self.push_inline(Span::raw(url.clone()));
-                    if has_text && !in_table {
-                        self.line_link_ranges.push((start_g, end_g, url));
+                    if has_text {
+                        if in_table {
+                            if let Some(tb) = self.table.as_mut() {
+                                tb.current_cell_links.push((start_g, end_g, url));
+                            }
+                        } else {
+                            self.line_link_ranges.push((start_g, end_g, url));
+                        }
                     }
                     return;
                 }
                 // 有 OSC8：保留链接文字样式，并记录点击命中区。
                 // 跨行时 flush_line 已按行登记过前几段，这里只补最后一段。
-                if !in_table && g_end > frame.start {
-                    self.line_link_ranges.push((frame.start, g_end, url));
+                if g_end > frame.start {
+                    if in_table {
+                        if let Some(tb) = self.table.as_mut() {
+                            tb.current_cell_links.push((frame.start, g_end, url));
+                        }
+                    } else {
+                        self.line_link_ranges.push((frame.start, g_end, url));
+                    }
                 }
             }
 
@@ -1462,8 +1592,15 @@ impl<'a> RenderState<'a> {
             }
             Event::End(TagEnd::Table) => {
                 if let Some(tb) = self.table.take() {
-                    let table_lines = tb.render_with_wrap(self.max_width, self.theme);
+                    // 表格内命中区是相对行号，换算成全文行号
+                    let base = self.lines.len();
+                    let (table_lines, mut table_links) =
+                        tb.render_with_wrap(self.max_width, self.theme);
+                    for link in &mut table_links {
+                        link.line += base;
+                    }
                     self.lines.extend(table_lines);
+                    self.links.extend(table_links);
                 }
             }
             Event::Start(Tag::TableHead) => {
