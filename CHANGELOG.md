@@ -18,7 +18,7 @@ Perihelion Agent 版本变更记录。
 
 ### Fixes
 
-- **图片附件引用行不再被染成链接蓝**：`⎿ [Image #N]` 被登记为 OSC 8 链接后，输出层 `hyperlink::decorate` 会把每个链接 cell 的前景色统一改写成 `LightBlue`，把渲染层设的颜色盖掉——用户看到的是蓝色，而不是设计要求的应用层颜色。现给 `LinkHit` 增加 `recolor` 标记并在整条链路透传（`LinkHit` → `LinkColumns` → `register`）：附件引用传 `false`，只包 OSC 8 保持可点、不动前景色；Markdown 链接与工具输出 URL 仍传 `true`，维持既有亮蓝。前景色同步由正文纯白改为 `text_soft`，与 `⎿ Successfully loaded skill` 同档。
+- **附件引用行与工具路径不再被染成链接蓝**：`⎿ [Image #N]`、`Write`/`Edit`/`Read` 工具头的路径、`Wrote N lines to <path>` 结果行都被登记为 OSC 8 链接，而输出层 `hyperlink::decorate` 会把每个链接 cell 的前景色统一改写成 `LightBlue`，把渲染层设的颜色盖掉——用户看到的是蓝色，而不是这些元素各自的配色。现给 `LinkHit` 增加 `recolor` 标记并在整条链路透传（`LinkHit` → `LinkColumns` → `register`）：上述文件路径链接传 `false`，只包 OSC 8 保持可点、不动前景色；Markdown 链接与工具输出里的裸 URL 仍传 `true`，维持既有亮蓝。附件引用行的前景色同步由正文纯白改为 `text_soft`，与 `⎿ Successfully loaded skill` 同档。
 
 - **终端标题的闪烁符号改为 `◐` / `◑` 两帧交替**：标题栏此前与消息区共用同一套 6 字呼吸字形（`· ✢ * ✶ ✻ ✽`），其中 `✻` 在标题位置看着像一片雪花反复明灭。现为标题单独拆出帧源——`◐`（左半黑）/ `◑`（右半黑）两帧，每 960ms 换一帧、一轮 1920ms（与参考实现的 960ms 帧间隔一致——此前取 400ms，比参考实现快 2.4 倍，观感接近频闪），由单调时钟驱动（`animation_elapsed_ms`）而非 tick 计数，与状态机解耦：换回合、切模式、`reset()` 都不重置相位。消息区 loading 行不受影响，仍走余弦呼吸那套字形。帧位由 `TERMINAL_TITLE_SPINNER_FRAMES` 承担——该常量原先挂着 10 帧盲文（历史呼吸算法的预留帧集），一直没有接入渲染，本次改为承载标题实际使用的两帧。另补多路复用器降级：检测到 `TMUX` / `STY` 环境变量时标题停在静态首帧、Action Required 也不再逐秒交替——tmux / screen 会转发 OSC 0 标题写，逐帧闪烁会让外层 tab 一起抖；该判定读一次即缓存（环境变量在进程内不变）。
 

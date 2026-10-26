@@ -1796,7 +1796,9 @@ pub fn render_view_model_with_flags(
                                 g_start: base + seg.out_g_offset + (is - seg.in_g_start),
                                 g_end: base + seg.out_g_offset + (ie - seg.in_g_start),
                                 url: url.clone(),
-                                recolor: true,
+                                // 工具头路径已由 args_color 着色，只借 OSC 8 获得可点性，
+                                // 不得被输出层改写成链接蓝。
+                                recolor: false,
                             });
                         }
                     }
@@ -1829,7 +1831,8 @@ pub fn render_view_model_with_flags(
                                     g_start: args_start_g,
                                     g_end: args_start_g + visible,
                                     url,
-                                    recolor: true,
+                                    // 同详细模式：保留工具头自身的路径配色。
+                                    recolor: false,
                                 });
                             }
                         }
@@ -2037,7 +2040,9 @@ pub fn render_view_model_with_flags(
                                                     + seg.out_g_offset
                                                     + (ie - seg.in_g_start),
                                                 url: url.clone(),
-                                                recolor: true,
+                                                // 结果行由 result_color + BOLD 着色，
+                                                // 蓝化会盖掉它的配色。
+                                                recolor: false,
                                             });
                                         }
                                     }
