@@ -604,10 +604,15 @@ fn format_prefixed_text(
 ///
 /// 只处理精确匹配的单行文本；其它输出（如 append 的 `Appended ...`）返回 None，
 /// 由调用方回退为普通纯文本渲染。
+/// Write 的 `Wrote N lines <path>` 结果行 → 重绘后的行、路径在逻辑行中的
+/// grapheme 起点、路径原文。
+///
+/// 参考实现（2.1.310 `FileWriteToolCreatedMessage`）把这一行的路径也包进了
+/// `FilePathLink`，因此路径需要参与命中区登记。
 fn format_write_summary_line(
     text: &str,
     text_color: ratatui::style::Color,
-) -> Option<Line<'static>> {
+) -> Option<(Line<'static>, usize, String)> {
     let rest = text.strip_prefix("Wrote ")?;
     let (count, rest) = rest.split_once(' ')?;
     count.parse::<usize>().ok()?;
@@ -617,12 +622,22 @@ fn format_write_summary_line(
     }
     let base = Style::default().fg(text_color);
     let bold = base.add_modifier(ratatui::style::Modifier::BOLD);
-    Some(Line::from(vec![
+    let path_start = format!("Wrote {count} {unit} to ").chars().count();
+    let line = Line::from(vec![
         Span::styled("Wrote ", base),
         Span::styled(count.to_string(), bold),
         Span::styled(format!(" {unit} to "), base),
         Span::styled(path.to_string(), bold),
-    ]))
+    ]);
+    Some((line, path_start, path.to_string()))
+}
+
+/// Write 结果行里的路径 → `file://` 链接目标；超链接关闭或无法绝对化时返回 None。
+fn write_target_url(path_text: &str) -> Option<String> {
+    if !super::osc8::enabled() {
+        return None;
+    }
+    Some(url::Url::from_file_path(absolute_link_path(path_text)?).ok()?.to_string())
 }
 
 fn push_prefixed_text(
@@ -669,7 +684,7 @@ fn push_visual_capped_output<T, F>(
     border_color: Color,
     mut format_line: F,
 ) where
-    F: FnMut(&T, usize) -> Vec<Line<'static>>,
+    F: FnMut(&T, usize, usize) -> Vec<Line<'static>>,
 {
     let total = items.len();
     let mut rendered_visual = 0;
@@ -685,7 +700,9 @@ fn push_visual_capped_output<T, F>(
             return;
         }
 
-        let wlines = format_line(item, i);
+        // 第三个参数是该项首个输出行在 `out` 中的下标，供需要登记超链接命中区
+        // （行号相对的 `LinkHit`）的调用方换算。
+        let wlines = format_line(item, i, out.len());
         if wlines.len() <= available {
             rendered_visual += wlines.len();
             out.extend(wlines);
@@ -1289,7 +1306,7 @@ fn render_shell_command(
             &output_lines,
             max_lines,
             theme::cur().subtle,
-            |(line, is_error), idx| {
+            |(line, is_error), idx, _out_base| {
                 // 与 Bash 工具结果行口径一致：成功输出用 TEXT_SOFT，非零退出码用 ERROR。
                 let default_style = if *is_error && exit_code != Some(0) {
                     Style::default().fg(theme::cur().error)
@@ -1959,7 +1976,7 @@ pub fn render_view_model_with_flags(
                         b_lines,
                         max_lines,
                         border_color,
-                        |item, _i| {
+                        |item, _i, _out_base| {
                             let text_color = if item.is_error_header {
                                 theme::cur().error
                             } else {
@@ -1980,24 +1997,62 @@ pub fn render_view_model_with_flags(
                         &result_lines,
                         max_lines,
                         border_color,
-                        |line, i| {
+                        |line, i, out_base| {
                             let first_prefix = if i == 0 && tool_name != "Glob" {
                                 BranchPrefix::PREFIX
                             } else {
                                 BranchPrefix::HANG
                             };
-                            // 对齐 CC：Write create 的结果行为 "Wrote N lines to <path>"，
-                            // 数字与路径加粗（FileWriteTool/UI.tsx:58-61）
+                            // 对齐参考实现的 Write create 结果行：`Wrote N lines to <path>`，
+                            // 数字与路径加粗，且路径同样包成 file:// 链接（可点击打开）。
                             if tool_name == "Write" {
-                                if let Some(styled) = format_write_summary_line(line, result_color)
+                                if let Some((styled, path_start, path_text)) =
+                                    format_write_summary_line(line, result_color)
                                 {
-                                    return format_wrapped_line_keep_lead(
-                                        styled,
-                                        first_prefix,
-                                        BranchPrefix::HANG,
-                                        Style::default().fg(border_color),
-                                        content_width,
-                                    );
+                                    let wrapped = wrap_line_spans_rich(styled, content_width);
+                                    if let Some(url) = write_target_url(&path_text) {
+                                        let path_end = path_start + path_text.chars().count();
+                                        let cont_g = BranchPrefix::HANG.chars().count();
+                                        for (j, seg) in wrapped.iter().enumerate() {
+                                            let is = path_start.max(seg.in_g_start);
+                                            let ie = path_end.min(seg.in_g_end);
+                                            if is >= ie {
+                                                continue;
+                                            }
+                                            // 首段带 `first_prefix`、续行带悬挂缩进，两者宽度相同。
+                                            let base = if j == 0 {
+                                                first_prefix.chars().count()
+                                            } else {
+                                                cont_g
+                                            };
+                                            link_hits.push(cc_widgets::markdown::LinkHit {
+                                                line: out_base + j,
+                                                g_start: base
+                                                    + seg.out_g_offset
+                                                    + (is - seg.in_g_start),
+                                                g_end: base
+                                                    + seg.out_g_offset
+                                                    + (ie - seg.in_g_start),
+                                                url: url.clone(),
+                                            });
+                                        }
+                                    }
+                                    let mut produced = Vec::with_capacity(wrapped.len());
+                                    for (j, seg) in wrapped.into_iter().enumerate() {
+                                        let prefix = if j == 0 {
+                                            first_prefix
+                                        } else {
+                                            BranchPrefix::HANG
+                                        };
+                                        let mut spans = Vec::with_capacity(seg.line.spans.len() + 1);
+                                        spans.push(Span::styled(
+                                            prefix.to_string(),
+                                            Style::default().fg(border_color),
+                                        ));
+                                        spans.extend(seg.line.spans);
+                                        produced.push(Line::from(spans));
+                                    }
+                                    return produced;
                                 }
                             }
                             format_prefixed_text(

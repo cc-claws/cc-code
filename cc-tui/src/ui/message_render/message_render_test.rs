@@ -3126,10 +3126,11 @@ fn test_websearch_detail_mode_wraps_full_query_without_early_truncation() {
     );
 }
 
-/// 对齐 CC：Write 的结果行重绘为 "Wrote <bold>N</bold> lines to <bold>path</bold>"
+/// 对齐参考实现：Write 的结果行重绘为 "Wrote <bold>N</bold> lines to <bold>path</bold>"，
+/// 并给出路径在逻辑行中的起点供链接命中区换算。
 #[test]
 fn test_format_write_summary_line_bolds_count_and_path() {
-    let line = format_write_summary_line("Wrote 3 lines src/a.rs", theme::cur().text_soft)
+    let (line, path_start, path) = format_write_summary_line("Wrote 3 lines src/a.rs", theme::cur().text_soft)
         .expect("应识别 Write 结果行");
     assert_eq!(line.spans.len(), 4);
     assert_eq!(line.spans[0].content.as_ref(), "Wrote ");
@@ -3150,13 +3151,16 @@ fn test_format_write_summary_line_bolds_count_and_path() {
             .contains(ratatui::style::Modifier::BOLD),
         "路径应加粗"
     );
+    assert_eq!(path_start, "Wrote 3 lines to ".chars().count());
+    assert_eq!(path, "src/a.rs");
 }
 
 #[test]
 fn test_format_write_summary_line_singular_unit() {
-    let line = format_write_summary_line("Wrote 1 line a.rs", theme::cur().text_soft)
+    let (line, path_start, _) = format_write_summary_line("Wrote 1 line a.rs", theme::cur().text_soft)
         .expect("应识别单数文案");
     assert_eq!(line.spans[2].content.as_ref(), " line to ");
+    assert_eq!(path_start, "Wrote 1 line to ".chars().count());
 }
 
 #[test]
@@ -3564,5 +3568,32 @@ fn test_tool_block_read_detail_header_without_limit_uses_from_line() {
         lines[0].to_string().ends_with(" · from line 10)"),
         "无 limit 时用 from line 文案: {}",
         lines[0]
+    );
+}
+
+#[test]
+fn test_tool_block_write_result_line_links_path() {
+    let mut vm = make_file_tool_block("Write", "src/a.rs");
+    if let MessageViewModel::ToolBlock { content, .. } = &mut vm {
+        *content = "Wrote 3 lines src/a.rs".to_string();
+    }
+    let (lines, links) = render_view_model_with_links(&vm, Some(1), 120, false, 0);
+    if !crate::ui::osc8::enabled() {
+        assert!(links.is_empty());
+        return;
+    }
+    assert_eq!(links.len(), 2, "header 与结果行路径都应可点: {lines:?}");
+    let hit = links
+        .iter()
+        .find(|hit| lines[hit.line].to_string().contains("Wrote 3 lines to"))
+        .expect("结果行应有命中区");
+    assert_eq!(linked_text(&lines, hit), "src/a.rs");
+    assert!(hit.url.starts_with("file:///"));
+    assert!(
+        lines[hit.line]
+            .to_string()
+            .contains("Wrote 3 lines to src/a.rs"),
+        "结果行文案不变: {}",
+        lines[hit.line]
     );
 }
