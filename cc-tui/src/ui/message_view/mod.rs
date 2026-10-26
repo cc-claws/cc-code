@@ -13,7 +13,9 @@ mod tools;
 mod utils;
 
 pub use aggregate::{aggregate_batch_groups, aggregate_tail_tool_groups, aggregate_tool_groups};
-pub(crate) use tools::{parse_subagent_tool_count, BackgroundTaskStarted};
+pub(crate) use tools::{
+    parse_subagent_tool_count, skill_invocation_display, BackgroundTaskStarted,
+};
 pub use tools::{tool_color, AgentSummary, ToolCategory, ToolEntry};
 pub(crate) use utils::{instance_hash, parse_bg_hash};
 
@@ -630,6 +632,23 @@ impl MessageViewModel {
         match msg {
             BaseMessage::Human { content, .. } => {
                 let raw = content.text_content();
+                if let Some(invocation) = skill_invocation_display(&raw).filter(|data| data.display)
+                {
+                    let mut vm = Self::tool_block_with_id(
+                        format!("skill-invocation-{}", msg.id().as_uuid()),
+                        "Skill".to_string(),
+                        "Skill".to_string(),
+                        Some(crate::app::tool_display::sanitize_display_text(
+                            &invocation.command_name,
+                        )),
+                        !invocation.success,
+                    );
+                    if let Self::ToolBlock { content, .. } = &mut vm {
+                        *content = invocation.payload.to_string();
+                    }
+                    vm.recompute_hash();
+                    return vm;
+                }
                 if let Some(display_text) = crate::app::shell_notification_display_text(&raw) {
                     let mut vm = MessageViewModel::SystemNote {
                         content: display_text,

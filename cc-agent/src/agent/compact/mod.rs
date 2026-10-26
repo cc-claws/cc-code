@@ -8,5 +8,6 @@ pub use config::CompactConfig;
 pub use full::{full_compact, FullCompactResult};
 pub use micro::micro_compact_enhanced;
 pub use re_inject::{
-    build_compacted_messages, extract_file_info, extract_skill_names, re_inject, ReInjectResult,
+    build_compacted_messages, extract_file_info, extract_skill_names, re_inject,
+    re_inject_with_registry, InvokedSkillRegistry, ReInjectResult,
 };

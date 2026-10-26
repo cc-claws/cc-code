@@ -25,12 +25,13 @@ pub(crate) fn build_subagent_middlewares(
             .with_config(config.instruction_config.clone().unwrap_or_default()),
     };
     middlewares.push(Box::new(agents_md));
-    middlewares.push(Box::new(SkillsMiddleware::new().with_global_config()));
+    middlewares.push(Box::new(SkillsMiddleware::new().with_global_config().with_extra_dirs(config.extra_skill_dirs.clone())));
     if !config.skill_names.is_empty() {
+        let skill_tool = config.skill_tool.unwrap_or_else(|| crate::tools::SkillTool::new(SkillsMiddleware::resolve_dirs_static(&config.cwd, &config.extra_skill_dirs)));
         middlewares.push(Box::new(SkillPreloadMiddleware::new(
             config.skill_names,
             &config.cwd,
-        )));
+        ).with_skill_tool(skill_tool)));
     }
     middlewares.push(Box::new(TodoMiddleware::new({
         let (tx, _rx) = mpsc::channel(8);
@@ -130,6 +131,7 @@ fn is_instruction_only(line: &str) -> bool {
 mod build_agent;
 mod define;
 mod execute_bg;
+mod skill;
 pub use define::SubAgentTool;
 
 #[cfg(test)]

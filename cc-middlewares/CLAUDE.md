@@ -9,7 +9,7 @@
 2.  MemoryMiddleware         ← 自动记忆入口（冻结的 MEMORY.md 索引注入）
 3.  AgentDefineMiddleware    ← agent 定义，model/maxTurns 覆盖
 4.  SkillsMiddleware         ← Skills 摘要注入（含插件 extra_dirs）
-5.  SkillPreloadMiddleware   ← #skill-name 全文注入
+5.  SkillPreloadMiddleware   ← /skill-name 全文以 Human 元消息注入（不伪造工具消息）
 6.  AtMentionMiddleware      ← @path 解析，注入 Read 工具调用
 7.  FilesystemMiddleware     ← 5 个文件系统工具
 8.  GitAttributionMiddleware ← before_tool/after_tool 追踪 Write/Edit 贡献字符数
@@ -66,6 +66,8 @@
 `LspMiddleware` + `LspTool` + `cc-lsp` 客户端库。10 种操作（goToDefinition/findReferences/hover 等），`after_tool` 自动同步文件变更（`didChange` + `didSave`）。
 
 ## SubAgents
+
+`SkillTool` 是始终可见的核心工具，Slash 与模型调用共用技能查找/参数展开。主代理及继承工具集均注册；子代理重绑独立激活记录。`context: fork` 复用同一子代理构建器同步等待结果，保留权限限制、取消级联与来源事件隔离，不改变普通 `Agent` 的后台语义。压缩记录按会话独立，不能把恢复后截短的正文写回完整记录。详见 `spec/global/domains/skill-trigger.md`。
 
 `.claude/agents/` 下定义，支持扁平 `{agent_id}.md` 和嵌套 `{agent_id}/agent.md`。`tools` 为空继承父工具（排除 Agent 防递归），有值仅保留允许列表，`disallowedTools` 额外排除。插件 agent 通过 `scan_agents_with_extra_dirs` 追加搜索路径。内置 agents（explore/general-purpose/plan/verification）编译期嵌入，同名被项目级覆盖。
 

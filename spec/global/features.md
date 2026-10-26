@@ -31,7 +31,7 @@
 - **TerminalMiddleware:** 提供 `Bash` 工具，120 秒超时，跨平台（Windows: `cmd /C`，其他: `bash -c`）；Windows 下 `cmd /C` 失败且 stderr 匹配"命令未识别"时自动 fallback 到 Git Bash（`bash -c`），多语言 stderr 匹配（English/中文/法语/德语）+ 兜底模式，`MSYS_NO_PATHCONV=1` 防路径转换，剩余超时继承
 - **HitlMiddleware:** `before_tool` 拦截敏感操作（bash/write/edit/delete/rm），四种决策：Approve / Edit / Reject / Respond；oneshot channel 异步等待用户决策
 - **SubAgentMiddleware:** 提供 `Agent` 工具，读取 `.claude/agents/{id}.md`，工具集过滤（tools 白名单 + disallowedTools 黑名单），防递归（始终排除 `Agent` 自身），返回格式含工具调用摘要
-- **SkillsMiddleware:** `before_agent` 扫描加载 Skills（`~/.claude/skills/` → `skillsDir` → `./.claude/skills/`），prepend System prompt
+- **SkillsMiddleware / SkillTool:** 冻结名称与限额描述列表；一级 `Skill` 工具返回完整指令、参数展开和 camelCase 元数据。Slash 直接追加 Human 元指令，`context: fork` 同步等待隔离子代理；会话独立激活记录支持 compact 恢复，详见 [技能机制](./domains/skill-trigger.md)
 - **AgentsMdMiddleware:** `before_agent` 自动读取项目指引文件，prepend System prompt（单条 System 消息，会话内冻结）。加载模型对齐 dsh：**同目录候选全部加载并合并**（`AGENTS.md` / `CLAUDE.md` / `.claude/AGENTS.md`，基础层 → `.local` 覆盖层；trim 后内容相同去重），**跨目录从项目根（含 `.git`）逐级向下到 cwd 拼接**；每段带 provenance 头 `## <相对路径>`；单文件超 1 MiB 头 70%+尾 20% 截断（CJK 安全），渲染总量超 256 KiB 停止追加并标注；`@import` 对所有候选生效（深度 3 + 环检测；默认限**所属项目根内**，越界保留占位符；用户自有全局文件不受限）。**用户全局层为有序候选回退**：`~/.cc-code/AGENTS.md` → `~/.cc-code/CLAUDE.md` → `~/.claude/CLAUDE.md` → `~/.claude/AGENTS.md`，取首个存在且非空者；空文件不遮蔽后续候选。全局加载统一复用 `load_user_global_instruction`，与 Jev 安全门的 `read_global_content()` 为同一数据源（#402、#403）。
 - **TodoMiddleware:** `after_tool` 解析 `TodoWrite` 结果，推送 Todo 状态到渲染 channel
 - **Jev 规则提炼缓存:** 完整规则 JSON 按内容 SHA-256 存入 `~/.cc-code/jev/`，来源/项目/模型/提炼配置签名一致时跨进程复用；实际加载的规则变化后在新会话重新提炼，不增加界面提示。提炼单块超时按阶梯重试一次（首试后放宽 2 倍）且不触发对半递归拆分；仅完整成功的结果落盘。具体工具调用仍执行权限判定，详见 [HITL 设计](./domains/hitl-permissions.md#jev-规则提炼缓存)。磁盘缓存以 `to_vec_pretty` 多行 JSON 落盘（规则正文与 `<签名>.index.json` 索引同步美化），内容哈希对落盘字节计算，缓存仍能正常命中。
@@ -44,7 +44,7 @@
 - **MCP 中间件:** McpMiddleware 作为 MCP Client 连接外部服务器（stdio/HTTP），`mcp__{server}__{tool}` 动态工具注册，`mcp_read_resource` 资源读取工具，三层配置合并（全局 settings.json < 插件 plugin.json < 项目 .mcp.json，优先级递增），${VAR} 环境变量展开
 - **MCP 运行时管理:** /mcp 面板（Browse/Tools/Resources 三视图），后台连接池初始化不阻塞 TUI，重连/删除服务器
 - **MCP OAuth 2.0:** rmcp auth feature + AuthClient，Authorization Code + PKCE 流程，401 自动触发，Token 持久化 ~/.cc-code/oauth_tokens.json（0600），混合回调（本地 HTTP → TUI 手动粘贴），回调服务器注入并严格校验 rmcp 生成的 state 参数（CSRF 纵深防御）
-- **工具名称对齐参考实现：** 11 个核心工具名称完全对齐（Read/Write/Edit/Glob/Grep/Bash/WebFetch/WebSearch/Agent/AskUserQuestion/TodoWrite），Grep 重构为结构化接口，HITL 默认审批清单同步更新
+- **工具名称对齐参考实现：** 12 个核心工具名称完全对齐（Read/Write/Edit/Glob/Grep/Bash/WebFetch/WebSearch/Agent/AskUserQuestion/TodoWrite/Skill），Grep 使用结构化接口，HITL 默认审批清单同步更新
 - **RTK 代理双轨制:** 探测外部 `rtk` 二进制（where/which），对 git/cargo/npm/pnpm/npx/yarn/bun/docker/kubectl/pytest/python/php/go/dotnet/tsc/eslint/gh/find/grep/rg/ls/tree/cat/diff/curl/wget 等 27 类命令执行 `rtk rewrite` 重写以降低输出 Token；失败回退原始命令；过滤 RTK 宿主 stderr 噪音
 - **output_filter 噪音清洗:** RTK git status 噪音清洗（`clean — nothing to commit`）；移除毒性通用折叠（避免吞并代码上下文），仅对 git status 做针对性剔除
 - **Read 多模态读取:** 图片读取 + 魔数校验（Magic Bytes）防伪造图片；工具包装器透传 invoke_content 保证多模态内容不丢失
@@ -64,7 +64,7 @@
 - **模型别名映射:** 四档别名 opus/sonnet/haiku/fable（`ALL_ALIASES: [&str; 4]`），`/model` 四 Tab 面板（`AliasTab::{Opus,Sonnet,Haiku,Fable}`），`/model <alias>` 快捷切换；模型切换快捷键已废弃 Alt+M/Ctrl+T，统一走 Ctrl+P/Alt+P 命令面板
 - **TUI 命令:** 以 TUI 命令注册表（`command::default_registry()` 及应用层命令）为准，ACP 内置注册表另有 28 个命令；`/agents` 打开跨项目会话中心，`/agent-design` 选择 agent 定义，`/tasks` 入口移除；`/history`、`/resume`、`/clear`、`/help`、`/compact`、`/config`、`/cost`、`/context`、`/memory`、`/mcp`、`/recap`(away/catchup)、`/commit`(ci)、`/review`(pr)、`/export`(save)、`/gc`、`/lang`、`/init`、`/setup`、`/channel`(ch)、`/rename`、`/effort`、`/loop`、`/cron`、`/doctor`、`/hooks`、`/plugin`、`/exit`(quit)、`/model`、`/theme`、`/login`、`/rewind`、`/streaming` 保持既有语义；Command trait 支持 alias 机制
 - **Agent Command Center（#542）:** `/agents` 或满足门控的空草稿 `←` 打开全页根会话中心；跨 cwd、项目/状态/模型分组、五档状态过滤、10 条真分页、详情延迟读取、标题搜索、重命名及二次确认永久删除。Enter 恢复目标项目，`n` 在选中项目新建，`o` 当前项目历史；运行任务/审批未结束不切换。持久化模型/推理/分支快照与根会话终态，跨进程按保存状态降级。
-- **Skills 补全:** 输入 `/` 触发 Skills 浮层，Tab 导航，Enter 补全为 `/skill-name`；发送含 `/skill-name` 的消息时自动通过 `SkillPreloadMiddleware` 将 skill 全文注入 agent state（fake Read 工具调用序列）
+- **Skills 补全:** 输入 `/` 触发 Skills 浮层，Tab 导航，Enter 补全为 `/skill-name`；发送后通过 `SkillPreloadMiddleware` 安全追加 Human 元指令并投影专属 Skill 卡片。折叠视图为工具头与单行加载结果，详情模式展示 Markdown，工具统计统一使用 Skill
 - **候选浮层运行中交互（对齐参考实现的候选浮层行为）:** Agent 运行中候选存在时 `↑↓`/`Tab` 可导航浮层；`Enter` 仅已选中候选时补全（不提交），未选中走排队；`Esc` 分层关闭（先浮层后中断，`hint_dismissed_for` 抑制位文本不变不再弹、编辑后恢复）；`↓` 优先级浮层导航 > 后台 shell 聚焦 > @ 提及 > 滚动
 - **Steer 前台命令宽限期:** 点「立即补充」时若有单条前台命令在跑，2 秒宽限（`STEER_FOREGROUND_GRACE`）后自动转后台并提示；多条并行不自动选择，重复 steer 不重置计时器
 - **状态栏权限模式符号:** 权限模式标签前固定显示 `⏵⏵` 前缀（对齐参考实现的权限模式符号）

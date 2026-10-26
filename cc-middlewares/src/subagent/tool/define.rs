@@ -89,6 +89,7 @@ pub struct SubAgentTool {
     pub(crate) deregister_runtime: Option<Arc<dyn Fn(&str) + Send + Sync>>,
     /// 父 Agent 的冻结指引（含父 cwd），供子 Agent 链继承（避免每轮重读，见 #360）
     pub(crate) inherited_instructions: Option<super::super::InheritedInstructions>,
+    pub(crate) extra_skill_dirs: Vec<std::path::PathBuf>,
     pub(crate) permissions: Arc<crate::hitl::HumanInTheLoopMiddleware>,
 }
 
@@ -153,6 +154,7 @@ impl SubAgentTool {
             register_runtime: None,
             deregister_runtime: None,
             inherited_instructions: None,
+            extra_skill_dirs: Vec::new(),
             permissions: Arc::new(crate::hitl::HumanInTheLoopMiddleware::subagent_default()),
         }
     }
@@ -244,6 +246,11 @@ impl SubAgentTool {
         self
     }
 
+    pub fn with_extra_skill_dirs(mut self, dirs: Vec<std::path::PathBuf>) -> Self {
+        self.extra_skill_dirs = dirs;
+        self
+    }
+
     pub(crate) fn permission_config(
         &self,
         mut config: crate::subagent::SubAgentMiddlewareConfig,
@@ -251,6 +258,7 @@ impl SubAgentTool {
         disallowed: &ToolsValue,
     ) -> crate::subagent::SubAgentMiddlewareConfig {
         config.permissions = Arc::clone(&self.permissions);
+        config.extra_skill_dirs = self.extra_skill_dirs.clone();
         config.allowed_tools = allowed.to_vec();
         config.disallowed_tools = disallowed.to_vec();
         config.available_tools = self

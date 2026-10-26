@@ -31,6 +31,7 @@ impl AgentCommand for ClearCommand {
     }
 
     async fn execute(&self, ctx: CommandContext) -> CommandResult {
+        ctx.invoked_skills.reset_from_messages(&[]);
         // 发送 CompactCompleted（空 messages）复用 TUI 的 compact 清理路径：
         // pipeline.clear() → restore_completed(vec![]) → RebuildAll { prefix_len: 0 }
         // 这确保 TUI 的 view_messages 和 origin_messages 被正确清空。

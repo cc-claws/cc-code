@@ -26,14 +26,16 @@ pub const TOOL_WEBFETCH: &str = "WebFetch";
 pub const TOOL_WEBSEARCH: &str = "WebSearch";
 pub const TOOL_ASK_USER: &str = "AskUserQuestion";
 pub const TOOL_TODO: &str = "TodoWrite";
+pub const TOOL_SKILL: &str = "Skill";
 
-/// 核心工具白名单（始终发送给 LLM，共 11 个）
+/// 核心工具白名单（始终发送给 LLM，共 12 个）
 ///
 /// - 文件操作 (5): Read, Write, Edit, Glob, Grep
 /// - 执行 (1): Bash
 /// - Web (2): WebFetch, WebSearch
 /// - 交互 (2): Agent, AskUserQuestion
 /// - 管理 (1): TodoWrite
+/// - 技能 (1): Skill
 pub static CORE_TOOLS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     [
         // 文件操作
@@ -52,6 +54,7 @@ pub static CORE_TOOLS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
         TOOL_ASK_USER,
         // 管理
         TOOL_TODO,
+        TOOL_SKILL,
     ]
     .into_iter()
     .collect()

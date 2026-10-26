@@ -35,6 +35,7 @@ pub enum CommandKind {
 
 /// 命令执行上下文。
 pub struct CommandContext {
+    pub invoked_skills: cc_agent::agent::compact::re_inject::InvokedSkillRegistry,
     pub session_id: String,
     pub history: Vec<BaseMessage>,
     pub cwd: String,

@@ -32,7 +32,7 @@
   → 调用 LLM 直接输出 <summary>，摘要语言跟随用户要求或会话
   → 提取 <summary>；兼容旧响应中 <analysis> 块的清理
   → PTL 降级重试: 按消息步数组逐步删除最旧组，最多重试 3 次
-  → re_inject: 提取最近文件路径 + Skills → System 消息重新注入
+  → re_inject: 最近文件 → System；当前代理成功激活的 Skills → Human 元消息
 ```
 
 ## 技术方案总结
@@ -41,11 +41,11 @@
 |------|------|
 | Micro-compact | 可压缩白名单 + 时间衰减 + 图片/文档替换 + 工具对保护 |
 | Full Compact | 任务续接摘要 + LLM 调用 + PTL 降级重试；不要求输出详细分析 |
-| 重新注入 | extract_recent_files() + extract_skills_paths() → System 消息 |
+| 重新注入 | extract_recent_files() + InvokedSkillRegistry；真实 Skill 调用按 ID 配对，Slash 使用完整 Human marker |
 | 配置 | CompactConfig 支持环境变量覆盖 |
 | 核心层分离 | 纯消息操作在核心层，TUI 层仅触发和展示 |
 
-内置压缩、续接及 recap 指令统一英文；摘要与回顾可使用用户语言。摘要必须区分观察事实、待验证假设与计划，不把引用内容或工具输出当成新的授权。压缩结构、工具对保护、历史截断及重新注入算法保持原实现。
+内置压缩、续接及 recap 指令统一英文；摘要与回顾可使用用户语言。摘要必须区分观察事实、待验证假设与计划，不把引用内容或工具输出当成新的授权。技能同名保留最新，最近调用优先使用预算，全文 registry 独立于截短的压缩消息；手动和自动 compact 共用记录，不从 Read 路径猜测技能。fork 技能正文不恢复到主代理，子代理记录独立。技能恢复不改变冻结系统提示词，详见 [skill-trigger.md](./skill-trigger.md)。
 
 ## Feature 附录
 
@@ -138,4 +138,4 @@
 - → [token-tracking.md](./token-tracking.md) — Token 追踪触发压缩
 - → [tui.md](./tui.md) — TUI /compact 命令
 
-最后更新：2026-10-08
+最后更新：2026-10-26

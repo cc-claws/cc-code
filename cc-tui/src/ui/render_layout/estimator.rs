@@ -6,6 +6,7 @@ pub(super) struct LayoutSummary {
     pub detail_rows: usize,
     pub detail_bytes: usize,
     compact_rows: usize,
+    compact_fixed_rows: Option<usize>,
     visible: bool,
 }
 impl LayoutSummary {
@@ -15,6 +16,11 @@ impl LayoutSummary {
     pub fn height(&self, width: u16, detail: bool, first: bool) -> usize {
         if !self.visible {
             return usize::from(first);
+        }
+        if !detail {
+            if let Some(rows) = self.compact_fixed_rows {
+                return rows;
+            }
         }
         let rows = if detail {
             self.detail_rows
@@ -196,10 +202,24 @@ pub(super) fn summarize(vm: &MessageViewModel) -> LayoutSummary {
     LayoutSummary {
         detail_rows: detail,
         compact_rows: compact,
+        compact_fixed_rows: matches!(
+            vm,
+            MessageViewModel::ToolBlock {
+                tool_name,
+                is_error: false,
+                collapsed: true,
+                ..
+            } if tool_name == "Skill"
+        )
+        .then_some(2),
         detail_bytes: bytes.saturating_mul(6),
         visible,
     }
 }
+
+#[cfg(test)]
+#[path = "estimator_test.rs"]
+mod tests;
 
 pub(in crate::ui) fn is_live(vm: &MessageViewModel) -> bool {
     match vm {

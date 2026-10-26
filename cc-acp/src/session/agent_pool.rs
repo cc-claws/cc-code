@@ -40,6 +40,8 @@ pub struct CachedLlmInstances {
 /// Populated on first prompt, reused on subsequent prompts.
 /// Invalidated when provider changes (model switch via `session/set_model`).
 pub struct AgentPool {
+    /// 技能激活记录随会话存活，模型缓存失效与 compact 不得清除原始正文。
+    pub invoked_skills: cc_agent::agent::compact::re_inject::InvokedSkillRegistry,
     /// Cached LLM instances (biggest allocation win).
     cached_llm: Option<CachedLlmInstances>,
     /// Provider fingerprint for invalidation detection.
@@ -69,6 +71,7 @@ impl Default for AgentPool {
 impl AgentPool {
     pub fn new() -> Self {
         Self {
+            invoked_skills: Default::default(),
             cached_llm: None,
             fingerprint: String::new(),
             subagent_llm_cache: HashMap::new(),

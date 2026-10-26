@@ -79,7 +79,14 @@ impl MessagePipeline {
             // 判定要求「前缀 + 闭合标签」双重匹配：仅靠 starts_with 会误伤用户手输的
             // 裸标签（如单输 `<bash-input>`），且这是唯一可用的识别手段（无 isMeta）。
             if let BaseMessage::Human { content, .. } = msg {
-                if crate::app::is_shell_context_fragment(&content.text_content()) {
+                let raw = content.text_content();
+                // compact 恢复的技能只有上下文作用，不重复生成技能加载卡片。
+                if crate::ui::message_view::skill_invocation_display(&raw)
+                    .is_some_and(|invocation| !invocation.display)
+                {
+                    continue;
+                }
+                if crate::app::is_shell_context_fragment(&raw) {
                     continue;
                 }
             }

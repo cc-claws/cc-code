@@ -88,7 +88,7 @@ scripts/start-tui.sh                 # 启动 TUI（RELAY_PORT=3001）
 
 ## Tool Search 延迟加载
 
-工具分三层：**Core（11 个）**——Read/Write/Edit/Glob/Grep/Bash/WebFetch/WebSearch/Agent/AskUserQuestion/TodoWrite，始终对 LLM 可见；**Meta（2 个）**——`SearchExtraTools`/`ExecuteExtraTool`，始终可见，用于按需发现和执行 deferred tools；**Deferred（其余）**——Cron*、MCP 工具、LspTool 等，LLM 不直接可见，通过 Meta 工具桥接。核心工具定义以 `tool_search/core_tools.rs` 中的 `CORE_TOOLS` 为准。新增工具优先配置为 deferred tool，避免膨胀核心工具列表。
+工具分三层：**Core（12 个）**——Read/Write/Edit/Glob/Grep/Bash/WebFetch/WebSearch/Agent/AskUserQuestion/TodoWrite/Skill，始终对 LLM 可见；**Meta（2 个）**——`SearchExtraTools`/`ExecuteExtraTool`，始终可见，用于按需发现和执行 deferred tools；**Deferred（其余）**——Cron*、MCP 工具、LspTool 等，LLM 不直接可见，通过 Meta 工具桥接。核心工具定义以 `tool_search/core_tools.rs` 中的 `CORE_TOOLS` 为准。新增工具优先配置为 deferred tool，避免膨胀核心工具列表。
 
 **[TRAP]** 工具参数校验错误必须用 `Err()` 返回，禁止 `Ok("Error: ...")` 反模式——`is_error` 标记、遥测系统、tool_errors 分析器均依赖 `Err()` 路径。参数描述中对必填字段应显式标注 REQUIRED。（详见 spec/global/domains/agent.md#issue_2026-06-05-agent-tool-3-percent-error-rate-subagent-type-missing）
 
@@ -174,7 +174,7 @@ session/new → frozen_date → frozen_instructions（合并去重后的指引�
 | `cc-acp/src/session/command/recap.rs` | `/recap` Slash Command（`Immediate`，使用独立 `aux_model`） |
 | `cc-agent/src/agent/recap/` | `generate_recap()`：单轮 fork、禁用工具、不写 history |
 
-**[TRAP]** compact 后消息结构必须以 `BaseMessage::human(summary + continuation)` 开头。禁止将摘要放在 `BaseMessage::system()` 中。compact 后的完整结构：`[Human(摘要+续接指令), System(文件)..., System(Skills)...]`。（详见 spec/global/domains/compact.md#issue_2026-05-20-auto-compact-empty-messages-400）
+**[TRAP]** compact 后消息结构必须以 `BaseMessage::human(summary + continuation)` 开头。禁止将摘要放在 `BaseMessage::system()` 中。compact 后的完整结构：`[Human(摘要+续接指令), System(文件)..., Human(Skill 元指令)...]`。成功 Skill 激活的完整正文按当前会话独立保存，压缩截断不能覆盖 registry；Slash 不得伪造 Ai/Tool。（详见 spec/global/domains/compact.md#issue_2026-05-20-auto-compact-empty-messages-400）
 
 ## Sync 模块
 

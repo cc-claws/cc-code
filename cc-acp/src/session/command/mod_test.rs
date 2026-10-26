@@ -95,6 +95,7 @@ impl crate::session::event_sink::EventSink for MockEventSink {
 /// 构造最小 CommandContext。
 fn make_command_context(sink: Arc<dyn crate::session::event_sink::EventSink>) -> CommandContext {
     CommandContext {
+        invoked_skills: Default::default(),
         session_id: "test-session".to_string(),
         history: vec![],
         cwd: "/tmp".to_string(),
@@ -311,6 +312,7 @@ async fn test_clear_command_ignores_existing_history() {
     // Arrange: 带有历史消息的上下文
     let sink = Arc::new(MockEventSink::new());
     let ctx = CommandContext {
+        invoked_skills: Default::default(),
         session_id: "test-session".to_string(),
         history: vec![BaseMessage::human("你好"), BaseMessage::ai("世界")],
         cwd: "/tmp".to_string(),

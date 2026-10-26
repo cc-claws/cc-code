@@ -16,7 +16,8 @@ use cc_agent::{
     agent::{
         compact::{
             build_compacted_messages, config::CompactConfig, extract_file_info,
-            extract_skill_names, full_compact, micro_compact_enhanced, re_inject,
+            extract_skill_names, full_compact, micro_compact_enhanced, re_inject_with_registry,
+            InvokedSkillRegistry,
         },
         events::AgentEvent as ExecutorEvent,
         state::State,
@@ -58,6 +59,8 @@ pub struct CompactMiddleware {
     /// 每次 execute_prompt 创建新的 CompactMiddleware 实例，天然 per-prompt 作用域。
     /// 防止 micro compact 反复触发（压缩量 < 新增量时会在每轮重复触发）。
     micro_compact_done: AtomicBool,
+    /// 当前 agent 会话的完整技能正文，不随消息压缩截断。
+    invoked_skills: InvokedSkillRegistry,
 }
 
 impl CompactMiddleware {
@@ -85,7 +88,13 @@ impl CompactMiddleware {
             session_id,
             provider_name,
             micro_compact_done: AtomicBool::new(false),
+            invoked_skills: InvokedSkillRegistry::default(),
         }
+    }
+
+    pub fn with_invoked_skills(mut self, invoked_skills: InvokedSkillRegistry) -> Self {
+        self.invoked_skills = invoked_skills;
+        self
     }
 
     fn is_disabled(&self) -> bool {
@@ -216,7 +225,7 @@ impl CompactMiddleware {
                 state.messages_mut().extend(own_messages);
                 return Ok(());
             }
-            result = re_inject(&own_messages, &self.config, &self.cwd) => result,
+            result = re_inject_with_registry(&own_messages, &self.config, &self.cwd, &self.invoked_skills) => result,
         };
 
         info!(

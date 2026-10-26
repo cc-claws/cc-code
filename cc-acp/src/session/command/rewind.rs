@@ -113,6 +113,7 @@ impl AgentCommand for RewindCommand {
         let retained_messages = history[..target_idx].to_vec();
 
         let removed_count = removed_messages.len();
+        ctx.invoked_skills.reset_from_messages(&retained_messages);
 
         // Step 3: 提取文件变更并逆向恢复
         let mut revert_warnings = Vec::new();

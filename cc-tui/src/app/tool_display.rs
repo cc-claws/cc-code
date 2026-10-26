@@ -56,6 +56,7 @@ pub fn format_tool_name(tool: &str) -> String {
     match tool {
         "Bash" => "Bash",
         "Read" => "Read",
+        "Skill" => "Skill",
         "Write" => "Write",
         "Edit" => "Update",
         "Glob" => "Glob",
@@ -376,6 +377,10 @@ pub fn format_tool_args(
                 display
             })
         }
+        // 对齐 CC SkillTool：工具头仅显示技能名，args 仍完整传给执行侧。
+        "Skill" => input["skill"]
+            .as_str()
+            .map(|skill| truncate(skill, TOOL_ARGS_MAX_CHARS)),
         "Write" | "Edit" => {
             let path = input["file_path"]
                 .as_str()

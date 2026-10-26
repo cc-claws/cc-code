@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use cc_agent::agent::{
     compact::{
-        build_compacted_messages, extract_file_info, extract_skill_names, full_compact, re_inject,
+        build_compacted_messages, extract_file_info, extract_skill_names, full_compact,
     },
     events::AgentEvent as ExecutorEvent,
 };
@@ -43,6 +43,7 @@ impl AgentCommand for CompactCommand {
 
     async fn execute(&self, ctx: CommandContext) -> CommandResult {
         let CommandContext {
+            invoked_skills,
             session_id,
             history,
             cwd,
@@ -153,7 +154,7 @@ impl AgentCommand for CompactCommand {
         );
 
         // 执行 re_inject
-        let re_inject_result = re_inject(&history, &compact_config, &cwd).await;
+        let re_inject_result = cc_agent::agent::compact::re_inject::re_inject_with_registry(&history, &compact_config, &cwd, &invoked_skills).await;
 
         info!(
             files_injected = re_inject_result.files_injected,
@@ -242,6 +243,7 @@ mod tests {
         history: Vec<BaseMessage>,
     ) -> super::super::CommandContext {
         super::super::CommandContext {
+            invoked_skills: Default::default(),
             session_id: "test-session".to_string(),
             history,
             cwd: "/tmp".to_string(),

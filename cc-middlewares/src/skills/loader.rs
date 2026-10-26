@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use gray_matter::{engine::YAML, Matter};
-use serde::Deserialize;
+use super::invocation::parse_skill;
 
 /// Skill 元数据（来自 SKILL.md frontmatter）
 #[derive(Debug, Clone)]
@@ -11,25 +10,17 @@ pub struct SkillMetadata {
     pub path: PathBuf,
 }
 
-/// frontmatter 反序列化结构
-#[derive(Debug, Deserialize)]
-struct SkillFrontmatter {
-    name: String,
-    description: String,
-}
-
 /// 加载单个 SKILL.md，解析 frontmatter，返回元数据
 pub fn load_skill_metadata(path: &Path) -> Option<SkillMetadata> {
     let content = std::fs::read_to_string(path).ok()?;
-    let matter = Matter::<YAML>::new();
-    let result: gray_matter::ParsedEntity = matter.parse(&content).ok()?;
-
-    let data = result.data?;
-    let fm: SkillFrontmatter = data.deserialize().ok()?;
+    let (frontmatter, _) = parse_skill(&content).ok()?;
+    let name = frontmatter.name.filter(|name| !name.trim().is_empty()).or_else(|| {
+        path.parent()?.file_name()?.to_str().map(str::to_string)
+    })?;
 
     Some(SkillMetadata {
-        name: fm.name,
-        description: fm.description,
+        name,
+        description: frontmatter.description.unwrap_or_default(),
         path: path.to_path_buf(),
     })
 }
@@ -74,7 +65,7 @@ pub fn list_skills(dirs: &[PathBuf]) -> Vec<SkillMetadata> {
         dir_skills.sort_by(|a, b| a.name.cmp(&b.name));
 
         for skill in dir_skills {
-            if seen_names.insert(skill.name.clone()) {
+            if seen_names.insert(skill.name.to_lowercase()) {
                 skills.push(skill);
             }
         }

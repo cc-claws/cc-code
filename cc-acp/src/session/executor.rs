@@ -240,6 +240,8 @@ pub async fn execute_prompt(
     };
 
     // Compact config — computed early for command interception and agent building.
+    let invoked_skills = pool.lock().invoked_skills.clone();
+    invoked_skills.seed_from_messages(&history);
     let mut compact_config = peri_config.config.compact.clone().unwrap_or_default();
     compact_config.apply_env_overrides();
     let disable_compact = std::env::var("DISABLE_COMPACT").is_ok()
@@ -283,6 +285,7 @@ pub async fn execute_prompt(
                         "Immediate command intercepted"
                     );
                     let ctx = crate::session::command::CommandContext {
+                        invoked_skills: invoked_skills.clone(),
                         session_id: session_id.clone(),
                         history: history.clone(),
                         cwd: cwd.to_string(),
@@ -326,6 +329,7 @@ pub async fn execute_prompt(
                         "Passthrough command intercepted, transforming content"
                     );
                     let ctx = crate::session::command::CommandContext {
+                        invoked_skills: invoked_skills.clone(),
                         session_id: session_id.clone(),
                         history: history.clone(),
                         cwd: cwd.to_string(),
