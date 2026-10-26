@@ -4,7 +4,7 @@ Perihelion Agent 版本变更记录。
 
 ---
 
-## Unreleased
+## v0.6.193 — 2026-10-26
 
 ### Features
 
@@ -15,6 +15,8 @@ Perihelion Agent 版本变更记录。
 - **`/gc` 按 size class 分解 allocated（#716）**：`/gc` 此前只报 allocated 总量与一条「已知合计估算」，差额一律归入「未识别」，看不出那些字节是几块大缓冲还是几万个中小对象。现新增 size class 段落：读 jemalloc 的 `arenas.nbins` / `arenas.nlextents` / `arenas.narenas`，逐 class 汇总全部 arena 的 `stats.arenas.<i>.bins.<j>.curregs` 与 `stats.arenas.<i>.lextents.<k>.curlextents`，打印 Top 12 + 其余合计 + 覆盖率校验行（`尺寸 × 存活对象数 = 字节`，占比以 allocated 为分母）。jemalloc 的 `allocated` 本身就是 `Σ curregs×reg_size + Σ curlextents×size`，逐 class 求和恒等于它，因此这张表是**精确分解**而非估算，能覆盖旧估算看不到的 SyntaxSet/ThemeSet、编译正则、tokio/ACP 缓冲等。两个实现要点：large class 的计数节点是 `lextents` 而不是 `large`（后者只有 allocated/nmalloc 等聚合字段，按 `large` 拼键会静默读到 0）；统计路径不许有堆分配——非 Windows 上被统计的分配器就是本进程的全局分配器，用 `format!` 拼约 4000 个 mallctl 键产生的临时 `String` 会立刻进入 arena 记账，实测让覆盖率凭空差 29,696 B（24.6 MB 上 0.12%），改用栈上键缓冲并把本函数的 `Vec` 全部提前到 epoch 快照之前分配后差额归零。尺寸列用精确字节数（`1,280 B`），因为 `fmt_bytes` 会把 1024 B 与 1280 B 都渲染成 `1 KB`。Windows（mimalloc）无对应接口，整段跳过而不打印空表。
 
 ### Fixes
+
+- **流式渲染不再每帧重复解析 Markdown，block 档围栏判定改用状态机（#739）**：流式气泡此前在 App 侧预解析 markdown，并把 `rendered_prefix_len` 报成全文长度、`dirty=false`——渲染线程的增量入口（`raw.len() == rendered_prefix_len` 时直接返回）因此短路；当终端内容宽度（终端宽 − 2）不等于 80 时，渲染线程还会按实际宽度再解析一遍，同一份文本每帧被解析两次。现构造气泡只交 `dirty=true` + 空 `rendered`，解析统一归渲染线程。同批把流式显示改为挂起未完成的长行：最后一个换行之后的内容超过 200 字符时暂不进入显示快照，等换行到达再显示，长段落不再每帧重排；尚未出现换行时整段照常显示，短回答与首字仍逐字可见，挂起只影响显示快照，最终消息由 StateSnapshot 的完整文本落地。block 档的块边界改由新增的 `BlockBoundaryScanner` 判定——按行扫描、跨调用保留围栏状态、只扫新增行，删掉「最后一行是否以 ` ``` ` 开头」的启发式；围栏内空行不再提前提交、正文出现裸围栏行不再误判，围栏闭合视为块结束。debug profile 下 2000 行文本单次全量解析约 121ms，改后构造流式气泡约 0.37ms；终端宽度恰为 82 列时改前改后都是一次解析，无额外收益。
 
 - **终端标题的闪烁符号改为 `◐` / `◑` 两帧交替**：标题栏此前与消息区共用同一套 6 字呼吸字形（`· ✢ * ✶ ✻ ✽`），其中 `✻` 在标题位置看着像一片雪花反复明灭。现为标题单独拆出帧源——`◐`（左半黑）/ `◑`（右半黑）两帧，每 960ms 换一帧、一轮 1920ms（与参考实现的 960ms 帧间隔一致——此前取 400ms，比参考实现快 2.4 倍，观感接近频闪），由单调时钟驱动（`animation_elapsed_ms`）而非 tick 计数，与状态机解耦：换回合、切模式、`reset()` 都不重置相位。消息区 loading 行不受影响，仍走余弦呼吸那套字形。帧位由 `TERMINAL_TITLE_SPINNER_FRAMES` 承担——该常量原先挂着 10 帧盲文（历史呼吸算法的预留帧集），一直没有接入渲染，本次改为承载标题实际使用的两帧。另补多路复用器降级：检测到 `TMUX` / `STY` 环境变量时标题停在静态首帧、Action Required 也不再逐秒交替——tmux / screen 会转发 OSC 0 标题写，逐帧闪烁会让外层 tab 一起抖；该判定读一次即缓存（环境变量在进程内不变）。
 
