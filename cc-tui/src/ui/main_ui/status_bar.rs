@@ -488,7 +488,10 @@ fn render_completed_tool_segments(
         let display = tool_display::format_tool_name_for_stats(name);
         segments.push(vec![
             Span::styled("✓", fg_style(colors.green)),
-            Span::styled(format!(" {}", display), plain_style()),
+            // 工具名固定用当前调色板的 inactive（= MUTED）：此前走 `plain_style()`
+            // 即终端默认前景，不随 `/theme` 变化；改成调色板色后，浅色主题下
+            // 工具名与状态栏其余字段保持同一套对比度。
+            Span::styled(format!(" {}", display), fg_style(colors.muted)),
             Span::styled(format!(" ×{}", count), dim_style()),
         ]);
     }
@@ -1356,6 +1359,11 @@ mod tests {
         let segments = render_completed_tool_segments(&agent, &make_default_colors());
         assert_eq!(segments.len(), 5);
         assert_eq!(spans_to_plain(&segments[0]), "✓ Read ×10");
+        assert_eq!(
+            segments[0][1].style.fg,
+            Some(sb::MUTED),
+            "工具名固定 inactive（default 主题即 sb::MUTED），不再走终端默认前景"
+        );
         assert_eq!(spans_to_plain(segments.last().unwrap()), "+1 more");
         assert_eq!(
             spans_to_plain(&segments[2]),
