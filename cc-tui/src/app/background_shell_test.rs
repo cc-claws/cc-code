@@ -1,4 +1,5 @@
 use super::*;
+use crate::ui::message_view::NoteTone;
 use std::time::Duration;
 
 /// 显式中文语言注册表（验证 i18n 中文分支）。
@@ -545,4 +546,60 @@ fn test_stalled_notification_includes_description_tag() {
         "有描述时不应再显示命令原文: {}",
         display
     );
+}
+
+/// 与参考实现逐字对齐的**契约测试**。
+///
+/// 下面这些字符串直接取自参考实现的 `UserAgentNotificationMessage` 所渲染的 summary
+/// （`Background command "<description>" completed (exit code 0)` 等）。改动通知文案或
+/// 状态色映射时，如果不再与参考实现一致，这个测试必须变红——它是「用户看到一样内容」
+/// 的唯一定量保证。
+#[test]
+fn test_notification_text_matches_reference_implementation() {
+    // Arrange
+    let lc_en = crate::i18n::LcRegistry::new(Some("en"));
+    let path = Path::new("/tmp/peri/tasks/abc.output");
+    let description = Some("Run the test suite");
+    let cases = [
+        (
+            cc_agent::shell::ShellOutcome::Exited(0),
+            "Background command \"Run the test suite\" completed (exit code 0)",
+            NoteTone::Success,
+        ),
+        (
+            cc_agent::shell::ShellOutcome::Exited(1),
+            "Background command \"Run the test suite\" failed with exit code 1",
+            NoteTone::Error,
+        ),
+        (
+            cc_agent::shell::ShellOutcome::Cancelled,
+            "Background command \"Run the test suite\" was stopped",
+            NoteTone::Warning,
+        ),
+        (
+            cc_agent::shell::ShellOutcome::TimedOut,
+            "Background command \"Run the test suite\" timed out",
+            NoteTone::Warning,
+        ),
+    ];
+    for (outcome, expected_text, expected_tone) in cases {
+        // Act
+        let msg =
+            agent_shell_completion_notification("abc", "cargo test", description, &outcome, path);
+        let display = shell_notification_display_text_with(&msg, &lc_en).expect("应识别完成通知");
+        // Assert
+        assert_eq!(display.text, expected_text, "文案必须与参考实现逐字一致");
+        assert_eq!(display.tone, expected_tone, "状态色映射必须与参考实现一致");
+    }
+
+    // 等待输入：参考实现同样是 `Background command "<desc>" appears to be waiting ...`
+    let stalled = shell_stalled_notification("def", "npm publish", description, "publish? (y/n)");
+    let display =
+        shell_notification_display_text_with(&stalled, &lc_en).expect("应识别等待输入通知");
+    assert_eq!(
+        display.text,
+        "Background command \"Run the test suite\" appears to be waiting for interactive input",
+        "等待输入文案必须与参考实现逐字一致"
+    );
+    assert_eq!(display.tone, NoteTone::Warning);
 }
