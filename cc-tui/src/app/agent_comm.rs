@@ -37,8 +37,11 @@ pub struct RecentToolEntry {
 
 /// 状态栏「最近工具」同时保留的条数上限（最新的在最前，超出丢最老）
 pub const RECENT_TOOLS_MAX_VISIBLE: usize = 2;
-/// 工具条目最短可见时长：快工具垫到该时长，慢工具执行结束即刻消失
-pub const TOOL_MIN_VISIBLE_MS: u64 = 300;
+/// 工具条目最短可见时长：快工具垫到该时长，慢工具执行结束即刻消失。
+///
+/// 300ms 时 Read/Glob 这类毫秒级工具只够「察觉到有东西闪过」、读不出文件名；
+/// 800ms 约 24 帧（30fps），足够读清文件名与路径，仍低于 1 秒不会显得卡住。
+pub const TOOL_MIN_VISIBLE_MS: u64 = 800;
 /// 系统级提示最短可见时长。
 ///
 /// 提示由工具调用期间的事件触发（如判定服务降级），而清除它的 `ToolStart`/`Done`
