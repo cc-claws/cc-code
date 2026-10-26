@@ -71,6 +71,7 @@ mod history_persistence;
 mod hitl_ops;
 mod hitl_prompt;
 pub use hitl_prompt::{ApprovalChoice, HitlBatchPrompt, PendingAttachment};
+mod image_store;
 mod paste_ops;
 mod recap_auto;
 mod rewind_prompt;

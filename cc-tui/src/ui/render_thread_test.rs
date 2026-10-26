@@ -51,6 +51,7 @@ fn test_wrapped_line_info_supports_more_than_u16_rows() {
         visual_row_end: u16::MAX as usize + 2,
         plain_text: String::new(),
         char_widths: Vec::new(),
+        copy_prefix_graphemes: 0,
     };
 
     assert_eq!(info.visual_row_start, u16::MAX as usize + 1);
@@ -1936,4 +1937,42 @@ fn test_bare_url_links_only_for_tool_and_shell_output() {
     let user = MessageViewModel::user(format!("跑一下 echo {url}"));
     let (_, links) = RenderTask::render_one(&mut user.clone(), 0, 100, false, false);
     assert!(links.is_empty(), "用户输入不得变成链接");
+}
+#[test]
+fn test_image_attachment_rows_keep_layout_links_and_copy_coordinates_aligned() {
+    let mut message = MessageViewModel::user("正文 [Image #1] [Image #2]".into());
+    message.set_image_ids(vec![1, 2]);
+    let paths = [
+        (1, std::env::temp_dir().join("first.png")),
+        (2, std::env::temp_dir().join("second.png")),
+    ]
+    .into_iter()
+    .collect();
+    message.set_image_paths(&paths);
+    let (lines, links) = RenderTask::render_one(&mut message, 0, 80, false, false);
+    let (total, wrap) = RenderTask::build_message_wrap_map(&lines, 80, true);
+    assert_eq!(total, 4, "正文、两张附件和消息分隔行应全部计入高度");
+    assert_eq!(wrap[1].copy_prefix_graphemes, 5);
+    assert_eq!(wrap[2].copy_prefix_graphemes, 5);
+    assert_eq!(
+        crate::app::text_selection::extract_selected_text((1, 0), (1, 15), &wrap, 80).as_deref(),
+        Some("[Image #1]")
+    );
+    assert_eq!(
+        crate::app::text_selection::extract_selected_text((1, 7), (1, 10), &wrap, 80).as_deref(),
+        Some("mag"),
+        "局部选区不能因排除前缀而左移"
+    );
+    assert_eq!(
+        crate::app::text_selection::extract_selected_text((1, 0), (1, 5), &wrap, 80),
+        None,
+        "装饰前缀不应复制"
+    );
+    for link in links {
+        let entry = &wrap[link.line];
+        let columns =
+            crate::ui::osc8::graphemes_to_columns(&entry.plain_text, &entry.char_widths, &link)
+                .expect("链接应有完整显示坐标");
+        assert_eq!(columns.columns, 5..15);
+    }
 }

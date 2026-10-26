@@ -475,6 +475,7 @@ fn seed_scrollable_cache(app: &mut App, total_lines: usize) {
                 visual_row_end: i + 1,
                 plain_text: format!("row {i}"),
                 char_widths: vec![],
+                copy_prefix_graphemes: 0,
             })
             .collect();
     }

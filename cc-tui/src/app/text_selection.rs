@@ -463,8 +463,8 @@ pub fn extract_selected_text(
             let c_start =
                 char_col_to_offset(&info.char_widths, start_col, row_in_start, usable_width);
             let c_end = char_col_to_offset(&info.char_widths, end_col, row_in_end, usable_width);
-            let b_start = grapheme_to_byte_idx(text, c_start);
-            let b_end = grapheme_to_byte_idx(text, c_end);
+            let b_start = grapheme_to_byte_idx(text, c_start.max(info.copy_prefix_graphemes));
+            let b_end = grapheme_to_byte_idx(text, c_end.max(info.copy_prefix_graphemes));
             if b_start >= b_end {
                 return None;
             }
@@ -474,17 +474,19 @@ pub fn extract_selected_text(
             let row_in_line = start_row - info.visual_row_start;
             let c_start =
                 char_col_to_offset(&info.char_widths, start_col, row_in_line, usable_width);
-            let b_start = grapheme_to_byte_idx(text, c_start);
+            let b_start = grapheme_to_byte_idx(text, c_start.max(info.copy_prefix_graphemes));
             parts.push(text[b_start..].to_string());
         } else if i == end_idx {
             // 末行：从行首到 end_col 对应的字符位置
             let row_in_line = end_row - info.visual_row_start;
             let c_end = char_col_to_offset(&info.char_widths, end_col, row_in_line, usable_width);
-            let b_end = grapheme_to_byte_idx(text, c_end);
-            parts.push(text[..b_end].to_string());
+            let b_start = grapheme_to_byte_idx(text, info.copy_prefix_graphemes);
+            let b_end = grapheme_to_byte_idx(text, c_end.max(info.copy_prefix_graphemes));
+            parts.push(text[b_start..b_end].to_string());
         } else {
             // 中间行：整行
-            parts.push(text.to_string());
+            let b_start = grapheme_to_byte_idx(text, info.copy_prefix_graphemes);
+            parts.push(text[b_start..].to_string());
         }
     }
 

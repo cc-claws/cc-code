@@ -348,7 +348,6 @@ app-1m-context-enabled = 1M context mode enabled (context window: 1,000,000 toke
 app-no-mcp-configured = No MCP servers configured (add in .mcp.json or settings.json)
 app-no-cron-tasks = No cron tasks
 app-cron-deleted = Cron task deleted: { $preview }
-app-submit-attachments = { $input } [{ $count } image(s)]
 attachment-title = Pending Attachments
 attachment-del-hint = Del: remove last one
 app-no-provider-submit = No API Key configured, type /login to configure Provider

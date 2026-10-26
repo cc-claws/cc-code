@@ -1581,6 +1581,7 @@ mod tests {
             visual_row_end: 1,
             plain_text: line_text.to_string(),
             char_widths,
+            copy_prefix_graphemes: 0,
         }];
         // 校验前提：#222 必须位于 grapheme [5, 9)
         let label: String = line_text.graphemes(true).skip(5).take(4).collect();

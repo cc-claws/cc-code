@@ -347,7 +347,6 @@ app-1m-context-enabled = 已启用 1M 上下文模式（context window: 1,000,00
 app-no-mcp-configured = 无 MCP 服务器配置（请在 .mcp.json 或 settings.json 中添加）
 app-no-cron-tasks = 无定时任务
 app-cron-deleted = 已删除定时任务: { $preview }
-app-submit-attachments = { $input } [ { $count } 张图片 ]
 attachment-title = 待发送附件
 attachment-del-hint = Del: 删除最后一张
 app-no-provider-submit = 未配置 API Key，请输入 /login 配置 Provider

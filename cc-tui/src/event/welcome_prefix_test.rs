@@ -41,6 +41,7 @@ async fn test_welcome_prefix_preserves_message_selection_links_and_drag_coordina
                 visual_row_end: row + 1,
                 plain_text: text.into(),
                 char_widths: vec![1; text.len()],
+                copy_prefix_graphemes: 0,
             })
             .collect();
         cache.links = vec![LinkHit {

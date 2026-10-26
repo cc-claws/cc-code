@@ -61,6 +61,8 @@ pub struct WrappedLineInfo {
     pub plain_text: String,
     /// 每个字符的显示宽度序列（ASCII=1, CJK=2）
     pub char_widths: Vec<u8>,
+    /// 复制时排除的装饰前缀；plain_text 与字符宽度仍保留完整显示坐标。
+    pub copy_prefix_graphemes: usize,
 }
 
 /// 渲染缓存，由渲染线程写入、UI 线程读取
@@ -290,10 +292,32 @@ impl RenderTask {
                 visual_row_end: visual_row + visual_count,
                 plain_text,
                 char_widths,
+                copy_prefix_graphemes: 0,
             });
             visual_row += visual_count;
         }
         (visual_row, wrap_map)
+    }
+
+    pub(super) fn build_message_wrap_map(
+        lines: &[Line<'static>],
+        width: u16,
+        is_user: bool,
+    ) -> (usize, Vec<WrappedLineInfo>) {
+        let (total, mut entries) = Self::build_wrap_map(lines, width);
+        if is_user {
+            let mut in_attachment = false;
+            for (line, entry) in lines.iter().zip(&mut entries) {
+                in_attachment = line.spans.first().is_some_and(|span| {
+                    span.content == super::branch_prefix::BranchPrefix::PREFIX
+                        || in_attachment && span.content == super::branch_prefix::BranchPrefix::HANG
+                });
+                if in_attachment {
+                    entry.copy_prefix_graphemes = super::branch_prefix::BranchPrefix::WIDTH;
+                }
+            }
+        }
+        (total, entries)
     }
 
     /// 渲染单条消息为 lines（含前后空行分隔）
@@ -663,7 +687,11 @@ impl RenderTask {
                 let seg = if seg_hit {
                     self.wrap_segs[slot][i].as_ref().unwrap()
                 } else {
-                    let (total, entries) = Self::build_wrap_map(&deduped[start..end], self.width);
+                    let (total, entries) = Self::build_message_wrap_map(
+                        &deduped[start..end],
+                        self.width,
+                        matches!(self.last_messages[i], MessageViewModel::UserBubble { .. }),
+                    );
                     self.wrap_segs[slot][i] = Some(WrapSegment {
                         key,
                         epoch,
@@ -1004,7 +1032,11 @@ impl RenderTask {
             .map(|last| last.visual_row_end.saturating_sub(base_visual))
             .unwrap_or(0);
 
-        let (total, fresh) = Self::build_wrap_map(&cache.lines[start..end], self.width);
+        let (total, fresh) = Self::build_message_wrap_map(
+            &cache.lines[start..end],
+            self.width,
+            matches!(self.last_messages[idx], MessageViewModel::UserBubble { .. }),
+        );
         if total == old_total && Self::wrap_entries_equal(&old_entries, &fresh) {
             return false;
         }
@@ -1067,6 +1099,7 @@ impl RenderTask {
         old.iter().zip(new.iter()).all(|(o, n)| {
             o.plain_text == n.plain_text
                 && o.char_widths == n.char_widths
+                && o.copy_prefix_graphemes == n.copy_prefix_graphemes
                 && (o.visual_row_end - o.visual_row_start)
                     == (n.visual_row_end - n.visual_row_start)
                 && (o.visual_row_start - old_start) == (n.visual_row_start - new_start)

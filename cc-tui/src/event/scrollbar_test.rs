@@ -26,6 +26,7 @@ async fn test_message_scrollbar_real_thumb_press_and_drag_do_not_jump() {
                     visual_row_end: i + 1,
                     plain_text: format!("历史 {i}"),
                     char_widths: vec![],
+                    copy_prefix_graphemes: 0,
                 })
                 .collect();
         }

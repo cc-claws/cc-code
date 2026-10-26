@@ -411,7 +411,11 @@ impl VirtualRenderer {
                 Some(hit)
             })
             .collect();
-        let (total, wrap) = RenderTask::build_wrap_map(&lines, mode.width);
+        let (total, wrap) = RenderTask::build_message_wrap_map(
+            &lines,
+            mode.width,
+            matches!(vm, MessageViewModel::UserBubble { .. }),
+        );
         let mut bytes = lines.capacity() * std::mem::size_of::<Line<'static>>()
             + wrap.capacity() * std::mem::size_of::<WrappedLineInfo>()
             + origins.capacity() * std::mem::size_of::<usize>()
@@ -680,7 +684,8 @@ impl VirtualRenderer {
                         start.grapheme_offset
                     } else {
                         0
-                    };
+                    }
+                    .max(payload.wrap[local].copy_prefix_graphemes);
                     let to = if i == end.message_index && *source == end.logical_line {
                         end.grapheme_offset
                     } else {

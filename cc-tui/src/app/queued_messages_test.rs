@@ -281,7 +281,9 @@ async fn test_queued_message_steer_sends_selected_images_through_acp() {
     assert!(session.is_ok());
     app.acp_client = Some(client);
     app.session_mgr.current_mut().ui.loading = true;
-    let selected = QueuedMessage::new("补充截图 [Image #2]".into(), vec![make_image(2)]);
+    let mut image = make_image(2);
+    image.base64_data = "aW1hZ2U=".into();
+    let selected = QueuedMessage::new("补充截图 [Image #2]".into(), vec![image]);
     let selected_id = selected.id;
     let expected = selected.content();
     app.session_mgr.current_mut().messages.pending_messages =
@@ -302,6 +304,12 @@ async fn test_queued_message_steer_sends_selected_images_through_acp() {
         params["message"]["content"],
         serde_json::to_value(expected).expect("序列化消息")
     );
+    let image_path = app.session_mgr.current().metadata.image_paths[&2].clone();
+    assert_eq!(
+        std::fs::read(&image_path).expect("补充截图在提交 ACP 前应已保存"),
+        b"image",
+        "图片落盘不能改变发送给模型的原始内容"
+    );
     assert!(server
         .send_response(id, Ok(json!({ "consumed": true })))
         .await
@@ -320,6 +328,8 @@ async fn test_queued_message_steer_sends_selected_images_through_acp() {
         app.session_mgr.current().messages.pending_messages[0].text,
         "继续排队"
     );
+    std::fs::remove_file(&image_path).expect("清理本测试图片");
+    std::fs::remove_dir(image_path.parent().expect("会话临时目录")).expect("清理本测试空目录");
 }
 
 #[tokio::test]

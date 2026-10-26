@@ -5,6 +5,7 @@ use ratatui::{
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 pub mod decorators;
+mod image_references;
 mod skill;
 mod streaming_bash;
 use decorators::{
@@ -1309,8 +1310,10 @@ pub fn render_view_model_with_flags(
     let mut link_hits: Vec<cc_widgets::markdown::LinkHit> = Vec::new();
     match vm {
         MessageViewModel::UserBubble {
+            content,
             rendered,
             rendered_links,
+            image_paths,
             system_reminder,
             expanded_content,
             ..
@@ -1375,6 +1378,14 @@ pub fn render_view_model_with_flags(
                     }
                 }
             }
+            image_references::append(
+                &mut lines,
+                &mut link_hits,
+                expanded_content.as_deref().unwrap_or(content),
+                image_paths,
+                width,
+                super::osc8::enabled(),
+            );
             (lines, link_hits)
         }
         MessageViewModel::AssistantBubble { blocks, .. } => {

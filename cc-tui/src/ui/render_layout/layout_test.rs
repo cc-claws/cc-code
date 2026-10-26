@@ -493,3 +493,37 @@ async fn test_virtual_theme_generation_invalidates_preparsed_text_without_hash_c
         "主题代次变化必须按raw惰性重建，不能复用旧Arc中的预解析样式"
     );
 }
+#[tokio::test]
+async fn test_virtual_image_attachment_copy_omits_prefix_and_keeps_row_count() {
+    let messages = vec![MessageViewModel::user("[Image #1] [Image #2]".into())];
+    let mut renderer = VirtualRenderer::default();
+    renderer.sync_messages(&messages);
+    let mut source: Vec<_> = messages.into_iter().map(Arc::new).collect();
+    let output = renderer
+        .render(&mut source, make_mode(false), Viewport::default(), 0)
+        .await;
+    assert_eq!(
+        output.total_lines, 3,
+        "虚拟布局必须计算两个不可点击的附件行"
+    );
+    let start = SelectionAnchor {
+        history_epoch: renderer.history_epoch,
+        message_index: 0,
+        message_version: source[0].content_hash(),
+        logical_line: 1,
+        grapheme_offset: 0,
+    };
+    let end = SelectionAnchor {
+        logical_line: 2,
+        grapheme_offset: 15,
+        ..start
+    };
+    renderer.release_products();
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    renderer.export_selection(&source, start, end, tx);
+    assert_eq!(
+        rx.await.expect("导出应完成").as_deref(),
+        Some("[Image #1]\n[Image #2]"),
+        "逐段恢复后复制仍必须排除附件前缀"
+    );
+}

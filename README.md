@@ -93,6 +93,8 @@ No credentials configured? The deterministic layer still runs and an LLM classif
 
 ### v0.6.x New Features
 
+**Image attachment links (unreleased):** Each sent image gets a `  ⎿  [Image #N]` line below your message. With a saved path and OSC 8 enabled, the underlined reference opens the local image in supported terminals. `DISABLE_HYPERLINKS=1` or a missing path leaves plain grey text without an underline; save failures do not block sending. Images use the system temp directory, and links are not guaranteed after restoring a session. Phase 1 does not send local paths to the model. See [CHANGELOG](./CHANGELOG.md#unreleased) for the full scope.
+
 **Skill workflows (unreleased):** Matching tasks use the core `Skill` tool, while `/skill-name args` loads instructions directly. Skill cards show a compact loading result; `context: fork` waits for an isolated agent, and active skill instructions survive compaction. See [skill behavior](./spec/global/domains/skill-trigger.md).
 
 **Interface language:** TUI and CLI help support English and Simplified Chinese. Use `/lang en` or `/lang zh-CN` to save your preference. Without a saved language, startup detects `LC_ALL`, `LANGUAGE`, `LC_MESSAGES` and `LANG`; unsupported locales fall back to English. See [CHANGELOG](./CHANGELOG.md) for unreleased changes.
