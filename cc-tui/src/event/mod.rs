@@ -1459,14 +1459,19 @@ fn handle_oauth_prompt(app: &mut App, input: Input) {
 
 /// 打开系统默认程序访问指定 URL
 ///
-/// `file://` 链接（工具头里的文件路径）先还原成本地路径，交给同一套
-/// `start` / `open` / `xdg-open` 链路用默认程序打开。
+/// `file://` 链接（工具头里的文件路径）走 [`open_local_path`] 用默认关联程序打开；
+/// 其余 URL 交给浏览器。
 /// 统一使用 `Stdio::null()` 隔离句柄，避免子进程继承 TUI 持有的终端管道
 /// 污染画面或阻塞退出（Windows 下 `cmd /C start` 尤其明显）。
 pub(crate) fn open_browser_url(url: &str) {
     use std::process::Stdio;
 
-    let url = local_file_target(url).unwrap_or_else(|| url.to_string());
+    if let Some(path) = local_file_target(url) {
+        open_local_path(&path);
+        return;
+    }
+
+    let url = url.to_string();
 
     #[cfg(target_os = "windows")]
     {
@@ -1496,6 +1501,55 @@ pub(crate) fn open_browser_url(url: &str) {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn();
+    }
+}
+
+/// 用系统默认关联程序打开本地文件 / 目录。
+///
+/// 对齐参考实现：Windows 直接 exec `explorer.exe`，不让 `cmd` 再解析一次命令行；
+/// 路径含 `"` `%` `,` `=` 时放弃打开——这些字符会让 explorer 的参数解析产生歧义。
+fn open_local_path(path: &str) {
+    use std::process::Stdio;
+
+    #[cfg(target_os = "windows")]
+    {
+        if path.chars().any(|c| matches!(c, '"' | '%' | ',' | '=')) {
+            return;
+        }
+        let explorer = std::path::Path::new(r"C:\Windows\explorer.exe");
+        let program = if explorer.exists() {
+            explorer.as_os_str()
+        } else {
+            std::ffi::OsStr::new("explorer")
+        };
+        let _ = std::process::Command::new(program)
+            .arg(path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open")
+            .arg(path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let _ = std::process::Command::new("xdg-open")
+            .arg(path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        let _ = path;
     }
 }
 

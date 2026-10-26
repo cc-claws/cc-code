@@ -328,19 +328,19 @@ fn test_read_no_offset_limit_shows_path_only() {
 }
 
 #[test]
-fn test_read_offset_1_is_omitted() {
-    // offset=1 等同于从头读，不显示行号
+fn test_read_offset_1_still_shows_range() {
+    // 对齐参考实现：offset 或 limit 任一存在就显示，offset=1 不省略
     let input = serde_json::json!({"file_path": "/tmp/main.rs", "offset": 1, "limit": 32});
     let result = format_tool_args("Read", &input, None);
-    assert_eq!(result.as_deref(), Some("/tmp/main.rs"));
+    assert_eq!(result.as_deref(), Some("/tmp/main.rs · lines 1-32"));
 }
 
 #[test]
-fn test_read_limit_only_no_offset() {
-    // 只有 limit 无 offset → 不显示行号（从头读 limit 行）
+fn test_read_limit_only_starts_from_line_one() {
+    // 只有 limit 无 offset → 起始行缺省为 1
     let input = serde_json::json!({"file_path": "/tmp/main.rs", "limit": 32});
     let result = format_tool_args("Read", &input, None);
-    assert_eq!(result.as_deref(), Some("/tmp/main.rs"));
+    assert_eq!(result.as_deref(), Some("/tmp/main.rs · lines 1-32"));
 }
 
 #[test]
