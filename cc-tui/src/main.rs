@@ -1242,6 +1242,13 @@ async fn draw_app(terminal: &mut Terminal<TuiBackend<io::Stdout>>, app: &mut App
         }
     }
     let size = terminal.size()?;
+    // 尺寸变化会让宿主 reflow 正常屏内容，旧帧可能落到受管区域之上；记下这次风险，
+    // 退出时改为从屏幕顶部清理，否则顶部会残留边框。
+    if app.global_ui.viewport.terminal_size != Size::default()
+        && app.global_ui.viewport.terminal_size != size
+    {
+        viewport::mark_screen_reflow();
+    }
     app.global_ui.viewport.terminal_size = size;
     ui::main_ui::prepare_width(app, size.width).await;
     app.global_ui.viewport.sync_welcome(

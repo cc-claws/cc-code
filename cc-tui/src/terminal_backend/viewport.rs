@@ -10,6 +10,9 @@ static ALTERNATE_SCREEN: AtomicBool = AtomicBool::new(false);
 // 高 16 位保存正常屏起点，低 16 位保存末行的下一行；0 表示没有待清理区域。
 static OWNED_AREA: AtomicU32 = AtomicU32::new(0);
 static TITLE_SAVED: AtomicBool = AtomicBool::new(false);
+// 终端尺寸变化会让宿主 reflow 正常屏内容：旧帧被搬到受管区域之上，
+// 记录的起点不再等于内容真实位置，退出清理必须从屏幕顶部开始。
+static SCREEN_REFLOWED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Debug)]
 pub struct ViewportState {
@@ -153,19 +156,37 @@ fn clear_owned_area(writer: &mut impl Write, area: Rect) -> io::Result<()> {
     writer.flush()
 }
 
+/// 终端尺寸变化后，宿主会把旧帧原样重排到新网格上，内容可能落在记录的起点之上。
+pub fn mark_screen_reflow() {
+    SCREEN_REFLOWED.store(true, Ordering::Relaxed);
+}
+
+/// 退出时要清理的行范围。reflow 后从屏幕顶部开始，否则从记录的应用起点开始。
+fn owned_clear_area(owned: u32, reflowed: bool) -> Option<Rect> {
+    if owned == 0 {
+        return None;
+    }
+    let recorded_top = (owned >> 16) as u16;
+    let bottom = owned as u16;
+    if bottom <= recorded_top {
+        return None;
+    }
+    let top = if reflowed { 0 } else { recorded_top };
+    Some(Rect::new(0, top, 1, bottom - top))
+}
+
 /// 先恢复正常屏，再清掉此前应用区域；成功后消费记录，避免 Drop 重复擦掉退出提示。
 pub fn finish_screen(writer: &mut impl Write) -> io::Result<()> {
     if !ALTERNATE_SCREEN.load(Ordering::SeqCst) && OWNED_AREA.load(Ordering::Relaxed) == 0 {
         return Ok(());
     }
+    let reflowed = SCREEN_REFLOWED.swap(false, Ordering::Relaxed);
     execute!(writer, terminal::BeginSynchronizedUpdate)?;
     let restore_result: io::Result<()> = (|| {
         leave_alternate_screen(writer)?;
         let owned = OWNED_AREA.load(Ordering::Relaxed);
-        if owned != 0 {
-            let top = (owned >> 16) as u16;
-            let bottom = owned as u16;
-            clear_owned_area(writer, Rect::new(0, top, 1, bottom.saturating_sub(top)))?;
+        if let Some(area) = owned_clear_area(owned, reflowed) {
+            clear_owned_area(writer, area)?;
             let _ = OWNED_AREA.compare_exchange(owned, 0, Ordering::Relaxed, Ordering::Relaxed);
         }
         Ok(())
