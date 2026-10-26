@@ -1347,12 +1347,15 @@ fn test_uppercase_first_char_preserves_rest() {
 fn test_tool_call_group_detail_mode_shows_read_args_and_summary() {
     use crate::app::MessageViewModel;
     use crate::ui::message_view::{ToolCategory, ToolEntry};
+    // 用运行时绝对路径构造输入，避免把任何本机目录写进仓库。
+    let abs = std::env::temp_dir().join("public").join("index.php");
+    let abs_text = abs.to_string_lossy().into_owned();
     let vm = MessageViewModel::ToolCallGroup {
         category: ToolCategory::Read,
         tools: vec![ToolEntry {
             tool_name: "Read".to_string(),
             display_name: "Read".to_string(),
-            args_display: Some("D:\\code\\smart-select-product-php\\public\\index.php".to_string()),
+            args_display: Some(abs_text.clone()),
             content: "Read 61 lines".to_string(),
             is_error: false,
         }],
@@ -1364,7 +1367,7 @@ fn test_tool_call_group_detail_mode_shows_read_args_and_summary() {
     let detail_text = rendered_text(&render_view_model(&vm, Some(1), 80, true, 0));
 
     assert!(
-        detail_text.contains("Read(D:\\code\\smart-select-product-php\\public\\index.php)"),
+        detail_text.contains(&format!("Read({abs_text})")),
         "Read 详细模式标题应显示文件路径: {detail_text}"
     );
     assert!(
