@@ -210,6 +210,36 @@ fn test_width_safe_backend_native_console_degrades_panel_and_recap_glyphs() {
 }
 
 #[test]
+fn test_width_safe_backend_native_console_degrades_navigation_glyphs() {
+    // 排队消息翻页 `‹`、rewind 前缀 `↩`、todo 状态 `◼`/`◻`、ask_user 未确认 `☐`、
+    // 会话搜索 `⌕`、MCP 禁用 `⊘`、列表光标 `▶` 与滚动条 `▲`/`▼`：
+    // 全部是控制台字体覆盖盲区的方框/箭头类字形，且宽度均为 1。
+    let (probe, state) = make_probe(&[]);
+    state.borrow_mut().ascii_fallback = true;
+    let mut backend = WidthSafeBackend::with_probe(TestBackend::new(12, 1), probe);
+    let symbols = ["‹", "↩", "◼", "◻", "☐", "⌕", "⊘", "▶", "▲", "▼"];
+    let cells: Vec<Cell> = symbols.iter().map(|s| Cell::new(s)).collect();
+    assert!(backend
+        .draw(
+            cells
+                .iter()
+                .enumerate()
+                .map(|(x, cell)| (x as u16, 0, cell))
+        )
+        .is_ok());
+    let expected = ["<", "<", "#", "o", "o", "o", "x", ">", "^", "v"];
+    for (x, exp) in expected.iter().enumerate() {
+        assert_eq!(
+            backend.inner.buffer()[(x as u16, 0)].symbol(),
+            *exp,
+            "符号 {} 应降级为 {}",
+            symbols[x],
+            exp
+        );
+    }
+}
+
+#[test]
 fn test_width_safe_backend_wide_cursor_prefix_falls_back_to_gt() {
     // 列宽分歧路径同样要落到 `>`，不能命中 `_ => '?'` 显示成无语义问号。
     // `fallback_symbol` 收的是逻辑列宽（`unicode-width` 判定的 1 列），不补空格。
