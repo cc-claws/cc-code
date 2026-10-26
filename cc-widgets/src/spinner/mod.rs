@@ -270,7 +270,8 @@ impl SpinnerState {
         self.animation_start.elapsed().as_millis() as u64
     }
 
-    /// 当前菊花字形（对齐上游参考实现 2.1.307 的余弦呼吸算法，2 秒往返一次）
+    /// 当前菊花字形（本实现是 6 帧余弦缓动、2 秒往返；上游是线性 12 帧回文、
+    /// 3 秒一圈，二者节奏不同，见 [`animation::spinner_frame`]）
     pub fn spinner_frame(&self) -> char {
         animation::spinner_frame(self.animation_elapsed_ms())
     }
