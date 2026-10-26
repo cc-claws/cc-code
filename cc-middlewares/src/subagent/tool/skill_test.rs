@@ -336,7 +336,7 @@ async fn test_invoke_skill_waits_for_final_result_and_isolates_parent_history() 
     assert!(!parent_cancel.is_cancelled(), "子执行完成不取消父执行");
     assert_eq!(
         &*callbacks.deregistrations.lock(),
-        &[agent_id.clone()],
+        std::slice::from_ref(&agent_id),
         "完成后只注销一次"
     );
     assert_eq!(callbacks.registrations.lock()[0].0, agent_id);
@@ -346,7 +346,7 @@ async fn test_invoke_skill_waits_for_final_result_and_isolates_parent_history() 
     );
     assert_eq!(
         &*factory_ids.lock(),
-        &[agent_id.clone()],
+        std::slice::from_ref(&agent_id),
         "工厂使用真实子身份"
     );
     assert!(
