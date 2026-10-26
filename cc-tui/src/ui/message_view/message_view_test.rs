@@ -644,3 +644,70 @@ fn test_agent_group_label_reflects_real_mode() {
         }
     }
 }
+#[test]
+fn test_user_image_paths_affect_render_hash_and_equality() {
+    let mut message = MessageViewModel::user("[Image #1]".into());
+    message.set_image_ids(vec![1]);
+    let original = message.clone();
+    let original_hash = message.content_hash();
+    let paths = [(1, std::env::temp_dir().join("image.png"))]
+        .into_iter()
+        .collect();
+    message.set_image_paths(&paths);
+    assert_ne!(
+        message.content_hash(),
+        original_hash,
+        "路径改变后必须使渲染缓存失效"
+    );
+    assert_ne!(message, original, "链接有无属于可见内容差异");
+    let linked_hash = message.content_hash();
+    message.set_image_paths(&paths);
+    assert_eq!(
+        message.content_hash(),
+        linked_hash,
+        "同一路径快照应保持稳定"
+    );
+    message.set_image_paths(&Default::default());
+    assert_eq!(message, original, "清索引后必须清掉旧链接");
+    assert_eq!(message.content_hash(), original_hash);
+}
+#[test]
+fn test_handwritten_image_placeholder_cannot_link_to_an_earlier_attachment() {
+    let paths = [(1, std::env::temp_dir().join("earlier.png"))]
+        .into_iter()
+        .collect();
+    let mut message = MessageViewModel::user("手写 [Image #1]".into());
+    message.set_image_paths(&paths);
+    assert!(
+        matches!(message, MessageViewModel::UserBubble { ref image_paths, .. } if image_paths.is_empty()),
+        "已有同编号图片也不能让手写文本误链到旧文件"
+    );
+}
+
+#[test]
+fn test_rebuilt_user_message_only_links_identifiers_with_real_image_blocks() {
+    let paths = [
+        (1, std::env::temp_dir().join("one.png")),
+        (2, std::env::temp_dir().join("two.png")),
+    ]
+    .into_iter()
+    .collect();
+    for text in ["真实截图 [Image #2]", "重复引用 [Image #2] [Image #2]"] {
+        let source = BaseMessage::human(cc_agent::messages::MessageContent::Blocks(vec![
+            ContentBlock::text(text),
+            ContentBlock::image_base64("image/png", "aW1hZ2U="),
+        ]));
+        let mut message = MessageViewModel::from_base_message(&source, &[]);
+        message.set_image_paths(&paths);
+        assert!(
+            matches!(message, MessageViewModel::UserBubble { ref image_paths, .. } if image_paths.len() == 1 && image_paths[0].0 == 2),
+            "从状态快照重建时应保留真实图片编号并合并重复引用"
+        );
+    }
+    let source = BaseMessage::human("手写 [Image #1]");
+    let mut message = MessageViewModel::from_base_message(&source, &[]);
+    message.set_image_paths(&paths);
+    assert!(
+        matches!(message, MessageViewModel::UserBubble { ref image_paths, .. } if image_paths.is_empty())
+    );
+}

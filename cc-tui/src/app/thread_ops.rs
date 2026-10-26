@@ -362,6 +362,18 @@ impl App {
         }
         self.session_mgr.current_mut().metadata.session_id =
             uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext));
+        self.session_mgr.current_mut().metadata.image_paths.clear();
+        // 历史引用不能复用新图片编号，否则恢复后的旧消息会误链到新图片。
+        self.session_mgr.current_mut().metadata.next_image_id = base_msgs
+            .iter()
+            .filter_map(|message| match message {
+                BaseMessage::Human { content, .. } => Some(content.text_content()),
+                _ => None,
+            })
+            .flat_map(|text| crate::clipboard::image_placeholder::parse_placeholders(&text))
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
         self.session_mgr.current_mut().ui.text_selection.clear();
         self.session_mgr.current_mut().ui.pending_text_copy = None;
         self.session_mgr
@@ -602,6 +614,8 @@ impl App {
 
         self.reset_agent_session();
         let meta = &mut self.session_mgr.current_mut().metadata;
+        meta.image_paths.clear();
+        meta.next_image_id = 1;
         meta.thread_title = None;
         meta.user_renamed = false;
         meta.title_generation_attempted = false;

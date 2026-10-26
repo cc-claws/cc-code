@@ -2,6 +2,10 @@ use super::{message_pipeline::PipelineAction, *};
 
 use crate::app::command_system::InputResolution;
 
+#[cfg(test)]
+#[path = "image_attachment_test.rs"]
+mod image_attachment_tests;
+
 impl App {
     /// 空闲态派发一段以 `/` 开头的输入。
     ///
@@ -149,20 +153,14 @@ impl App {
                 |att| att.image_id,
             );
 
-        // 构建用于显示的文字（附件摘要追加在末尾）
-        let display = if let Some(display) = shell_notification_display.clone() {
-            display
-        } else if active_attachments.is_empty() {
-            display_input.clone()
-        } else {
-            self.services.lc.tr_args(
-                "app-submit-attachments",
-                &[
-                    ("input".into(), display_input.clone().into()),
-                    ("count".into(), (active_attachments.len() as i64).into()),
-                ],
-            )
-        };
+        self.session_mgr
+            .current_mut()
+            .metadata
+            .store_images(active_attachments.iter().copied());
+
+        let display = shell_notification_display
+            .clone()
+            .unwrap_or_else(|| display_input.clone());
 
         // 如果有粘贴内容，存储展开后的实际内容用于详细模式显示
         let expanded_for_detail = if had_pasted_blocks {
@@ -182,6 +180,10 @@ impl App {
         };
 
         // 构建发送给 LLM 的 MessageContent（含附件图片 blocks）
+        let image_ids = active_attachments
+            .iter()
+            .map(|image| image.image_id)
+            .collect();
         let message_content = if active_attachments.is_empty() {
             cc_agent::messages::MessageContent::text(agent_input.clone())
         } else {
@@ -199,13 +201,14 @@ impl App {
             .messages
             .pipeline
             .begin_round();
-        let user_vm = if shell_notification_display.is_some() {
+        let mut user_vm = if shell_notification_display.is_some() {
             MessageViewModel::system(display.clone())
         } else if let Some(expanded) = expanded_for_detail {
             MessageViewModel::user_with_expanded(display.clone(), expanded)
         } else {
             MessageViewModel::user(display.clone())
         };
+        user_vm.set_image_ids(image_ids);
         self.apply_pipeline_action(PipelineAction::add_message(user_vm));
         // round_start_vm_idx 在 UserBubble 推入之后设置，
         // 确保 RebuildAll 不会截掉当前轮次的用户消息

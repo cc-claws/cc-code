@@ -1,4 +1,5 @@
 use super::hitl_prompt::PendingAttachment;
+use std::{collections::HashMap, path::PathBuf};
 
 /// 会话元数据：低频访问的会话状态。
 pub struct SessionMetadata {
@@ -9,6 +10,8 @@ pub struct SessionMetadata {
     /// 下一个分配给 textarea 占位符 `[Image #N]` 的稳定 ID。
     /// 单调递增，不随附件增删回退——避免 textarea 中残留文本与附件错位。
     pub next_image_id: usize,
+    /// 本次会话已成功落盘的图片；仅用于本地链接，不写入消息或会话库。
+    pub image_paths: HashMap<usize, PathBuf>,
     /// 当前会话主题短标题（由首轮 Prompt 提炼或 /rename 显式设定）
     pub thread_title: Option<String>,
     /// 是否由用户手动命名（若为 true，后续异步 LLM 标题生成绝不覆盖）
@@ -25,6 +28,7 @@ impl SessionMetadata {
             last_human_message: None,
             pre_submit_state_len: 0,
             next_image_id: 1,
+            image_paths: HashMap::new(),
             thread_title: None,
             user_renamed: false,
             title_generation_attempted: false,
@@ -36,6 +40,30 @@ impl SessionMetadata {
         let id = self.next_image_id;
         self.next_image_id += 1;
         id
+    }
+
+    pub(super) fn store_images<'a>(
+        &mut self,
+        attachments: impl IntoIterator<Item = &'a PendingAttachment>,
+    ) {
+        for image in attachments {
+            if self.image_paths.contains_key(&image.image_id) {
+                continue;
+            }
+            match super::image_store::store_image(
+                self.session_id,
+                image.image_id,
+                &image.media_type,
+                &image.base64_data,
+            ) {
+                Ok(path) => {
+                    self.image_paths.insert(image.image_id, path);
+                }
+                Err(error) => {
+                    tracing::warn!(image_id = image.image_id, %error, "图片落盘失败，保留不可点击的附件引用");
+                }
+            }
+        }
     }
 }
 

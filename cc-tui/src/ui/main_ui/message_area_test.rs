@@ -114,6 +114,7 @@ fn test_presented_viewport_waits_for_complete_window_without_changing_target() {
         visual_row_end: 140,
         plain_text: String::new(),
         char_widths: Vec::new(),
+        copy_prefix_graphemes: 0,
     }];
     assert_eq!(
         presented_viewport_offset(&cache, 800, 110, 10),

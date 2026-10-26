@@ -12,6 +12,7 @@ fn make_window_cache() -> RenderCache {
         visual_row_end: 6_003,
         plain_text: "A中e\u{301}👩‍💻Z".to_string(),
         char_widths: vec![1, 2, 1, 2, 1],
+        copy_prefix_graphemes: 0,
     }];
     let layout = VirtualLayoutSnapshot {
         history_epoch: 7,

@@ -2,7 +2,7 @@ use std::hash::{Hash, Hasher};
 
 use crate::app::tool_display::build_diff_input;
 use crate::ui::theme;
-use cc_agent::messages::{BaseMessage, ContentBlock};
+use cc_agent::messages::{BaseMessage, ContentBlock, MessageContent};
 use ratatui::{style::Color, text::Text};
 
 use super::markdown::parse_markdown_default_rich;
@@ -77,6 +77,10 @@ pub enum MessageViewModel {
         rendered: Text<'static>,
         /// 渲染结果中的超链接命中区（行下标与 rendered.lines 对齐）
         rendered_links: Vec<cc_widgets::markdown::LinkHit>,
+        /// 当前会话图片的本地路径快照，按图片编号排序；不进入 Agent 消息。
+        image_paths: Vec<(usize, std::path::PathBuf)>,
+        /// 真正随本条消息提交的图片编号；手写占位符只能显示降级行。
+        image_ids: Vec<usize>,
         /// 预计算的语义 hash（构造/变更时更新，rebuild 直接读取避免重算）
         content_hash: u64,
         /// 是否为 <system-reminder> 包裹的系统提醒消息（compact summary 等）
@@ -203,14 +207,18 @@ impl PartialEq for MessageViewModel {
                 MessageViewModel::UserBubble {
                     content: a,
                     system_reminder: a_sr,
+                    image_paths: a_paths,
+                    image_ids: a_ids,
                     ..
                 },
                 MessageViewModel::UserBubble {
                     content: b,
                     system_reminder: b_sr,
+                    image_paths: b_paths,
+                    image_ids: b_ids,
                     ..
                 },
-            ) => a == b && a_sr == b_sr,
+            ) => a == b && a_sr == b_sr && a_paths == b_paths && a_ids == b_ids,
             (
                 MessageViewModel::AssistantBubble { blocks: a, .. },
                 MessageViewModel::AssistantBubble { blocks: b, .. },
@@ -375,11 +383,15 @@ impl Hash for MessageViewModel {
             MessageViewModel::UserBubble {
                 content,
                 system_reminder,
+                image_paths,
+                image_ids,
                 ..
             } => {
                 0u8.hash(state);
                 content.hash(state);
                 system_reminder.hash(state);
+                image_paths.hash(state);
+                image_ids.hash(state);
             }
             MessageViewModel::AssistantBubble {
                 blocks,
@@ -669,10 +681,33 @@ impl MessageViewModel {
                     (raw, false)
                 };
                 let doc = parse_markdown_default_rich(&display_text);
+                let mut image_ids = match content {
+                    MessageContent::Blocks(blocks) => {
+                        let image_count = blocks
+                            .iter()
+                            .filter(|block| matches!(block, ContentBlock::Image { .. }))
+                            .count();
+                        let mut ids =
+                            crate::clipboard::image_placeholder::parse_placeholders(&display_text);
+                        ids.sort_unstable();
+                        ids.dedup();
+                        // 旧消息没有独立编号元数据，引用与图片块数量不一致时只显示降级行。
+                        if ids.len() == image_count {
+                            ids
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                    _ => Vec::new(),
+                };
+                image_ids.sort_unstable();
+                image_ids.dedup();
                 let mut vm = MessageViewModel::UserBubble {
                     content: display_text,
                     rendered: doc.text,
                     rendered_links: doc.links,
+                    image_paths: Vec::new(),
+                    image_ids,
                     content_hash: 0,
                     system_reminder,
                     expanded_content: None,
@@ -992,6 +1027,8 @@ impl MessageViewModel {
             content,
             rendered: doc.text,
             rendered_links: doc.links,
+            image_paths: Vec::new(),
+            image_ids: Vec::new(),
             content_hash: 0,
             system_reminder: false,
             expanded_content: None,
@@ -1010,12 +1047,45 @@ impl MessageViewModel {
             content,
             rendered: doc.text,
             rendered_links: doc.links,
+            image_paths: Vec::new(),
+            image_ids: Vec::new(),
             content_hash: 0,
             system_reminder: false,
             expanded_content: Some(expanded),
         };
         vm.recompute_hash();
         vm
+    }
+
+    pub(crate) fn set_image_ids(&mut self, mut ids: Vec<usize>) {
+        if let Self::UserBubble { image_ids, .. } = self {
+            ids.sort_unstable();
+            ids.dedup();
+            *image_ids = ids;
+            self.recompute_hash();
+        }
+    }
+
+    /// 把会话内路径映射为当前用户消息的渲染快照，重建后仍可复用本地链接。
+    pub(crate) fn set_image_paths(
+        &mut self,
+        paths: &std::collections::HashMap<usize, std::path::PathBuf>,
+    ) {
+        if let Self::UserBubble {
+            image_ids,
+            image_paths,
+            ..
+        } = self
+        {
+            let new_paths: Vec<_> = image_ids
+                .iter()
+                .filter_map(|id| paths.get(id).map(|path| (*id, path.clone())))
+                .collect();
+            if *image_paths != new_paths {
+                *image_paths = new_paths;
+                self.recompute_hash();
+            }
+        }
     }
 
     /// 创建助手消息
