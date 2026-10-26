@@ -39,9 +39,11 @@ pub struct RecentToolEntry {
 pub const RECENT_TOOLS_MAX_VISIBLE: usize = 2;
 /// 工具条目最短可见时长：快工具垫到该时长，慢工具执行结束即刻消失。
 ///
-/// 300ms 时 Read/Glob 这类毫秒级工具只够「察觉到有东西闪过」、读不出文件名；
-/// 800ms 约 24 帧（30fps），足够读清文件名与路径，仍低于 1 秒不会显得卡住。
-pub const TOOL_MIN_VISIBLE_MS: u64 = 800;
+/// 300ms 时 Read/Glob 这类毫秒级工具只够「察觉到有东西闪过」、读不出文件名。
+/// 1200ms 约 36 帧（30fps）：扣掉视线从输出区转移过来的 200~300ms，仍剩约 900ms
+/// 读清中等长度路径（`src/ui/main_ui/status_bar.rs` 这类逐段扫视需 600~800ms）。
+/// 代价是超过 1 秒后条目停留更久、更像「卡住」；连续调用被挤掉时这个上限走不满。
+pub const TOOL_MIN_VISIBLE_MS: u64 = 1200;
 /// 系统级提示最短可见时长。
 ///
 /// 提示由工具调用期间的事件触发（如判定服务降级），而清除它的 `ToolStart`/`Done`
