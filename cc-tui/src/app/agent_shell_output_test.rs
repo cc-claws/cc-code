@@ -26,6 +26,7 @@ fn make_request(cwd: String, command: &str, background: bool) -> ShellRequest {
         invocation: None,
         command: command.into(),
         original_command: command.into(),
+        description: None,
         shell: ShellDialect::Bash,
         cwd,
         timeout_ms: 5_000,

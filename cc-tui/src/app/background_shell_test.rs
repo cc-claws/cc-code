@@ -45,6 +45,7 @@ async fn test_spawn_stall_watchdog_detects_stall_and_notifies() {
     let handle = spawn_stall_watchdog(
         "task-1".to_string(),
         "rm -i node_modules".to_string(),
+        Some("Remove node_modules interactively".to_string()),
         path,
         tx,
     );
@@ -62,10 +63,12 @@ async fn test_spawn_stall_watchdog_detects_stall_and_notifies() {
     assert!(
         matches!(
             event,
-            AgentEvent::BackgroundShellStalled { ref task_id, ref last_output, .. }
-                if task_id == "task-1" && last_output.contains("(y/n)")
+            AgentEvent::BackgroundShellStalled { ref task_id, ref last_output, ref description, .. }
+                if task_id == "task-1"
+                    && last_output.contains("(y/n)")
+                    && description.as_deref() == Some("Remove node_modules interactively")
         ),
-        "应是 BackgroundShellStalled 且携带 task_id/last_output"
+        "应是 BackgroundShellStalled 且携带 task_id/last_output/description"
     );
     // watchdog one-shot，触发后 task 自然结束
     let _ = handle.await;
@@ -84,7 +87,7 @@ async fn test_spawn_stall_watchdog_skips_notification_when_last_line_does_not_ma
     wait_until_readable(&path).await;
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentEvent>(8);
-    let handle = spawn_stall_watchdog("task-2".to_string(), "build".to_string(), path, tx);
+    let handle = spawn_stall_watchdog("task-2".to_string(), "build".to_string(), None, path, tx);
 
     // Act：等待超过 stall 阈值（cfg(test) 500ms），不应收到通知（末行不匹配 pattern）
     let event = tokio::time::timeout(Duration::from_millis(1500), rx.recv()).await;
@@ -206,7 +209,7 @@ fn test_shell_notification_display_text_strips_terminal_control_sequences() {
 #[test]
 fn test_shell_notification_display_text_waits_for_input_prompt() {
     // Arrange
-    let msg = shell_stalled_notification("t1", "npm publish", "continue?");
+    let msg = shell_stalled_notification("t1", "npm publish", None, "continue?");
     // Act
     let display = shell_notification_display_text_with(&msg, &lc_zh()).expect("应识别等待输入通知");
     // Assert
@@ -282,7 +285,7 @@ fn test_shell_notification_display_text_english() {
     );
     assert!(display.contains("npm test"), "应保留命令摘要: {}", display);
 
-    let stalled = shell_stalled_notification("t1", "npm publish", "continue?");
+    let stalled = shell_stalled_notification("t1", "npm publish", None, "continue?");
     let display =
         shell_notification_display_text_with(&stalled, &lc_en).expect("应识别等待输入通知");
     assert!(
@@ -306,8 +309,9 @@ fn test_shell_notification_display_text_merged_multiple_completed() {
     assert!(display.contains("npm test"), "应包含第一条任务命令");
     assert!(display.contains("cargo check"), "应包含第二条任务命令");
     assert!(
-        display.contains("failed (exit 1)"),
-        "应包含第二条任务失败状态"
+        display.contains("(exit 1)"),
+        "应包含第二条任务退出码: {}",
+        display
     );
     assert!(
         !display.contains("<background-task-completed>"),
@@ -321,7 +325,7 @@ fn test_shell_notification_display_text_merged_mixed_types_preserves_order() {
     // 合并消息可能混合「完成」与「等待输入」两类块，按文档顺序各产出 1 行。
     let path = Path::new("/tmp/peri/tasks/abc.output");
     let completed = shell_completion_notification("abc", "npm test", Some(0), path);
-    let stalled = shell_stalled_notification("def", "npm publish", "continue? (y/n)");
+    let stalled = shell_stalled_notification("def", "npm publish", None, "continue? (y/n)");
     let merged = format!("{}\n\n{}", completed, stalled);
 
     let display =
@@ -340,5 +344,190 @@ fn test_shell_notification_display_text_merged_mixed_types_preserves_order() {
     assert!(
         !display.contains("<background-task"),
         "不应泄露内部标签: {display}"
+    );
+}
+
+#[test]
+fn test_agent_completion_notification_includes_description_tag() {
+    // Arrange
+    let path = Path::new("/tmp/peri/tasks/abc.output");
+    // Act
+    let msg = agent_shell_completion_notification(
+        "abc",
+        "cd /repo && cargo test --all-targets",
+        Some("Run the full test suite"),
+        &cc_agent::shell::ShellOutcome::Exited(0),
+        path,
+    );
+    // Assert
+    assert!(
+        msg.contains("<description>Run the full test suite</description>"),
+        "应写入模型描述: {}",
+        msg
+    );
+    assert!(
+        msg.contains("<command>cd /repo"),
+        "命令仍需保留给模型定位任务: {}",
+        msg
+    );
+}
+
+#[test]
+fn test_agent_completion_notification_omits_description_tag_when_blank() {
+    // Arrange
+    let path = Path::new("/tmp/peri/tasks/abc.output");
+    // Act：空串与纯空白都视同未提供
+    for description in ["", "   "] {
+        let msg = agent_shell_completion_notification(
+            "abc",
+            "cargo test",
+            Some(description),
+            &cc_agent::shell::ShellOutcome::Exited(0),
+            path,
+        );
+        // Assert
+        assert!(!msg.contains("<description>"), "空描述不应写标签: {}", msg);
+    }
+}
+
+#[test]
+fn test_notification_display_prefers_description_over_command() {
+    // Arrange
+    let path = Path::new("/tmp/peri/tasks/abc.output");
+    let msg = agent_shell_completion_notification(
+        "abc",
+        "cd /repo && export HTTPS_PROXY=socks5h://127.0.0.1:10808; cargo test",
+        Some("Run the test suite behind the proxy"),
+        &cc_agent::shell::ShellOutcome::Exited(0),
+        path,
+    );
+    // Act
+    let display = shell_notification_display_text_with(&msg, &lc_zh()).expect("应识别完成通知");
+    // Assert
+    assert!(
+        display.contains("Run the test suite behind the proxy"),
+        "应显示模型描述: {}",
+        display
+    );
+    assert!(
+        !display.contains("HTTPS_PROXY"),
+        "不应再显示命令原文: {}",
+        display
+    );
+    assert!(display.contains("(exit 0)"), "应保留退出码: {}", display);
+    assert!(
+        !display.contains("(completed (exit 0))"),
+        "不应出现双层括号: {}",
+        display
+    );
+}
+
+#[test]
+fn test_notification_display_falls_back_to_command_without_description() {
+    // Arrange
+    let path = Path::new("/tmp/peri/tasks/abc.output");
+    let msg = agent_shell_completion_notification(
+        "abc",
+        "npm test",
+        None,
+        &cc_agent::shell::ShellOutcome::Exited(0),
+        path,
+    );
+    // Act
+    let display = shell_notification_display_text_with(&msg, &lc_zh()).expect("应识别完成通知");
+    // Assert
+    assert!(
+        display.contains("npm test"),
+        "无描述时应回退命令文本: {}",
+        display
+    );
+}
+
+#[test]
+fn test_notification_subject_truncates_by_display_width() {
+    // Arrange：40 个 CJK 字符 = 80 显示列，按字符数截断会得到 120 列的成品
+    let block = format!("<command>{}</command>", "命令".repeat(40));
+    // Act
+    let subject = notification_subject(&block);
+    // Assert
+    let width = unicode_width::UnicodeWidthStr::width(subject.as_str());
+    assert!(
+        width <= NOTIFICATION_SUBJECT_MAX_WIDTH,
+        "标题超宽: {}",
+        subject
+    );
+    assert!(subject.ends_with('…'), "应以 … 收口: {}", subject);
+}
+
+#[test]
+fn test_status_detail_extracts_inner_bracket() {
+    // Arrange + Act + Assert：动词已表达状态，只留括号内的细节
+    assert_eq!(status_detail("completed (exit 0)"), Some("exit 0"));
+    assert_eq!(status_detail("failed (exit 1)"), Some("exit 1"));
+    assert_eq!(
+        status_detail("timed out (execution deadline exceeded)"),
+        Some("execution deadline exceeded")
+    );
+    assert_eq!(status_detail("terminated"), None);
+    assert_eq!(status_detail("completed ()"), None);
+}
+
+#[test]
+fn test_notification_description_is_xml_escaped() {
+    // Arrange：描述里带会破坏 XML 结构的字符
+    let path = Path::new("/tmp/peri/tasks/abc.output");
+    let msg = agent_shell_completion_notification(
+        "abc",
+        "ls <a>",
+        Some("run <a> & </description>"),
+        &cc_agent::shell::ShellOutcome::Exited(0),
+        path,
+    );
+    // Act
+    let display = shell_notification_display_text_with(&msg, &lc_zh()).expect("应识别完成通知");
+    // Assert：XML 里被转义，展示层还原原文，且没有被拆出第二个块
+    assert!(
+        msg.contains("&lt;/description&gt;"),
+        "描述中的闭标签必须转义: {}",
+        msg
+    );
+    assert_eq!(
+        msg.matches("<description>").count(),
+        1,
+        "转义后仍只应有一个 description 块: {}",
+        msg
+    );
+    assert!(
+        display.contains("run <a> & </description>"),
+        "展示层应还原转义后的原文: {}",
+        display
+    );
+}
+
+#[test]
+fn test_stalled_notification_includes_description_tag() {
+    // Arrange + Act
+    let msg = shell_stalled_notification(
+        "t1",
+        "npm publish",
+        Some("Publish the package to npm"),
+        "publish? (y/n)",
+    );
+    // Assert
+    assert!(
+        msg.contains("<description>Publish the package to npm</description>"),
+        "stall 通知也应写入模型描述: {}",
+        msg
+    );
+    let display = shell_notification_display_text_with(&msg, &lc_zh()).expect("应识别等待输入通知");
+    assert!(
+        display.contains("Publish the package to npm"),
+        "展示层应优先用描述: {}",
+        display
+    );
+    assert!(
+        !display.contains("npm publish"),
+        "有描述时不应再显示命令原文: {}",
+        display
     );
 }

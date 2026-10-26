@@ -194,6 +194,8 @@ pub enum AgentEvent {
     BackgroundShellStalled {
         task_id: String,
         command: String,
+        /// 模型给的命令用途描述；与完成通知同口径，缺失时展示层回退命令。
+        description: Option<String>,
         last_output: String,
     },
     /// MCP 面板异步操作完成

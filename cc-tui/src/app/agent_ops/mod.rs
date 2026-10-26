@@ -88,11 +88,13 @@ impl App {
             AgentEvent::BackgroundShellStalled {
                 task_id,
                 command,
+                description,
                 last_output,
             } => {
                 let notif = super::background_shell::shell_stalled_notification(
                     &task_id,
                     &command,
+                    description.as_deref(),
                     &last_output,
                 );
                 let owner_session_id = self

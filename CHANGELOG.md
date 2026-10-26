@@ -16,6 +16,8 @@ Perihelion Agent 版本变更记录。
 
 ### Fixes
 
+- **后台任务通知改用模型描述（#738）**：后台 Bash 的完成通知与等待输入（stall）通知此前只显示命令原文前 80 字符，而 Bash 工具的 `description` 参数（模型写的用途说明）在 `cc-middlewares` 里被 `let _description = …` 直接丢弃，人在对话流里读到的是一串 `cd … && export …`。现在 `ShellRequest` 携带 `description`，经 `AgentShellRegistration` / `AgentShellSlot` 透传到通知生成：两类通知的 XML 在 `<command>` 之外新增 `<description>`（仅非空时写入；命令原文保留，模型仍靠它与 task-id 定位任务），展示层优先取描述、缺失才回退命令。同批修显示层两处：截断改用 `truncate_to_display_width`（CJK 不再超宽，`…` 收口，替换按字符数的 `truncate_chars`）；状态只保留括号内细节，不再渲染成 `(completed (exit 0))` 的双层括号。非 TUI 路径（`InlineShellExecutor`）拿不到描述，行为与旧版一致。
+
 - **流式渲染不再每帧重复解析 Markdown，block 档围栏判定改用状态机（#739）**：流式气泡此前在 App 侧预解析 markdown，并把 `rendered_prefix_len` 报成全文长度、`dirty=false`——渲染线程的增量入口（`raw.len() == rendered_prefix_len` 时直接返回）因此短路；当终端内容宽度（终端宽 − 2）不等于 80 时，渲染线程还会按实际宽度再解析一遍，同一份文本每帧被解析两次。现构造气泡只交 `dirty=true` + 空 `rendered`，解析统一归渲染线程。同批把流式显示改为挂起未完成的长行：最后一个换行之后的内容超过 200 字符时暂不进入显示快照，等换行到达再显示，长段落不再每帧重排；尚未出现换行时整段照常显示，短回答与首字仍逐字可见，挂起只影响显示快照，最终消息由 StateSnapshot 的完整文本落地。block 档的块边界改由新增的 `BlockBoundaryScanner` 判定——按行扫描、跨调用保留围栏状态、只扫新增行，删掉「最后一行是否以 ` ``` ` 开头」的启发式；围栏内空行不再提前提交、正文出现裸围栏行不再误判，围栏闭合视为块结束。debug profile 下 2000 行文本单次全量解析约 121ms，改后构造流式气泡约 0.37ms；终端宽度恰为 82 列时改前改后都是一次解析，无额外收益。
 
 - **终端标题的闪烁符号改为 `◐` / `◑` 两帧交替**：标题栏此前与消息区共用同一套 6 字呼吸字形（`· ✢ * ✶ ✻ ✽`），其中 `✻` 在标题位置看着像一片雪花反复明灭。现为标题单独拆出帧源——`◐`（左半黑）/ `◑`（右半黑）两帧，每 960ms 换一帧、一轮 1920ms（与参考实现的 960ms 帧间隔一致——此前取 400ms，比参考实现快 2.4 倍，观感接近频闪），由单调时钟驱动（`animation_elapsed_ms`）而非 tick 计数，与状态机解耦：换回合、切模式、`reset()` 都不重置相位。消息区 loading 行不受影响，仍走余弦呼吸那套字形。帧位由 `TERMINAL_TITLE_SPINNER_FRAMES` 承担——该常量原先挂着 10 帧盲文（历史呼吸算法的预留帧集），一直没有接入渲染，本次改为承载标题实际使用的两帧。另补多路复用器降级：检测到 `TMUX` / `STY` 环境变量时标题停在静态首帧、Action Required 也不再逐秒交替——tmux / screen 会转发 OSC 0 标题写，逐帧闪烁会让外层 tab 一起抖；该判定读一次即缓存（环境变量在进程内不变）。

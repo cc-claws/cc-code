@@ -28,6 +28,7 @@ fn make_request(command: &str) -> ShellRequest {
         invocation: None,
         command: command.into(),
         original_command: command.into(),
+        description: None,
         shell: ShellDialect::Bash,
         cwd: std::env::temp_dir().to_string_lossy().into_owned(),
         timeout_ms: 10000,

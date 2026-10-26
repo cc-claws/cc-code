@@ -183,6 +183,7 @@ const PROMPT_PATTERNS: &[&str] = &[
 pub fn spawn_stall_watchdog(
     task_id: String,
     command: String,
+    description: Option<String>,
     output_path: PathBuf,
     bg_event_tx: tokio::sync::mpsc::Sender<AgentEvent>,
 ) -> tokio::task::JoinHandle<()> {
@@ -248,6 +249,7 @@ pub fn spawn_stall_watchdog(
                     .send(AgentEvent::BackgroundShellStalled {
                         task_id: task_id.clone(),
                         command: command.clone(),
+                        description: description.clone(),
                         last_output: last_line.to_string(),
                     })
                     .await;
@@ -289,6 +291,7 @@ pub fn shell_completion_notification(
 pub fn agent_shell_completion_notification(
     id: &str,
     command: &str,
+    description: Option<&str>,
     outcome: &cc_agent::shell::ShellOutcome,
     output_path: &Path,
 ) -> String {
@@ -300,20 +303,43 @@ pub fn agent_shell_completion_notification(
         ShellOutcome::Cancelled => "cancelled (stopped by user or session)".to_owned(),
         ShellOutcome::Failed(error) => format!("failed ({error})"),
     };
+    // `<description>` 只在模型给出非空描述时出现。它是给人读的标识，
+    // 缺失时不写空标签，避免展示层把空串当成有效描述。
+    let description_tag = description
+        .map(str::trim)
+        .filter(|description| !description.is_empty())
+        .map(|description| format!("\n<description>{}</description>", xml_escape(description)))
+        .unwrap_or_default();
     format!(
-        "<background-task-completed>\n<task-id>{}</task-id>\n<command>{}</command>\n<status>{}</status>\n<output>{}</output>\n</background-task-completed>",
-        xml_escape(id), xml_escape(command), xml_escape(&status), xml_escape(&output_path.display().to_string())
+        "<background-task-completed>\n<task-id>{}</task-id>\n<command>{}</command>{}\n<status>{}</status>\n<output>{}</output>\n</background-task-completed>",
+        xml_escape(id),
+        xml_escape(command),
+        description_tag,
+        xml_escape(&status),
+        xml_escape(&output_path.display().to_string())
     )
 }
 
 /// 生成后台 shell stall（等待输入）警告通知文本（注入 agent 对话流，对齐效果图场景 6）。
 ///
 /// watchdog 检测到命令无输出且末行匹配 prompt pattern 时调用。
-pub fn shell_stalled_notification(task_id: &str, command: &str, last_output: &str) -> String {
+pub fn shell_stalled_notification(
+    task_id: &str,
+    command: &str,
+    description: Option<&str>,
+    last_output: &str,
+) -> String {
+    // 与完成通知同口径：描述是给人读的标识，命令原文只是回退。
+    let description_tag = description
+        .map(str::trim)
+        .filter(|description| !description.is_empty())
+        .map(|description| format!("\n<description>{}</description>", xml_escape(description)))
+        .unwrap_or_default();
     format!(
-        "<background-task-waiting-for-input>\n<task-id>{}</task-id>\n<command>{}</command>\n<last-output>{}</last-output>\n<suggestion>provide input via stdin or kill the task</suggestion>\n</background-task-waiting-for-input>",
+        "<background-task-waiting-for-input>\n<task-id>{}</task-id>\n<command>{}</command>{}\n<last-output>{}</last-output>\n<suggestion>provide input via stdin or kill the task</suggestion>\n</background-task-waiting-for-input>",
         task_id,
         xml_escape(command),
+        description_tag,
         xml_escape(last_output)
     )
 }
@@ -379,10 +405,7 @@ fn render_notification_block(
     block: &str,
     lc: &crate::i18n::LcRegistry,
 ) -> Option<String> {
-    let command = extract_xml_tag(block, "command")
-        .map(xml_unescape)
-        .map(|s| super::tool_display::sanitize_display_text(&s))
-        .unwrap_or_else(|| "shell command".to_string());
+    let subject = notification_subject(block);
     match tag {
         "background-task-completed" => {
             let status = extract_xml_tag(block, "status")
@@ -400,20 +423,56 @@ fn render_notification_block(
             } else {
                 lc.tr("shell-notify-completed")
             };
-            Some(format!(
-                "{}: {} ({})",
-                verb,
-                truncate_chars(&command, 80),
-                status
-            ))
+            // 动词前缀已经表达状态，括号里只放细节（exit code / 错误原因），
+            // 不再把整个 status 原样包一层，避免 `(completed (exit 0))`。
+            Some(match status_detail(&status) {
+                Some(detail) => format!("{verb}: {subject} ({detail})"),
+                None => format!("{verb}: {subject}"),
+            })
         }
         "background-task-waiting-for-input" => Some(format!(
             "{}: {}",
             lc.tr("shell-notify-waiting-input"),
-            truncate_chars(&command, 80)
+            subject
         )),
         _ => None,
     }
+}
+
+/// 通知行里「任务标识」的最大显示列宽。
+///
+/// 按显示列宽而非字符数截断：CJK 每个字占 2 列，按字符数截会超宽；
+/// [`crate::ui::message_render::truncate_to_display_width`] 自带 `…` 收口。
+const NOTIFICATION_SUBJECT_MAX_WIDTH: usize = 60;
+
+/// 通知的人读标识：模型写的 `<description>` 优先，缺失时回退 `<command>`。
+///
+/// 命令文本对读者没有语义（`cd … && export …` 之类），只作为最后手段；
+/// 两者都缺失时用兜底文案，保证通知行不会空着。
+fn notification_subject(block: &str) -> String {
+    let read = |tag: &str| {
+        extract_xml_tag(block, tag)
+            .map(xml_unescape)
+            .map(|s| super::tool_display::sanitize_display_text(&s))
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    };
+    let text = read("description")
+        .or_else(|| read("command"))
+        .unwrap_or_else(|| "shell command".to_string());
+    crate::ui::message_render::truncate_to_display_width(&text, NOTIFICATION_SUBJECT_MAX_WIDTH)
+}
+
+/// 从 `completed (exit 0)` 这类状态里取括号内的细节。
+///
+/// 动词前缀（`Background shell completed`）已经表达状态，这里只把括号里的
+/// exit code / 错误原因拿出来，避免双层括号。
+fn status_detail(status: &str) -> Option<&str> {
+    let open = status.find('(')?;
+    let close = status.rfind(')')?;
+    (close > open)
+        .then(|| status[open + 1..close].trim())
+        .filter(|detail| !detail.is_empty())
 }
 
 fn unwrap_system_reminder(raw: &str) -> &str {
@@ -444,15 +503,6 @@ fn xml_unescape(s: &str) -> String {
     s.replace("&lt;", "<")
         .replace("&gt;", ">")
         .replace("&amp;", "&")
-}
-
-fn truncate_chars(s: &str, max_chars: usize) -> String {
-    if s.chars().count() <= max_chars {
-        return s.to_string();
-    }
-    let mut result: String = s.chars().take(max_chars).collect();
-    result.push_str("...");
-    result
 }
 
 #[cfg(test)]
