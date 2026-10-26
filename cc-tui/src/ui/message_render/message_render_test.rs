@@ -2627,6 +2627,7 @@ fn test_compact_done_rendering_no_bullet_prefix() {
         content: content.to_string(),
         content_hash: 0,
         detail_content: None,
+        tone: None,
     };
     let text_lines: Vec<String> = render_view_model(&vm, None, 80, false, 0)
         .iter()
@@ -2695,6 +2696,7 @@ fn test_all_paths_preserve_width_no_overflow() {
         content: long_cjk.clone(),
         content_hash: 0,
         detail_content: None,
+        tone: None,
     };
     assert!(
         max_line_width(&render_view_model(&vm, None, width, false, 0)) <= width,

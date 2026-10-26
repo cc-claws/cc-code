@@ -132,14 +132,11 @@ fn test_shell_notification_display_text_completion_does_not_leak_xml() {
     let path = Path::new("/tmp/peri/tasks/abc.output");
     let msg = shell_completion_notification("abc", "npm test", Some(0), path);
     // Act
-    let display =
-        shell_notification_display_text_with(&msg, &lc_zh()).expect("应识别后台 shell 完成通知");
+    let display = shell_notification_display_text_with(&msg, &lc_zh())
+        .expect("应识别后台 shell 完成通知")
+        .text;
     // Assert
-    assert!(
-        display.contains("后台 shell 已完成"),
-        "应显示完成提示: {}",
-        display
-    );
+    assert!(display.contains("已完成"), "应显示完成提示: {}", display);
     assert!(display.contains("npm test"), "应保留命令摘要: {}", display);
     assert!(
         !display.contains("<background-task-completed>"),
@@ -156,13 +153,10 @@ fn test_shell_notification_display_text_supports_system_reminder_wrapper() {
     let wrapped = format!("<system-reminder>\n{}\n</system-reminder>", msg);
     // Act
     let display = shell_notification_display_text_with(&wrapped, &lc_zh())
-        .expect("应识别包裹后的后台 shell 通知");
+        .expect("应识别包裹后的后台 shell 通知")
+        .text;
     // Assert
-    assert!(
-        display.contains("后台 shell 已完成"),
-        "应显示完成提示: {}",
-        display
-    );
+    assert!(display.contains("已完成"), "应显示完成提示: {}", display);
     assert!(
         display.contains("cargo test"),
         "应保留命令摘要: {}",
@@ -186,8 +180,9 @@ fn test_shell_notification_display_text_strips_terminal_control_sequences() {
         path,
     );
     // Act
-    let display =
-        shell_notification_display_text_with(&msg, &lc_zh()).expect("应识别后台 shell 完成通知");
+    let display = shell_notification_display_text_with(&msg, &lc_zh())
+        .expect("应识别后台 shell 完成通知")
+        .text;
     // Assert
     assert!(
         !display.contains('\u{1b}'),
@@ -211,10 +206,12 @@ fn test_shell_notification_display_text_waits_for_input_prompt() {
     // Arrange
     let msg = shell_stalled_notification("t1", "npm publish", None, "continue?");
     // Act
-    let display = shell_notification_display_text_with(&msg, &lc_zh()).expect("应识别等待输入通知");
+    let display = shell_notification_display_text_with(&msg, &lc_zh())
+        .expect("应识别等待输入通知")
+        .text;
     // Assert
     assert!(
-        display.contains("后台 shell 等待输入"),
+        display.contains("等待交互输入"),
         "应显示等待输入: {}",
         display
     );
@@ -276,20 +273,22 @@ fn test_shell_notification_display_text_english() {
     let lc_en = crate::i18n::LcRegistry::new(Some("en"));
     let path = Path::new("/tmp/peri/tasks/abc.output");
     let msg = shell_completion_notification("abc", "npm test", Some(0), path);
-    let display =
-        shell_notification_display_text_with(&msg, &lc_en).expect("应识别后台 shell 完成通知");
+    let display = shell_notification_display_text_with(&msg, &lc_en)
+        .expect("应识别后台 shell 完成通知")
+        .text;
     assert!(
-        display.contains("Background shell completed"),
+        display.contains("completed (exit code 0)"),
         "英文语言下应显示英文完成提示: {}",
         display
     );
     assert!(display.contains("npm test"), "应保留命令摘要: {}", display);
 
     let stalled = shell_stalled_notification("t1", "npm publish", None, "continue?");
-    let display =
-        shell_notification_display_text_with(&stalled, &lc_en).expect("应识别等待输入通知");
+    let display = shell_notification_display_text_with(&stalled, &lc_en)
+        .expect("应识别等待输入通知")
+        .text;
     assert!(
-        display.contains("Background shell waiting for input"),
+        display.contains("appears to be waiting for interactive input"),
         "英文语言下应显示英文等待输入提示: {}",
         display
     );
@@ -305,19 +304,22 @@ fn test_shell_notification_display_text_merged_multiple_completed() {
 
     let display = shell_notification_display_text_with(&merged, &lc_zh())
         .expect("应识别合并的后台 shell 完成通知");
+    let text = &display.text;
 
-    assert!(display.contains("npm test"), "应包含第一条任务命令");
-    assert!(display.contains("cargo check"), "应包含第二条任务命令");
+    assert!(text.contains("npm test"), "应包含第一条任务命令");
+    assert!(text.contains("cargo check"), "应包含第二条任务命令");
     assert!(
-        display.contains("(exit 1)"),
+        text.contains("退出码 1"),
         "应包含第二条任务退出码: {}",
-        display
+        text
     );
+    // 一条成功一条失败：合并后取最严重的语义色（失败=错误色）
+    assert_eq!(display.tone, crate::ui::message_view::NoteTone::Error);
     assert!(
-        !display.contains("<background-task-completed>"),
+        !text.contains("<background-task-completed>"),
         "不应泄露 XML 标签"
     );
-    assert_eq!(display.lines().count(), 2, "两条任务合并应对应两行展示文本");
+    assert_eq!(text.lines().count(), 2, "两条任务合并应对应两行展示文本");
 }
 
 #[test]
@@ -328,8 +330,9 @@ fn test_shell_notification_display_text_merged_mixed_types_preserves_order() {
     let stalled = shell_stalled_notification("def", "npm publish", None, "continue? (y/n)");
     let merged = format!("{}\n\n{}", completed, stalled);
 
-    let display =
-        shell_notification_display_text_with(&merged, &lc_zh()).expect("应识别混合类型的合并通知");
+    let display = shell_notification_display_text_with(&merged, &lc_zh())
+        .expect("应识别混合类型的合并通知")
+        .text;
 
     let lines: Vec<&str> = display.lines().collect();
     assert_eq!(lines.len(), 2, "两类块各一行: {display}");
@@ -338,7 +341,7 @@ fn test_shell_notification_display_text_merged_mixed_types_preserves_order() {
         "第一行应是完成通知: {display}"
     );
     assert!(
-        lines[1].contains("npm publish") && lines[1].contains("等待输入"),
+        lines[1].contains("npm publish") && lines[1].contains("交互输入"),
         "第二行应是等待输入通知: {display}"
     );
     assert!(
@@ -402,7 +405,9 @@ fn test_notification_display_prefers_description_over_command() {
         path,
     );
     // Act
-    let display = shell_notification_display_text_with(&msg, &lc_zh()).expect("应识别完成通知");
+    let display = shell_notification_display_text_with(&msg, &lc_zh())
+        .expect("应识别完成通知")
+        .text;
     // Assert
     assert!(
         display.contains("Run the test suite behind the proxy"),
@@ -414,9 +419,13 @@ fn test_notification_display_prefers_description_over_command() {
         "不应再显示命令原文: {}",
         display
     );
-    assert!(display.contains("(exit 0)"), "应保留退出码: {}", display);
     assert!(
-        !display.contains("(completed (exit 0))"),
+        display.contains("（退出码 0）"),
+        "应保留退出码: {}",
+        display
+    );
+    assert!(
+        !display.contains("(completed ("),
         "不应出现双层括号: {}",
         display
     );
@@ -434,7 +443,9 @@ fn test_notification_display_falls_back_to_command_without_description() {
         path,
     );
     // Act
-    let display = shell_notification_display_text_with(&msg, &lc_zh()).expect("应识别完成通知");
+    let display = shell_notification_display_text_with(&msg, &lc_zh())
+        .expect("应识别完成通知")
+        .text;
     // Assert
     assert!(
         display.contains("npm test"),
@@ -484,7 +495,9 @@ fn test_notification_description_is_xml_escaped() {
         path,
     );
     // Act
-    let display = shell_notification_display_text_with(&msg, &lc_zh()).expect("应识别完成通知");
+    let display = shell_notification_display_text_with(&msg, &lc_zh())
+        .expect("应识别完成通知")
+        .text;
     // Assert：XML 里被转义，展示层还原原文，且没有被拆出第二个块
     assert!(
         msg.contains("&lt;/description&gt;"),
@@ -519,7 +532,9 @@ fn test_stalled_notification_includes_description_tag() {
         "stall 通知也应写入模型描述: {}",
         msg
     );
-    let display = shell_notification_display_text_with(&msg, &lc_zh()).expect("应识别等待输入通知");
+    let display = shell_notification_display_text_with(&msg, &lc_zh())
+        .expect("应识别等待输入通知")
+        .text;
     assert!(
         display.contains("Publish the package to npm"),
         "展示层应优先用描述: {}",

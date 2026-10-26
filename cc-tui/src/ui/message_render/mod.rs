@@ -2257,6 +2257,7 @@ pub fn render_view_model_with_flags(
         MessageViewModel::SystemNote {
             content,
             detail_content,
+            tone,
             ..
         } => {
             let active_content = if detail_mode && detail_content.is_some() {
@@ -2264,6 +2265,35 @@ pub fn render_view_model_with_flags(
             } else {
                 content.as_str()
             };
+            // 后台任务通知：`●` + 状态色整行渲染，对齐参考实现的
+            // `UserAgentNotificationMessage`（只上屏一句 summary，状态只体现为颜色）。
+            // 普通系统提示（tone 为 None）仍走下方的缩进/灰色分支。
+            if let Some(tone) = tone {
+                use crate::ui::message_view::NoteTone;
+                let color = match tone {
+                    NoteTone::Success => theme::cur().success,
+                    NoteTone::Error => theme::cur().error,
+                    NoteTone::Warning => theme::cur().warning,
+                };
+                let mut lines = Vec::new();
+                for line in active_content.lines() {
+                    if line.trim().is_empty() {
+                        continue;
+                    }
+                    push_wrapped_line_keep_lead(
+                        &mut lines,
+                        Line::from(vec![
+                            Span::styled(theme::SYMBOL_DOT_SPACED, Style::default().fg(color)),
+                            Span::styled(sanitize_display_text(line), Style::default().fg(color)),
+                        ]),
+                        theme::SYMBOL_DOT_SPACED,
+                        "  ",
+                        Style::default().fg(color),
+                        width.saturating_sub(2).max(20),
+                    );
+                }
+                return (lines, Vec::new());
+            }
             let mut lines = Vec::new();
             for line in active_content.lines() {
                 if line.is_empty() {

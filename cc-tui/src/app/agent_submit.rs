@@ -159,7 +159,8 @@ impl App {
             .store_images(active_attachments.iter().copied());
 
         let display = shell_notification_display
-            .clone()
+            .as_ref()
+            .map(|notification| notification.text.clone())
             .unwrap_or_else(|| display_input.clone());
 
         // 如果有粘贴内容，存储展开后的实际内容用于详细模式显示
@@ -202,7 +203,8 @@ impl App {
             .pipeline
             .begin_round();
         let mut user_vm = if shell_notification_display.is_some() {
-            MessageViewModel::system(display.clone())
+            // 传原始 XML 让 `system()` 解析出文案与状态色，避免二次拼装丢失 tone。
+            MessageViewModel::system(display_input.clone())
         } else if let Some(expanded) = expanded_for_detail {
             MessageViewModel::user_with_expanded(display.clone(), expanded)
         } else {

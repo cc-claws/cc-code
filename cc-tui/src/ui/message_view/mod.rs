@@ -67,6 +67,29 @@ impl ToolOutputPreview {
     }
 }
 
+/// 系统提示行的强调色语义（渲染时映射到当前主题的 success / error / warning）。
+///
+/// 目前只有后台任务通知使用：状态决定颜色，与参考实现
+/// `UserAgentNotificationMessage` 的 `getStatusColor` 一致（completed→success、
+/// failed→error、killed→warning）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoteTone {
+    Success,
+    Error,
+    Warning,
+}
+
+impl NoteTone {
+    /// 合并多条通知时的取色优先级：错误 > 警告 > 成功（数值越小越优先）。
+    pub fn severity(self) -> u8 {
+        match self {
+            NoteTone::Error => 0,
+            NoteTone::Warning => 1,
+            NoteTone::Success => 2,
+        }
+    }
+}
+
 /// 渲染层的视图模型，从 BaseMessage/AgentEvent 转换而来。
 #[derive(Debug, Clone)]
 pub enum MessageViewModel {
@@ -148,6 +171,9 @@ pub enum MessageViewModel {
         content_hash: u64,
         /// 详细模式（Ctrl+O）下优先展示的内容（如方案 B 卡片展开）
         detail_content: Option<String>,
+        /// `Some` 表示这是后台任务通知：渲染时加 `●` 前缀并按语义着色，
+        /// 对齐参考实现的 `UserAgentNotificationMessage`；`None` 是普通系统提示。
+        tone: Option<NoteTone>,
     },
     /// 缓存率过低警告（黄色纯文本，无前缀符号）
     CacheWarning {
@@ -305,14 +331,16 @@ impl PartialEq for MessageViewModel {
                 MessageViewModel::SystemNote {
                     content: a,
                     detail_content: a_det,
+                    tone: a_tone,
                     ..
                 },
                 MessageViewModel::SystemNote {
                     content: b,
                     detail_content: b_det,
+                    tone: b_tone,
                     ..
                 },
-            ) => a == b && a_det == b_det,
+            ) => a == b && a_det == b_det && a_tone == b_tone,
             (
                 MessageViewModel::CacheWarning { content: a, .. },
                 MessageViewModel::CacheWarning { content: b, .. },
@@ -661,11 +689,12 @@ impl MessageViewModel {
                     vm.recompute_hash();
                     return vm;
                 }
-                if let Some(display_text) = crate::app::shell_notification_display_text(&raw) {
+                if let Some(display) = crate::app::shell_notification_display_text(&raw) {
                     let mut vm = MessageViewModel::SystemNote {
-                        content: display_text,
+                        content: display.text,
                         content_hash: 0,
                         detail_content: None,
+                        tone: Some(display.tone),
                     };
                     vm.recompute_hash();
                     return vm;
@@ -940,6 +969,7 @@ impl MessageViewModel {
                     content: content.text_content(),
                     content_hash: 0,
                     detail_content: None,
+                    tone: None,
                 };
                 vm.recompute_hash();
                 vm
@@ -1020,7 +1050,15 @@ impl MessageViewModel {
     /// 创建用户消息
     pub fn user(content: String) -> Self {
         if let Some(display) = crate::app::shell_notification_display_text(&content) {
-            return Self::system(display);
+            // 通知消息保留状态色，不能走 `system()`（它只能从文本里再猜 tone）。
+            let mut vm = MessageViewModel::SystemNote {
+                content: display.text,
+                content_hash: 0,
+                detail_content: None,
+                tone: Some(display.tone),
+            };
+            vm.recompute_hash();
+            return vm;
         }
         let doc = parse_markdown_default_rich(&content);
         let mut vm = MessageViewModel::UserBubble {
@@ -1040,7 +1078,14 @@ impl MessageViewModel {
     /// 创建带展开内容的用户消息（用于粘贴内容的详细模式显示）
     pub fn user_with_expanded(content: String, expanded: String) -> Self {
         if let Some(display) = crate::app::shell_notification_display_text(&content) {
-            return Self::system(display);
+            let mut vm = MessageViewModel::SystemNote {
+                content: display.text,
+                content_hash: 0,
+                detail_content: None,
+                tone: Some(display.tone),
+            };
+            vm.recompute_hash();
+            return vm;
         }
         let doc = parse_markdown_default_rich(&content);
         let mut vm = MessageViewModel::UserBubble {
@@ -1185,11 +1230,16 @@ impl MessageViewModel {
 
     /// 创建系统消息
     pub fn system(content: String) -> Self {
-        let content = crate::app::shell_notification_display_text(&content).unwrap_or(content);
+        // 后台任务通知走强调色渲染；其它系统提示保持原有灰色单行样式。
+        let (content, tone) = match crate::app::shell_notification_display_text(&content) {
+            Some(display) => (display.text, Some(display.tone)),
+            None => (content, None),
+        };
         let mut vm = MessageViewModel::SystemNote {
             content,
             content_hash: 0,
             detail_content: None,
+            tone,
         };
         vm.recompute_hash();
         vm
@@ -1197,11 +1247,16 @@ impl MessageViewModel {
 
     /// 创建带详细模式内容的系统消息（如子 Agent 启动摘要在详细模式下展开显示每个任务的 Prompt）
     pub fn system_with_detail(content: String, detail_content: String) -> Self {
-        let content = crate::app::shell_notification_display_text(&content).unwrap_or(content);
+        // 详细内容只用于展开态，通知正文仍按统一规则解析出文案与状态色。
+        let (content, tone) = match crate::app::shell_notification_display_text(&content) {
+            Some(display) => (display.text, Some(display.tone)),
+            None => (content, None),
+        };
         let mut vm = MessageViewModel::SystemNote {
             content,
             content_hash: 0,
             detail_content: Some(detail_content),
+            tone,
         };
         vm.recompute_hash();
         vm
