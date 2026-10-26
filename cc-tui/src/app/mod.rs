@@ -149,7 +149,9 @@ pub use theme_panel::ThemePanel;
 use crate::ui::render_thread::RenderEvent;
 
 // Re-export sub-structs
-pub use agent_comm::{ActiveToolInfo, AgentComm, RecentToolEntry, RetryStatus};
+pub use agent_comm::{
+    ActiveToolInfo, AgentComm, RecentToolEntry, RetryStatus, TOOL_MIN_VISIBLE_MS,
+};
 pub use cron_state::{CronPanel, CronState};
 pub use langfuse_state::LangfuseState;
 pub use mcp_panel::{DetailAction, McpPanel, McpPanelView};

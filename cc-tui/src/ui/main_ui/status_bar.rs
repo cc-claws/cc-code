@@ -370,18 +370,17 @@ fn append_activity_segment(spans: &mut Vec<Span<'_>>, segment: Vec<Span<'static>
     spans.extend(segment);
 }
 
-/// 最近工具条目：运行中 `◐`（黄）/ 已完成停留期 `✓`（绿），颜色不跟工具身份色走
+/// 最近工具条目：全程 `◐`（黄），不区分运行 / 完成
+///
+/// 统一 Bash 的观感——长跑工具本来就从头到尾只有 `◐`、结束即消失。快工具
+/// （Read 5~50ms）若在结束时翻成 `✓`，`◐` 那一帧多半还没画出来，用户只见过
+/// `✓`，同一位置出现两套形态。现在图标与配色恒定，完成与否由条目到期消失体现。
 fn render_recent_tool_segment(
     entry: &crate::app::RecentToolEntry,
     colors: &SbColors,
 ) -> Vec<Span<'static>> {
-    let indicator = if entry.running {
-        Span::styled("◐", fg_style(colors.yellow))
-    } else {
-        Span::styled("✓", fg_style(colors.green))
-    };
     let mut spans = vec![
-        indicator,
+        Span::styled("◐", fg_style(colors.yellow)),
         Span::styled(" ", plain_style()),
         Span::styled(entry.display.clone(), fg_style(colors.cyan)),
     ];
@@ -1255,13 +1254,14 @@ mod tests {
     }
 
     #[test]
-    fn test_render_recent_tool_segment_uses_completed_glyph_after_finish() {
+    fn test_render_recent_tool_segment_keeps_running_glyph_after_finish() {
+        // 完成后仍画 ◐：统一 Bash 观感，避免快工具只剩 ✓ 一种形态
         let segment = render_recent_tool_segment(
             &make_recent_entry("Read", "src/deep/file.rs", false),
             &make_default_colors(),
         );
-        assert_eq!(spans_to_plain(&segment), "✓ Read: src/deep/file.rs");
-        assert_eq!(segment[0].style.fg, Some(Color::Green));
+        assert_eq!(spans_to_plain(&segment), "◐ Read: src/deep/file.rs");
+        assert_eq!(segment[0].style.fg, Some(Color::Yellow));
     }
 
     #[test]
@@ -1374,5 +1374,116 @@ mod tests {
             .iter()
             .map(|span| span.content.as_ref())
             .collect::<String>()
+    }
+
+    /// 构造带指定 id / 起始时刻的最近工具条目
+    fn make_recent_entry_at(
+        id: &str,
+        display: &str,
+        args_summary: &str,
+        running: bool,
+        started_at: std::time::Instant,
+    ) -> crate::app::RecentToolEntry {
+        crate::app::RecentToolEntry {
+            tool_call_id: id.to_string(),
+            display: display.to_string(),
+            args_summary: args_summary.to_string(),
+            running,
+            started_at,
+            visible_until: None,
+        }
+    }
+
+    /// 按状态栏第二行的拼接规则，把当前可见的最近工具组渲染成纯文本
+    fn render_recent_tools_line(
+        comm: &crate::app::AgentComm,
+        colors: &SbColors,
+        now: std::time::Instant,
+    ) -> String {
+        let mut spans: Vec<Span<'static>> = Vec::new();
+        for entry in comm.visible_recent_tools(now) {
+            append_activity_segment(&mut spans, render_recent_tool_segment(entry, colors));
+        }
+        spans_to_plain(&spans).trim().to_string()
+    }
+
+    /// 多个 Read 排队：容量 2、最新在最左、完成的转 ✓、第 3 个挤掉最老的
+    #[test]
+    fn test_recent_tools_queue_keeps_two_slots_newest_first() {
+        let colors = make_default_colors();
+        let mut comm = crate::app::AgentComm::default();
+        let base = std::time::Instant::now();
+        let at = |ms: u64| base + std::time::Duration::from_millis(ms);
+
+        // ① 两个 Read 并发运行
+        comm.push_recent_tool(make_recent_entry_at("tc-a", "Read", "src/a.rs", true, at(0)));
+        comm.push_recent_tool(make_recent_entry_at("tc-b", "Read", "src/b.rs", true, at(1)));
+        let line = render_recent_tools_line(&comm, &colors, base);
+        println!("[① 两个 Read 并行] {line}");
+        assert_eq!(
+            line, "◐ Read: src/b.rs | ◐ Read: src/a.rs",
+            "并发两个 Read：最新的在最左，两者都是运行态"
+        );
+
+        // ② 先起的 a 完成，进入最短可见停留
+        comm.finish_recent_tool("tc-a", at(2));
+        let line = render_recent_tools_line(&comm, &colors, at(100));
+        println!("[② a 完成、仍在停留期] {line}");
+        assert_eq!(
+            line, "◐ Read: src/b.rs | ◐ Read: src/a.rs",
+            "完成的条目图标不变（统一 ◐），仍保留原位"
+        );
+
+        // ③ 第三个 Read 进来，挤掉最老的 a
+        comm.push_recent_tool(make_recent_entry_at("tc-c", "Read", "src/c.rs", true, at(3)));
+        let line = render_recent_tools_line(&comm, &colors, at(100));
+        println!("[③ 第三个 Read 挤掉最老] {line}");
+        assert_eq!(
+            line, "◐ Read: src/c.rs | ◐ Read: src/b.rs",
+            "容量 2：a 被挤出，只剩最新的两条"
+        );
+    }
+
+    /// 快工具垫到 TOOL_MIN_VISIBLE_MS 才消失；慢工具结束即刻消失
+    #[test]
+    fn test_recent_tools_min_visible_window_for_fast_tool() {
+        let colors = make_default_colors();
+        let mut comm = crate::app::AgentComm::default();
+        let base = std::time::Instant::now();
+        let at = |ms: u64| base + std::time::Duration::from_millis(ms);
+
+        // 长跑 Bash + 毫秒级 Read 并发
+        comm.push_recent_tool(make_recent_entry_at(
+            "tc-bash",
+            "Bash",
+            "sleep 240",
+            true,
+            base - std::time::Duration::from_secs(10),
+        ));
+        comm.push_recent_tool(make_recent_entry_at("tc-read", "Read", "src/x.rs", true, at(0)));
+
+        // ④ Read 只跑了 50ms 就结束：仍要垫满最短可见窗口
+        comm.finish_recent_tool("tc-read", at(50));
+        let line = render_recent_tools_line(&comm, &colors, at(200));
+        println!("[④ 快 Read 结束后 200ms] {line}");
+        assert_eq!(
+            line, "◐ Read: src/x.rs | ◐ Bash: sleep 240",
+            "快工具结束后仍在停留窗口内，图标仍是 ◐"
+        );
+
+        // ⑤ 越过停留窗口：Read 消失，Bash 继续跑
+        let line = render_recent_tools_line(
+            &comm,
+            &colors,
+            at(crate::app::TOOL_MIN_VISIBLE_MS + 100),
+        );
+        println!(
+            "[⑤ 越过 {}ms 停留窗口] {line}",
+            crate::app::TOOL_MIN_VISIBLE_MS
+        );
+        assert_eq!(
+            line, "◐ Bash: sleep 240",
+            "停留窗口结束后快工具条目应当消失"
+        );
     }
 }

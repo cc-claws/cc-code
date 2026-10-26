@@ -348,7 +348,7 @@ Spinner 下方附加 Tip 行：`  ⎿  Tip: ...`（5 列前缀，与工具结果
 
 | 段 | 形态 | 规则 |
 |----|------|------|
-| 最近工具 | `◐ Bash : sleep 15` / `✓ Read : src/main.rs` | 由 `AgentComm.recent_tools` 驱动：**最新在最左**、最多 2 条（第 3 条挤掉最老）。运行中 `◐`（ANSI Yellow）、结束后转 `✓`（ANSI Green），工具名 ANSI Cyan、摘要 DIM。条目显示时长 = `max(实际执行时长, 300ms)`：快工具垫到 300ms 后消失，慢工具执行结束即刻消失 |
+| 最近工具 | `◐ Bash : sleep 15` / `◐ Read : src/main.rs` | 由 `AgentComm.recent_tools` 驱动：**最新在最左**、最多 2 条（第 3 条挤掉最老）。全程 `◐`（ANSI Yellow），**不区分运行 / 完成**——快工具若在结束时翻成 `✓`，执行态一帧都画不出来，同一位置会出现两套形态；完成与否由条目到期消失体现。工具名 ANSI Cyan、摘要 DIM。条目显示时长 = `max(实际执行时长, TOOL_MIN_VISIBLE_MS)`：快工具垫满该窗口后消失，慢工具执行结束即刻消失 |
 | 工具统计 | `✓ Bash ×22` | 会话累计、按次数倒序，最多 4 条，超出显示 `+N more`。工具结束只让它 +1，不产生带摘要的完成条目 |
 | 后台 Agent | `🤖 name(run) ...` | 存在 `background_agents` 时 |
 | Todo 进度 | `📋 [##---] 2/5` | 存在 todo 时 |
