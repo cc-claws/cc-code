@@ -1071,6 +1071,49 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                             }
                         }
                     }
+                    // 消息区单击：启动 TextSelection。拖拽即扩选；未拖拽时由 Up 分支
+                    // 用同一坐标判定超链接点击。此前只有双击/拖拽才启动选择，普通单击
+                    // 落进下面的 ScreenSelection 兜底，导致单击永远判定不到链接。
+                    if !app.is_interaction_popup_active() {
+                        if let Some(area) = app.session_mgr.current().ui.messages_area {
+                            if mouse::mouse_in_rect(&mouse, area) {
+                                let scroll_offset = message_selection_offset(app);
+                                let visual_row = usize::from(mouse.row - area.y)
+                                    .saturating_add(scroll_offset);
+                                let in_virtual = app
+                                    .session_mgr
+                                    .current()
+                                    .messages
+                                    .render_cache
+                                    .read()
+                                    .virtual_layout
+                                    .is_some();
+                                let message_row = if in_virtual {
+                                    Some(visual_row)
+                                } else {
+                                    visual_row.checked_sub(
+                                        app.session_mgr.current().ui.message_prefix_rows,
+                                    )
+                                };
+                                let visual_col = mouse.column.saturating_sub(area.x);
+                                let use_text_selection =
+                                    message_row.is_some_and(|row| message_row_has_text(app, row));
+                                let ui = &mut app.session_mgr.current_mut().ui;
+                                if let Some(message_row) =
+                                    message_row.filter(|_| use_text_selection)
+                                {
+                                    ui.text_selection.start_drag(message_row, visual_col);
+                                    ui.screen_selection.clear();
+                                } else {
+                                    ui.screen_selection.start_drag(mouse.row, mouse.column);
+                                    ui.text_selection.clear();
+                                }
+                                ui.pending_screen_start = None;
+                                capture_message_selection_anchors(app);
+                                return Ok(Some(Action::Redraw));
+                            }
+                        }
+                    }
                     // 其余显示区域（面板内容/状态栏/sticky header/bg agent bar/空白）：
                     // 启动 ScreenSelection（Buffer 快照，所见即所得）。弹窗激活时不启动（modal）。
                     // 点击这些区域同时清除消息区 TextSelection 高亮（验收标准 8）。
@@ -1353,6 +1396,12 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                                     } else {
                                         app.session_mgr.current_mut().ui.text_selection.clear();
                                     }
+                                    return Ok(Some(Action::Redraw));
+                                }
+                                if start == end {
+                                    // 单击（未拖拽且未命中链接）：取消高亮，不复制。
+                                    drop(cache);
+                                    app.session_mgr.current_mut().ui.text_selection.clear();
                                     return Ok(Some(Action::Redraw));
                                 }
                                 let text = crate::app::text_selection::extract_selected_text(
@@ -1665,6 +1714,7 @@ mod tests {
             g_start: 5,
             g_end: 9,
             url: "https://github.com/cc-claws/cc-code/pull/222".to_string(),
+            recolor: true,
         }];
 
         // 视觉列 = 前缀宽度累计到 "#222" 内部（● =1 空格=1 查看=4 → 第 7 列落在 "#" 后第一个 "2"）
