@@ -124,7 +124,9 @@ mod tests;
 mod shell_console_test;
 
 impl WidthProbe for ConsoleWidthProbe {
-    fn prefer_ascii_spinner(&self) -> bool {
+    /// 原生可见控制台（传统 conhost）用的是系统控制台字体，字形覆盖不全，
+    /// 而缺字不影响列宽测量——`width` 永远量回 1 列，只能靠定向表提前降级。
+    fn prefer_ascii_fallback(&self) -> bool {
         self.fingerprint
             .as_ref()
             .is_some_and(|fingerprint| fingerprint.native_window)

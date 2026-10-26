@@ -93,8 +93,8 @@ fn test_windows_backend_real_console_ghosting() -> io::Result<()> {
             }
             let mut probe = ConsoleWidthProbe::new();
             assert!(
-                probe.prefer_ascii_spinner(),
-                "隐藏原生控制台仍应启用 ASCII 动画"
+                probe.prefer_ascii_fallback(),
+                "隐藏原生控制台仍应启用 ASCII 降级"
             );
             let actual = probe.width("∴").expect("测量实际歧义字符列宽");
             let bullet_width = probe.width("●").expect("测量回复前缀实际列宽");
