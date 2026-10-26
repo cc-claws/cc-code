@@ -1,6 +1,9 @@
 //! 保序控制事件与视口惰性渲染调度。
 use super::*;
-use crate::ui::render_layout::{LayoutMode, Viewport, VirtualRenderer, AUTO_DETAIL_ROWS};
+use crate::ui::render_layout::{
+    LayoutMode, Viewport, VirtualRenderer, AUTO_DETAIL_BYTES, AUTO_DETAIL_MESSAGES,
+    AUTO_DETAIL_ROWS,
+};
 use futures_util::FutureExt;
 use std::panic::AssertUnwindSafe;
 
@@ -81,7 +84,8 @@ impl RenderWorker {
         }
         if self.strategy == Strategy::Auto
             && (self.layout.estimated_detail_rows() >= AUTO_DETAIL_ROWS
-                || self.layout.estimated_detail_bytes() > 64 * 1024 * 1024)
+                || messages.len() >= AUTO_DETAIL_MESSAGES
+                || self.layout.estimated_detail_bytes() > AUTO_DETAIL_BYTES)
         {
             self.latched = true;
         }

@@ -194,6 +194,7 @@ fn test_cache_stats_counts_reserved_capacity_and_owned_content() {
         g_start: 0,
         g_end: 2,
         url,
+        recolor: true,
     });
     let expected_bytes = string_bytes
         + span_bytes

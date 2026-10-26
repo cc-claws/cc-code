@@ -36,6 +36,10 @@ mod hover_test;
 #[path = "welcome_prefix_test.rs"]
 mod welcome_prefix_test;
 
+#[cfg(test)]
+#[path = "open_target_test.rs"]
+mod open_target_test;
+
 #[cfg(all(test, windows))]
 #[path = "hover_console_test.rs"]
 mod hover_console_test;
@@ -1067,6 +1071,9 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                             }
                         }
                     }
+                    // 消息区单击：启动 TextSelection。拖拽即扩选；未拖拽时由 Up 分支
+                    // 用同一坐标判定超链接点击。此前只有双击/拖拽才启动选择，普通单击
+                    // 落进下面的 ScreenSelection 兜底，导致单击永远判定不到链接。
                     // 其余显示区域（面板内容/状态栏/sticky header/bg agent bar/空白）：
                     // 启动 ScreenSelection（Buffer 快照，所见即所得）。弹窗激活时不启动（modal）。
                     // 点击这些区域同时清除消息区 TextSelection 高亮（验收标准 8）。
@@ -1300,10 +1307,25 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                             };
 
                             if let Some(url) = clicked_url {
+                                tracing::debug!(
+                                    row = mouse.row,
+                                    column = mouse.column,
+                                    ?start,
+                                    ?end,
+                                    url = %url,
+                                    "link click: hit"
+                                );
                                 drop(cache);
                                 app.session_mgr.current_mut().ui.text_selection.clear();
                                 open_browser_url(&url);
                             } else {
+                                tracing::debug!(
+                                    row = mouse.row,
+                                    column = mouse.column,
+                                    ?start,
+                                    ?end,
+                                    "link click: no hit"
+                                );
                                 if cache.virtual_layout.is_some() {
                                     drop(cache);
                                     if let Some((start, end)) = anchored_endpoints {
@@ -1349,6 +1371,12 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                                     } else {
                                         app.session_mgr.current_mut().ui.text_selection.clear();
                                     }
+                                    return Ok(Some(Action::Redraw));
+                                }
+                                if start == end {
+                                    // 单击（未拖拽且未命中链接）：取消高亮，不复制。
+                                    drop(cache);
+                                    app.session_mgr.current_mut().ui.text_selection.clear();
                                     return Ok(Some(Action::Redraw));
                                 }
                                 let text = crate::app::text_selection::extract_selected_text(
@@ -1453,19 +1481,31 @@ fn handle_oauth_prompt(app: &mut App, input: Input) {
     }
 }
 
-/// 打开系统默认浏览器访问指定 URL
+/// 打开系统默认程序访问指定 URL
 ///
+/// `file://` 链接（工具头里的文件路径）走 [`open_local_path`] 用默认关联程序打开；
+/// 其余 URL 交给浏览器。
 /// 统一使用 `Stdio::null()` 隔离句柄，避免子进程继承 TUI 持有的终端管道
 /// 污染画面或阻塞退出（Windows 下 `cmd /C start` 尤其明显）。
 pub(crate) fn open_browser_url(url: &str) {
     use std::process::Stdio;
+
+    tracing::debug!(url, "open link");
+
+    if let Some(path) = local_file_target(url) {
+        tracing::debug!(path = %path, "open link: local file");
+        open_local_path(&path);
+        return;
+    }
+
+    let url = url.to_string();
 
     #[cfg(target_os = "windows")]
     {
         // `start` 首个带引号的参数会被当作窗口标题，显式传空标题，
         // 避免含空格/& 的 URL 被 cmd 解析为多段命令。
         let _ = std::process::Command::new("cmd")
-            .args(["/C", "start", "", url])
+            .args(["/C", "start", "", url.as_str()])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -1474,7 +1514,7 @@ pub(crate) fn open_browser_url(url: &str) {
     #[cfg(target_os = "macos")]
     {
         let _ = std::process::Command::new("open")
-            .arg(url)
+            .arg(&url)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -1483,12 +1523,73 @@ pub(crate) fn open_browser_url(url: &str) {
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         let _ = std::process::Command::new("xdg-open")
-            .arg(url)
+            .arg(&url)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn();
     }
+}
+
+/// 用系统默认关联程序打开本地文件 / 目录。
+///
+/// 对齐参考实现：Windows 直接 exec `explorer.exe`，不让 `cmd` 再解析一次命令行；
+/// 路径含 `"` `%` `,` `=` 时放弃打开——这些字符会让 explorer 的参数解析产生歧义。
+fn open_local_path(path: &str) {
+    use std::process::Stdio;
+
+    #[cfg(target_os = "windows")]
+    {
+        if path.chars().any(|c| matches!(c, '"' | '%' | ',' | '=')) {
+            return;
+        }
+        let explorer = std::path::Path::new(r"C:\Windows\explorer.exe");
+        let program = if explorer.exists() {
+            explorer.as_os_str()
+        } else {
+            std::ffi::OsStr::new("explorer")
+        };
+        let _ = std::process::Command::new(program)
+            .arg(path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open")
+            .arg(path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let _ = std::process::Command::new("xdg-open")
+            .arg(path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        let _ = path;
+    }
+}
+
+/// `file://` URL → 本地路径字符串；非 `file:` 或无法还原时返回 None。
+fn local_file_target(url: &str) -> Option<String> {
+    if !url.starts_with("file:") {
+        return None;
+    }
+    let parsed = url::Url::parse(url).ok()?;
+    if parsed.scheme() != "file" {
+        return None;
+    }
+    Some(parsed.to_file_path().ok()?.to_string_lossy().into_owned())
 }
 
 /// 在 render_cache 的超链接命中区中查找被点击的 URL
@@ -1591,6 +1692,7 @@ mod tests {
             g_start: 5,
             g_end: 9,
             url: "https://github.com/cc-claws/cc-code/pull/222".to_string(),
+            recolor: true,
         }];
 
         // 视觉列 = 前缀宽度累计到 "#222" 内部（● =1 空格=1 查看=4 → 第 7 列落在 "#" 后第一个 "2"）

@@ -373,8 +373,8 @@ pub(crate) fn render_messages(
             let x0 = body_area.x;
             let x1 = body_area.right();
             let cells = (x0..x1).map(|x| (x - x0, (x, y)));
-            for ((x, y), url) in crate::ui::osc8::link_cells(cells, &row_links, body_area) {
-                crate::terminal_backend::hyperlink::register(x, y, &url);
+            for ((x, y), url, recolor) in crate::ui::osc8::link_cells(cells, &row_links, body_area) {
+                crate::terminal_backend::hyperlink::register(x, y, &url, recolor);
             }
         }
     }

@@ -1347,12 +1347,15 @@ fn test_uppercase_first_char_preserves_rest() {
 fn test_tool_call_group_detail_mode_shows_read_args_and_summary() {
     use crate::app::MessageViewModel;
     use crate::ui::message_view::{ToolCategory, ToolEntry};
+    // 详细模式显示完整绝对路径，与平台无关：用运行时绝对路径构造输入。
+    let abs = std::env::temp_dir().join("public").join("index.php");
+    let abs_text = abs.to_string_lossy().into_owned();
     let vm = MessageViewModel::ToolCallGroup {
         category: ToolCategory::Read,
         tools: vec![ToolEntry {
             tool_name: "Read".to_string(),
             display_name: "Read".to_string(),
-            args_display: Some("D:\\code\\smart-select-product-php\\public\\index.php".to_string()),
+            args_display: Some(abs_text.clone()),
             content: "Read 61 lines".to_string(),
             is_error: false,
         }],
@@ -1364,8 +1367,8 @@ fn test_tool_call_group_detail_mode_shows_read_args_and_summary() {
     let detail_text = rendered_text(&render_view_model(&vm, Some(1), 80, true, 0));
 
     assert!(
-        detail_text.contains("Read(D:\\code\\smart-select-product-php\\public\\index.php)"),
-        "Read 详细模式标题应显示文件路径: {detail_text}"
+        detail_text.contains(&format!("Read({abs_text})")),
+        "Read 详细模式标题应显示完整绝对路径: {detail_text}"
     );
     assert!(
         detail_text.contains("Read 61 lines"),
@@ -3128,10 +3131,11 @@ fn test_websearch_detail_mode_wraps_full_query_without_early_truncation() {
     );
 }
 
-/// 对齐 CC：Write 的结果行重绘为 "Wrote <bold>N</bold> lines to <bold>path</bold>"
+/// 对齐参考实现：Write 的结果行重绘为 "Wrote <bold>N</bold> lines to <bold>path</bold>"，
+/// 并给出路径在逻辑行中的起点供链接命中区换算。
 #[test]
 fn test_format_write_summary_line_bolds_count_and_path() {
-    let line = format_write_summary_line("Wrote 3 lines src/a.rs", theme::cur().text_soft)
+    let (line, path_start, path) = format_write_summary_line("Wrote 3 lines src/a.rs", theme::cur().text_soft)
         .expect("应识别 Write 结果行");
     assert_eq!(line.spans.len(), 4);
     assert_eq!(line.spans[0].content.as_ref(), "Wrote ");
@@ -3152,13 +3156,16 @@ fn test_format_write_summary_line_bolds_count_and_path() {
             .contains(ratatui::style::Modifier::BOLD),
         "路径应加粗"
     );
+    assert_eq!(path_start, "Wrote 3 lines to ".chars().count());
+    assert_eq!(path, "src/a.rs");
 }
 
 #[test]
 fn test_format_write_summary_line_singular_unit() {
-    let line = format_write_summary_line("Wrote 1 line a.rs", theme::cur().text_soft)
+    let (line, path_start, _) = format_write_summary_line("Wrote 1 line a.rs", theme::cur().text_soft)
         .expect("应识别单数文案");
     assert_eq!(line.spans[2].content.as_ref(), " line to ");
+    assert_eq!(path_start, "Wrote 1 line to ".chars().count());
 }
 
 #[test]
@@ -3376,6 +3383,235 @@ fn test_bash_output_collapse_hint_matches_unified_style_single_line() {
         text.contains("… +1 line (ctrl+o to expand)"),
         "Bash 输出截断 1 行应使用单数 '… +1 line (ctrl+o to expand)'，实际: {text}"
     );
+}
+
+// ── Write/Edit/Read 工具头路径链接 ──────────────────────────────────────────
+
+/// 取链接命中区在渲染行上的可见文本（grapheme 切片）。
+fn linked_text(lines: &[Line<'static>], hit: &cc_widgets::markdown::LinkHit) -> String {
+    use unicode_segmentation::UnicodeSegmentation;
+
+    lines[hit.line]
+        .to_string()
+        .graphemes(true)
+        .skip(hit.g_start)
+        .take(hit.g_end - hit.g_start)
+        .collect()
+}
+
+fn make_file_tool_block(tool: &str, args: &str) -> MessageViewModel {
+    MessageViewModel::ToolBlock {
+        tool_name: tool.to_string(),
+        tool_call_id: format!("tc_{tool}"),
+        display_name: tool.to_string(),
+        args_display: Some(args.to_string()),
+        content: String::new(),
+        is_error: false,
+        collapsed: false,
+        color: theme::cur().text,
+        diff_input: None,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        live_output: None,
+        source_agent_id: None,
+        started_at: None,
+        timeout_ms: None,
+        shell_backgrounded: false,
+        content_hash: 0,
+    }
+}
+
+#[test]
+fn test_tool_block_write_path_is_clickable_file_link() {
+    let vm = make_file_tool_block("Write", "src/a.rs");
+    let (lines, links) = render_view_model_with_links(&vm, Some(1), 80, false, 0);
+    assert_eq!(links.len(), 1, "Write 的路径应登记一个命中区");
+    assert_eq!(linked_text(&lines, &links[0]), "src/a.rs");
+    assert!(
+        links[0].url.starts_with("file:///"),
+        "应指向本地文件: {}",
+        links[0].url
+    );
+    assert!(
+        links[0].url.ends_with("/src/a.rs"),
+        "链接目标应是绝对路径: {}",
+        links[0].url
+    );
+}
+
+#[test]
+fn test_tool_block_edit_path_is_clickable_file_link() {
+    let vm = make_file_tool_block("Edit", "src/a.rs");
+    let (lines, links) = render_view_model_with_links(&vm, Some(1), 80, false, 0);
+    assert_eq!(links.len(), 1);
+    assert_eq!(linked_text(&lines, &links[0]), "src/a.rs");
+}
+
+#[test]
+fn test_tool_block_read_path_link_excludes_line_range_suffix() {
+    let vm = make_file_tool_block("Read", "src/a.rs · lines 10-20");
+    let (lines, links) = render_view_model_with_links(&vm, Some(1), 80, false, 0);
+    assert_eq!(links.len(), 1, "Read 的路径应登记一个命中区");
+    assert_eq!(linked_text(&lines, &links[0]), "src/a.rs", "行号范围不参与链接");
+}
+
+#[test]
+fn test_tool_block_bash_summary_has_no_file_link() {
+    let vm = make_file_tool_block("Bash", "ls src/a.rs");
+    let (_, links) = render_view_model_with_links(&vm, Some(1), 80, false, 0);
+    assert!(links.is_empty(), "Bash 摘要不是文件路径，不登记链接");
+}
+
+#[test]
+fn test_tool_block_truncated_path_link_stays_within_header_line() {
+    use unicode_segmentation::UnicodeSegmentation;
+
+    let path = "very/long/path/to/some/deep/file.rs";
+    let vm = make_file_tool_block("Write", path);
+    let (lines, links) = render_view_model_with_links(&vm, Some(1), 40, false, 0);
+    assert!(!links.is_empty(), "截断后仍应保留可点前缀");
+    for hit in &links {
+        let line_graphemes = lines[hit.line].to_string().graphemes(true).count();
+        assert!(
+            hit.g_end <= line_graphemes,
+            "命中区不得越过行尾: {} > {}",
+            hit.g_end,
+            line_graphemes
+        );
+        let label = linked_text(&lines, hit);
+        assert!(!label.is_empty(), "命中区不得为空");
+        assert!(path.starts_with(&label), "命中区应是路径前缀: {label}");
+    }
+}
+
+#[test]
+fn test_tool_block_detail_mode_wrapped_path_link_maps_to_visible_segments() {
+    use unicode_segmentation::UnicodeSegmentation;
+
+    let path = "very/long/path/to/some/deep/file.rs";
+    let vm = make_file_tool_block("Write", path);
+    let (lines, links) = render_view_model_with_links(&vm, Some(1), 40, true, 0);
+    assert!(lines.len() > 1, "窄终端详细模式应折行");
+    // 详细模式显示完整绝对路径，折行后每段应是该绝对路径的片段。
+    let absolute = super::absolute_link_path(path)
+        .expect("相对路径应能以 cwd 补齐")
+        .to_string_lossy()
+        .replace('\\', "/");
+    assert!(
+        absolute.contains("very/long/path/to/some/deep/file.rs"),
+        "绝对路径应保留原始相对路径尾部: {absolute}"
+    );
+    assert!(absolute.contains(&linked_text(&lines, &links[0])), "链接目标应与显示路径一致");
+    for hit in &links {
+        let line_graphemes = lines[hit.line].to_string().graphemes(true).count();
+        assert!(
+            hit.g_end <= line_graphemes,
+            "续行命中区必须补上缩进宽度: {} > {}",
+            hit.g_end,
+            line_graphemes
+        );
+        let label = linked_text(&lines, hit);
+        assert!(!label.is_empty());
+        assert!(absolute.contains(&label), "折行后每段应命中路径片段: {label}");
+    }
+}
+
+#[test]
+fn test_tool_block_read_compact_header_hides_line_range() {
+    let vm = make_file_tool_block("Read", "src/a.rs · lines 10-20");
+    let (lines, _) = render_view_model_with_links(&vm, Some(1), 80, false, 0);
+    let header = lines[0].to_string();
+    assert_eq!(header, "● Read(src/a.rs)", "紧凑模式不显示行范围");
+}
+
+#[test]
+fn test_tool_block_read_detail_header_shows_line_range_outside_link() {
+    let vm = make_file_tool_block("Read", "src/a.rs · lines 10-20");
+    let (lines, links) = render_view_model_with_links(&vm, Some(1), 120, true, 0);
+    let header = lines[0].to_string();
+    assert!(
+        header.ends_with(" · lines 10-20)"),
+        "详细模式按参考实现文案追加行范围: {header}"
+    );
+    assert_eq!(links.len(), 1);
+    let label = linked_text(&lines, &links[0]);
+    assert_eq!(
+        label,
+        super::verbose_display_path("src/a.rs").expect("相对路径应能绝对化"),
+        "链接只覆盖完整路径，不含 · lines 后缀"
+    );
+}
+
+#[test]
+fn test_tool_block_read_detail_header_without_limit_uses_from_line() {
+    let vm = make_file_tool_block("Read", "src/a.rs · from line 10");
+    let (lines, _) = render_view_model_with_links(&vm, Some(1), 120, true, 0);
+    assert!(
+        lines[0].to_string().ends_with(" · from line 10)"),
+        "无 limit 时用 from line 文案: {}",
+        lines[0]
+    );
+}
+
+#[test]
+fn test_tool_block_write_result_line_links_path() {
+    let mut vm = make_file_tool_block("Write", "src/a.rs");
+    if let MessageViewModel::ToolBlock { content, .. } = &mut vm {
+        *content = "Wrote 3 lines src/a.rs".to_string();
+    }
+    let (lines, links) = render_view_model_with_links(&vm, Some(1), 120, false, 0);
+    assert_eq!(links.len(), 2, "header 与结果行路径都应可点: {lines:?}");
+    let hit = links
+        .iter()
+        .find(|hit| lines[hit.line].to_string().contains("Wrote 3 lines to"))
+        .expect("结果行应有命中区");
+    assert_eq!(linked_text(&lines, hit), "src/a.rs");
+    assert!(hit.url.starts_with("file:///"));
+    assert!(
+        lines[hit.line]
+            .to_string()
+            .contains("Wrote 3 lines to src/a.rs"),
+        "结果行文案不变: {}",
+        lines[hit.line]
+    );
+}
+
+#[test]
+fn test_tool_block_read_without_range_links_relative_path() {
+    // 无行范围的 Read（如 `● Read(Cargo.toml)`）同样要登记可点链接
+    let vm = make_file_tool_block("Read", "Cargo.toml");
+    let (lines, links) = render_view_model_with_links(&vm, Some(1), 80, false, 0);
+    assert_eq!(links.len(), 1, "无范围时也应有链接: {lines:?}");
+    assert_eq!(linked_text(&lines, &links[0]), "Cargo.toml");
+    assert!(links[0].url.ends_with("/Cargo.toml"), "{}", links[0].url);
+}
+
+/// 只读工具组（Read 单条也会被聚合）的详细模式同样要登记路径链接。
+#[test]
+fn test_tool_call_group_detail_read_path_is_clickable() {
+    use crate::ui::message_view::{MessageViewModel, ToolCategory, ToolEntry};
+
+    let vm = MessageViewModel::ToolCallGroup {
+        category: ToolCategory::Read,
+        tools: vec![ToolEntry {
+            tool_name: "Read".to_string(),
+            display_name: "Read".to_string(),
+            args_display: Some("Cargo.toml".to_string()),
+            content: "Read 96 lines".to_string(),
+            is_error: false,
+        }],
+        collapsed: true,
+        standalone_action: None,
+        content_hash: 0,
+    };
+    let (lines, links) = render_view_model_with_links(&vm, Some(1), 120, true, 0);
+    assert_eq!(links.len(), 1, "工具组里的 Read 路径应可点: {lines:?}");
+    let label = linked_text(&lines, &links[0]);
+    assert!(
+        label.ends_with("Cargo.toml"),
+        "详细模式应显示绝对路径: {label}"
+    );
+    assert!(label.contains('/') || label.contains('\\'), "应为绝对路径: {label}");
+    assert!(links[0].url.starts_with("file:///"), "{}", links[0].url);
 }
 
 /// 后台任务通知的渲染契约：`●` 前缀 + 状态色。

@@ -69,6 +69,7 @@ fn test_link_anchor_rejects_replaced_content_or_history() {
         g_start: 2,
         g_end: 4,
         url: "https://example.com".to_string(),
+        recolor: true,
     });
     let anchor = cache.selection_anchor_at(6_000, 4, 80).expect("选区应命中");
     assert_eq!(

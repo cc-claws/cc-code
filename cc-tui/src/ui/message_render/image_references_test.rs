@@ -38,10 +38,14 @@ fn test_image_reference_link_matches_label_and_body_line_offset() {
         links[0].url.contains("image%20one.png"),
         "空格必须由 URL 库编码"
     );
+    assert!(
+        !links[0].recolor,
+        "附件行不得被输出层染成链接蓝，否则正文前景色被盖掉"
+    );
     assert_eq!(
         lines[2].spans[1].style.fg,
-        Some(crate::ui::theme::cur().text),
-        "附件行用正文前景色，不是 inactive 灰"
+        Some(crate::ui::theme::cur().text_soft),
+        "附件行取 text_soft，与 Skill 卡片结果行同档"
     );
     assert!(
         !lines[2].spans[1]

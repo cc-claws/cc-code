@@ -556,7 +556,7 @@ fn test_hyperlink_decoration_stays_out_of_buffer() {
     terminal
         .draw(|f| {
             crate::terminal_backend::hyperlink::begin_frame(true);
-            crate::terminal_backend::hyperlink::register(0, 0, "https://a.example");
+            crate::terminal_backend::hyperlink::register(0, 0, "https://a.example", true);
             f.render_widget(Paragraph::new("ab"), f.area());
             buffer_symbol = f.buffer_mut()[(0, 0)].symbol().to_string();
         })

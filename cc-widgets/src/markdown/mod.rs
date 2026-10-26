@@ -132,6 +132,12 @@ pub struct LinkHit {
     /// 该行 plain_text 中的 grapheme 终点（不含）
     pub g_end: usize,
     pub url: String,
+    /// 输出层是否把该命中区改写成链接色（亮蓝）。
+    ///
+    /// `true`：URL / Markdown 链接，蓝色由输出层统一施加；
+    /// `false`：链接文字自带正文前景色（如用户消息下的附件引用行），
+    /// 输出层只包 OSC 8 不改色，否则蓝化会盖掉正文色。
+    pub recolor: bool,
 }
 
 /// Markdown 解析产物：渲染文本 + 链接命中区（两者行下标对齐）

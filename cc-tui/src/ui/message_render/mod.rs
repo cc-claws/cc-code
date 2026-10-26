@@ -352,14 +352,6 @@ pub(crate) fn wrap_line_spans(line: Line<'static>, max_width: usize) -> Vec<Line
         .collect()
 }
 
-/// 同 [`wrap_line_spans`]，但保留首段行首空白（工具头指示器场景）。
-fn wrap_line_spans_keep_first_lead(line: Line<'static>, max_width: usize) -> Vec<Line<'static>> {
-    wrap_line_spans_rich_keep_first_lead(line, max_width)
-        .into_iter()
-        .map(|seg| seg.line)
-        .collect()
-}
-
 /// 把逻辑行上的链接命中区映射到折行后的输出段，累加前缀宽度后推入 out
 fn push_link_hits_for_wrapped(
     out: &mut Vec<cc_widgets::markdown::LinkHit>,
@@ -378,6 +370,7 @@ fn push_link_hits_for_wrapped(
                     g_start: prefix_g + seg.out_g_offset + (is - seg.in_g_start),
                     g_end: prefix_g + seg.out_g_offset + (ie - seg.in_g_start),
                     url: hit.url.clone(),
+                    recolor: hit.recolor,
                 });
             }
         }
@@ -422,6 +415,10 @@ fn push_wrapped_line(
 ///
 /// 工具头在运行中指示器闪烁时会以空白帧渲染（`●` → `" "`）；详细模式超长命令
 /// 折行若 trim 首段行首空白，会让 `●`/工具名前缀随闪烁左移抖动（issue #342）。
+/// 折行 `line` 并推入 `out`，返回段级 grapheme 映射供调用方换算链接命中区。
+///
+/// 返回值的 [`WrappedLineSeg::line`] **已被清空**——spans 已移入 `out` 的行，
+/// 这里只承载 `in_g_start` / `in_g_end` / `out_g_offset` 坐标语义，不能用于绘制。
 fn push_wrapped_line_keep_first_lead(
     out: &mut Vec<Line<'static>>,
     line: Line<'static>,
@@ -429,19 +426,18 @@ fn push_wrapped_line_keep_first_lead(
     cont_prefix: &str,
     prefix_style: Style,
     content_width: usize,
-) {
-    for (j, wline) in wrap_line_spans_keep_first_lead(line, content_width)
-        .into_iter()
-        .enumerate()
-    {
+) -> Vec<WrappedLineSeg> {
+    let mut wrapped = wrap_line_spans_rich_keep_first_lead(line, content_width);
+    for (j, seg) in wrapped.iter_mut().enumerate() {
         let prefix = if j == 0 { first_prefix } else { cont_prefix };
-        let mut spans = Vec::with_capacity(wline.spans.len() + 1);
+        let mut spans = Vec::with_capacity(seg.line.spans.len() + 1);
         if !prefix.is_empty() {
             spans.push(Span::styled(prefix.to_string(), prefix_style));
         }
-        spans.extend(wline.spans);
+        spans.extend(std::mem::take(&mut seg.line.spans));
         out.push(Line::from(spans));
     }
+    wrapped
 }
 
 /// 剥离 Line 的前导空白，返回 (前导空白字符串, 首个非空白 span 的样式, 剩余 Line)。
@@ -609,10 +605,15 @@ fn format_prefixed_text(
 ///
 /// 只处理精确匹配的单行文本；其它输出（如 append 的 `Appended ...`）返回 None，
 /// 由调用方回退为普通纯文本渲染。
+/// Write 的 `Wrote N lines <path>` 结果行 → 重绘后的行、路径在逻辑行中的
+/// grapheme 起点、路径原文。
+///
+/// 参考实现（2.1.310 `FileWriteToolCreatedMessage`）把这一行的路径也包进了
+/// `FilePathLink`，因此路径需要参与命中区登记。
 fn format_write_summary_line(
     text: &str,
     text_color: ratatui::style::Color,
-) -> Option<Line<'static>> {
+) -> Option<(Line<'static>, usize, String)> {
     let rest = text.strip_prefix("Wrote ")?;
     let (count, rest) = rest.split_once(' ')?;
     count.parse::<usize>().ok()?;
@@ -622,12 +623,21 @@ fn format_write_summary_line(
     }
     let base = Style::default().fg(text_color);
     let bold = base.add_modifier(ratatui::style::Modifier::BOLD);
-    Some(Line::from(vec![
+    let path_start = format!("Wrote {count} {unit} to ").chars().count();
+    let line = Line::from(vec![
         Span::styled("Wrote ", base),
         Span::styled(count.to_string(), bold),
         Span::styled(format!(" {unit} to "), base),
         Span::styled(path.to_string(), bold),
-    ]))
+    ]);
+    Some((line, path_start, path.to_string()))
+}
+
+/// Write 结果行里的路径 → `file://` 链接目标；路径无法绝对化时返回 None。
+///
+/// 与 [`tool_file_url`] 一致：命中区登记不受 `osc8::enabled()` 影响。
+fn write_target_url(path_text: &str) -> Option<String> {
+    Some(url::Url::from_file_path(absolute_link_path(path_text)?).ok()?.to_string())
 }
 
 fn push_prefixed_text(
@@ -674,7 +684,7 @@ fn push_visual_capped_output<T, F>(
     border_color: Color,
     mut format_line: F,
 ) where
-    F: FnMut(&T, usize) -> Vec<Line<'static>>,
+    F: FnMut(&T, usize, usize) -> Vec<Line<'static>>,
 {
     let total = items.len();
     let mut rendered_visual = 0;
@@ -690,7 +700,9 @@ fn push_visual_capped_output<T, F>(
             return;
         }
 
-        let wlines = format_line(item, i);
+        // 第三个参数是该项首个输出行在 `out` 中的下标，供需要登记超链接命中区
+        // （行号相对的 `LinkHit`）的调用方换算。
+        let wlines = format_line(item, i, out.len());
         if wlines.len() <= available {
             rendered_visual += wlines.len();
             out.extend(wlines);
@@ -791,6 +803,86 @@ fn uppercase_first_char(s: &str) -> String {
         Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
         None => String::new(),
     }
+}
+
+/// Write/Edit/Read 工具头里承载路径的文本部分：Write/Edit 是整段摘要，
+/// Read 是 `路径 · lines 起-止` 去掉行范围后的前缀。其余工具返回 None。
+fn tool_path_text<'a>(tool: &str, args: &'a str) -> Option<&'a str> {
+    match tool {
+        "Write" | "Edit" => Some(args),
+        "Read" => Some(split_read_range(args).0),
+        _ => None,
+    }
+}
+
+/// 工具头路径的 OSC 8 `file://` 链接目标；路径无法绝对化时返回 None。
+///
+/// 注意：这里**不**看 `osc8::enabled()`。该开关只控制输出层是否写 OSC 8 序列
+/// （`hyperlink::begin_frame`），点击命中区是独立数据——与 `bare_url_hits` 等
+/// 既有链接一致。若把两者绑在一起，`DISABLE_HYPERLINKS=1` 会让点击一并失效。
+fn tool_file_url(tool: &str, args: &str) -> Option<String> {
+    let path = absolute_link_path(tool_path_text(tool, args)?)?;
+    Some(url::Url::from_file_path(path).ok()?.to_string())
+}
+
+/// 详细模式下的路径显示：对齐参考实现的 verbose 分支——一律完整绝对路径。
+///
+/// 已是绝对路径的原样返回（保留输入的分隔符风格），cwd/home 内的相对或 `~`
+/// 记法展开成绝对路径并把分隔符归一为 `/`。
+fn verbose_display_path(text: &str) -> Option<String> {
+    if std::path::Path::new(text).is_absolute() {
+        return Some(text.to_string());
+    }
+    absolute_link_path(text).map(|path| path.to_string_lossy().replace('\\', "/"))
+}
+
+/// 详细模式下的工具参数显示。
+///
+/// 对齐参考实现：Write/Edit/Read 显示完整绝对路径；Read 的行范围以
+/// ` · lines 起-止`（只有起点时 ` · from line 起`）追加在路径之后，
+/// 其余工具的摘要沿用原有 sanitize 结果。
+fn verbose_tool_args(tool: &str, args: &str) -> String {
+    let Some(path_text) = tool_path_text(tool, args) else {
+        return sanitize_display_text(args);
+    };
+    let display = verbose_display_path(path_text).unwrap_or_else(|| path_text.to_string());
+    // 只有 Read 带行范围文案；Write/Edit 的路径即使恰好含 ` · lines …` 也不追加。
+    match (tool, split_read_range(args).1) {
+        ("Read", Some(range)) => format!("{display} · {range}"),
+        _ => display,
+    }
+}
+
+/// 把 Read 摘要切成「路径」与「行范围文案」。
+///
+/// `format_tool_args` 追加的是参考实现的固定文案（` · lines …` / ` · from line …`），
+/// 分隔标记是文字而非数字位置，因此文件名自带 `:123` 时不会再被误判成行号范围。
+fn split_read_range(args: &str) -> (&str, Option<&str>) {
+    let Some((path, range)) = args.rsplit_once(" · ") else {
+        return (args, None);
+    };
+    if range.starts_with("lines ") || range.starts_with("from line ") {
+        (path, Some(range))
+    } else {
+        (args, None)
+    }
+}
+
+/// 展示路径 → 可打开的文件路径：`~/` 展开到 home，相对路径按进程 cwd 补齐，
+/// 绝对路径原样。与参考实现的 `FileWriteTool/UI.tsx` 一致——显示文本可以是
+/// 相对路径，链接目标必须是绝对路径。
+fn absolute_link_path(text: &str) -> Option<std::path::PathBuf> {
+    let path = std::path::Path::new(text);
+    if path.is_absolute() {
+        return Some(path.to_path_buf());
+    }
+    if text == "~" {
+        return dirs_next::home_dir();
+    }
+    if let Some(rest) = text.strip_prefix("~/").or_else(|| text.strip_prefix("~\\")) {
+        return dirs_next::home_dir().map(|home| home.join(rest));
+    }
+    std::env::current_dir().ok().map(|cwd| cwd.join(path))
 }
 
 fn tool_args_header(tool_name: &str, args: &str, max_width: usize) -> String {
@@ -1215,7 +1307,7 @@ fn render_shell_command(
             &output_lines,
             max_lines,
             theme::cur().subtle,
-            |(line, is_error), idx| {
+            |(line, is_error), idx, _out_base| {
                 // 与 Bash 工具结果行口径一致：成功输出用 TEXT_SOFT，非零退出码用 ERROR。
                 let default_style = if *is_error && exit_code != Some(0) {
                     Style::default().fg(theme::cur().error)
@@ -1307,6 +1399,8 @@ pub fn render_view_model_with_flags(
     diff_visible: bool,
     tick: u64,
 ) -> (Vec<Line<'static>>, Vec<cc_widgets::markdown::LinkHit>) {
+    use unicode_segmentation::UnicodeSegmentation;
+
     let mut link_hits: Vec<cc_widgets::markdown::LinkHit> = Vec::new();
     match vm {
         MessageViewModel::UserBubble {
@@ -1652,17 +1746,25 @@ pub fn render_view_model_with_flags(
                 // Glob 保留带 "pattern:" 前缀的单行摘要路径。
                 let wrap_full = detail_mode && tool_name != "Glob";
                 if wrap_full {
-                    let full = sanitize_display_text(args);
+                    // 详细模式：Write/Edit/Read 显示完整绝对路径，Read 的行范围以
+                    // ` · lines 起-止` 追加在路径之后（对齐参考实现的 verbose 分支）。
+                    let full = verbose_tool_args(tool_name, args);
                     let indent = " ".repeat(name_width + 1);
                     let mut spans = header_spans.clone();
+                    let args_start_g = spans
+                        .iter()
+                        .map(|span| span.content.graphemes(true).count())
+                        .sum::<usize>()
+                        + 1;
                     spans.push(Span::raw("("));
                     spans.push(Span::styled(full, args_color));
                     spans.push(Span::raw(")"));
                     let content_width = width.saturating_sub(name_width + 1).max(20);
+                    let header_line = lines.len();
                     // 用 keep_first_lead 变体：运行中指示器闪烁到空白帧时，header 首段
                     // 的行首空白（指示器占位）不能被 trim，否则整个前缀随闪烁左移抖动
                     // （issue #342：详细模式看不到 `● Bash(` 前缀）。
-                    push_wrapped_line_keep_first_lead(
+                    let wrapped = push_wrapped_line_keep_first_lead(
                         &mut lines,
                         Line::from(spans),
                         "",
@@ -1670,11 +1772,71 @@ pub fn render_view_model_with_flags(
                         Style::default(),
                         content_width,
                     );
+                    // 链接只覆盖绝对路径本身，` · lines …` 后缀不参与；折行后按段映射，
+                    // 续行补上缩进宽度。
+                    if let Some(url) = tool_file_url(tool_name, args) {
+                        let path_end = tool_path_text(tool_name, args)
+                            .map(|text| {
+                                verbose_display_path(text)
+                                    .unwrap_or_else(|| text.to_string())
+                                    .graphemes(true)
+                                    .count()
+                            })
+                            .map_or(args_start_g, |path_g| args_start_g + path_g);
+                        let cont_g = indent.graphemes(true).count();
+                        for (i, seg) in wrapped.iter().enumerate() {
+                            let is = args_start_g.max(seg.in_g_start);
+                            let ie = path_end.min(seg.in_g_end);
+                            if is >= ie {
+                                continue;
+                            }
+                            let base = if i == 0 { 0 } else { cont_g };
+                            link_hits.push(cc_widgets::markdown::LinkHit {
+                                line: header_line + i,
+                                g_start: base + seg.out_g_offset + (is - seg.in_g_start),
+                                g_end: base + seg.out_g_offset + (ie - seg.in_g_start),
+                                url: url.clone(),
+                                // 工具头路径已由 args_color 着色，只借 OSC 8 获得可点性，
+                                // 不得被输出层改写成链接蓝。
+                                recolor: false,
+                            });
+                        }
+                    }
                 } else {
+                    let path_text = tool_path_text(tool_name, args);
+                    let header_args = path_text.unwrap_or(args);
                     let max_args_width = header_args_width(width, name_width + 2, detail_mode);
-                    let summary = tool_args_header(tool_name, args, max_args_width);
+                    let summary = tool_args_header(tool_name, header_args, max_args_width);
+                    let args_start_g = header_spans
+                        .iter()
+                        .map(|span| span.content.graphemes(true).count())
+                        .sum::<usize>()
+                        + 1;
                     header_spans.push(Span::styled(format!("({})", summary), args_color));
+                    let header_line = lines.len();
                     lines.push(Line::from(header_spans));
+                    // 链接只覆盖仍可见的路径前缀；摘要被截断时以「…」收尾，
+                    // 省略号不属于路径。memory 标签替换后文本已不是原路径，
+                    // 不再挂链接（与 `tool_args_header` 的替换条件一致）。
+                    if let Some(url) = tool_file_url(tool_name, args) {
+                        if format_display_path_for_memory(args).is_none() {
+                            let visible_g = summary.graphemes(true).count();
+                            let path_g = header_args.graphemes(true).count();
+                            let truncated =
+                                sanitize_display_text(header_args).graphemes(true).count() > visible_g;
+                            let visible = path_g.min(visible_g.saturating_sub(usize::from(truncated)));
+                            if visible > 0 {
+                                link_hits.push(cc_widgets::markdown::LinkHit {
+                                    line: header_line,
+                                    g_start: args_start_g,
+                                    g_end: args_start_g + visible,
+                                    url,
+                                    // 同详细模式：保留工具头自身的路径配色。
+                                    recolor: false,
+                                });
+                            }
+                        }
+                    }
                 }
             } else {
                 lines.push(Line::from(header_spans));
@@ -1820,7 +1982,7 @@ pub fn render_view_model_with_flags(
                         b_lines,
                         max_lines,
                         border_color,
-                        |item, _i| {
+                        |item, _i, _out_base| {
                             let text_color = if item.is_error_header {
                                 theme::cur().error
                             } else {
@@ -1841,24 +2003,65 @@ pub fn render_view_model_with_flags(
                         &result_lines,
                         max_lines,
                         border_color,
-                        |line, i| {
+                        |line, i, out_base| {
                             let first_prefix = if i == 0 && tool_name != "Glob" {
                                 BranchPrefix::PREFIX
                             } else {
                                 BranchPrefix::HANG
                             };
-                            // 对齐 CC：Write create 的结果行为 "Wrote N lines to <path>"，
-                            // 数字与路径加粗（FileWriteTool/UI.tsx:58-61）
+                            // 对齐参考实现的 Write create 结果行：`Wrote N lines to <path>`，
+                            // 数字与路径加粗，且路径同样包成 file:// 链接（可点击打开）。
                             if tool_name == "Write" {
-                                if let Some(styled) = format_write_summary_line(line, result_color)
+                                if let Some((styled, path_start, path_text)) =
+                                    format_write_summary_line(line, result_color)
                                 {
-                                    return format_wrapped_line_keep_lead(
-                                        styled,
-                                        first_prefix,
-                                        BranchPrefix::HANG,
-                                        Style::default().fg(border_color),
-                                        content_width,
-                                    );
+                                    let wrapped = wrap_line_spans_rich(styled, content_width);
+                                    if let Some(url) = write_target_url(&path_text) {
+                                        let path_end = path_start + path_text.chars().count();
+                                        let cont_g = BranchPrefix::HANG.chars().count();
+                                        for (j, seg) in wrapped.iter().enumerate() {
+                                            let is = path_start.max(seg.in_g_start);
+                                            let ie = path_end.min(seg.in_g_end);
+                                            if is >= ie {
+                                                continue;
+                                            }
+                                            // 首段带 `first_prefix`、续行带悬挂缩进，两者宽度相同。
+                                            let base = if j == 0 {
+                                                first_prefix.chars().count()
+                                            } else {
+                                                cont_g
+                                            };
+                                            link_hits.push(cc_widgets::markdown::LinkHit {
+                                                line: out_base + j,
+                                                g_start: base
+                                                    + seg.out_g_offset
+                                                    + (is - seg.in_g_start),
+                                                g_end: base
+                                                    + seg.out_g_offset
+                                                    + (ie - seg.in_g_start),
+                                                url: url.clone(),
+                                                // 结果行由 result_color + BOLD 着色，
+                                                // 蓝化会盖掉它的配色。
+                                                recolor: false,
+                                            });
+                                        }
+                                    }
+                                    let mut produced = Vec::with_capacity(wrapped.len());
+                                    for (j, seg) in wrapped.into_iter().enumerate() {
+                                        let prefix = if j == 0 {
+                                            first_prefix
+                                        } else {
+                                            BranchPrefix::HANG
+                                        };
+                                        let mut spans = Vec::with_capacity(seg.line.spans.len() + 1);
+                                        spans.push(Span::styled(
+                                            prefix.to_string(),
+                                            Style::default().fg(border_color),
+                                        ));
+                                        spans.extend(seg.line.spans);
+                                        produced.push(Line::from(spans));
+                                    }
+                                    return produced;
                                 }
                             }
                             format_prefixed_text(
@@ -2572,7 +2775,37 @@ pub fn render_view_model_with_flags(
                                 + 2;
                             let max_args_width =
                                 header_args_width(width, prefix_width + 2, detail_mode);
-                            let summary = tool_args_header(&entry.tool_name, args, max_args_width);
+                            // 与单条 ToolBlock 的详细模式一致：Write/Edit/Read 显示完整绝对路径
+                            let verbose = verbose_tool_args(&entry.tool_name, args);
+                            let summary =
+                                tool_args_header(&entry.tool_name, &verbose, max_args_width);
+                            let header_line = lines.len().saturating_sub(1);
+                            let args_start_g = indicator.graphemes(true).count()
+                                + 1
+                                + entry.display_name.graphemes(true).count()
+                                + 1;
+                            // 只读工具组里的 Read 路径同样可点：命中区只覆盖路径本身
+                            if let (Some(url), Some(path_text)) = (
+                                tool_file_url(&entry.tool_name, args),
+                                tool_path_text(&entry.tool_name, args),
+                            ) {
+                                let path_display = verbose_display_path(path_text)
+                                    .unwrap_or_else(|| path_text.to_string());
+                                let path_g = path_display.graphemes(true).count();
+                                let visible_g = summary.graphemes(true).count();
+                                let truncated = verbose.graphemes(true).count() > visible_g;
+                                let visible =
+                                    path_g.min(visible_g.saturating_sub(usize::from(truncated)));
+                                if visible > 0 {
+                                    link_hits.push(cc_widgets::markdown::LinkHit {
+                                        line: header_line,
+                                        g_start: args_start_g,
+                                        g_end: args_start_g + visible,
+                                        url,
+                                        recolor: false,
+                                    });
+                                }
+                            }
                             if let Some(last_line) = lines.last_mut() {
                                 last_line.spans.push(Span::styled(
                                     format!("({})", summary),
