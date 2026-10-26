@@ -165,7 +165,12 @@ fn test_width_safe_backend_native_console_degrades_permission_pill_symbol() {
     let mut backend = WidthSafeBackend::with_probe(TestBackend::new(10, 1), probe);
     let cells: Vec<Cell> = ["⏵", "⏵"].iter().map(|s| Cell::new(s)).collect();
     assert!(backend
-        .draw(cells.iter().enumerate().map(|(x, cell)| (x as u16, 0, cell)))
+        .draw(
+            cells
+                .iter()
+                .enumerate()
+                .map(|(x, cell)| (x as u16, 0, cell))
+        )
         .is_ok());
     assert_eq!(backend.inner.buffer()[(0, 0)].symbol(), ">");
     assert_eq!(
@@ -173,6 +178,35 @@ fn test_width_safe_backend_native_console_degrades_permission_pill_symbol() {
         ">",
         "两个 ⏵ 都要降级为 >"
     );
+}
+
+#[test]
+fn test_width_safe_backend_native_console_degrades_panel_and_recap_glyphs() {
+    // `※` 是 recap 前缀，`◐` 是工具 pill / SubAgent 卡片头，`▸`/`▾`/`△`/`›`
+    // 是面板折叠箭头与排队消息前缀。它们同属控制台字体盲区：缺字时列宽不变，
+    // 歧义宽度时画 2 列，两条路径都必须落到 ASCII。
+    let (probe, state) = make_probe(&[]);
+    state.borrow_mut().ascii_fallback = true;
+    let mut backend = WidthSafeBackend::with_probe(TestBackend::new(10, 1), probe);
+    let symbols = ["※", "◐", "▸", "▾", "△", "›"];
+    let cells: Vec<Cell> = symbols.iter().map(|s| Cell::new(s)).collect();
+    assert!(backend
+        .draw(
+            cells
+                .iter()
+                .enumerate()
+                .map(|(x, cell)| (x as u16, 0, cell))
+        )
+        .is_ok());
+    for (x, expected) in ["*", "*", ">", "v", "^", ">"].iter().enumerate() {
+        assert_eq!(
+            backend.inner.buffer()[(x as u16, 0)].symbol(),
+            *expected,
+            "符号 {} 应降级为 {}",
+            symbols[x],
+            expected
+        );
+    }
 }
 
 #[test]

@@ -122,6 +122,14 @@ fn ascii_fallback(symbol: &str) -> Option<&'static str> {
         // `⏵`(U+23F5) 是状态栏权限 pill 的前缀（`PERMISSION_MODE_SYMBOL` = `⏵⏵`）。
         // Misc Technical Symbols 同属控制台字体覆盖盲区，两个 `⏵` 会画成两个方框。
         "⏵" => Some(">"),
+        // `※`(U+203B) 是 recap 行前缀，`◐`(U+25D0) 是状态栏工具 pill 与 SubAgent 卡片头；
+        // 两者在控制台字体里既可能缺字（画方框），也可能被判成歧义宽度（画 2 列），
+        // 两种情况都要落到 ASCII 星号。
+        "※" | "◐" => Some("*"),
+        // 面板折叠箭头与排队消息前缀：`▸`/`›` 向右、`▾` 向下、`△` 向上。
+        "▸" | "›" => Some(">"),
+        "▾" => Some("v"),
+        "△" => Some("^"),
         _ => None,
     }
 }
