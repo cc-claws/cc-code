@@ -370,18 +370,17 @@ fn append_activity_segment(spans: &mut Vec<Span<'_>>, segment: Vec<Span<'static>
     spans.extend(segment);
 }
 
-/// 最近工具条目：运行中 `◐`（黄）/ 已完成停留期 `✓`（绿），颜色不跟工具身份色走
+/// 最近工具条目：全程 `◐`（黄），不区分运行 / 完成
+///
+/// 统一 Bash 的观感——长跑工具本来就从头到尾只有 `◐`、结束即消失。快工具
+/// （Read 5~50ms）若在结束时翻成 `✓`，`◐` 那一帧多半还没画出来，用户只见过
+/// `✓`，同一位置出现两套形态。现在图标与配色恒定，完成与否由条目到期消失体现。
 fn render_recent_tool_segment(
     entry: &crate::app::RecentToolEntry,
     colors: &SbColors,
 ) -> Vec<Span<'static>> {
-    let indicator = if entry.running {
-        Span::styled("◐", fg_style(colors.yellow))
-    } else {
-        Span::styled("✓", fg_style(colors.green))
-    };
     let mut spans = vec![
-        indicator,
+        Span::styled("◐", fg_style(colors.yellow)),
         Span::styled(" ", plain_style()),
         Span::styled(entry.display.clone(), fg_style(colors.cyan)),
     ];
@@ -1255,13 +1254,14 @@ mod tests {
     }
 
     #[test]
-    fn test_render_recent_tool_segment_uses_completed_glyph_after_finish() {
+    fn test_render_recent_tool_segment_keeps_running_glyph_after_finish() {
+        // 完成后仍画 ◐：统一 Bash 观感，避免快工具只剩 ✓ 一种形态
         let segment = render_recent_tool_segment(
             &make_recent_entry("Read", "src/deep/file.rs", false),
             &make_default_colors(),
         );
-        assert_eq!(spans_to_plain(&segment), "✓ Read: src/deep/file.rs");
-        assert_eq!(segment[0].style.fg, Some(Color::Green));
+        assert_eq!(spans_to_plain(&segment), "◐ Read: src/deep/file.rs");
+        assert_eq!(segment[0].style.fg, Some(Color::Yellow));
     }
 
     #[test]
@@ -1430,8 +1430,8 @@ mod tests {
         let line = render_recent_tools_line(&comm, &colors, at(100));
         println!("[② a 完成、仍在停留期] {line}");
         assert_eq!(
-            line, "◐ Read: src/b.rs | ✓ Read: src/a.rs",
-            "完成的条目转 ✓ 并保留原位"
+            line, "◐ Read: src/b.rs | ◐ Read: src/a.rs",
+            "完成的条目图标不变（统一 ◐），仍保留原位"
         );
 
         // ③ 第三个 Read 进来，挤掉最老的 a
@@ -1467,8 +1467,8 @@ mod tests {
         let line = render_recent_tools_line(&comm, &colors, at(200));
         println!("[④ 快 Read 结束后 200ms] {line}");
         assert_eq!(
-            line, "✓ Read: src/x.rs | ◐ Bash: sleep 240",
-            "快工具结束后仍在停留窗口内，显示 ✓"
+            line, "◐ Read: src/x.rs | ◐ Bash: sleep 240",
+            "快工具结束后仍在停留窗口内，图标仍是 ◐"
         );
 
         // ⑤ 越过停留窗口：Read 消失，Bash 继续跑
