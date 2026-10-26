@@ -481,12 +481,13 @@ queue-steer-failed = 本轮未接收补充信息，消息已保留，将按队�
 queue-steer-backgrounded = 前台命令已转入后台，补充信息将立即生效
 
 # ---- 后台 shell 通知（展示文本） ----
-shell-notify-failed = 后台 shell 失败
-shell-notify-timed-out = 后台 shell 已超时终止
-shell-notify-cancelled = 后台 shell 已取消
-shell-notify-terminated = 后台 shell 已终止
-shell-notify-completed = 后台 shell 已完成
-shell-notify-waiting-input = 后台 shell 等待输入
+shell-notify-completed = 后台命令 “{ $subject }” 已完成（退出码 { $code }）
+shell-notify-completed-plain = 后台命令 “{ $subject }” 已完成
+shell-notify-failed = 后台命令 “{ $subject }” 执行失败（退出码 { $code }）
+shell-notify-failed-reason = 后台命令 “{ $subject }” 执行失败（{ $reason }）
+shell-notify-timed-out = 后台命令 “{ $subject }” 执行超时
+shell-notify-stopped = 后台命令 “{ $subject }” 已停止
+shell-notify-waiting-input = 后台命令 “{ $subject }” 正在等待交互输入
 
 # 命令、shell 输入与状态面板
 command-ambiguous = 命令 '{ $command }' 匹配多个: { $matches } （请输入完整命令名）

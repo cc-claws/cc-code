@@ -94,7 +94,7 @@ async fn test_poll_agent_shells_reports_real_outcomes_once_even_after_early_exit
             super::background_shell::shell_notification_display_text(&notification.content)
                 .expect("用户可读通知");
         if expected == "timed out" || expected == "cancelled" {
-            assert!(!display.contains("已完成"), "超时或取消不能显示成功");
+            assert!(!display.text.contains("已完成"), "超时或取消不能显示成功");
         }
         let changed = app.poll_agent_shells();
         assert!(
@@ -156,6 +156,7 @@ fn make_agent_shell_registration(
         execution_timeout_ms: 600_000,
         timeout_ms: 300_000,
         command: command.to_string(),
+        description: None,
         cwd: ".".to_string(),
         output_path: PathBuf::from("/tmp/cc-agent-shell.output"),
         exit_signal: Arc::clone(&exit_signal),

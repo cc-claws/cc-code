@@ -482,12 +482,13 @@ queue-steer-failed = This turn did not accept the update. Your message remains q
 queue-steer-backgrounded = Foreground command moved to background so your update takes effect now
 
 # ---- Background shell notifications (display text) ----
-shell-notify-failed = Background shell failed
-shell-notify-timed-out = Background shell timed out
-shell-notify-cancelled = Background shell cancelled
-shell-notify-terminated = Background shell terminated
-shell-notify-completed = Background shell completed
-shell-notify-waiting-input = Background shell waiting for input
+shell-notify-completed = Background command "{ $subject }" completed (exit code { $code })
+shell-notify-completed-plain = Background command "{ $subject }" completed
+shell-notify-failed = Background command "{ $subject }" failed with exit code { $code }
+shell-notify-failed-reason = Background command "{ $subject }" failed ({ $reason })
+shell-notify-timed-out = Background command "{ $subject }" timed out
+shell-notify-stopped = Background command "{ $subject }" was stopped
+shell-notify-waiting-input = Background command "{ $subject }" appears to be waiting for interactive input
 
 # Commands, shell input and status panel
 command-ambiguous = Command '{ $command }' matches multiple commands: { $matches } (enter the full command name)

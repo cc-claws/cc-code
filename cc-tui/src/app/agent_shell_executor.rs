@@ -44,6 +44,8 @@ pub struct AgentShellRegistration {
     /// 模型请求的超时期限（`timeout` 参数，毫秒）；仅用于运行状态行展示。
     pub timeout_ms: u64,
     pub command: String,
+    /// 模型给的命令用途描述；通知与展示层优先用它。
+    pub description: Option<String>,
     pub cwd: String,
     pub output_path: PathBuf,
     /// UI poll 查退出（独立于 invoke 的 result_rx）
@@ -76,6 +78,8 @@ pub struct AgentShellSlot {
     /// 模型请求的超时期限（`timeout` 参数，毫秒）；仅用于运行状态行展示。
     pub timeout_ms: u64,
     pub command: String,
+    /// 模型给的命令用途描述；通知与展示层优先用它。
+    pub description: Option<String>,
     pub cwd: PathBuf,
     pub output_path: PathBuf,
     /// 退出检测信号（poll 用，独立于 invoke 的 result_rx）。
@@ -109,6 +113,7 @@ impl AgentShellSlot {
             execution_timeout_ms: reg.execution_timeout_ms,
             timeout_ms: reg.timeout_ms,
             command: reg.command,
+            description: reg.description,
             cwd: PathBuf::from(reg.cwd),
             output_path: reg.output_path,
             exit_signal: reg.exit_signal,
@@ -212,6 +217,7 @@ impl ShellExecutor for AgentShellExecutor {
             invocation,
             command,
             original_command,
+            description,
             shell,
             cwd,
             run_in_background,
@@ -297,6 +303,7 @@ impl ShellExecutor for AgentShellExecutor {
             execution_timeout_ms,
             timeout_ms,
             command: original_command,
+            description,
             cwd: cwd.clone(),
             output_path: output_path.clone(),
             exit_signal: Arc::clone(&exit_signal),
@@ -395,6 +402,7 @@ mod tests {
             execution_timeout_ms: 600_000,
             timeout_ms: 120_000,
             command: "echo hi".to_string(),
+            description: None,
             cwd: "/tmp".to_string(),
             output_path: PathBuf::from("/tmp/out.log"),
             exit_signal: Arc::new(ExitSignal::new()),
@@ -520,6 +528,7 @@ mod tests {
                 invocation: None,
                 command: quick_command().to_string(),
                 original_command: quick_command().to_string(),
+                description: None,
                 shell: cc_agent::shell::ShellDialect::PlatformDefault,
                 cwd: test_cwd(),
                 timeout_ms: 5_000,
@@ -551,6 +560,7 @@ mod tests {
                 invocation: None,
                 command: slow_command().to_string(),
                 original_command: slow_command().to_string(),
+                description: None,
                 shell: cc_agent::shell::ShellDialect::PlatformDefault,
                 cwd: test_cwd(),
                 timeout_ms: 5_000,

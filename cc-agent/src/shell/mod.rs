@@ -103,6 +103,11 @@ pub struct ShellRequest {
     /// 调用原文，用于展示；不得用改写后的文本关联原始工具行。
     /// 关联使用 invocation 中可信的 tool_call_id，而非命令内容。
     pub original_command: String,
+    /// 模型给出的命令用途描述（Bash 工具的 `description` 参数）。
+    ///
+    /// 仅用于通知与展示层：后台完成通知用它替代命令原文作为人读标识。
+    /// 不参与调度、匹配、日志或任何语义判断；缺失时展示层回退到命令文本。
+    pub description: Option<String>,
     /// 启动前确定的解释器。
     pub shell: ShellDialect,
     /// 工作目录。
