@@ -2627,6 +2627,7 @@ fn test_compact_done_rendering_no_bullet_prefix() {
         content: content.to_string(),
         content_hash: 0,
         detail_content: None,
+        tone: None,
     };
     let text_lines: Vec<String> = render_view_model(&vm, None, 80, false, 0)
         .iter()
@@ -2695,6 +2696,7 @@ fn test_all_paths_preserve_width_no_overflow() {
         content: long_cjk.clone(),
         content_hash: 0,
         detail_content: None,
+        tone: None,
     };
     assert!(
         max_line_width(&render_view_model(&vm, None, width, false, 0)) <= width,
@@ -3373,5 +3375,64 @@ fn test_bash_output_collapse_hint_matches_unified_style_single_line() {
     assert!(
         text.contains("… +1 line (ctrl+o to expand)"),
         "Bash 输出截断 1 行应使用单数 '… +1 line (ctrl+o to expand)'，实际: {text}"
+    );
+}
+
+/// 后台任务通知的渲染契约：`●` 前缀 + 状态色。
+///
+/// 对齐参考实现的 `UserAgentNotificationMessage`：
+/// `<Text color={color}>{BLACK_CIRCLE}</Text> {summary}`——圆点与正文同色，
+/// 颜色由 status 决定（completed→success / failed→error / killed→warning）。
+#[test]
+fn test_system_note_with_tone_renders_dot_prefix_in_status_color() {
+    use crate::ui::message_view::NoteTone;
+    // Arrange
+    let content = "Background command \"Run the test suite\" completed (exit code 0)";
+    for (tone, expected) in [
+        (NoteTone::Success, crate::ui::theme::cur().success),
+        (NoteTone::Error, crate::ui::theme::cur().error),
+        (NoteTone::Warning, crate::ui::theme::cur().warning),
+        // stall 通知无语义状态：圆点用默认前景色（参考实现 statusless 落到 'text'）
+        (NoteTone::Neutral, crate::ui::theme::cur().text),
+    ] {
+        let vm = MessageViewModel::SystemNote {
+            content: content.to_string(),
+            content_hash: 0,
+            detail_content: None,
+            tone: Some(tone),
+        };
+        // Act
+        let lines = render_view_model(&vm, None, 80, false, 0);
+        // Assert：整行必须是「● + 正文」，圆点只出现一次（曾因 first_prefix
+        // 重复传入而渲染成 `● ● …`，只查 spans[0] 的断言抓不到）。
+        let rendered: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(rendered, format!("● {content}"), "整行应为「● + 正文」");
+        assert_eq!(rendered.matches('●').count(), 1, "圆点不得重复: {rendered}");
+        assert_eq!(lines[0].spans[0].style.fg, Some(expected), "● 应使用状态色");
+        assert_eq!(
+            lines[0].spans[1].style.fg,
+            Some(crate::ui::theme::cur().text),
+            "正文应使用默认前景色（参考实现只给 ● 着色）"
+        );
+    }
+}
+
+/// 普通系统提示（无 tone）不带 `●`，颜色保持既有灰色——回归锁，防止通知样式外溢。
+#[test]
+fn test_system_note_without_tone_keeps_plain_style() {
+    // Arrange
+    let vm = MessageViewModel::SystemNote {
+        content: "Compacted conversation history".to_string(),
+        content_hash: 0,
+        detail_content: None,
+        tone: None,
+    };
+    // Act
+    let lines = render_view_model(&vm, None, 80, false, 0);
+    // Assert
+    let rendered: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
+    assert!(
+        !rendered.starts_with('●'),
+        "普通系统提示不应带 ● 前缀: {rendered}"
     );
 }

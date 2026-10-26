@@ -344,14 +344,18 @@ pub fn shell_stalled_notification(
     )
 }
 
-/// 将后台 shell 控制通知转换为 TUI 可读的一行提示。
+/// 后台任务通知的展示形态：一句人读文案 + 状态强调色。
 ///
-/// 原始 XML 仍会发送给 agent；这里仅用于聊天区展示，避免内部标签泄露给用户。
-///
-/// 展示文案走 i18n：从**进程级语言注册表**读取当前语言
-/// （`MessageViewModel::user/system/from_base_message*` 等静态构造路径没有
-/// `App`/`ServiceRegistry` 上下文，只能读全局注册表）。
-pub fn shell_notification_display_text(raw: &str) -> Option<String> {
+/// 文案与配色对齐参考实现的 `UserAgentNotificationMessage`：
+/// 只有一句 summary 上屏，状态只体现在颜色与句中措辞上。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShellNotificationDisplay {
+    pub text: String,
+    pub tone: crate::ui::message_view::NoteTone,
+}
+
+/// 将后台 shell 控制通知转换为 TUI 可读提示。
+pub fn shell_notification_display_text(raw: &str) -> Option<ShellNotificationDisplay> {
     let lc = crate::i18n::global();
     shell_notification_display_text_with(raw, &lc)
 }
@@ -360,27 +364,39 @@ pub fn shell_notification_display_text(raw: &str) -> Option<String> {
 pub fn shell_notification_display_text_with(
     raw: &str,
     lc: &crate::i18n::LcRegistry,
-) -> Option<String> {
+) -> Option<ShellNotificationDisplay> {
     let notification = unwrap_system_reminder(raw.trim());
     // 合并注入后单条消息可能包含多个通知块（甚至混合类型），按文档顺序逐块解析。
     const TAGS: [&str; 2] = [
         "background-task-completed",
         "background-task-waiting-for-input",
     ];
-    let mut lines = Vec::new();
+    let mut items: Vec<ShellNotificationDisplay> = Vec::new();
     let mut cursor = notification;
     while let Some((tag, body_start, block_end)) = next_notification_block(cursor, &TAGS) {
-        if let Some(line) = render_notification_block(tag, &cursor[body_start..block_end], lc) {
-            lines.push(line);
+        if let Some(item) = render_notification_block(tag, &cursor[body_start..block_end], lc) {
+            items.push(item);
         }
         cursor = &cursor[block_end + format!("</{tag}>").len()..];
     }
 
-    if lines.is_empty() {
-        None
-    } else {
-        Some(lines.join("\n"))
+    if items.is_empty() {
+        return None;
     }
+    // 多块合并时取最严重的语义色（错误 > 警告 > 成功），文案按行拼接。
+    let tone = items
+        .iter()
+        .map(|item| item.tone)
+        .min_by_key(|tone| tone.severity())
+        .unwrap_or(crate::ui::message_view::NoteTone::Success);
+    Some(ShellNotificationDisplay {
+        text: items
+            .into_iter()
+            .map(|item| item.text)
+            .collect::<Vec<_>>()
+            .join("\n"),
+        tone,
+    })
 }
 
 /// 在 `cursor` 中定位最早出现的通知块，返回 `(tag, body_start, body_end)`。
@@ -404,7 +420,7 @@ fn render_notification_block(
     tag: &str,
     block: &str,
     lc: &crate::i18n::LcRegistry,
-) -> Option<String> {
+) -> Option<ShellNotificationDisplay> {
     let subject = notification_subject(block);
     match tag {
         "background-task-completed" => {
@@ -412,31 +428,90 @@ fn render_notification_block(
                 .map(xml_unescape)
                 .map(|s| super::tool_display::sanitize_display_text(&s))
                 .unwrap_or_else(|| "completed".to_string());
-            let verb = if status.starts_with("failed") {
-                lc.tr("shell-notify-failed")
-            } else if status.starts_with("timed out") {
-                lc.tr("shell-notify-timed-out")
-            } else if status.starts_with("cancelled") {
-                lc.tr("shell-notify-cancelled")
-            } else if status == "terminated" {
-                lc.tr("shell-notify-terminated")
-            } else {
-                lc.tr("shell-notify-completed")
-            };
-            // 动词前缀已经表达状态，括号里只放细节（exit code / 错误原因），
-            // 不再把整个 status 原样包一层，避免 `(completed (exit 0))`。
-            Some(match status_detail(&status) {
-                Some(detail) => format!("{verb}: {subject} ({detail})"),
-                None => format!("{verb}: {subject}"),
-            })
+            Some(notification_for_status(&status, &subject, lc))
         }
-        "background-task-waiting-for-input" => Some(format!(
-            "{}: {}",
-            lc.tr("shell-notify-waiting-input"),
-            subject
-        )),
+        "background-task-waiting-for-input" => Some(ShellNotificationDisplay {
+            text: lc.tr_args(
+                "shell-notify-waiting-input",
+                &[("subject".to_string(), subject.into())],
+            ),
+            // 参考实现的 stall 通知没有 `<status>`，渲染时落到默认前景色。
+            tone: crate::ui::message_view::NoteTone::Neutral,
+        }),
         _ => None,
     }
+}
+
+/// 把 `completed (exit 0)` 这类状态映射成与参考实现一致的整句文案 + 强调色。
+///
+/// 文案形态对齐 `UserAgentNotificationMessage` 的 summary：
+/// `Background command "<subject>" completed (exit code 0)`。
+fn notification_for_status(
+    status: &str,
+    subject: &str,
+    lc: &crate::i18n::LcRegistry,
+) -> ShellNotificationDisplay {
+    use crate::ui::message_view::NoteTone;
+    let detail = status_detail(status);
+    let exit_code = detail.and_then(parse_exit_code);
+    let subject_arg = || ("subject".to_string(), subject.to_string().into());
+    // 负退出码（channel 异常兜底）与 128+n（被信号终止）在参考实现里属于
+    // killed → `was stopped`，不应渲染成红字失败。
+    if matches!(exit_code, Some(code) if code < 0 || (128..=165).contains(&code)) {
+        return ShellNotificationDisplay {
+            text: lc.tr_args("shell-notify-stopped", &[subject_arg()]),
+            tone: NoteTone::Warning,
+        };
+    }
+    if status.starts_with("failed") {
+        let text = match exit_code {
+            Some(code) => lc.tr_args(
+                "shell-notify-failed",
+                &[subject_arg(), ("code".to_string(), code.to_string().into())],
+            ),
+            None => lc.tr_args(
+                "shell-notify-failed-reason",
+                &[
+                    subject_arg(),
+                    (
+                        "reason".to_string(),
+                        detail.unwrap_or("failed").to_string().into(),
+                    ),
+                ],
+            ),
+        };
+        ShellNotificationDisplay {
+            text,
+            tone: NoteTone::Error,
+        }
+    } else if status.starts_with("timed out") {
+        ShellNotificationDisplay {
+            text: lc.tr_args("shell-notify-timed-out", &[subject_arg()]),
+            tone: NoteTone::Warning,
+        }
+    } else if status.starts_with("cancelled") || status == "terminated" {
+        ShellNotificationDisplay {
+            text: lc.tr_args("shell-notify-stopped", &[subject_arg()]),
+            tone: NoteTone::Warning,
+        }
+    } else {
+        let text = match exit_code {
+            Some(code) => lc.tr_args(
+                "shell-notify-completed",
+                &[subject_arg(), ("code".to_string(), code.to_string().into())],
+            ),
+            None => lc.tr_args("shell-notify-completed-plain", &[subject_arg()]),
+        };
+        ShellNotificationDisplay {
+            text,
+            tone: NoteTone::Success,
+        }
+    }
+}
+
+/// 从 `exit 0` 这类细节里解析退出码；其它细节（超时原因、错误消息）返回 `None`。
+fn parse_exit_code(detail: &str) -> Option<i32> {
+    detail.strip_prefix("exit ")?.trim().parse().ok()
 }
 
 /// 通知行里「任务标识」的最大显示列宽。
