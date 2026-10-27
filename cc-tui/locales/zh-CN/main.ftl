@@ -701,7 +701,7 @@ bg-agent-question-hint = Enter:查看问题
 bg-agent-approval-request = [审批请求] 子Agent "{ $agent }": { $action } [{ $hint }]
 bg-agent-nav-hint = ↑/↓ · Enter 查看 · x 停止
 bg-agent-bar-expand = [{ $agents }] (↓ 展开管理)
-compact-context-summarized = 📋 上下文已压缩
+compact-context-summarized = 上下文已压缩
 bg-moved-to-background = 已转入后台（任务 { $task }）
 bg-output-file = 输出文件：{ $path }
 

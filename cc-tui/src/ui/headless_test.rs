@@ -1333,7 +1333,7 @@ async fn test_compact_done_with_re_inject() {
     );
     let has_compact = msgs.iter().any(|m| {
         if let MessageViewModel::SystemNote { content, .. } = m {
-            content.contains("✻ Context compressed")
+            content.contains("✻ Context compacted")
                 && content.contains("Read /a.rs")
                 && content.contains("Skill: skill.md")
         } else {
@@ -1355,7 +1355,7 @@ async fn test_compact_done_without_re_inject() {
     assert_eq!(msgs.len(), 1, "应只有 1 条压缩占位消息");
     let has_compact = msgs.iter().any(|m| {
         if let MessageViewModel::SystemNote { content, .. } = m {
-            content.contains("✻ Context compressed")
+            content.contains("✻ Context compacted")
         } else {
             false
         }
