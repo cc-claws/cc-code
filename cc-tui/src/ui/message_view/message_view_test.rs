@@ -1,4 +1,5 @@
 use super::*;
+use crate::ui::message_view::tools::is_readonly_shell_command;
 use crate::ui::message_view::ContentBlockView;
 use cc_agent::messages::{MessageContent, ToolCallRequest};
 use serde_json::json;
@@ -969,4 +970,34 @@ fn test_rebuilt_user_message_only_links_identifiers_with_real_image_blocks() {
     assert!(
         matches!(message, MessageViewModel::UserBubble { ref image_paths, .. } if image_paths.is_empty())
     );
+}
+
+#[test]
+fn test_is_readonly_shell_command_detects_file_inspection() {
+    let yes = [
+        "grep -rn \"x\" app/ | head -5",
+        "cd /d/code/nt_order && sed -n '159,260p' app/a.php | grep -n FBE",
+        "grep -rn A app/ ; echo '---' ; grep -rn B app/",
+        "ls -la",
+        "find . -name '*.rs'",
+        "wc -l file",
+        "VAR=1 grep x file",
+        "cd /tmp && cat a.txt",
+    ];
+    for cmd in yes {
+        assert!(is_readonly_shell_command(cmd), "应判定为只读查看: {cmd}");
+    }
+    let no = [
+        "cargo build -p cc-tui",
+        "git show origin/test:app/x.php",
+        "cd /d/code/nt_order && git status",
+        "cat a.txt > b.txt",
+        "echo hello",
+        "cd /tmp",
+        "./target/debug/cc-code --version",
+        "grep x f | xargs rm",
+    ];
+    for cmd in no {
+        assert!(!is_readonly_shell_command(cmd), "不应判定为只读查看: {cmd}");
+    }
 }

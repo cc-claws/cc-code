@@ -1845,8 +1845,8 @@ fn test_non_edit_tool_no_diff_input() {
         tool_call_id: "tc_bash1".into(),
         name: "Bash".into(),
         display: "Bash".into(),
-        args: "ls -la".into(),
-        input: json!({"command": "ls -la"}),
+        args: "cargo build -p cc-tui".into(),
+        input: json!({"command": "cargo build -p cc-tui"}),
         source_agent_id: None,
     });
     pipeline.handle_event(AgentEvent::ToolEnd {
@@ -2624,13 +2624,25 @@ fn test_action_summary_plural_and_glob() {
 #[test]
 fn test_bash_not_counted_as_readonly() {
     // Arrange：只有 Bash（不属只读工具）
-    let msgs = make_ai_with_tools(&[("Bash", "ls")]);
+    let msgs = make_ai_with_tools(&[("Bash", "cargo build -p cc-tui")]);
 
     // Act
     let vms = MessagePipeline::messages_to_view_models(&msgs, "/p");
 
-    // Assert：无只读工具 → 不注入
-    assert_eq!(first_action_summary(&vms), None, "Bash 不应产生计数");
+    // Assert：非只读命令 → 不注入计数（`ls` 这类会被确定性判定折叠，见下一个用例）
+    assert_eq!(first_action_summary(&vms), None, "非只读 Bash 不应产生计数");
+}
+
+#[test]
+fn test_bash_readonly_heuristic_folds_without_flag() {
+    // 模型没声明 file_inspect，但命令本身是文件查看 → 确定性判定应折叠并计数
+    let msgs = make_ai_with_tools(&[("Bash", "ls -la")]);
+    let vms = MessagePipeline::messages_to_view_models(&msgs, "/p");
+    assert_eq!(
+        first_action_summary(&vms).as_deref(),
+        Some("ran 1 shell command"),
+        "只读命令应由启发式判为文件查看"
+    );
 }
 
 #[test]

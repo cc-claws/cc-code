@@ -287,7 +287,8 @@ fn test_parallel_tools_read_counted_alongside_bash() {
             ToolCallRequest {
                 id: "b1".to_string(),
                 name: "Bash".to_string(),
-                arguments: serde_json::json!({ "command": "ls" }),
+                // 非只读命令：本轮改由确定性判定折叠，`ls` 会被判为文件查看，这里用 build 区分
+                arguments: serde_json::json!({ "command": "cargo build -p cc-tui" }),
             },
             ToolCallRequest {
                 id: "r1".to_string(),

@@ -1644,8 +1644,8 @@ async fn test_tool_then_text_preserves_tool_block() {
         tool_call_id: "tc1".into(),
         name: "Bash".into(),
         display: "Bash".into(),
-        args: "ls".into(),
-        input: serde_json::json!({"command": "ls"}),
+        args: "cargo build -p cc-tui".into(),
+        input: serde_json::json!({"command": "cargo build -p cc-tui"}),
         source_agent_id: None,
     });
     app.push_agent_event(AgentEvent::AssistantChunk {

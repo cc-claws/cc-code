@@ -115,11 +115,74 @@ impl ToolCategory {
 
 /// 文件查看类 Bash（模型显式声明 `file_inspect=true` 才成立）。
 pub fn is_file_inspect(tool_name: &str, input: &serde_json::Value) -> bool {
-    tool_name == "Bash"
-        && input
-            .get("file_inspect")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false)
+    if tool_name != "Bash" {
+        return false;
+    }
+    // 模型显式声明优先（可覆盖启发式）
+    if let Some(flag) = input.get("file_inspect").and_then(serde_json::Value::as_bool) {
+        return flag;
+    }
+    // 未声明时退回确定性判定：命令里每个可执行都是文件查看器才算（参考实现同款思路）
+    input
+        .get("command")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(is_readonly_shell_command)
+}
+
+/// 只读文件查看命令的确定性判定（与参考实现的 `isSearchOrReadCommand` 同源）。
+///
+/// - 按 `|`、`||`、`&&`、`;`、换行拆段；
+/// - 每段首个可执行须在白名单内，或属于中性命令（cd/pwd/echo/printf/true/false/:、`VAR=x` 前缀）；
+/// - 任一段出现重定向（`>`/`>>`）→ 判定为非只读；
+/// - 至少有一段是真正的文件查看器（纯 `cd`/`echo` 不算）。
+pub fn is_readonly_shell_command(command: &str) -> bool {
+    const READERS: [&str; 21] = [
+        "ls", "cat", "head", "tail", "find", "wc", "rg", "grep", "tree", "du", "stat", "file",
+        "less", "more", "strings", "jq", "awk", "cut", "sort", "uniq", "tr",
+    ];
+    const NEUTRAL: [&str; 10] = [
+        "cd", "pwd", "echo", "printf", "true", "false", ":", "export", "set", "which",
+    ];
+
+    let mut saw_reader = false;
+    for raw in command.split(['|', ';', '\n']).flat_map(|s| s.split("&&")) {
+        let seg = raw.trim();
+        if seg.is_empty() {
+            continue;
+        }
+        if seg.contains('>') {
+            return false;
+        }
+        let mut tokens = seg.split_whitespace();
+        let Some(first) = tokens.next() else {
+            continue;
+        };
+        let mut exe = first;
+        // 跳过 `VAR=value` 前缀
+        while exe.contains('=') {
+            match tokens.next() {
+                Some(next) => exe = next,
+                None => return false,
+            }
+        }
+        let exe = exe.trim_matches(|c| c == '(' || c == ')');
+        if NEUTRAL.contains(&exe) {
+            continue;
+        }
+        if exe == "sed" {
+            if tokens.any(|t| t.starts_with("-n")) {
+                saw_reader = true;
+                continue;
+            }
+            return false;
+        }
+        if READERS.contains(&exe) {
+            saw_reader = true;
+            continue;
+        }
+        return false;
+    }
+    saw_reader
 }
 
 /// 工具条目（聚合组内）
