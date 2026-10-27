@@ -3795,7 +3795,11 @@ fn test_active_thinking_tail_reports_hidden_lines() {
     }
     // Act
     let rendered = rendered_text(&render_view_model(&vm, None, 80, false, 0));
-    // Assert：只渲染最后 10 行，其余 3 行折成展开提示
+    // Assert：活跃态 `● Thinking for Ns…` 展示最后 10 行，其余 3 行折成展开提示
+    assert!(
+        rendered.contains("Thinking for 3s"),
+        "活跃态应显示走秒摘要行: {rendered}"
+    );
     assert!(
         rendered.contains("… +3 lines (ctrl+o to expand)"),
         "超过 10 行的思考应补展开提示，实际: {rendered}"
@@ -3803,6 +3807,14 @@ fn test_active_thinking_tail_reports_hidden_lines() {
     assert!(!rendered.contains("n01"), "被折叠的行不应出现: {rendered}");
     assert!(rendered.contains("n04"), "尾部窗口应从第 4 行开始: {rendered}");
     assert!(rendered.contains("n13"), "最后一行应可见: {rendered}");
+    // 详细模式（Ctrl+O）：显示完整正文，且不再出现展开提示
+    let detail = rendered_text(&render_view_model(&vm, None, 80, true, 0));
+    assert!(detail.contains("n01"), "详细模式应显示首行: {detail}");
+    assert!(detail.contains("n13"), "详细模式应显示末行: {detail}");
+    assert!(
+        !detail.contains("ctrl+o to expand"),
+        "已展开时不应出现展开提示: {detail}"
+    );
 }
 
 /// 构造一个「思考结束」的 Reasoning 气泡，`finished_ago_ms` 表示结束至今的毫秒数。
@@ -3834,7 +3846,15 @@ fn test_finished_thinking_tail_retained_within_960ms() {
     let vm = make_finished_thinking_vm(100);
     // Act
     let rendered = rendered_text(&render_view_model(&vm, None, 80, false, 0));
-    // Assert
+    // Assert：留存窗口内保持活跃形态（● Thinking），尾巴仍在
+    assert!(
+        rendered.contains("Thinking for 5s"),
+        "留存窗口内应保持活跃形态，不应已落成 Thought: {rendered}"
+    );
+    assert!(
+        !rendered.contains("Thought for"),
+        "留存窗口内不应提前落成 Thought 摘要行: {rendered}"
+    );
     assert!(rendered.contains("n13"), "留存窗口内尾巴应仍可见: {rendered}");
     assert!(
         rendered.contains("… +3 lines (ctrl+o to expand)"),
@@ -3856,5 +3876,9 @@ fn test_finished_thinking_tail_expires_after_960ms() {
     assert!(
         !rendered.contains("… +3 lines"),
         "超出窗口后不应再有展开提示: {rendered}"
+    );
+    assert!(
+        !rendered.contains("Thinking for"),
+        "超出窗口后应落成 Thought 摘要行，不再是活跃形态: {rendered}"
     );
 }

@@ -1592,7 +1592,7 @@ pub fn render_view_model_with_flags(
                         active: block_active,
                         active_since,
                         finished_at,
-                        hint: last_hint,
+                        ..
                     } => {
                         // Thought 标题：缩进 2 列对齐
                         let hint = if detail_mode {
@@ -1612,22 +1612,37 @@ pub fn render_view_model_with_flags(
                             });
                         // 走秒口径同参考实现 Jc：已完成累计 + 距锚点（最后一段思考结束）的增量，
                         // 至少显示 1s。
-                        let live_ms = active.then(|| {
+                        // 留存窗口内**保持活跃形态**（`● Thinking for Ns…` + 正文尾巴），
+                        // 窗口结束才落成 `Thought for Ns` 摘要行：已完成的 Thought 行不带任何正文。
+                        let live_ms = (active || retained).then(|| {
                             let base = duration_ms.unwrap_or(0);
-                            let extra = active_since
-                                .map(|anchor| anchor.elapsed().as_millis() as u64)
-                                .unwrap_or(0);
+                            let extra = if active {
+                                active_since
+                                    .map(|anchor| anchor.elapsed().as_millis() as u64)
+                                    .unwrap_or(0)
+                            } else {
+                                0
+                            };
                             base + extra
                         });
                         let live_secs = live_ms.map(|ms| ms.max(1000) / 1000);
                         let (prefix, timing) = if let Some(secs) = live_secs {
                             // `●` 本身闪烁（显/隐），用墙钟 500ms 相位驱动，
                             // 与 render_key 的相位判定同源，避免"时闪时不闪"。
-                            let phase = std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .map(|d| (d.as_millis() / 500) % 2)
-                                .unwrap_or(0);
-                            let dot = if phase == 0 { "● ".to_string() } else { "  ".to_string() };
+                            // 留存窗口内（思考已结束）不再闪烁，恒显 `●`。
+                            let dot = if !active {
+                                "● ".to_string()
+                            } else {
+                                let phase = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .map(|d| (d.as_millis() / 500) % 2)
+                                    .unwrap_or(0);
+                                if phase == 0 {
+                                    "● ".to_string()
+                                } else {
+                                    "  ".to_string()
+                                }
+                            };
                             (dot, format!("Thinking for {secs}s"))
                         } else {
                             // 有耗时 → `Thought for Ns`；无耗时（历史旧数据）→ 回退字数
@@ -1665,30 +1680,11 @@ pub fn render_view_model_with_flags(
                             title,
                             Style::default().fg(title_color),
                         )]));
-                        // 活跃满 2 秒后补一行思考摘要（对齐参考实现的 latestThinkingSummary）：
-                        // 只取最后一条**完整**非空行，避免流式半行抖动。
-                        // `⎿` 提示行（对齐参考实现）：
-                        // - 有工具动作 → 显示该动作（命令/路径/pattern），单行；
-                        // - 否则回退思考摘要，尾部最多 10 行（`ak = 10`）；
-                        // - 有内容就常驻渲染，避免"快闪看不到"（参考实现另有 3s 最小保持）。
-                        let hint_line = last_hint
-                            .as_ref()
-                            .map(|h| h.trim().to_string())
-                            .filter(|h| !h.is_empty());
-                        // `⎿` 只在**活跃组**渲染（参考实现 `fm = isActive && summary`）；
-                        // 冻结后的 Thought 行不补提示，避免与下方工具块重复。
-                        if live_secs.is_none() && !retained {
-                            // 已完成且超出留存窗口：不渲染任何提示行
-                        } else if let Some(line) = hint_line {
-                            push_prefixed_text(
-                                &mut lines,
-                                &line,
-                                BranchPrefix::PREFIX,
-                                Style::default().fg(theme::cur().inactive),
-                                Style::default().fg(theme::cur().inactive),
-                                BranchPrefix::content_width(width),
-                            );
-                        } else if retained || live_secs.is_some_and(|secs| secs >= 2) {
+                        // 普通模式：活跃（含结束后 960ms 留存窗口）展示最后 10 行正文，
+                        // 超出部分折成 `… +N lines`；不补 `⎿` 提示行。
+                        // 留存窗口结束 → 只剩 `Thought for Ns` 摘要行，不带任何正文。
+                        // 完整正文请按 Ctrl+O（详细模式，走下方 markdown 管线）。
+                        if retained || live_secs.is_some_and(|secs| secs >= 2) {
                             let tail: Vec<&str> = text
                                 .lines()
                                 .map(str::trim)
@@ -2914,19 +2910,6 @@ pub fn render_view_model_with_flags(
                         }
                     }
                     lines.push(Line::from(""));
-                }
-                // 活跃时补 ⎿ 提示（只用入组条目提供的 hint）
-                if live_ms.is_some_and(|ms| ms >= 2000) {
-                    if let Some(line) = t.hint.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-                        push_prefixed_text(
-                            &mut lines,
-                            line,
-                            BranchPrefix::PREFIX,
-                            Style::default().fg(theme::cur().inactive),
-                            Style::default().fg(theme::cur().inactive),
-                            BranchPrefix::content_width(width),
-                        );
-                    }
                 }
             }
 
