@@ -222,6 +222,22 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
         state: &mut S,
         cancel: Option<CancellationToken>,
     ) -> AgentResult<AgentOutput> {
+        let mut prepended_ids = Vec::new();
+        let result = self
+            .execute_inner(input, state, cancel, &mut prepended_ids)
+            .await;
+        // 成功、错误或取消均清理本轮临时前缀，包括 full compact 原样保留的消息。
+        Self::cleanup_prepended(state, &prepended_ids);
+        result
+    }
+
+    async fn execute_inner(
+        &self,
+        input: AgentInput,
+        state: &mut S,
+        cancel: Option<CancellationToken>,
+        prepended_ids: &mut Vec<MessageId>,
+    ) -> AgentResult<AgentOutput> {
         // 若未提供 token，创建一个永不触发的占位符，简化后续逻辑
         let cancel = cancel.unwrap_or_default();
         let _steering_guard = self.steering.as_ref().map(|queue| queue.close_on_drop());
@@ -295,7 +311,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
         // 1. 所有 prepend 都只插入 System 消息
         // 2. 原始消息的头部不应有 System（compact 注入的 System 用 add_message 追加到尾部）
         // 3. SkillPreload 的 add_message(Ai/Tool) 不在头部
-        let prepended_ids: Vec<MessageId> = state
+        *prepended_ids = state
             .messages()
             .iter()
             .take_while(|m| m.is_system())
@@ -400,11 +416,6 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
             }
         }
 
-        // 清理临时 prepend 的 system 消息（before_agent + with_system_prompt 注入）
-        // compact 可能已替换所有消息（此时 prepended_ids 中的 ID 不存在，retain 无操作）
-        // 未发生 compact 时，移除 prepend 的 system 消息防止累积到 history
-        Self::cleanup_prepended(state, &prepended_ids);
-
         if let Some(output) = final_result {
             return Ok(output);
         }
@@ -435,7 +446,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
                     .collect::<Vec<_>>(),
                 "ReAct 循环达到最大迭代次数"
             );
-            return Err(AgentError::MaxIterationsExceeded(self.max_iterations));
+            Err(AgentError::MaxIterationsExceeded(self.max_iterations))
         }
     }
 
@@ -467,7 +478,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
     }
 
     /// 移除 execute() 开头通过 before_agent + with_system_prompt prepend 的临时 system 消息。
-    /// compact 发生时这些 ID 已不存在于 state 中，retain 无操作。
+    /// full compact 保留原消息 ID；只按这些 ID 清理，不移除压缩恢复的文件 System。
     fn cleanup_prepended(state: &mut S, ids: &[MessageId]) {
         if ids.is_empty() {
             return;

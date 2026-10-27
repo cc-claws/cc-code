@@ -232,7 +232,14 @@ async fn make_model_request(
 
 async fn make_model_endpoint(
     protocol: MockProvider,
-    mut initial_response: Option<String>,
+    initial_response: Option<String>,
+) -> MockModelEndpoint {
+    make_scripted_model_endpoint(protocol, initial_response.into_iter().collect()).await
+}
+
+async fn make_scripted_model_endpoint(
+    protocol: MockProvider,
+    responses: Vec<String>,
 ) -> MockModelEndpoint {
     // 只绑定本机回环端口；测试不修改全局配置、环境变量或用户记忆文件。
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -246,6 +253,7 @@ async fn make_model_endpoint(
     let captured_requests = Arc::clone(&requests);
     let response = make_stream_response(protocol);
     let task = tokio::spawn(async move {
+        let mut responses = responses.into_iter();
         while let Ok((mut stream, _)) = listener.accept().await {
             let request =
                 tokio::time::timeout(Duration::from_secs(10), make_model_request(&mut stream))
@@ -253,7 +261,7 @@ async fn make_model_endpoint(
                     .expect("本地模型请求应及时发送")
                     .expect("本地模型请求应是完整 JSON");
             captured_requests.lock().push(request);
-            let response = initial_response.take().unwrap_or_else(|| response.clone());
+            let response = responses.next().unwrap_or_else(|| response.clone());
             stream
                 .write_all(response.as_bytes())
                 .await
@@ -266,6 +274,9 @@ async fn make_model_endpoint(
         task,
     }
 }
+
+#[path = "builder_memory_compact_test.rs"]
+mod compact_tests;
 
 async fn make_two_turn_requests(
     protocol: MockProvider,

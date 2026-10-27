@@ -62,6 +62,8 @@
 
 `CompactMiddleware`：`before_model` 钩子，在 ReAct 循环内触发 compact。**[TRAP]** Micro compact 必须加 once-per-prompt 守卫（AtomicBool），否则每轮都重复触发。（详见 spec/global/domains/compact.md#issue_2026-05-23-micro-compact-repeated-triggering）
 
+**[TRAP]** Full compact 只替换对话历史，必须原样保留头部连续 System 前缀（冻结提示词、记忆索引和中间件指引）的内容、顺序与消息 ID；祖先边界内的前缀不重复恢复。`CompactCompleted.messages` 只发送摘要和文件/技能恢复项，临时前缀由 executor 在正常结束、模型错误或取消时按原 ID 清理，不能整类删除 System，否则会误删恢复文件。
+
 ## LSP 中间件
 
 `LspMiddleware` + `LspTool` + `cc-lsp` 客户端库。10 种操作（goToDefinition/findReferences/hover 等），`after_tool` 自动同步文件变更（`didChange` + `didSave`）。
