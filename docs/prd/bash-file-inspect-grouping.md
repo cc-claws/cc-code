@@ -965,3 +965,80 @@ pub struct GroupThinking {
    - **体验一致稳定**：只要是文件只读查看类命令，必定自动折叠，不再受模型输出概率影响；
    - **完全标准兼容**：对外工具接口干净无私有污染。
 
+
+---
+
+### 13.11 审计驱动的修正（2026-10-27 深夜）
+
+对 PR #762 做了一轮**内存 / 渲染缓存**审计（Codex 静态阅读，两片并行：内存、渲染缓存），
+以下是逐项处置。
+
+#### 13.11.1 自动 compact 不再清屏
+
+手动 `/compact` 与自动 compact 原先共用同一条路径：清空 `view_messages`，只留一行压缩通知。
+自动触发时用户并未要求重置视图，已读历史被整段吞掉，观感等同清屏。现按 `compact_manual` 分流：
+
+| 触发方式 | 视图行为 |
+|----------|----------|
+| 手动 `/compact` | 维持原样：视图重置为一行压缩通知 |
+| 自动 compact | 保留全部已显示历史，仅追加一行通知；`round_start_vm_idx` 前移到视图末尾，后续重建只处理新增部分 |
+
+模型侧上下文两者一致（都是压缩后的），即**显示与上下文分离**。
+
+#### 13.11.2 普通模式不再展示思考正文
+
+思考通常只有 1 秒，正文刚出现就收起，既读不清又抖动。960ms 留存窗口 + 尾巴正文整套删除，
+普通模式只保留摘要行，正文统一走 `Ctrl+O`。同步删除 `THINKING_RETAIN_MS`、
+`GroupThinking.finished_at`、`Reasoning.finished_at`、`thinking_retain_pending()`
+以及渲染键里的留存态。
+
+**思考行符号定稿**（替代此前 §13.2 的 `●`）：
+
+- 活跃：`∴ Thinking for Ns, <现在时>…`，`∴` 按墙钟 500ms 相位闪烁（隐帧为两空格）
+- 冻结：`  Thought for Ns, <过去时> (ctrl+o to expand)`，两空格缩进、**无符号**
+
+`∴` 与正文气泡的 `● ` 前缀区分开，避免两种含义混用同一个字形。
+
+#### 13.11.3 视图历史上限
+
+自动 compact 保留历史后 `view_messages` 只增不减，而每条 VM 都带 rendered 快照、思考正文与
+工具输出，长会话内存无上限。新增 `MAX_VIEW_MESSAGES = 10_000` 与 `App::trim_view_history`：
+
+- 超限时裁掉最老的一段，首位插入一行「… 更早的 N 条历史已省略（视图上限 N 条，模型上下文不受影响）」
+- 同步平移 `round_start_vm_idx` 与 `ephemeral_notes` 锚点，作废跨裁剪会错位的文本选区
+- 被裁掉的只是**屏幕历史**，pipeline 的规范消息（模型上下文）不受影响，`/rewind` 语义不变
+- 调用点在自动 compact 完成路径；未超限时是一次长度比较（O(1)）
+
+#### 13.11.4 卡住检测的指纹口径演进
+
+| 版本 | 指纹口径 | 结果 |
+|------|----------|------|
+| 初版 | thinking 前 200 字符 | 连续 `Edit` 时思考常以同一套话起手 → 误判「卡住」，**跳过当轮工具执行** |
+| 全文版 | 全文（空白归一化） | 误判消失；但每轮构造整串、窗口还留 8 份全文 |
+| 现行 | 全文的 64 位摘要（逐词喂 hasher，词间插固定分隔） | 分配降到 O(1)，窗口 8×8 字节；判等语义不变 |
+
+判据仍是「8 轮窗口内同一指纹累计出现 3 次」，A→B→C 周期循环仍能命中；纯空白思考返回
+`None` 不入窗。
+
+#### 13.11.5 渲染缓存链路的核查结论
+
+- `estimator::is_live` 原先只覆盖「运行中的工具块 / ShellCommand / SubAgentGroup」，
+  活跃思考行不参与 tick → 虚拟布局持续命中过期成品（走秒与闪烁停住）。现补充
+  `AssistantBubble` 与 `ToolCallGroup` 的 `active` 判定。
+- 时间相关的渲染态（留存窗口）随 13.11.2 删除后，`is_cosmetic_change`、
+  `normalize_active_thinking` 与墙钟的耦合面收敛，不再有「到期无人重绘」这一类问题。
+
+#### 13.11.6 已知未修（审计遗留）
+
+- `resolve_render_vms` 每次重建都 `to_vec()` 全量克隆 VM（含 rendered 快照）。要消除需把
+  渲染线程的数据所有权改为 `Arc`，属结构性改动，本期未做。
+- `normalize_active_thinking` 每次 RebuildAll 仍全量扫描视图；视图现已设上限（1 万条），
+  复杂度 O(n) 但有界。
+
+#### 13.11.7 验证状态
+
+- `cargo test -p cc-tui --lib`：1733 passed（唯一失败项是按旧留存语义写的 `is_live` 用例，
+  已改为断言「活跃思考算 live」，定向复跑通过）
+- `cargo test -p cc-agent --lib stuck`：3 passed
+- `cargo clippy -p cc-tui --all-targets`：0 warning（在 13.11.1~13.11.2 之后跑过）
+- 真机：`target-verify/cc-code-test-final.exe`（21:23，含 merge 后全部改动）
