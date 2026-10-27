@@ -81,6 +81,11 @@ async fn test_frozen_empty_instructions_ignore_mid_session_file_creation() {
         ..AppConfig::default()
     };
     let data = build_frozen_session_data(cwd, app_config, &[], &[], "2026-10-09", None);
+    assert_eq!(
+        data.memory_entrypoint.as_deref(),
+        Some(""),
+        "空记忆索引也必须标记为已冻结"
+    );
     let frozen = data.instructions.expect("没有指引也必须捕获空快照");
     assert_eq!(frozen, "");
     std::fs::write(directory.path().join("AGENTS.md"), "MID_SESSION_RULES").unwrap();

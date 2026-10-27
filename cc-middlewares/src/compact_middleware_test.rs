@@ -29,6 +29,45 @@ impl BaseModel for MockCompactModel {
     }
 }
 
+struct MockFailedCompactModel;
+
+#[async_trait]
+impl BaseModel for MockFailedCompactModel {
+    async fn invoke(&self, _request: LlmRequest) -> AgentResult<LlmResponse> {
+        Err(cc_agent::error::AgentError::LlmError(
+            "模拟摘要失败".to_string(),
+        ))
+    }
+
+    fn provider_name(&self) -> &str {
+        "mock"
+    }
+
+    fn model_id(&self) -> &str {
+        "mock-failed-compact"
+    }
+}
+
+struct MockCancellingCompactModel {
+    cancel: AgentCancellationToken,
+}
+
+#[async_trait]
+impl BaseModel for MockCancellingCompactModel {
+    async fn invoke(&self, request: LlmRequest) -> AgentResult<LlmResponse> {
+        self.cancel.cancel();
+        MockCompactModel.invoke(request).await
+    }
+
+    fn provider_name(&self) -> &str {
+        "mock"
+    }
+
+    fn model_id(&self) -> &str {
+        "mock-cancelling-compact"
+    }
+}
+
 fn make_state() -> AgentState {
     AgentState::new("/tmp/test")
 }
@@ -250,129 +289,276 @@ async fn test_micro_compact_once_per_prompt() {
     assert!(mw.micro_compact_done.load(Ordering::Relaxed));
 }
 
-/// 验证 compact 替换 messages 后，头部 System 消息被保留
-/// 根因：do_full_compact 用 *state.messages_mut() = new_messages 整体替换，
-/// 丢失了 with_system_prompt / before_agent 注入的头部 System 消息。
-/// 修复：compact 后重新前置原始头部的 System 消息。
-#[test]
-fn test_do_full_compact_preserves_system_prefix() {
-    // 模拟 compact 前的 state.messages()：
-    // [System(system_prompt), System(claude_md), Human(input), Ai(response), Tool(result)]
-    let original_messages = [
-        BaseMessage::system("system prompt"),
-        BaseMessage::system("CLAUDE.md content"),
-        BaseMessage::human(vec![ContentBlock::text("user message")]),
-        BaseMessage::ai_with_tool_calls(
-            cc_agent::messages::MessageContent::text("assistant response"),
-            vec![cc_agent::messages::ToolCallRequest::new(
-                "tc1",
-                "Bash",
-                serde_json::json!({"command": "ls"}),
-            )],
-        ),
-        BaseMessage::tool_result("tc1", "file1\nfile2"),
-    ];
+fn make_memory_system_prefix() -> Vec<BaseMessage> {
+    vec![
+        BaseMessage::system("冻结系统规则\n# Memory\nMEMORY.md:\n中文记忆入口 MEMORY_SENTINEL"),
+        BaseMessage::system("CLAUDE.md 项目指引\nPROJECT_SENTINEL"),
+    ]
+}
 
-    // 模拟 compact 产出的 new_messages（不含 system prefix）
-    let compact_summary = "此会话讨论了文件列表";
-    let mut new_messages = build_compacted_messages(
-        compact_summary,
-        vec![BaseMessage::system(
-            "[最近读取的文件: /tmp/test]\nfile content",
+#[tokio::test]
+async fn test_do_full_compact_preserves_system_prefix() {
+    let prefix = make_memory_system_prefix();
+    let mut messages = prefix.clone();
+    messages.push(BaseMessage::human("继续当前任务"));
+    let mut state = AgentState::with_messages("/tmp/test", messages);
+    let mw = CompactMiddleware {
+        model: Some(Arc::new(MockCompactModel)),
+        ..make_middleware()
+    };
+    let result = mw.do_full_compact(&mut state).await;
+    assert!(result.is_ok(), "生产压缩路径应执行成功");
+    assert_eq!(
+        state.messages().len(),
+        3,
+        "压缩后应有原始系统前缀和一条摘要"
+    );
+    for (actual, expected) in state.messages().iter().zip(&prefix) {
+        assert_eq!(actual.id(), expected.id(), "系统前缀必须保留原始 ID");
+        assert_eq!(
+            actual.content(),
+            expected.content(),
+            "系统前缀的字节和顺序必须保持不变"
+        );
+    }
+    assert!(matches!(state.messages()[2], BaseMessage::Human { .. }));
+    assert!(state.messages()[2].content().contains("保留当前任务"));
+}
+
+#[tokio::test]
+async fn test_do_full_compact_without_system_prefix_keeps_human_summary() {
+    let mut state = AgentState::with_messages(
+        "/tmp/test",
+        vec![
+            BaseMessage::human("继续当前任务"),
+            BaseMessage::ai("此前进展"),
+        ],
+    );
+    let mw = CompactMiddleware {
+        model: Some(Arc::new(MockCompactModel)),
+        ..make_middleware()
+    };
+    let result = mw.do_full_compact(&mut state).await;
+    assert!(result.is_ok(), "没有系统前缀时压缩仍应成功");
+    assert_eq!(state.messages().len(), 1);
+    assert!(matches!(state.messages()[0], BaseMessage::Human { .. }));
+    assert!(state.messages()[0].content().contains("保留当前任务"));
+}
+
+#[tokio::test]
+async fn test_do_full_compact_repeatedly_preserves_system_ids_without_duplicates() {
+    let prefix = make_memory_system_prefix();
+    let mut messages = prefix.clone();
+    messages.push(BaseMessage::human("继续当前任务"));
+    let mut state = AgentState::with_messages("/tmp/test", messages);
+    let mw = CompactMiddleware {
+        model: Some(Arc::new(MockCompactModel)),
+        ..make_middleware()
+    };
+    for _ in 0..2 {
+        let result = mw.do_full_compact(&mut state).await;
+        assert!(result.is_ok(), "连续压缩应执行成功");
+        assert_eq!(state.messages().len(), 3, "连续压缩不得累积系统前缀");
+        for (actual, expected) in state.messages().iter().zip(&prefix) {
+            assert_eq!(
+                actual.id(),
+                expected.id(),
+                "连续压缩后 cleanup 仍须匹配原 ID"
+            );
+            assert_eq!(
+                actual.content(),
+                expected.content(),
+                "连续压缩不得改变规则和索引"
+            );
+        }
+        assert!(matches!(state.messages()[2], BaseMessage::Human { .. }));
+    }
+}
+
+#[tokio::test]
+async fn test_do_full_compact_preserves_system_prefix_across_ancestor_boundary() {
+    let prefix = make_memory_system_prefix();
+    let mut messages = prefix.clone();
+    messages.push(BaseMessage::human("当前子代理任务"));
+    let mut state = AgentState::with_messages("/tmp/test", messages).with_ancestor_len(1);
+    let mw = CompactMiddleware {
+        model: Some(Arc::new(MockCompactModel)),
+        ..make_middleware()
+    };
+    let result = mw.do_full_compact(&mut state).await;
+    assert!(result.is_ok());
+    assert_eq!(state.ancestor_len(), 1, "祖先边界保持不变");
+    assert_eq!(state.messages().len(), 3, "边界两侧的系统前缀各保留一次");
+    for (actual, expected) in state.messages().iter().zip(&prefix) {
+        assert_eq!(
+            actual.id(),
+            expected.id(),
+            "前缀跨越祖先边界时不得重建或重复"
+        );
+        assert_eq!(actual.content(), expected.content());
+    }
+    assert!(matches!(state.messages()[2], BaseMessage::Human { .. }));
+}
+
+#[tokio::test]
+async fn test_do_full_compact_does_not_restore_system_message_after_ancestor_history() {
+    let prefix = BaseMessage::system("冻结系统规则 MEMORY_SENTINEL");
+    let ancestor = BaseMessage::human("只读父代理历史");
+    let historical = BaseMessage::system("旧文件快照 HISTORICAL_SENTINEL");
+    let historical_id = historical.id();
+    let ancestors = [prefix.clone(), ancestor.clone()];
+    let mut state = AgentState::with_messages(
+        "/tmp/test",
+        vec![
+            prefix,
+            ancestor,
+            historical,
+            BaseMessage::human("当前子代理任务"),
+        ],
+    )
+    .with_ancestor_len(2);
+    let mw = CompactMiddleware {
+        model: Some(Arc::new(MockCompactModel)),
+        ..make_middleware()
+    };
+    let result = mw.do_full_compact(&mut state).await;
+    assert!(result.is_ok());
+    assert_eq!(state.ancestor_len(), 2);
+    assert_eq!(state.messages().len(), 3);
+    for (actual, expected) in state.messages().iter().zip(&ancestors) {
+        assert_eq!(
+            actual.id(),
+            expected.id(),
+            "祖先快照的 ID、内容和顺序必须保持不变"
+        );
+        assert_eq!(actual.content(), expected.content());
+    }
+    assert!(
+        state
+            .messages()
+            .iter()
+            .all(|message| message.id() != historical_id),
+        "非全局前缀的历史 System 不得复活"
+    );
+    assert!(matches!(state.messages()[2], BaseMessage::Human { .. }));
+}
+
+#[tokio::test]
+async fn test_do_full_compact_failure_restores_original_messages() {
+    let mut messages = make_memory_system_prefix();
+    messages.push(BaseMessage::human("当前任务与约束"));
+    messages.push(BaseMessage::ai("尚未压缩的历史进展"));
+    let original = serde_json::to_value(&messages).expect("应能保存原始消息快照");
+    let mut state = AgentState::with_messages("/tmp/test", messages);
+    let mw = CompactMiddleware {
+        model: Some(Arc::new(MockFailedCompactModel)),
+        ..make_middleware()
+    };
+    let result = mw.do_full_compact(&mut state).await;
+    assert!(result.is_ok(), "摘要失败后应恢复并允许原任务继续");
+    assert_eq!(
+        serde_json::to_value(state.messages()).expect("应能检查恢复后的消息"),
+        original,
+        "摘要失败后必须原样恢复系统前缀、消息 ID、顺序和历史正文"
+    );
+}
+
+#[tokio::test]
+async fn test_do_full_compact_cancellation_restores_original_messages() {
+    let mut messages = make_memory_system_prefix();
+    messages.push(BaseMessage::human("当前任务与约束"));
+    let original = serde_json::to_value(&messages).expect("应能保存原始消息快照");
+    let mut state = AgentState::with_messages("/tmp/test", messages);
+    let mw = CompactMiddleware {
+        model: Some(Arc::new(MockCompactModel)),
+        ..make_middleware()
+    };
+    mw.cancel.cancel();
+    let result = mw.do_full_compact(&mut state).await;
+    assert!(result.is_ok());
+    assert_eq!(
+        serde_json::to_value(state.messages()).expect("应能检查恢复后的消息"),
+        original,
+        "压缩取消后必须原样恢复系统前缀和历史，不得重复追加"
+    );
+}
+
+#[tokio::test]
+async fn test_do_full_compact_cancellation_after_summary_restores_original_messages() {
+    let mut messages = make_memory_system_prefix();
+    messages.push(BaseMessage::human("当前任务与约束"));
+    let original = serde_json::to_value(&messages).expect("应能保存原始消息快照");
+    let mut state = AgentState::with_messages("/tmp/test", messages);
+    let cancel = AgentCancellationToken::default();
+    let mw = CompactMiddleware {
+        model: Some(Arc::new(MockCancellingCompactModel {
+            cancel: cancel.clone(),
+        })),
+        cancel,
+        ..make_middleware()
+    };
+    let result = mw.do_full_compact(&mut state).await;
+    assert!(result.is_ok());
+    assert_eq!(
+        serde_json::to_value(state.messages()).expect("应能检查恢复后的消息"),
+        original,
+        "摘要已生成但恢复前被取消时，仍必须原样恢复全部消息"
+    );
+}
+
+#[tokio::test]
+async fn test_do_full_compact_event_excludes_system_prefix_and_keeps_recovered_file() {
+    let directory = tempfile::tempdir().expect("应能创建隔离目录");
+    let path = directory.path().join("context.txt");
+    std::fs::write(&path, "恢复的文件正文 FILE_SENTINEL").expect("应能创建恢复文件");
+    let mut messages = make_memory_system_prefix();
+    messages.push(BaseMessage::human("读取文件后继续任务"));
+    messages.push(BaseMessage::ai_with_tool_calls(
+        cc_agent::messages::MessageContent::text("读取文件"),
+        vec![cc_agent::messages::ToolCallRequest::new(
+            "read-context",
+            "Read",
+            serde_json::json!({"path": path.to_string_lossy()}),
         )],
-    );
-
-    // 模拟修复逻辑：保留头部 System 消息并前置
-    let system_prefix: Vec<BaseMessage> = original_messages
-        .iter()
-        .take_while(|m| m.is_system())
-        .cloned()
-        .collect();
-    for sys_msg in system_prefix.into_iter().rev() {
-        new_messages.insert(0, sys_msg);
+    ));
+    messages.push(BaseMessage::tool_result("read-context", "先前文件正文"));
+    let mut state = AgentState::with_messages(directory.path().to_string_lossy(), messages);
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mw = CompactMiddleware {
+        model: Some(Arc::new(MockCompactModel)),
+        cwd: directory.path().to_string_lossy().into_owned(),
+        event_tx: Arc::new(Mutex::new(Some(tx))),
+        ..make_middleware()
+    };
+    let result = mw.do_full_compact(&mut state).await;
+    assert!(result.is_ok());
+    let mut completed = None;
+    while let Ok(event) = rx.try_recv() {
+        if let ExecutorEvent::CompactCompleted { messages, .. } = event {
+            completed = Some(messages);
+        }
     }
-
-    // 验证：头部 System 消息保留
+    let completed = completed.expect("应产生压缩完成事件");
+    assert_eq!(completed.len(), 2, "事件只包含摘要和恢复文件");
+    assert!(matches!(completed[0], BaseMessage::Human { .. }));
+    assert!(completed[1].is_system());
+    assert!(completed[1].content().contains("FILE_SENTINEL"));
+    assert!(
+        completed.iter().all(|message| {
+            !message.content().contains("MEMORY_SENTINEL")
+                && !message.content().contains("PROJECT_SENTINEL")
+        }),
+        "临时系统规则和记忆入口不得泄漏至 UI 或持久化事件"
+    );
     assert_eq!(
-        new_messages.len(),
+        state.messages().len(),
         4,
-        "应有 2 个原始 System + 1 个 Human 摘要 + 1 个 re_inject System"
-    );
-    assert!(new_messages[0].is_system());
-    assert_eq!(new_messages[0].content(), "system prompt");
-    assert!(new_messages[1].is_system());
-    assert_eq!(new_messages[1].content(), "CLAUDE.md content");
-    // Human 摘要紧随 System 前缀
-    assert!(matches!(new_messages[2], BaseMessage::Human { .. }));
-    assert!(new_messages[2].content().contains(compact_summary));
-    // re_inject System 在最后
-    assert!(new_messages[3].is_system());
-}
-
-/// 验证无头部 System 消息时，compact 正常工作（无 crash、无多余插入）
-#[test]
-fn test_do_full_compact_no_system_prefix_is_noop() {
-    let original_messages = [
-        BaseMessage::human(vec![ContentBlock::text("user message")]),
-        BaseMessage::ai(vec![ContentBlock::text("response")]),
-    ];
-
-    let mut new_messages = vec![BaseMessage::human(vec![ContentBlock::text(
-        "compact summary",
-    )])];
-
-    // 模拟修复逻辑
-    let system_prefix: Vec<BaseMessage> = original_messages
-        .iter()
-        .take_while(|m| m.is_system())
-        .cloned()
-        .collect();
-    for sys_msg in system_prefix.into_iter().rev() {
-        new_messages.insert(0, sys_msg);
-    }
-
-    // 无 System 前缀时，new_messages 不变
-    assert_eq!(new_messages.len(), 1);
-    assert!(matches!(new_messages[0], BaseMessage::Human { .. }));
-}
-
-/// 验证保留的 System 消息保持原始 MessageId（cleanup_prepended 依赖 ID 匹配）
-#[test]
-fn test_preserved_system_messages_keep_original_ids() {
-    let sys1 = BaseMessage::system("system prompt");
-    let sys1_id = sys1.id();
-    let sys2 = BaseMessage::system("CLAUDE.md");
-    let sys2_id = sys2.id();
-
-    let original_messages = [
-        sys1,
-        sys2,
-        BaseMessage::human(vec![ContentBlock::text("input")]),
-    ];
-
-    let mut new_messages = vec![BaseMessage::human(vec![ContentBlock::text(
-        "compact summary",
-    )])];
-
-    let system_prefix: Vec<BaseMessage> = original_messages
-        .iter()
-        .take_while(|m| m.is_system())
-        .cloned()
-        .collect();
-    for sys_msg in system_prefix.into_iter().rev() {
-        new_messages.insert(0, sys_msg);
-    }
-
-    // 验证 ID 保留
-    assert_eq!(
-        new_messages[0].id(),
-        sys1_id,
-        "第一个 System 消息应保留原始 ID"
+        "执行状态仍应保留两条原始系统前缀"
     );
     assert_eq!(
-        new_messages[1].id(),
-        sys2_id,
-        "第二个 System 消息应保留原始 ID"
+        serde_json::to_value(&state.messages()[2..]).expect("应能检查执行状态"),
+        serde_json::to_value(&completed).expect("应能检查事件载荷"),
+        "状态中的压缩历史应与事件一致，系统前缀独立保留"
     );
 }
 

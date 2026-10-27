@@ -94,7 +94,9 @@ SDK (JSON-RPC)
 - `is_git_repo`：创建时 cwd 是否为 git 仓库
 - `language`：会话语言偏好
 - `jev_rule_loader`：Jev 规则惰性加载器
-- `memory_entrypoint` / `memory_dir`：自动记忆入口索引与存储目录
+- `memory_entrypoint` / `memory_dir`：由构建提示词的同一次记忆读取派生的兼容字段；空索引为 `Some("")`。宿主提示词只携带一份精简规则及最多 20 KB（20,000 UTF-8 字节）索引，保留入口 200 行限制，不再将 `memory_entrypoint` 经中间件重复注入。
+
+宿主通过 `build_agent_with_embedded_memory` 装配会话和 print 路径。相关任务遇到空预览、截断或未命中时，用 `Grep` 按关键词搜索完整 `MEMORY.md`；索引缺失或无匹配再搜索记忆目录中的 `*.md`，用 `Read` 读取相关主题或分页详情。保存/更新/删除仅响应用户明确要求，不运行后台提炼或整合模型。公开 `build_agent` 仍为不含记忆的自定义提示词保留 `MemoryMiddleware`，已有配置字段与调用签名兼容。
 
 每轮重新计算的数据：
 

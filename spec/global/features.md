@@ -18,7 +18,7 @@
 - **工具动作签名循环检测:** 连续 3 轮相同工具动作时注入纠正消息，打断重复循环
 - **Anthropic 适配器（自适应兼容）:** 非流式响应自适应解析反向代理返回的 OpenAI 格式（`choices` / `message` / `tool_calls`），缺 `content` 时回退解析；SSE 流式自适应解析
 - **/recap 会话回顾:** 独立 `aux_model`（与 compact_model 解耦），单轮禁用工具、不写 history、支持 Ctrl+C 取消
-- **自动记忆系统（Auto-Memory，v0.6.139，#507）:** 模型获得跨会话持久记忆，**纯文件架构、零专有工具**——系统提示词向模型呈现项目记忆目录，模型用通用 `Write`/`Edit` 维护带四类型 YAML frontmatter 的 Markdown 记忆文件，入口索引 `MEMORY.md` 有界（≤200 行且 ≤25KB，超限安全截断并追加 warning），与既有 `~/.claude/projects/`、`~/.cc-code/projects/` 记忆资产双向兼容；`MemoryMiddleware` 在 `AgentsMdMiddleware` 之后注入**冻结的索引快照**（置于动态边界之后，保障 Prompt Cache 前缀稳定）；安全门为自动记忆路径设 carve-out 豁免，记忆路径在 TUI 中脱敏渲染
+- **项目记忆（v0.6.139，#507；精简读取 #732）:** 纯文件架构、零专有工具，与既有 `~/.claude/projects/`、`~/.cc-code/projects/` 资产兼容。宿主在会话创建时只读一次 `MEMORY.md` 并冻结（空内容也冻结），主提示词携带一份精简读取规则与最多 20 KB（20,000 UTF-8 字节）索引，保留入口 200 行限制；相关任务遇到空预览、截断或未命中时按关键词搜索完整索引，索引缺失或无匹配再搜索记忆目录，按需读取详情或分页。仅在用户明确要求时用 `Write`/`Edit` 保存、更新或删除，不自动总结对话，不增加后台记忆模型调用。原入口 200 行/25KB 截断及独立 `MemoryMiddleware` API 保持兼容；宿主不再注册该中间件，避免重复注入。安全门保留记忆路径 carve-out，TUI 路径继续脱敏渲染
 
 - **核心工具描述对齐参考实现（v0.6.138）:** Bash / WebFetch 改为 **NOT 反向枚举**（读用 `Read` NOT `cat`、内容检索用 `Grep` NOT `grep`/`rg` 等），补齐 `Grep`/`Read`/`TodoWrite`/`AskUserQuestion` 边界句；**`Write` 改为 NEVER 语义**——默认不再主动创建 `.md`/README，仅用户明确要求时创建（行为语义变更）。详见 [domains/tools.md](domains/tools.md)
 - **系统提示词静态段落对齐参考实现（v0.6.139，#504）:** `01_intro` 补「信息足够即行动」与 Corrections；`03_doing_tasks` 补 Scope discipline（不超范围加功能/抽象、优先编辑现有文件、不做投机抽象）；`04_actions` 补授权与影响判定框架（破坏性/难逆/影响共享状态/上传第三方需确认）；`06_tone_style` 明确「用户只看文本输出」与结果诚实性。详见 [domains/system-prompt.md](domains/system-prompt.md)

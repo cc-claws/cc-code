@@ -126,7 +126,7 @@ src/
 │   ├── executor.rs       — execute_prompt() 共享 Agent 执行管线
 │   └── state_builders.rs — ACP 协议状态构建器（modes/models/configOptions）
 ├── agent/
-│   └── builder.rs        — build_agent()：组装 Middleware Chain + LLM + 工具
+│   └── builder.rs        — build_agent_with_embedded_memory()：组装 Middleware Chain + LLM + 工具
 ├── broker/               — AcpTransportBroker（实现 UserInteractionBroker，HITL/AskUser 桥接）
 ├── dispatch/             — ACP 请求分发（session/new/prompt/set_model/set_mode 等）
 ├── event/                — ExecutorEvent → SessionNotification 事件映射
@@ -253,7 +253,7 @@ TUI 路径:
            → MpscClientTransport.send_request/notification()
            → MpscServerTransport.recv() (ACP Server, tokio::spawn)
            → acp_server::requests::handle_request() → executor::execute_prompt()
-           → build_agent() → agent.execute()
+           → build_agent_with_embedded_memory() → agent.execute()
            → ExecutorEvent → TransportEventSink.push_event()
              → peri/agent_event (TUI) + session/update (标准ACP)
            → AcpTuiClient.pump_notifications() → AgentEvent
@@ -298,26 +298,25 @@ LlmCallEnd 携带 usage
 中间件按注册顺序执行，典型组装顺序：
 
 ```
-主 Agent（cc-acp 的 build_agent 组装；完整清单以 builder.rs 为准）：
+主 Agent（cc-acp 的 build_agent_with_embedded_memory 组装；完整清单以 builder.rs 为准）：
 1. AgentsMdMiddleware         ← 注入指引整段（AGENTS.md/CLAUDE.md 及变体，单条 System 消息）
-2. MemoryMiddleware            ← Auto-Memory 索引快照注入（冻结快照，置于动态边界后）
-3. AgentDefineMiddleware      ← 解析 agent 定义，设置 model/maxTurns 等覆盖
-4. SkillsMiddleware           ← 扫描 Skills 目录，摘要注入 system
-5. SkillPreloadMiddleware     ← 消息含 /skill-name 时注入 skill 全文（fake tool 序列）
-6. AtMentionMiddleware        ← @path 解析，注入 Read 工具调用
-7. FilesystemMiddleware       ← 提供文件系统工具
-8. GitAttributionMiddleware   ← 追踪 Write/Edit 贡献字符数
-9. TerminalMiddleware         ← 提供 bash 工具
-10. WebMiddleware              ← WebFetch/WebSearch
-11. TodoMiddleware            ← after_tool 解析 TodoWrite 结果
-12. CronMiddleware            ← CronRegister/CronList/CronRemove
-13. HookMiddleware            ← hooks 事件拦截（多组实例）
-14. HumanInTheLoopMiddleware  ← before_tool 拦截敏感工具
-15. SubAgentMiddleware        ← 提供 Agent 工具（支持 fork/normal/background 三路径）
-16. McpMiddleware             ← MCP 工具和资源注入（仅 pool 初始化成功时注册）
-17. ToolSearchMiddleware      ← SearchExtraTools/ExecuteExtraTool 代理
-18. LspMiddleware             ← LSP 工具 + after_tool 文件变更同步
-19. CompactMiddleware         ← before_model 钩子触发上下文压缩（条件注册）
+2. AgentDefineMiddleware      ← 解析 agent 定义，设置 model/maxTurns 等覆盖
+3. SkillsMiddleware           ← 扫描 Skills 目录，摘要注入 system
+4. SkillPreloadMiddleware     ← 消息含 /skill-name 时注入 skill 全文（fake tool 序列）
+5. AtMentionMiddleware        ← @path 解析，注入 Read 工具调用
+6. FilesystemMiddleware       ← 提供文件系统工具
+7. GitAttributionMiddleware   ← 追踪 Write/Edit 贡献字符数
+8. TerminalMiddleware        ← 提供 bash 工具
+9. WebMiddleware             ← WebFetch/WebSearch
+10. TodoMiddleware            ← after_tool 解析 TodoWrite 结果
+11. CronMiddleware            ← CronRegister/CronList/CronRemove
+12. HookMiddleware            ← hooks 事件拦截（多组实例）
+13. HumanInTheLoopMiddleware  ← before_tool 拦截敏感工具
+14. SubAgentMiddleware        ← 提供 Agent 工具（支持 fork/normal/background 三路径）
+15. McpMiddleware             ← MCP 工具和资源注入（仅 pool 初始化成功时注册）
+16. ToolSearchMiddleware      ← SearchExtraTools/ExecuteExtraTool 代理
+17. LspMiddleware             ← LSP 工具 + after_tool 文件变更同步
+18. CompactMiddleware         ← before_model 钩子触发上下文压缩（条件注册）
 [ReActAgent.with_system_prompt()] ← system prompt 固定在 run_before_agent 之后 prepend，不依赖中间件顺序
 
 子 Agent（SubAgentTool 内部组装）：
@@ -329,6 +328,8 @@ LlmCallEnd 携带 usage
 ```
 
 手动注册工具（`register_tool`）优先级最高，覆盖同名中间件工具。
+
+记忆由宿主在会话创建时读取并冻结，系统提示词携带一份精简读取规则与最多 20 KB（20,000 UTF-8 字节）索引（含截断提示），保留入口 200 行限制。相关任务遇到空预览、截断或未命中时按关键词搜索完整索引；索引缺失或无匹配再搜索记忆目录，按需读取相关详情或分页。宿主不注册 `MemoryMiddleware`，不触发后台记忆生成；写入、更新与删除仅响应用户明确要求。旧 `build_agent` 与独立中间件为自定义提示词调用方保留。
 
 ## 外部集成
 

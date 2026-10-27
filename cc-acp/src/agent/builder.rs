@@ -1,7 +1,7 @@
 //! Shared Agent builder（ACP 和 TUI 共用）
 //!
-//! 提供 `AcpAgentConfig` 配置结构和 `build_agent()` 构建函数，
-//! 组装完整的中间件链和 ReActAgent 实例。
+//! 提供 `AcpAgentConfig` 配置结构；宿主通过 `build_agent_with_embedded_memory()`
+//! 组装中间件链和 ReActAgent，`build_agent()` 保留自定义提示词的旧记忆注入方式。
 //!
 //! 本模块从 cc-tui/src/app/agent.rs:build_bare_agent() 迁移而来，
 //! 删除 TUI 特有依赖（AgentEvent channel、map_executor_event），
@@ -58,7 +58,8 @@ pub struct AcpAgentConfig {
     /// produced by `agents_md::load_instructions` at session/new).
     /// None = read from disk each turn (legacy, e.g. sub-agents).
     pub frozen_instructions: Option<String>,
-    /// 冻结的 MEMORY.md 自动记忆入口索引（带 provenance 与有界截断）。
+    /// 兼容独立记忆中间件的冻结索引；Some("") 表示冻结为空，None 表示读盘。
+    /// `build_agent_with_embedded_memory` 的提示词已承载记忆，不使用此字段。
     pub frozen_memory_entrypoint: Option<String>,
     /// Session-scoped lazy Jev rule loader (distils CLAUDE.md rules on first gate use).
     /// None = 门不携带 CLAUDE.md 策略。
@@ -124,8 +125,8 @@ pub struct AcpAgentOutput {
 
 /// 构建可复用的 Agent（ACP 和 TUI 共用核心构建逻辑）
 ///
-/// 迁移自 cc-tui/src/app/agent.rs:build_bare_agent()。
-/// 中间件链和 builder 配置与原函数完全一致。
+/// 此兼容入口为自定义提示词保留 `MemoryMiddleware`。
+/// 提示词已包含记忆时应使用 [`build_agent_with_embedded_memory`]，避免重复注入。
 ///
 /// `cached_llm` 允许跨 prompt 复用 LLM 实例（compact_model、auto_classifier_model），
 /// 避免每轮重建 reqwest::Client（~1-2 MB/实例）。首次调用传 `None`，
@@ -138,6 +139,33 @@ pub fn build_agent(
     cfg: AcpAgentConfig,
     cached_llm: Option<&CachedLlmInstances>,
     pool: &Arc<parking_lot::Mutex<AgentPool>>,
+) -> (AcpAgentOutput, Option<CachedLlmInstances>) {
+    build_agent_inner(cfg, cached_llm, pool, MemoryInjection::Middleware)
+}
+
+/// 构建提示词已承载记忆的 Agent，宿主负责单次读取、渲染及会话冻结。
+///
+/// ACP executor 的会话与 print 路径统一使用此入口；不注册记忆中间件，
+/// 包括冻结索引为空的情况，避免下一轮回退读盘及 fork 继承重复索引。
+/// 缓存参数与 [`build_agent`] 相同。
+pub fn build_agent_with_embedded_memory(
+    cfg: AcpAgentConfig,
+    cached_llm: Option<&CachedLlmInstances>,
+    pool: &Arc<parking_lot::Mutex<AgentPool>>,
+) -> (AcpAgentOutput, Option<CachedLlmInstances>) {
+    build_agent_inner(cfg, cached_llm, pool, MemoryInjection::SystemPrompt)
+}
+
+enum MemoryInjection {
+    Middleware,
+    SystemPrompt,
+}
+
+fn build_agent_inner(
+    cfg: AcpAgentConfig,
+    cached_llm: Option<&CachedLlmInstances>,
+    pool: &Arc<parking_lot::Mutex<AgentPool>>,
+    memory_injection: MemoryInjection,
 ) -> (AcpAgentOutput, Option<CachedLlmInstances>) {
     let AcpAgentConfig {
         provider,
@@ -309,7 +337,9 @@ pub fn build_agent(
         FilesystemMiddleware::build_tools(&cwd);
     parent_tools.extend(terminal_middleware.build_tools(&cwd));
     // 子 Agent 继承 Skill 的加载能力；不继承 fork runner，防止隐式递归委派。
-    parent_tools.push(Box::new(SkillTool::new(skill_dirs.clone()).with_session_id(session_id.clone())));
+    parent_tools.push(Box::new(
+        SkillTool::new(skill_dirs.clone()).with_session_id(session_id.clone()),
+    ));
     if let Some(ref pool) = mcp_pool {
         let mcp_tools = cc_middlewares::mcp::build_tool_bridges(pool);
         for tool in mcp_tools {
@@ -493,20 +523,28 @@ pub fn build_agent(
                 mw = mw.with_frozen_instructions(rendered);
             }
             mw
-        }))
-        .add_middleware(Box::new(
+        }));
+    let executor = match memory_injection {
+        MemoryInjection::Middleware => executor.add_middleware(Box::new(
             cc_middlewares::MemoryMiddleware::new()
                 .with_frozen_entrypoint(frozen_memory_entrypoint),
-        ))
+        )),
+        MemoryInjection::SystemPrompt => executor,
+    };
+    let executor = executor
         .add_middleware(Box::new(AgentDefineMiddleware::new()))
         .add_middleware(Box::new({
-            let mut mw = SkillsMiddleware::new().with_global_config().with_extra_dirs(plugin_skill_dirs);
+            let mut mw = SkillsMiddleware::new()
+                .with_global_config()
+                .with_extra_dirs(plugin_skill_dirs);
             if let Some(summary) = frozen_skill_summary {
                 mw = mw.with_frozen_summary(summary);
             }
             mw
         }))
-        .add_middleware(Box::new(SkillPreloadMiddleware::new(preload_skills, &cwd).with_skill_tool(skill_tool.clone())))
+        .add_middleware(Box::new(
+            SkillPreloadMiddleware::new(preload_skills, &cwd).with_skill_tool(skill_tool.clone()),
+        ))
         .add_middleware(Box::new(cc_middlewares::AtMentionMiddleware::new(
             cwd.clone().into(),
         )))
@@ -622,7 +660,8 @@ pub fn build_agent(
             all_hooks,
             session_id.unwrap_or_default(),
             provider_name.clone(),
-        ).with_invoked_skills(invoked_skills);
+        )
+        .with_invoked_skills(invoked_skills);
         executor.add_middleware(Box::new(compact_mw))
     } else {
         executor
@@ -644,3 +683,7 @@ pub fn build_agent(
         new_cache,
     )
 }
+
+#[cfg(test)]
+#[path = "builder_memory_test.rs"]
+mod memory_tests;

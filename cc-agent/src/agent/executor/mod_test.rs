@@ -143,6 +143,7 @@ async fn test_cancel_during_tool_execution() {
     let cancel = CancellationToken::new();
     let agent = ReActAgent::new(OneToolLLM)
         .max_iterations(5)
+        .with_system_prompt("冻结系统规则和记忆入口")
         .register_tool(Box::new(HangingTool));
 
     // 50ms 后触发取消
@@ -164,6 +165,10 @@ async fn test_cancel_during_tool_execution() {
         .iter()
         .any(|m| matches!(m, BaseMessage::Tool { is_error: true, .. }));
     assert!(has_tool_error, "取消后工具 error 消息应已写入 state");
+    assert!(
+        state.messages().iter().all(|message| !message.is_system()),
+        "工具取消返回时也必须清理临时系统前缀，保留工具结果"
+    );
 }
 
 /// 验证 HITL 拒绝（ToolRejected）不终止 Agent，LLM 能收到拒绝原因后继续

@@ -4,6 +4,7 @@ pub mod entrypoint;
 pub mod middleware;
 pub mod paths;
 pub mod prompt;
+pub mod read_prompt;
 
 pub use entrypoint::{
     read_and_truncate_entrypoint, truncate_entrypoint_content, EntrypointTruncation,
@@ -15,7 +16,8 @@ pub use paths::{
     get_auto_memory_display_dir, get_auto_memory_display_entrypoint, get_auto_memory_entrypoint,
     is_auto_mem_path, sanitize_project_path,
 };
-pub use prompt::build_auto_memory_prompt;
+pub use prompt::{build_auto_memory_instructions, build_auto_memory_prompt};
+pub use read_prompt::{build_memory_read_prompt, MAX_MEMORY_READ_INDEX_BYTES};
 
 #[cfg(test)]
 mod tests {
