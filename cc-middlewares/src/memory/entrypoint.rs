@@ -51,10 +51,14 @@ pub fn truncate_entrypoint_content(raw: &str) -> EntrypointTruncation {
     };
 
     if truncated.len() > MAX_ENTRYPOINT_BYTES {
-        if let Some(cut_at) = truncated[..MAX_ENTRYPOINT_BYTES].rfind('\n') {
+        let mut end = MAX_ENTRYPOINT_BYTES;
+        while !truncated.is_char_boundary(end) {
+            end -= 1;
+        }
+        if let Some(cut_at) = truncated[..end].rfind('\n') {
             truncated.truncate(cut_at);
         } else {
-            truncated.truncate(MAX_ENTRYPOINT_BYTES);
+            truncated.truncate(end);
         }
     }
 

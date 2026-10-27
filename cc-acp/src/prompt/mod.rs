@@ -8,6 +8,9 @@
 
 use cc_middlewares::AgentOverrides;
 
+mod memory;
+pub(crate) use memory::AutoMemorySnapshot;
+
 /// 控制 Feature-gated 提示词段落的注入
 pub struct PromptFeatures {
     pub hitl_enabled: bool,
@@ -126,6 +129,31 @@ pub fn build_system_prompt(
     frozen_date: Option<&str>,
     language: Option<&str>,
 ) -> String {
+    let memory = features
+        .memory_enabled
+        .then(|| AutoMemorySnapshot::capture(cwd));
+    build_system_prompt_with_memory(
+        overrides,
+        cwd,
+        features,
+        extra_agent_dirs,
+        frozen_date,
+        language,
+        memory.as_ref(),
+    )
+}
+
+/// 使用已捕获的记忆快照组装提示词，不再读取 MEMORY.md。
+/// 会话冻结及兼容入口元数据必须复用同一份快照，包括空内容。
+pub(crate) fn build_system_prompt_with_memory(
+    overrides: Option<&AgentOverrides>,
+    cwd: &str,
+    features: PromptFeatures,
+    extra_agent_dirs: &[std::path::PathBuf],
+    frozen_date: Option<&str>,
+    language: Option<&str>,
+    memory: Option<&AutoMemorySnapshot>,
+) -> String {
     let env = if let Some(date) = frozen_date {
         PromptEnv::with_frozen_date(cwd, date)
     } else {
@@ -234,17 +262,12 @@ pub fn build_system_prompt(
         result.push_str("\n\n");
         result.push_str(section);
     }
-    // 自动记忆系统说明与 MEMORY.md 索引（动态段，位于边界之后不破坏缓存前缀）
-    if features.memory_enabled {
-        let mem_dir = cc_middlewares::memory::get_auto_memory_dir(cwd);
-        let _ = cc_middlewares::memory::ensure_memory_dir_exists(&mem_dir);
-        let entrypoint_path = cc_middlewares::memory::get_auto_memory_entrypoint(cwd);
-        let entrypoint_trunc =
-            cc_middlewares::memory::read_and_truncate_entrypoint(&entrypoint_path);
-        let display_dir = cc_middlewares::memory::get_auto_memory_display_dir(cwd);
-        let mem_prompt = cc_middlewares::memory::build_auto_memory_prompt(
-            &display_dir,
-            entrypoint_trunc.as_ref().map(|t| t.content.as_str()),
+    // 精简记忆读取规则与有界索引；不常驻完整写入教学，也不触发后台记忆生成。
+    // 整段仅由宿主注入一次，位于动态边界之后，不破坏已有缓存前缀。
+    if let Some(memory) = memory.filter(|_| features.memory_enabled) {
+        let mem_prompt = cc_middlewares::memory::build_memory_read_prompt(
+            &memory.display_directory,
+            Some(&memory.content),
         );
         result.push_str("\n\n");
         result.push_str(&mem_prompt);
@@ -391,3 +414,7 @@ fn detect_git_bash_available() -> bool {
 #[cfg(test)]
 #[path = "prompt_test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "memory_snapshot_test.rs"]
+mod memory_tests;

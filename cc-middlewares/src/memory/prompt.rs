@@ -5,18 +5,26 @@
 /// 若提供了 `entrypoint_content`，会在小节末尾挂载当前 `MEMORY.md` 索引清单；
 /// 若为空则提示当前 MEMORY.md 暂为空。
 pub fn build_auto_memory_prompt(memory_dir: &str, entrypoint_content: Option<&str>) -> String {
+    let mut prompt = build_auto_memory_instructions(memory_dir);
+    match entrypoint_content {
+        Some(content) if !content.trim().is_empty() => {
+            prompt.push_str("\n\n## MEMORY.md\n\n");
+            prompt.push_str(content.trim());
+        }
+        _ => prompt.push_str("\n\nYour MEMORY.md is currently empty. When you save new memories, they will appear here."),
+    }
+    prompt
+}
+
+/// 构建完整的自动记忆规则，不附带 MEMORY.md 索引正文或空索引提示。
+///
+/// 为需要传统长规则的调用方保留兼容接口；宿主使用精简的记忆读取提示词。
+pub fn build_auto_memory_instructions(memory_dir: &str) -> String {
     // 确保以目录分隔符结尾（契约一致性）
     let formatted_dir = if memory_dir.ends_with('/') || memory_dir.ends_with('\\') {
         memory_dir.to_string()
     } else {
         format!("{}/", memory_dir)
-    };
-
-    let index_section = match entrypoint_content {
-        Some(content) if !content.trim().is_empty() => {
-            format!("\n\n## MEMORY.md\n\n{}", content.trim())
-        }
-        _ => "\n\nYour MEMORY.md is currently empty. When you save new memories, they will appear here.".to_string(),
     };
 
     format!(
@@ -150,8 +158,7 @@ A memory that summarizes repo state (activity logs, architecture snapshots) is f
 ## Memory and other forms of persistence
 Memory is one of several persistence mechanisms available to you as you assist the user in a given conversation. The distinction is often that memory can be recalled in future conversations and should not be used for persisting information that is only useful within the scope of the current conversation.
 - When to use or update a plan instead of memory: If you are about to start a non-trivial implementation task and would like to reach alignment with the user on your approach you should use a Plan rather than saving this information to memory. Similarly, if you already have a plan within the conversation and you have changed your approach persist that change by updating the plan rather than saving a memory.
-- When to use or update tasks instead of memory: When you need to break your work in current conversation into discrete steps or keep track of your progress use tasks instead of saving to memory. Tasks are great for persisting information about the work that needs to be done in the current conversation, but memory should be reserved for information that will be useful in future conversations.{index}"#,
-        dir = formatted_dir,
-        index = index_section
+- When to use or update tasks instead of memory: When you need to break your work in current conversation into discrete steps or keep track of your progress use tasks instead of saving to memory. Tasks are great for persisting information about the work that needs to be done in the current conversation, but memory should be reserved for information that will be useful in future conversations."#,
+        dir = formatted_dir
     )
 }
