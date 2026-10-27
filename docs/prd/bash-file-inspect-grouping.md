@@ -107,7 +107,7 @@ Agent 排查问题时大量用 Bash 做文件查看（`cat` / `ls` / `grep` / `h
 严格限定**文件内容的查看与列举**：`ls` / `cat` / `head` / `tail` / `find` / `wc` / `rg` / `grep` 读文件。
 `git status` / `git log` / `git diff` / `cargo tree` 等**不纳入**，仍单条展示。
 
-参考实现的分类白名单（作为范围对照，取值见 `BashTool.tsx:95/98/121`）：
+参考实现的分类白名单（作为范围对照）：
 
 - search：`find` `grep` `rg` `ag` `ack` `locate` `which` `whereis`
 - read：`cat` `head` `tail` `less` `more` `wc` `stat` `file` `strings` `jq` `awk` `cut` `sort` `uniq` `tr`
@@ -120,12 +120,12 @@ Agent 排查问题时大量用 Bash 做文件查看（`cat` / `ls` / `grep` / `h
 
 | 维度 | 参考实现 | 本 PRD |
 |------|---------|--------|
-| 分类来源 | Bash 工具自带 `isSearchOrReadCommand()`：shell 分词 + 运算符处理 + 三档白名单，管道中任一命令不在白名单即整条不折叠（`BashTool.tsx:164-233`） | 模型声明 `file_inspect` |
+| 分类来源 | Bash 工具自带 `isSearchOrReadCommand()`：shell 分词 + 运算符处理 + 三档白名单，管道中任一命令不在白名单即整条不折叠 | 模型声明 `file_inspect` |
 | 参与聚合的 Bash | search/read/list 三类 + 非查询类 Bash（后者单独计数 `Ran N bash commands`） | 仅 `file_inspect=true` 的文件查询，普通 Bash 不进组 |
-| 单条是否折叠 | **折叠**：`flushGroup()` 只看组是否为空，没有条数门槛（`collapseReadSearch.ts:843`）；全文唯一的 `>= 2` 在 `:1170`，那是状态栏活动摘要 | 同左（R4） |
-| 折叠行附加信息 | 仅"进行中"渲染 hint 第二行（`⎿ $ <命令>`，命令首行 `# 注释` 优先，`commandAsHint` 兜底截断）：`CollapsedReadSearchContent.tsx:492`。**完成后只剩计数 + `(ctrl+o to expand)`** | 同左：`⎿` 只在活跃组显示，内容优先最近一条工具参数，无工具时思考尾部（≤10 行），≥2s 出现（§13.3） |
-| 运行中进度 | 折叠行追加 `(12s · 40 lines)`，超过 2 秒才显示（`CollapsedReadSearchContent.tsx:263-290`） | 运行中也入组，但**不显示**进度后缀（无实时输出，与参考实现取舍一致） |
-| 展开 | `ctrl+o` / `--verbose` 逐条渲染，每条带 1 行结果摘要（`CollapsedReadSearchContent.tsx:195-232`） | 同左，且 Bash 条目复用退出码/stderr 头处理（§5.6） |
+| 单条是否折叠 | **折叠**：`flushGroup()` 只看组是否为空，没有条数门槛；全文唯一的 `>= 2` 只用于状态栏活动摘要 | 同左（R4） |
+| 折叠行附加信息 | 仅"进行中"渲染 hint 第二行（`⎿ $ <命令>`，命令首行 `# 注释` 优先，`commandAsHint` 兜底截断）。**完成后只剩计数 + `(ctrl+o to expand)`** | 同左：`⎿` 只在活跃组显示，内容优先最近一条工具参数，无工具时思考尾部（≤10 行），≥2s 出现（§13.3） |
+| 运行中进度 | 折叠行追加 `(12s · 40 lines)`，超过 2 秒才显示 | 运行中也入组，但**不显示**进度后缀（无实时输出，与参考实现取舍一致） |
+| 展开 | `ctrl+o` / `--verbose` 逐条渲染，每条带 1 行结果摘要 | 同左，且 Bash 条目复用退出码/stderr 头处理（§5.6） |
 
 > 结论：**"单条也折叠"是参考实现的既有行为**，不是本次设计引入的退化；我们跟随它，
 > 运行中同样入组（§13.1 修订了早期的"未落定不聚合"）；已转后台的仍保持单条，以保住 `Ctrl+B` 后的后台状态显示。
@@ -650,8 +650,8 @@ pub fn from_tool_block(tool_name: &str, file_inspect: bool) -> Option<Self> {
 - **命令启发式兜底**（模型漏填时自动识别）：参考实现的做法可直接借鉴——真 shell 分词、处理 `| && || ;`、
   跳过重定向目标（`>` `>>` `>&` 后的那个 token）、忽略语义中性命令（`echo`/`printf`/`true`/`false`/`:`）、
   三档白名单（search/read/list），管道中任一命令不在白名单即整条不折叠。
-  见 `BashTool.tsx:164-233`（`isSearchOrReadBashCommand`）。
-- **首行 `# 注释` 当工具行标签**：参考实现用 `extractBashCommentLabel`（`commentLabel.ts:1-13`）
+  见参考实现的 `isSearchOrReadBashCommand`。
+- **首行 `# 注释` 当工具行标签**：参考实现用 `extractBashCommentLabel`
   把命令首行的 `# 说明` 抽出来当非 verbose 模式下的工具行标签，也就是"让 agent 说明 bash 干啥"的零 schema 方案。
   落地位置是单条 Bash 的 `args_display` / 组内 `ToolEntry.args_display`，属独立需求。
 - 折叠摘要附加被折叠命令的首条描述（如 `ran 3 shell commands · ls, grep, cat`）。
@@ -929,3 +929,39 @@ pub struct GroupThinking {
 - 跨轮合并目前靠 `retry_merge_from` 在装配点补合；组本身仍**不跨重建持久**，
   要彻底消除需把组写进 `completed` 历史表示（或 VM 层缓存）；
 - 数值口径仍与参考实现不完全相同（事件到达时刻 vs 消息 `timestamp`）。
+
+### 13.10 架构修正：全面取消 `file_inspect` 模型参数，对齐官方命令词法判定（2026-10-27）
+
+#### 13.10.1 为什么必须调整
+
+前期的方案（§3.1）引入了可选的 `file_inspect` 布尔参数让模型自行声明，但经深度代码审计与真机验证，暴露出三大严重问题：
+
+1. **参考实现根本不存在该参数**：
+   - 参考实现的 Bash 工具 inputSchema 仅有 `command`、`timeout`、`description`、`run_in_background` 等执行相关字段，没有任何展示专用标记。
+   - 分类由客户端方法 `isSearchOrReadBashCommand(command)` 完成：命令词法分词 + 白名单判定（`search` / `read` / `list` / `neutral` 命令集，以及拦截重定向 `>`）。给模型暴露私有参数属于非标准实现，偏离了对齐参考实现的原定目标。
+
+2. **真机实测漏填与误填严重，无法作为可靠信号**：
+   - **频繁漏填**：模型经常在执行标准的只读文件命令（如 `cat Cargo.toml`、`ls -la`、`grep -rn ... | head`）时遗漏 `file_inspect`，导致前端退化为不折叠，界面依旧严重刷屏；
+   - **滥填与漂移**：在提示词中强化后，模型又在带副作用或非文件查看的命令上滥填（真机实测 392 次调用中多达 248 次标错）。
+
+3. **Schema 污染与额外 Token 开销**：
+   - 在 Bash 工具描述中占用多行提示指导模型如何置位，既增加了 prompt tokens，又增加了模型的推理心智负担。
+
+#### 13.10.2 调整目标与方案
+
+彻底弃用 `file_inspect` 模型参数，判定权 100% 收敛至前端确定性分词规则：
+
+1. **`cc-middlewares`（彻底干净）**：
+   - 从 `BashTool::parameters()` 中彻底移除 `file_inspect` 参数定义；
+   - 恢复 `BASH_DESCRIPTION`，移除关于 `file_inspect` 的相关引导文案；
+   - 删除针对该参数的单元测试，保持中间件与官方原生 Bash Schema 100% 一致。
+
+2. **`cc-tui`（纯前端确定性判定）**：
+   - 改写 `tools.rs` 中的 `is_file_inspect`，移除 `input.get("file_inspect")` 读取分支，直接且唯一调用 `is_readonly_shell_command` 确定性分词函数；
+   - 维持 `ToolBlock` / `ToolEntry` 内部现有的 `file_inspect: bool` 字段作为前端内部派生标记（由 `command` 实时解析得出），无须重构下游渲染层数据结构；
+   - 调整单测，清除测试数据中手动伪造的 `"file_inspect": true`，全部转用真实命令文本做断言。
+
+3. **效果收益**：
+   - **体验一致稳定**：只要是文件只读查看类命令，必定自动折叠，不再受模型输出概率影响；
+   - **完全标准兼容**：对外工具接口干净无私有污染。
+
