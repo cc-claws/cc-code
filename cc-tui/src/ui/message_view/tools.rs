@@ -128,9 +128,10 @@ pub fn is_file_inspect(tool_name: &str, input: &serde_json::Value) -> bool {
 
 /// 只读文件查看命令的确定性判定（与参考实现的 `isSearchOrReadCommand` 同源）。
 ///
-/// - 按 `|`、`||`、`&&`、`;`、换行拆段；
+/// - 按 `|`、`||`、`&&`、`;`、换行拆段（**引号内与转义后的分隔符不算**）；
 /// - 每段首个可执行须在白名单内，或属于中性命令（cd/pwd/echo/printf/true/false/:、`VAR=x` 前缀）；
-/// - 任一段出现重定向（`>`/`>>`）→ 判定为非只读；
+/// - 任一段出现**写文件**的重定向（`>`/`>>`）→ 判定为非只读；
+///   `2>/dev/null`、`2>&1`、`>&2` 只丢弃/合并 stderr，不算写盘；
 /// - 至少有一段是真正的文件查看器（纯 `cd`/`echo` 不算）。
 pub fn is_readonly_shell_command(command: &str) -> bool {
     const READERS: [&str; 21] = [
@@ -146,12 +147,12 @@ pub fn is_readonly_shell_command(command: &str) -> bool {
     if command.contains("$(") || command.contains('`') {
         return false;
     }
-    for raw in command.split(['|', ';', '\n']).flat_map(|s| s.split("&&")) {
+    for raw in split_shell_segments(command) {
         let seg = raw.trim();
         if seg.is_empty() {
             continue;
         }
-        if seg.contains('>') {
+        if has_file_redirect(seg) {
             return false;
         }
         let mut tokens = seg.split_whitespace();
@@ -259,4 +260,96 @@ pub fn tool_color(name: &str) -> Color {
         _ if name.contains("error") => theme::cur().error,
         _ => theme::cur().inactive,
     }
+}
+
+/// 按 `|`、`||`、`&&`、`;`、换行切分命令，但**跳过引号内与转义后**的分隔符。
+fn split_shell_segments(command: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    let mut quote: Option<char> = None;
+    let mut chars = command.chars().peekable();
+    while let Some(c) = chars.next() {
+        match quote {
+            Some(q) => {
+                cur.push(c);
+                if c == q {
+                    quote = None;
+                }
+            }
+            None => match c {
+                '\'' | '"' => {
+                    quote = Some(c);
+                    cur.push(c);
+                }
+                '\\' => {
+                    cur.push(c);
+                    if let Some(next) = chars.next() {
+                        cur.push(next);
+                    }
+                }
+                '|' => {
+                    // `||` 与 `|` 等价：都是命令分隔
+                    if chars.peek() == Some(&'|') {
+                        chars.next();
+                    }
+                    out.push(std::mem::take(&mut cur));
+                }
+                '&' if chars.peek() == Some(&'&') => {
+                    chars.next();
+                    out.push(std::mem::take(&mut cur));
+                }
+                ';' | '\n' => out.push(std::mem::take(&mut cur)),
+                _ => cur.push(c),
+            },
+        }
+    }
+    out.push(cur);
+    out.retain(|s| !s.trim().is_empty());
+    out
+}
+
+/// 段内是否存在**写文件**的重定向。
+///
+/// `2>/dev/null`、`2>&1`、`>&2` 只是丢弃/合并错误输出，不算写盘，先剥离再判断；
+/// 引号内的 `>`（如 `awk 'NR>=2900'`）是参数内容，同样不算。
+fn has_file_redirect(seg: &str) -> bool {
+    let stripped = mask_quoted(seg)
+        .replace("2>/dev/null", "")
+        .replace("2> /dev/null", "")
+        .replace("2>&1", "")
+        .replace(">&2", "");
+    stripped.contains('>')
+}
+
+/// 把引号内与转义后的字符替换成空格（保持字符位置），只留命令结构。
+fn mask_quoted(seg: &str) -> String {
+    let mut out = String::with_capacity(seg.len());
+    let mut quote: Option<char> = None;
+    let mut chars = seg.chars().peekable();
+    while let Some(c) = chars.next() {
+        match quote {
+            Some(q) => {
+                if c == q {
+                    quote = None;
+                    out.push(c);
+                } else {
+                    out.push(' ');
+                }
+            }
+            None => match c {
+                '\'' | '"' => {
+                    quote = Some(c);
+                    out.push(c);
+                }
+                '\\' => {
+                    out.push(' ');
+                    if chars.next().is_some() {
+                        out.push(' ');
+                    }
+                }
+                _ => out.push(c),
+            },
+        }
+    }
+    out
 }

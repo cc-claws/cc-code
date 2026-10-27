@@ -67,7 +67,8 @@ impl App {
         // 更新内部状态消息（供下一次 prompt 使用）
         self.session_mgr.current_mut().agent.origin_messages = messages.clone();
 
-        // 清空 pipeline 内部状态 + 用压缩后消息恢复
+        // 清空 pipeline 内部状态 + 用压缩后消息恢复（手动/自动都需要：
+        // 压缩后的上下文就是后续轮次的唯一事实来源）
         self.session_mgr.current_mut().messages.pipeline.clear();
         self.session_mgr
             .current_mut()
@@ -75,6 +76,19 @@ impl App {
             .pipeline
             .restore_completed(messages);
 
+        if !is_manual {
+            // 自动 compact：用户没有主动要求重置视图，**已显示的历史必须留在屏幕上**，
+            // 只追加一条压缩通知。把 round_start_vm_idx 推到当前视图末尾，
+            // 后续 request_rebuild() 只重建新增部分，历史前缀原样复用。
+            self.apply_pipeline_action(PipelineAction::add_message(MessageViewModel::system(
+                compact_label,
+            )));
+            let end = self.session_mgr.current().messages.view_messages.len();
+            self.session_mgr.current_mut().messages.round_start_vm_idx = end;
+            return (true, false, false);
+        }
+
+        // 手动 /compact：用户主动发起压缩，视图按压缩后上下文重置，只留一条通知
         // 清除 ephemeral_notes，防止 compact 前的系统通知残留
         self.session_mgr
             .current_mut()

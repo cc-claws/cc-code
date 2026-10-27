@@ -16,6 +16,48 @@ async fn test_auto_compact_started_sets_compact_manual_false() {
 }
 
 #[tokio::test]
+async fn test_auto_compact_completed_keeps_existing_view_messages() {
+    let (mut app, _handle) = App::new_headless(80, 24).await;
+    app.apply_pipeline_action(PipelineAction::add_message(MessageViewModel::system(
+        "历史消息".to_string(),
+    )));
+    app.handle_compact_started(false);
+    let before = app.session_mgr.current().messages.view_messages.len();
+    app.handle_compact_completed("summary".to_string(), vec![], vec![], 0, vec![]);
+    let vms = &app.session_mgr.current().messages.view_messages;
+    assert_eq!(
+        vms.len(),
+        before + 1,
+        "自动 compact 后已显示历史必须保留，只追加一条压缩通知"
+    );
+    assert_eq!(
+        app.session_mgr.current().messages.round_start_vm_idx,
+        vms.len(),
+        "自动 compact 后重建起点应推到视图末尾，后续只重建新增部分"
+    );
+}
+
+#[tokio::test]
+async fn test_manual_compact_completed_clears_view_messages() {
+    let (mut app, _handle) = App::new_headless(80, 24).await;
+    app.apply_pipeline_action(PipelineAction::add_message(MessageViewModel::system(
+        "历史消息".to_string(),
+    )));
+    app.handle_compact_started(true);
+    app.handle_compact_completed("summary".to_string(), vec![], vec![], 0, vec![]);
+    assert_eq!(
+        app.session_mgr.current().messages.view_messages.len(),
+        1,
+        "手动 compact 后视图应重置为只剩压缩通知"
+    );
+    assert_eq!(
+        app.session_mgr.current().messages.round_start_vm_idx,
+        0,
+        "手动 compact 后重建起点归零"
+    );
+}
+
+#[tokio::test]
 async fn test_auto_compact_completed_preserves_loading_true() {
     let (mut app, _handle) = App::new_headless(80, 24).await;
     app.handle_compact_started(false);
