@@ -386,7 +386,8 @@ impl PartialEq for MessageViewModel {
                 let same_thinking = match (a_thinking, b_thinking) {
                     (None, None) => true,
                     (Some(x), Some(y)) => {
-                        x.duration_ms == y.duration_ms
+                        x.text == y.text
+                            && x.duration_ms == y.duration_ms
                             && x.action_summary == y.action_summary
                             && x.hint == y.hint
                             && x.active == y.active
@@ -548,6 +549,7 @@ impl Hash for MessageViewModel {
                 tools,
                 collapsed,
                 standalone_action,
+                thinking,
                 ..
             } => {
                 5u8.hash(state);
@@ -555,6 +557,18 @@ impl Hash for MessageViewModel {
                 tools.hash(state);
                 collapsed.hash(state);
                 standalone_action.hash(state);
+                // thinking 决定整行文案与活跃态，必须参与 hash，否则渲染缓存会命中旧行
+                match thinking {
+                    Some(t) => {
+                        true.hash(state);
+                        t.duration_ms.hash(state);
+                        t.action_summary.hash(state);
+                        t.hint.hash(state);
+                        t.active.hash(state);
+                        t.text.hash(state);
+                    }
+                    None => false.hash(state),
+                }
             }
             MessageViewModel::SubAgentGroup {
                 agent_id,

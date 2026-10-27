@@ -290,6 +290,25 @@ fn normalize_active_thinking(vms: &mut [MessageViewModel], keep_live: bool) {
     let mut seen = false;
     for vm in vms.iter_mut().rev() {
         let mut vm_dirty = false;
+        // 一等公民：组自带的思考行同样要参与归一（否则前缀里的活跃组不会熄灭）
+        if let MessageViewModel::ToolCallGroup {
+            thinking: Some(t), ..
+        } = vm
+        {
+            if !keep_live || seen || !t.active {
+                if t.active || t.active_since.is_some() {
+                    vm_dirty = true;
+                }
+                t.active = false;
+                t.active_since = None;
+            } else {
+                seen = true;
+            }
+            if vm_dirty {
+                vm.recompute_hash();
+            }
+            continue;
+        }
         let MessageViewModel::AssistantBubble { blocks, .. } = vm else {
             continue;
         };

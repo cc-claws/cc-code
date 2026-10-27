@@ -243,6 +243,21 @@ fn diff_sensitive(vm: &MessageViewModel) -> bool {
 /// 运行中思考行的"走秒"秒数：参与渲染键，保证每秒重绘一次
 /// （VM 内容不变时缓存会复用旧行，秒数会冻住）。
 fn live_thinking_elapsed_ms(vm: &MessageViewModel) -> Option<u64> {
+    // 一等公民：组自带思考行时，走秒也由组提供
+    if let MessageViewModel::ToolCallGroup {
+        thinking: Some(t), ..
+    } = vm
+    {
+        if !t.active {
+            return None;
+        }
+        let base = t.duration_ms.unwrap_or(0);
+        let extra = t
+            .active_since
+            .map(|anchor| anchor.elapsed().as_millis() as u64)
+            .unwrap_or(0);
+        return Some(base + extra);
+    }
     let MessageViewModel::AssistantBubble { blocks, .. } = vm else {
         return None;
     };

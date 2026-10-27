@@ -202,9 +202,9 @@ impl MessagePipeline {
             }
         }
         let mut groups = self.finished_groups.iter().rev();
-        // 只有"当前组还没结束且还没开始输出正文"才算活跃；
-        // 正文一旦出现（包括 block 模式路径）立即回落成 Thought。
-        let active = self.group_active && self.current_ai_text.trim().is_empty();
+        // 活跃判定统一走 live_thinking_active()（thinking_now || 有工具未结束），
+        // 与状态机保持单一来源。
+        let active = self.live_thinking_active();
         let mut first = true;
         for vm in vms.iter_mut().rev() {
             // 一等公民：组自带思考行时，活跃/耗时直接打到组上
@@ -220,6 +220,8 @@ impl MessagePipeline {
                         t.active = false;
                         t.active_since = None;
                     }
+                    // 原地改了展示字段 → 必须重算 hash，否则渲染缓存命中旧行
+                    vm.recompute_hash();
                     continue;
                 }
             }
@@ -249,6 +251,8 @@ impl MessagePipeline {
                 *a = false;
                 *active_since = None;
             }
+            // 同组分支：改了展示字段必须重算 hash，避免渲染缓存命中旧行
+            vm.recompute_hash();
         }
     }
 
@@ -622,6 +626,17 @@ pub(crate) fn merge_consecutive_thinking(vms: &mut Vec<MessageViewModel>) {
             }
             probe += 1;
         }
+        // 段内有可见正文时保留 bubble（正文仍需渲染），此时**不再**往组上复制思考，
+        // 否则同一段思考会被画两次（Codex 审计 P1-3）。
+        let bubble_has_text = match &first {
+            MessageViewModel::AssistantBubble { blocks, .. } => blocks
+                .iter()
+                .any(|b| matches!(b, ContentBlockView::Text { .. })),
+            _ => false,
+        };
+        if bubble_has_text {
+            attach_group = None;
+        }
         let merged_thinking = GroupThinking {
             text: merged_text.clone(),
             duration_ms: if missing_ms { None } else { Some(tot_ms) },
@@ -629,12 +644,6 @@ pub(crate) fn merge_consecutive_thinking(vms: &mut Vec<MessageViewModel>) {
             hint: last_hint.clone(),
             active: false,
             active_since: None,
-        };
-        let bubble_has_text = match &first {
-            MessageViewModel::AssistantBubble { blocks, .. } => blocks
-                .iter()
-                .any(|b| matches!(b, ContentBlockView::Text { .. })),
-            _ => false,
         };
         if attach_group.is_none() || bubble_has_text {
             out.push(first);
@@ -676,9 +685,16 @@ pub(crate) fn clear_action_summaries(vms: &mut [MessageViewModel]) {
                 }
             }
             MessageViewModel::ToolCallGroup {
-                standalone_action, ..
+                standalone_action,
+                thinking,
+                ..
             } => {
                 if standalone_action.take().is_some() {
+                    changed = true;
+                }
+                // 组自带思考行同样要清：重跑归并时若不摘掉，会把同一段工具再计一次
+                // （Codex 审计 P1-4：Read组A→Write→Read组B 的重复计数）。
+                if thinking.take().is_some() {
                     changed = true;
                 }
             }
