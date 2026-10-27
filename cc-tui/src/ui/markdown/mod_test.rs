@@ -712,7 +712,7 @@ fn test_ensure_rendered_flush_releases_holdback() {
 fn test_ensure_rendered_incremental_width_change_forces_reparse() {
     // Arrange: 模拟 from_base_message 路径——80 宽渲染完毕，dirty=false，前缀完整
     // 标题列内容足够长，使 80 宽下触发挤压换行、120 宽下宽松
-    let table = "| 需求编号 | 需求标题 |\n| --- | --- |\n| T57057 | 【订单需求】shopee平台马来站点新增速运单识别订单系统支持对Allegro平台订单从接口获取买家支付运费 |";
+    let table = "| 需求编号 | 需求标题 |\n| --- | --- |\n| T00000 | 【示例需求】sample平台马来站点新增速运单识别订单系统支持对Example平台订单从接口获取买家支付运费 |";
     let mut block = ContentBlockView::Text {
         raw: table.to_string(),
         rendered: parse_markdown(table, 80),

@@ -319,8 +319,8 @@ mod tests {
             response: "正在排查订单出库仓问题。下一步：确认应走官方仓还是自发仓。".to_string(),
         });
         let history = vec![
-            BaseMessage::human("排查订单 IM20260910361758 出库单为何一直用官方仓"),
-            BaseMessage::ai("根因是 Allegro One Fulfillment 订单被代码强制改派官方仓。"),
+            BaseMessage::human("排查订单 IM00000000000000 出库单为何一直用官方仓"),
+            BaseMessage::ai("根因是 Example One Fulfillment 订单被代码强制改派官方仓。"),
         ];
         let ctx = make_ctx(sink.clone(), history.clone(), Some(model));
         let cmd = RecapCommand;
