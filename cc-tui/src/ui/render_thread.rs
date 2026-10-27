@@ -282,13 +282,8 @@ fn render_key(vm: &MessageViewModel, detail: bool, diff: bool) -> u64 {
     let mut h = DefaultHasher::new();
     vm.content_hash().hash(&mut h);
     if let Some(ms) = live_thinking_elapsed_ms(vm) {
-        // 秒数与圆点闪烁相位都要进键，否则二者都会被缓存冻住
+        // 秒数进键，保证走秒刷新；符号已改为常显，不再有相位维度
         (ms / 1000).hash(&mut h);
-        let phase = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| (d.as_millis() / 500) % 2)
-            .unwrap_or(0);
-        phase.hash(&mut h);
     }
     if detail_sensitive(vm) {
         detail.hash(&mut h);
@@ -459,6 +454,12 @@ impl RenderTask {
     ///
     /// cosmetic change 的消息可以安全复用旧的渲染缓存，避免不必要的重渲染。
     fn is_cosmetic_change(old: &MessageViewModel, new: &MessageViewModel) -> bool {
+        // 活跃思考行的渲染结果依赖墙钟（走秒 + 500ms 相位闪烁），而 blocks/字段内容
+        // 在一秒内往往完全相同——一旦判成 cosmetic 就会把"新键 + 旧成品"登记下来，
+        // 秒数与闪烁随之停住。含活跃思考的 VM 一律走真重渲染。
+        if Self::has_active_thinking(old) || Self::has_active_thinking(new) {
+            return false;
+        }
         match (old, new) {
             // AssistantBubble: blocks 内容相同，仅 is_streaming 变化
             (
@@ -516,6 +517,22 @@ impl RenderTask {
             }
 
             // 其他类型变化都不是 cosmetic
+            _ => false,
+        }
+    }
+
+    /// 该 VM 是否包含「活跃」思考行：走秒与相位闪烁随时钟变化，不能复用旧成品。
+    fn has_active_thinking(vm: &MessageViewModel) -> bool {
+        match vm {
+            MessageViewModel::AssistantBubble { blocks, .. } => blocks.iter().any(|b| {
+                matches!(
+                    b,
+                    crate::ui::message_view::ContentBlockView::Reasoning { active, .. } if *active
+                )
+            }),
+            MessageViewModel::ToolCallGroup {
+                thinking: Some(t), ..
+            } => t.active,
             _ => false,
         }
     }

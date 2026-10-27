@@ -2831,3 +2831,21 @@ fn test_merged_segment_keeps_single_thinking_owner() {
     assert_eq!(group_thinking, 1, "无正文时思考行应由折叠组持有");
     assert_eq!(bubble_reasoning, 0, "无正文时不得再保留思考气泡");
 }
+
+/// 中断后当前思考段必须冻结。
+///
+/// 否则 `live_thinking_active()`（thinking_now || 未结束工具）仍为真，视图装配点会
+/// 保留最后一行的活跃标记 —— 真机表现是"取消后 `∴ Thinking for 54s…` 继续走秒、符号还在闪"。
+#[test]
+fn test_interrupt_freezes_active_thinking() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.push_reasoning("正在思考");
+    assert!(pipeline.live_thinking_active(), "思考中应判为活跃");
+
+    pipeline.interrupt();
+
+    assert!(
+        !pipeline.live_thinking_active(),
+        "中断后不应再有活跃思考（否则会继续走秒闪烁）"
+    );
+}

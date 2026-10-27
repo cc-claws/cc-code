@@ -10,7 +10,7 @@ use cc_agent::{agent::events::CompactFileInfo, messages::BaseMessage};
 ///
 /// 取值口径：一屏约 20-40 行，一条 VM 通常占 1-3 行；1 万条约合 1-3 万行屏幕历史
 /// （数百到上千轮工具调用），正常会话几乎不可能触发，只在渲染快照确实堆积时才兜底。
-const MAX_VIEW_MESSAGES: usize = 10_000;
+pub(crate) const MAX_VIEW_MESSAGES: usize = 10_000;
 
 impl App {
     /// 视图历史超限时裁剪最老的一段。

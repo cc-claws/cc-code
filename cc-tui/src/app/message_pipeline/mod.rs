@@ -1101,6 +1101,13 @@ impl MessagePipeline {
 
     /// 中断：finalize 当前状态并清理残留
     pub fn interrupt(&mut self) {
+        // 中断时当前思考段已经结束：必须冻结计时并熄灭 `thinking_now`。
+        // 否则 `live_thinking_active()`（thinking_now || 未结束工具）仍为真，
+        // 视图装配点会保留最后一行的活跃标记 —— 真机表现是"取消后
+        // `∴ Thinking for 54s…` 继续走秒、符号还在闪"。
+        if self.group_active || self.thinking_now {
+            self.freeze_group();
+        }
         self.finalize_current_ai();
         self.current_ai_finalized = false;
         self.pending_tools.clear();

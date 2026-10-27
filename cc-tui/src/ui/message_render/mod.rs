@@ -1590,15 +1590,15 @@ pub fn render_view_model_with_flags(
                         active_since,
                         ..
                     } => {
-                        // Thought 标题：缩进 2 列对齐
-                        let hint = if detail_mode {
+                        // 运行中（本轮未结束且非详细模式）：对齐参考实现——
+                        // 行首圆点 + 现在时 + 省略号 + 走秒，**不吐思考正文**。
+                        let active = *block_active && !detail_mode;
+                        // Thought 标题：缩进 2 列对齐。活跃态没有可展开的正文，不给提示
+                        let hint = if detail_mode || active {
                             ""
                         } else {
                             " (ctrl+o to expand)"
                         };
-                        // 运行中（本轮未结束且非详细模式）：对齐参考实现——
-                        // 行首圆点 + 现在时 + 省略号 + 走秒，**不吐思考正文**。
-                        let active = *block_active && !detail_mode;
                         // 走秒口径同参考实现 Jc：已完成累计 + 距锚点（最后一段思考结束）的增量，
                         // 至少显示 1s。
                         let live_ms = active.then(|| {
@@ -1610,22 +1610,8 @@ pub fn render_view_model_with_flags(
                         });
                         let live_secs = live_ms.map(|ms| ms.max(1000) / 1000);
                         let (prefix, timing) = if let Some(secs) = live_secs {
-                            // `∴` 本身闪烁（显/隐），用墙钟 500ms 相位驱动，
-                            // 与 render_key 的相位判定同源，避免"时闪时不闪"。
-                            // 留存窗口内（思考已结束）不再闪烁，恒显 `∴`。
-                            let dot = if !active {
-                                "∴ ".to_string()
-                            } else {
-                                let phase = std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .map(|d| (d.as_millis() / 500) % 2)
-                                    .unwrap_or(0);
-                                if phase == 0 {
-                                    "∴ ".to_string()
-                                } else {
-                                    "  ".to_string()
-                                }
-                            };
+                            // 活跃态恒显 `∴ ` 前缀（不再做 500ms 显隐闪烁）
+                            let dot = "∴ ".to_string();
                             (dot, format!("Thinking for {secs}s"))
                         } else {
                             // 有耗时 → `Thought for Ns`；无耗时（历史旧数据）→ 回退字数
@@ -2791,19 +2777,16 @@ pub fn render_view_model_with_flags(
                 } else {
                     None
                 };
-                let hint = if detail_mode { "" } else { " (ctrl+o to expand)" };
+                // 活跃态没有可展开的正文，不给展开提示
+                let hint = if detail_mode || active {
+                    ""
+                } else {
+                    " (ctrl+o to expand)"
+                };
                 let (prefix, timing) = if let Some(ms) = live_ms {
                     let secs = ms.max(1000) / 1000;
-                    // `∴` 按墙钟 500ms 相位显隐，与 AssistantBubble 的思考行一致
-                    let phase = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| (d.as_millis() / 500) % 2)
-                        .unwrap_or(0);
-                    let dot = if phase == 0 {
-                        "∴ ".to_string()
-                    } else {
-                        "  ".to_string()
-                    };
+                    // 活跃态恒显 `∴ ` 前缀（不再做 500ms 显隐闪烁）
+                    let dot = "∴ ".to_string();
                     (dot, format!("Thinking for {secs}s"))
                 } else {
                     // 冻结后不再带符号，只保留缩进（与活跃行对齐）

@@ -544,37 +544,40 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
     /// 本轮工具执行——误伤正常编辑。改为全文比对后，真退化循环（逐字重复全文）
     /// 仍能命中，只是"开头雷同"的轮次不再误触发。
     ///
-    /// 按**词**流式归一化（空白折叠）+ 逐词喂 hasher，不构造整串：
-    /// 每轮思考可达数千字符，拼接 + 归一化会多出两份临时字符串，而窗口里
-    /// 只需保存 8 个 u64。纯空白（无任何词）返回 None。
+    /// 按**词**归一化后喂 hasher，窗口里只保存 8 个 u64，不再保留全文。
+    ///
+    /// 拼接口径与旧版完全一致：先把各 Reasoning 块**无分隔**拼接，拼接结果为空字符串
+    /// 才回退到 `thought`（分块边界可能落在词中间，逐块分词会改变判定）。
+    /// 纯空白（无任何词）返回 None，不计入窗口。
     fn thinking_fingerprint(reasoning: &Reasoning) -> Option<u64> {
         use std::hash::{Hash, Hasher};
 
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        let mut saw_word = false;
-        let mut feed = |text: &str, hasher: &mut std::collections::hash_map::DefaultHasher| {
-            let mut any = false;
-            for word in text.split_whitespace() {
-                word.hash(hasher);
-                // 词间固定分隔，避免 ["ab","c"] 与 ["a","bc"] 归一化后撞哈希
-                u32::MAX.hash(hasher);
-                any = true;
-            }
-            any
+        let joined: String = reasoning
+            .source_message
+            .as_ref()
+            .map(|msg| {
+                msg.content_blocks()
+                    .iter()
+                    .filter_map(|b| b.as_reasoning())
+                    .collect::<String>()
+            })
+            .unwrap_or_default();
+        let text: &str = if joined.is_empty() {
+            &reasoning.thought
+        } else {
+            &joined
         };
 
-        if let Some(ref msg) = reasoning.source_message {
-            for block in msg.content_blocks() {
-                if let Some(text) = block.as_reasoning() {
-                    saw_word |= feed(text, &mut hasher);
-                }
-            }
-        }
-        if !saw_word {
-            saw_word = feed(&reasoning.thought, &mut hasher);
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        let mut any = false;
+        for word in text.split_whitespace() {
+            word.hash(&mut hasher);
+            // 词间固定分隔，避免 ["ab","c"] 与 ["a","bc"] 归一化后撞哈希
+            u32::MAX.hash(&mut hasher);
+            any = true;
         }
 
-        saw_word.then(|| hasher.finish())
+        any.then(|| hasher.finish())
     }
 }
 
