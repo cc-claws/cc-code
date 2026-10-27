@@ -1,31 +1,32 @@
 # cc-middlewares
 
-中间件实现 crate，依赖 `cc-agent` 和 `cc-lsp`。19 个中间件按固定顺序组成链（含条件注册中间件）。
+中间件实现 crate，依赖 `cc-agent` 和 `cc-lsp`。宿主的 18 个中间件按固定顺序组成链（含条件注册中间件）。
 
 ## 中间件链执行顺序
 
 ```
 1.  AgentsMdMiddleware       ← 指引文件注入（AGENTS.md/CLAUDE.md，同目录合并去重 + 跨目录拼接 + 限额）
-2.  MemoryMiddleware         ← 自动记忆入口（冻结的 MEMORY.md 索引注入）
-3.  AgentDefineMiddleware    ← agent 定义，model/maxTurns 覆盖
-4.  SkillsMiddleware         ← Skills 摘要注入（含插件 extra_dirs）
-5.  SkillPreloadMiddleware   ← /skill-name 全文以 Human 元消息注入（不伪造工具消息）
-6.  AtMentionMiddleware      ← @path 解析，注入 Read 工具调用
-7.  FilesystemMiddleware     ← 5 个文件系统工具
-8.  GitAttributionMiddleware ← before_tool/after_tool 追踪 Write/Edit 贡献字符数
-9.  TerminalMiddleware       ← Bash
-10. WebMiddleware            ← WebFetch/WebSearch
-11. TodoMiddleware           ← after_tool 解析 TodoWrite
-12. CronMiddleware           ← Cron 调度
-13. HookMiddleware           ← hooks 事件拦截（多组实例）
-14. HumanInTheLoopMiddleware ← before_tool 拦截
-15. SubAgentMiddleware       ← Agent 工具
-16. McpMiddleware            ← MCP 工具和资源（pool 成功时注册）
-17. ToolSearchMiddleware     ← SearchExtraTools/ExecuteExtraTool 代理
-18. LspMiddleware            ← LSP 工具 + after_tool 文件变更同步
-19. CompactMiddleware        ← before_model 钩子触发上下文压缩（条件注册）
+2.  AgentDefineMiddleware    ← agent 定义，model/maxTurns 覆盖
+3.  SkillsMiddleware         ← Skills 摘要注入（含插件 extra_dirs）
+4.  SkillPreloadMiddleware   ← /skill-name 全文以 Human 元消息注入（不伪造工具消息）
+5.  AtMentionMiddleware      ← @path 解析，注入 Read 工具调用
+6.  FilesystemMiddleware     ← 5 个文件系统工具
+7.  GitAttributionMiddleware ← before_tool/after_tool 追踪 Write/Edit 贡献字符数
+8.  TerminalMiddleware       ← Bash
+9.  WebMiddleware            ← WebFetch/WebSearch
+10. TodoMiddleware           ← after_tool 解析 TodoWrite
+11. CronMiddleware           ← Cron 调度
+12. HookMiddleware           ← hooks 事件拦截（多组实例）
+13. HumanInTheLoopMiddleware ← before_tool 拦截
+14. SubAgentMiddleware       ← Agent 工具
+15. McpMiddleware            ← MCP 工具和资源（pool 成功时注册）
+16. ToolSearchMiddleware     ← SearchExtraTools/ExecuteExtraTool 代理
+17. LspMiddleware            ← LSP 工具 + after_tool 文件变更同步
+18. CompactMiddleware        ← before_model 钩子触发上下文压缩（条件注册）
 [ReActAgent.with_system_prompt()] ← prepend
 ```
+
+记忆由宿主冻结的提示词承载一份精简读取规则与最多 20 KB（20,000 UTF-8 字节）索引，保留入口 200 行限制。相关任务遇到空预览、截断或未命中时，按关键词搜索磁盘完整 `MEMORY.md`；索引缺失或无匹配再搜索目录内 `*.md`，按需读取相关主题和分页详情。保存/更新/删除仅响应用户明确要求，不运行后台记忆生成。宿主使用 `build_agent_with_embedded_memory`，不注册 `MemoryMiddleware`。旧中间件及 `build_agent` 入口为独立、自定义提示词调用方保留，禁止与已含记忆的主提示词叠加。
 
 插件通过 `plugin_skill_dirs` → `SkillsMiddleware.with_extra_dirs()`、`plugin_hooks` → `HookMiddleware` 注入，无独立 PluginMiddleware。
 
@@ -60,6 +61,8 @@
 ## Compact 中间件
 
 `CompactMiddleware`：`before_model` 钩子，在 ReAct 循环内触发 compact。**[TRAP]** Micro compact 必须加 once-per-prompt 守卫（AtomicBool），否则每轮都重复触发。（详见 spec/global/domains/compact.md#issue_2026-05-23-micro-compact-repeated-triggering）
+
+**[TRAP]** Full compact 只替换对话历史，必须原样保留头部连续 System 前缀（冻结提示词、记忆索引和中间件指引）的内容、顺序与消息 ID；祖先边界内的前缀不重复恢复。`CompactCompleted.messages` 只发送摘要和文件/技能恢复项，临时前缀由 executor 在正常结束、模型错误或取消时按原 ID 清理，不能整类删除 System，否则会误删恢复文件。
 
 ## LSP 中间件
 

@@ -107,7 +107,7 @@ scripts/start-tui.sh                 # 启动 TUI（RELAY_PORT=3001）
 
 ## 中间件链执行顺序
 
-详见 `cc-middlewares/CLAUDE.md`。19 个中间件按固定顺序组成链（其中 Hook/Mcp/Lsp/Compact 为条件注册），末尾 `[ReActAgent.with_system_prompt()]` prepend。
+详见 `cc-middlewares/CLAUDE.md`。宿主的 18 个中间件按固定顺序组成链（其中 Hook/Mcp/Lsp/Compact 为条件注册），末尾 `[ReActAgent.with_system_prompt()]` prepend。记忆由宿主提示词承载一份精简读取规则与最多 20 KB（20,000 UTF-8 字节）索引，保留入口 200 行限制；相关任务遇到空预览、截断或未命中时按关键词搜索完整索引，索引缺失或无匹配再搜索记忆目录，按需读取详情，仅在用户明确要求时保存。不注册 `MemoryMiddleware`，不启用后台记忆生成。公开 `build_agent` 为自定义提示词保留旧中间件，宿主统一使用 `build_agent_with_embedded_memory`。
 
 ## ACP/TUI 分层架构
 

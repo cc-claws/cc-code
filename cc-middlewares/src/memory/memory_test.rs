@@ -35,7 +35,9 @@ fn test_truncate_entrypoint_content_within_limits() {
 
 #[test]
 fn test_truncate_entrypoint_content_line_cap() {
-    let lines: Vec<String> = (0..250).map(|i| format!("- [Line {}](file{}.md)", i, i)).collect();
+    let lines: Vec<String> = (0..250)
+        .map(|i| format!("- [Line {}](file{}.md)", i, i))
+        .collect();
     let raw = lines.join("\n");
     let res = truncate_entrypoint_content(&raw);
     assert!(res.was_line_truncated);
@@ -58,8 +60,43 @@ fn test_truncate_entrypoint_content_byte_cap() {
 }
 
 #[test]
+fn test_truncate_entrypoint_content_multibyte_at_byte_limit() {
+    let raw = "记".repeat(MAX_ENTRYPOINT_BYTES);
+    let res = truncate_entrypoint_content(&raw);
+    let retained = res
+        .content
+        .split("\n\n> WARNING:")
+        .next()
+        .expect("截断结果应包含正文前缀");
+    assert!(res.was_byte_truncated, "多字节超长索引应标记字节截断");
+    assert!(
+        retained.len() <= MAX_ENTRYPOINT_BYTES,
+        "正文应在字符边界遵守原字节预算"
+    );
+    assert_eq!(
+        retained,
+        "记".repeat(MAX_ENTRYPOINT_BYTES / "记".len()),
+        "超长单行应保留预算内的完整字符"
+    );
+}
+
+#[test]
+fn test_truncate_entrypoint_content_multibyte_after_complete_line() {
+    let raw = format!("a\n{}", "记".repeat(MAX_ENTRYPOINT_BYTES));
+    let res = truncate_entrypoint_content(&raw);
+    assert!(res.was_byte_truncated, "多字节超长索引应标记字节截断");
+    assert!(
+        res.content.starts_with("a\n\n> WARNING:"),
+        "字节边界落在多字节字符内时仍应优先保留完整行"
+    );
+}
+
+#[test]
 fn test_build_auto_memory_prompt_format() {
-    let prompt = build_auto_memory_prompt("~/.cc-code/projects/D--code-peri/memory/", Some("- [Line 1](file.md) — test hook"));
+    let prompt = build_auto_memory_prompt(
+        "~/.cc-code/projects/D--code-peri/memory/",
+        Some("- [Line 1](file.md) — test hook"),
+    );
     assert!(prompt.contains("# auto memory"));
     assert!(prompt.contains("`~/.cc-code/projects/D--code-peri/memory/`"));
     assert!(prompt.contains("<name>user</name>"));
@@ -85,8 +122,102 @@ fn test_get_auto_memory_display_dir() {
 
 #[test]
 fn test_build_auto_memory_prompt_empty_index() {
-    let prompt = build_auto_memory_prompt(r"C:\Users\user\.claude\projects\D--code-peri\memory\", None);
+    let prompt =
+        build_auto_memory_prompt(r"C:\Users\user\.claude\projects\D--code-peri\memory\", None);
     assert!(prompt.contains("Your MEMORY.md is currently empty."));
+}
+
+#[test]
+fn test_build_auto_memory_instructions_excludes_index() {
+    let instructions = build_auto_memory_instructions("/project/memory");
+    assert!(
+        instructions.contains("# auto memory"),
+        "应保留自动记忆规则标题"
+    );
+    assert!(
+        instructions.contains("## Types of memory"),
+        "应保留记忆类型规则"
+    );
+    assert!(
+        instructions.contains("## Memory and other forms of persistence"),
+        "应保留末尾持久化规则"
+    );
+    assert!(
+        !instructions.contains("## MEMORY.md"),
+        "纯规则不应包含索引正文段"
+    );
+    assert!(
+        !instructions.contains("Your MEMORY.md is currently empty."),
+        "纯规则不应声明索引为空"
+    );
+    assert!(
+        !instructions.contains("MEMORY_INDEX_SENTINEL"),
+        "纯规则不应包含索引正文"
+    );
+}
+
+#[test]
+fn test_build_auto_memory_prompt_includes_index_once() {
+    let entrypoint = "\n  - [MEMORY_INDEX_SENTINEL](topic.md) — 测试索引\n\n";
+    let prompt = build_auto_memory_prompt("/project/memory", Some(entrypoint));
+    assert_eq!(
+        prompt.matches("MEMORY_INDEX_SENTINEL").count(),
+        1,
+        "合成提示词应只包含一份索引正文"
+    );
+    assert_eq!(
+        prompt.matches("## MEMORY.md").count(),
+        1,
+        "应只包含一个索引正文段"
+    );
+    assert!(
+        prompt.ends_with("\n\n## MEMORY.md\n\n- [MEMORY_INDEX_SENTINEL](topic.md) — 测试索引"),
+        "应保留旧接口的索引标题、分隔符和首尾空白处理"
+    );
+    assert!(
+        !prompt.contains("Your MEMORY.md is currently empty."),
+        "非空索引不应包含空索引提示"
+    );
+}
+
+#[test]
+fn test_build_auto_memory_prompt_blank_index_matches_empty_index() {
+    let empty_prompt = build_auto_memory_prompt("/project/memory", None);
+    for entrypoint in ["", " \r\n\t"] {
+        let prompt = build_auto_memory_prompt("/project/memory", Some(entrypoint));
+        assert_eq!(
+            prompt, empty_prompt,
+            "缺省、空和纯空白索引的渲染结果应保持一致"
+        );
+    }
+    assert!(empty_prompt.ends_with("\n\nYour MEMORY.md is currently empty. When you save new memories, they will appear here."), "应保留旧接口的完整空索引提示");
+    assert!(
+        !empty_prompt.contains("## MEMORY.md"),
+        "空索引不应包含索引正文标题"
+    );
+}
+
+#[test]
+fn test_build_auto_memory_instructions_preserves_directory_separator() {
+    let cases = [
+        ("/project/memory", "/project/memory/"),
+        ("/project/memory/", "/project/memory/"),
+        (r"C:\project\memory", r"C:\project\memory/"),
+        (r"C:\project\memory\", r"C:\project\memory\"),
+    ];
+    for (memory_dir, expected_dir) in cases {
+        let instructions = build_auto_memory_instructions(memory_dir);
+        let prompt = build_auto_memory_prompt(memory_dir, None);
+        let directory_text = format!("at `{expected_dir}`.");
+        assert!(
+            instructions.contains(&directory_text),
+            "应按旧契约补齐或保留目录末尾分隔符：{memory_dir}"
+        );
+        assert!(
+            prompt.contains(&directory_text),
+            "兼容接口应保持相同的目录显示：{memory_dir}"
+        );
+    }
 }
 
 #[test]

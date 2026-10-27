@@ -147,6 +147,14 @@ impl CompactMiddleware {
         };
 
         let ancestor_len = state.ancestor_len();
+        // 冻结系统提示词和 before_agent 指引不参与压缩。祖先范围内的前缀已留在
+        // state 中，只需恢复本次 drain 的部分，不能把历史中的 System 当作前缀。
+        let system_prefix_len = state
+            .messages()
+            .iter()
+            .take_while(|message| message.is_system())
+            .count()
+            .saturating_sub(ancestor_len);
 
         // 只 compact own messages，不动 ancestor 快照
         let own_messages: Vec<BaseMessage> = state.messages_mut().drain(ancestor_len..).collect();
@@ -258,7 +266,11 @@ impl CompactMiddleware {
         self.fire_hooks(hooks::types::HookEvent::PostCompact, msg_count)
             .await;
 
-        // Rebuild: ancestor (unchanged, still in state) + compacted own messages
+        // 原样移回临时系统前缀，保留内容、顺序和 ID，供本轮后续请求与结束清理使用。
+        // CompactCompleted 只携带摘要/恢复项，不把临时前缀写入客户端历史。
+        state
+            .messages_mut()
+            .extend(own_messages.into_iter().take(system_prefix_len));
         state.messages_mut().extend(new_messages);
         state.token_tracker_mut().reset();
 
