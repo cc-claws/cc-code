@@ -103,6 +103,39 @@ fn test_memory_snapshot_updates_only_on_new_capture() {
 }
 
 #[test]
+fn test_memory_snapshot_line_truncation_keeps_full_index_search_instructions() {
+    let directory = tempfile::tempdir().unwrap();
+    let entrypoint = directory.path().join("MEMORY.md");
+    let raw = format!(
+        "{}\n- [HIDDEN_MEMORY_TOPIC](hidden.md)",
+        (0..210)
+            .map(|number| format!("- Topic {number}: archived context"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    std::fs::write(&entrypoint, &raw).unwrap();
+    let snapshot = AutoMemorySnapshot::load(directory.path().into(), "~/project/memory/".into());
+    let prompt = make_memory_prompt(directory.path().to_str().unwrap(), &snapshot);
+    assert!(
+        prompt.contains("Only part of it was loaded"),
+        "应保留上游行数截断提示"
+    );
+    assert!(
+        !prompt.contains("HIDDEN_MEMORY_TOPIC"),
+        "200行以后的条目不应出现在冻结预览中"
+    );
+    assert!(
+        prompt.contains("Grep the full MEMORY.md with task keywords"),
+        "上游截断也必须保留搜索完整磁盘索引的规则"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&entrypoint).expect("应能复查磁盘索引"),
+        raw,
+        "截断预览不能修改磁盘完整记忆"
+    );
+}
+
+#[test]
 fn test_memory_snapshot_disabled_does_not_inject_context() {
     let directory = tempfile::tempdir().unwrap();
     std::fs::write(

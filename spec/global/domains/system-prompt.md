@@ -34,10 +34,10 @@ build_system_prompt(overrides, cwd, features)
 | Feature-gated | 10_hitl, 11_subagent, 12_cron, 13_skills, 15_channel |
 | 编译嵌入 | include_str! 宏，零运行时开销 |
 | 条件注入 | PromptFeatures::detect()；HITL 使用运行时的 !is_yolo_mode()，默认启用审批说明；其余开关硬编码 true |
-| Memory 块 | memory_enabled 门控的精简读取规则及最多 2 KiB 索引（非段落文件） |
+| Memory 块 | memory_enabled 门控的精简读取规则及最多 20 KB（20,000 UTF-8 字节）索引，保留入口 200 行限制（非段落文件） |
 | 环境变量 | 会话创建时捕获；07 中日期为 session date，不代表实时日期 |
 
-记忆索引在会话创建时读取一次，提示词和兼容元数据共用同一份快照；空索引也冻结。ACP 会话与 print 路径通过 `build_agent_with_embedded_memory` 跳过独立 `MemoryMiddleware`，避免同一索引再次注入或被 fork 继承。详情仅在相关时按需读取；写入、更新与删除必须由用户明确提出，不要求每轮总结，不触发后台记忆模型调用。旧完整自动记忆提示词 API 与独立中间件保留给兼容调用方。
+记忆索引在会话创建时读取一次，提示词和兼容元数据共用同一份快照；空索引也冻结。ACP 会话与 print 路径通过 `build_agent_with_embedded_memory` 跳过独立 `MemoryMiddleware`，避免同一索引再次注入或被 fork 继承。相关任务遇到空预览、截断或未命中时，提示模型先用关键词搜索磁盘完整索引，索引缺失或无匹配再搜索记忆目录，按需读取相关主题或分页详情；此检索规则在空索引时同样保留。写入、更新与删除必须由用户明确提出，不要求每轮总结，不触发后台记忆模型调用。旧完整自动记忆提示词 API 与独立中间件保留给兼容调用方。
 
 ## 内置指令约定
 

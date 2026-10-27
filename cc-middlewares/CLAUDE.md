@@ -26,7 +26,7 @@
 [ReActAgent.with_system_prompt()] ← prepend
 ```
 
-记忆由宿主冻结的提示词承载一份精简读取规则与最多 2 KiB 索引，详情按需读，保存/更新/删除仅响应用户明确要求，不运行后台记忆生成。宿主使用 `build_agent_with_embedded_memory`，不注册 `MemoryMiddleware`。旧中间件及 `build_agent` 入口为独立、自定义提示词调用方保留，禁止与已含记忆的主提示词叠加。
+记忆由宿主冻结的提示词承载一份精简读取规则与最多 20 KB（20,000 UTF-8 字节）索引，保留入口 200 行限制。相关任务遇到空预览、截断或未命中时，按关键词搜索磁盘完整 `MEMORY.md`；索引缺失或无匹配再搜索目录内 `*.md`，按需读取相关主题和分页详情。保存/更新/删除仅响应用户明确要求，不运行后台记忆生成。宿主使用 `build_agent_with_embedded_memory`，不注册 `MemoryMiddleware`。旧中间件及 `build_agent` 入口为独立、自定义提示词调用方保留，禁止与已含记忆的主提示词叠加。
 
 插件通过 `plugin_skill_dirs` → `SkillsMiddleware.with_extra_dirs()`、`plugin_hooks` → `HookMiddleware` 注入，无独立 PluginMiddleware。
 

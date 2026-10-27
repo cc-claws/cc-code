@@ -20,7 +20,7 @@ fn test_build_memory_read_prompt_includes_index_once() {
         "预算内的索引只应去除首尾空白"
     );
     assert!(
-        prompt.contains("Read relevant topic files with Read only when needed"),
+        prompt.contains("For relevant prior context or explicit recall"),
         "只应按相关性按需读取详情"
     );
     assert!(
@@ -52,9 +52,45 @@ fn test_build_memory_read_prompt_empty_index_is_compact() {
         "空索引不应附加旧版长提示"
     );
     assert!(
-        !empty_prompt.contains("Read relevant"),
-        "空索引仅保留路径和显式保存规则"
+        empty_prompt.contains("Read relevant topic files"),
+        "空索引也必须保留按需检索和读取规则"
     );
+}
+
+#[test]
+fn test_build_memory_read_prompt_preserves_index_beyond_two_kilobytes() {
+    let entrypoint = format!("{}\n- [LATE_MEMORY_TOPIC](late.md)", "x".repeat(8_000));
+    let prompt = build_memory_read_prompt("/project/memory/", Some(&entrypoint));
+    assert_eq!(MAX_MEMORY_READ_INDEX_BYTES, 20_000, "索引预算应为20KB");
+    assert_eq!(
+        make_index_section(&prompt),
+        entrypoint,
+        "超过旧2KiB预算且小于20KB的索引必须完整加载"
+    );
+    assert!(!prompt.contains("Partial index"), "预算内不能误报截断");
+}
+
+#[test]
+fn test_build_memory_read_prompt_keeps_search_fallback_for_all_previews() {
+    for entrypoint in [None, Some(""), Some("- [Other project](other.md)")] {
+        let prompt = build_memory_read_prompt("/project/memory/", entrypoint);
+        assert!(
+            prompt.contains("If the preview is empty, partial, or has no relevant entry"),
+            "空索引、截断和未命中都应触发相关任务的检索兜底"
+        );
+        assert!(
+            prompt.contains("Grep the full MEMORY.md with task keywords (output_mode: content)"),
+            "应先按关键词搜索磁盘完整索引以取得主题指针"
+        );
+        assert!(
+            prompt.contains("if missing or no match, Grep this directory's *.md files"),
+            "索引缺失或未登记主题时应继续搜索记忆目录"
+        );
+        assert!(
+            prompt.contains("use offset/limit for long files"),
+            "详情超出单次读取范围时应分页读取"
+        );
+    }
 }
 
 #[test]
@@ -72,6 +108,10 @@ fn test_build_memory_read_prompt_requires_explicit_memory_writes() {
     assert!(
         prompt.contains("frontmatter type: user/feedback/project/reference"),
         "应简短说明记忆类型"
+    );
+    assert!(
+        prompt.contains("Before editing the index, Read its current contents; never overwrite it from this preview"),
+        "显式保存也必须先读取现有索引，避免用不完整预览覆盖磁盘条目"
     );
     assert!(
         !prompt.contains("build up this memory system"),
