@@ -325,7 +325,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
         let mut schema_failure_tracker = self::tool_dispatch::SchemaFailureTracker::new();
 
         // 卡住检测：跟踪最近若干轮 thinking 指纹，检测循环模式
-        let mut recent_fingerprints: VecDeque<String> = VecDeque::with_capacity(STUCK_WINDOW_SIZE);
+        let mut recent_fingerprints: VecDeque<u64> = VecDeque::with_capacity(STUCK_WINDOW_SIZE);
         // 最终回答边界取出的补充信息也延后到下一次 compact 之后写入。
         // receipt 在真正写入 state 并发出快照前保持未确认，提前退出时由 Drop 拒绝。
         let mut pending_steering = Vec::new();
@@ -493,8 +493,8 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
     /// 改用滑动窗口（最近 STUCK_WINDOW_SIZE 轮）+ 频率检测
     /// （同一指纹累计出现 STUCK_REPEAT_THRESHOLD 次）。
     ///
-    /// 指纹按 trim 后判空：无 thinking 的模型常在工具调用轮返回 `"\n"`/`" "`，
-    /// 按原样入窗会因逐轮完全相同而被误判为思考循环。
+    /// 指纹只存 64 位摘要：窗口里保留全文会让每轮都多留一份几千字符的字符串，
+    /// 而这里只需要判等。纯空白思考（无任何词）返回 None，直接不计入窗口。
     ///
     /// 检测到循环时注入换策略 Human 消息，并返回 true 让主循环跳过
     /// 本轮工具执行，强制 agent 带着新提示重新思考，而非继续转圈。
@@ -502,17 +502,15 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
     fn check_stuck(
         state: &mut S,
         reasoning: &Reasoning,
-        recent: &mut VecDeque<String>,
+        recent: &mut VecDeque<u64>,
         step: usize,
     ) -> bool {
-        let fp = Self::thinking_fingerprint(reasoning);
-        let fp = fp.trim().to_string();
-        if fp.is_empty() {
+        let Some(fp) = Self::thinking_fingerprint(reasoning) else {
             return false;
-        }
+        };
 
         // 统计当前指纹在窗口内已出现次数（不计本次）
-        let repeats = recent.iter().filter(|f| f.as_str() == fp.as_str()).count();
+        let repeats = recent.iter().filter(|f| **f == fp).count();
 
         // 维护滑动窗口：超出容量则弹出最旧
         recent.push_back(fp);
@@ -537,25 +535,49 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
         false
     }
 
-    /// 提取 thinking 内容指纹（前 200 字符）
+    /// 提取 thinking 内容指纹（全文归一化后的 64 位摘要）
     ///
-    /// 优先从 source_message 的 Reasoning blocks 提取，
-    /// 回退到 thought 字段（Text blocks）。
-    fn thinking_fingerprint(reasoning: &Reasoning) -> String {
-        // 优先从 source_message 提取 reasoning blocks 文本
-        if let Some(ref msg) = reasoning.source_message {
-            let r: String = msg
-                .content_blocks()
-                .iter()
-                .filter_map(|b| b.as_reasoning())
-                .collect::<Vec<_>>()
-                .join("");
-            if !r.is_empty() {
-                return r.chars().take(200).collect();
-            }
+    /// 优先从 source_message 的 Reasoning blocks 提取，回退到 thought 字段。
+    ///
+    /// 早期只取前 200 字符：连续多轮同质任务（典型如逐文件 `Edit`）的思考常以
+    /// 相同套话起手、后文才分化，前 200 字符一致就被判成同一指纹，进而跳过
+    /// 本轮工具执行——误伤正常编辑。改为全文比对后，真退化循环（逐字重复全文）
+    /// 仍能命中，只是"开头雷同"的轮次不再误触发。
+    ///
+    /// 按**词**归一化后喂 hasher，窗口里只保存 8 个 u64，不再保留全文。
+    ///
+    /// 拼接口径与旧版完全一致：先把各 Reasoning 块**无分隔**拼接，拼接结果为空字符串
+    /// 才回退到 `thought`（分块边界可能落在词中间，逐块分词会改变判定）。
+    /// 纯空白（无任何词）返回 None，不计入窗口。
+    fn thinking_fingerprint(reasoning: &Reasoning) -> Option<u64> {
+        use std::hash::{Hash, Hasher};
+
+        let joined: String = reasoning
+            .source_message
+            .as_ref()
+            .map(|msg| {
+                msg.content_blocks()
+                    .iter()
+                    .filter_map(|b| b.as_reasoning())
+                    .collect::<String>()
+            })
+            .unwrap_or_default();
+        let text: &str = if joined.is_empty() {
+            &reasoning.thought
+        } else {
+            &joined
+        };
+
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        let mut any = false;
+        for word in text.split_whitespace() {
+            word.hash(&mut hasher);
+            // 词间固定分隔，避免 ["ab","c"] 与 ["a","bc"] 归一化后撞哈希
+            u32::MAX.hash(&mut hasher);
+            any = true;
         }
-        // 回退到 thought 字段
-        reasoning.thought.chars().take(200).collect()
+
+        any.then(|| hasher.finish())
     }
 }
 

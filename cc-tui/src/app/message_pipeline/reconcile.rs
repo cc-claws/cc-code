@@ -166,7 +166,7 @@ impl MessagePipeline {
         if self.has_snapshot_this_round {
             let start = self.completed_len_at_round_start.min(self.completed.len());
             // 本轮可能包含用户主动补充的 Human 消息，不能用最后一条 Human 截掉之前的执行过程。
-            tail_vms = Self::messages_to_view_models(&self.completed[start..], &self.cwd);
+            tail_vms = Self::unaggregated_view_models(&self.completed[start..], &self.cwd);
             let reconcile_subagent_count =
                 tail_vms.iter().filter(|vm| vm.is_subagent_group()).count();
             tracing::debug!(
@@ -242,6 +242,7 @@ impl MessagePipeline {
                     started_at: None,
                     timeout_ms: ct.input.get("timeout").and_then(serde_json::Value::as_u64),
                     shell_backgrounded: false,
+                    file_inspect: crate::ui::message_view::is_file_inspect(&ct.name, &ct.input),
                     content_hash: 0,
                 };
                 vm.recompute_hash();
@@ -316,6 +317,9 @@ impl MessagePipeline {
         if !self.has_streaming_content() && self.current_ai_tool_calls.is_empty() {
             aggregate_batch_groups(&mut tail_vms);
         }
+
+        // 本轮仍在进行时，把最后一个思考行标成 active（渲染 `● Thinking for Ns, …`）
+        self.mark_live_thinking(&mut tail_vms);
 
         tail_vms
     }

@@ -32,7 +32,7 @@ use crate::ui::message_view::{MessageViewModel, ToolOutputPreview, ToolPhase};
 mod reconcile;
 mod shell_runtime;
 mod streaming_output;
-mod transform;
+pub(crate) mod transform;
 
 pub use crate::ui::message_view::aggregate_batch_groups;
 #[cfg(test)]
@@ -263,6 +263,21 @@ pub struct MessagePipeline {
     current_ai_text: String,
     /// 当前正在流式构建的 AI 推理内容
     current_ai_reasoning: String,
+    /// 当前这段思考的起始时刻：运行中用它把 Thinking 行的时间"走秒"
+    reasoning_started_at: Option<std::time::Instant>,
+    /// 当前"思考+工具"组内累计的间隔耗时（对齐参考实现 thoughtForMs，单段封顶 600s）
+    group_ms: u64,
+    /// 上一个事件（思考首 chunk / ToolStart / ToolEnd / 消息落库）的到达时刻
+    last_event_at: Option<std::time::Instant>,
+    /// 已冻结的组耗时，按时间顺序排列（每组在正文到达时冻结）
+    finished_groups: Vec<u64>,
+    /// 当前组是否仍在进行（正文到达即结束）——决定整行显示 Thinking 还是 Thought
+    group_active: bool,
+    /// 当前是否处于"思考中"：push_reasoning 置 true，正文到达（freeze_group）置 false
+    thinking_now: bool,
+    /// 这段思考是否已经落进 completed（快照已收纳）。
+    /// 只有落库后才停止从流式气泡重复输出；仅 finalize（ToolStart）不足以判定。
+    reasoning_flushed: bool,
     /// 当前 AI 消息中的 tool_calls（由 ToolStart 事件积累）
     current_ai_tool_calls: Vec<ToolCallRequest>,
     /// 当前 AI 消息是否已 finalize（ToolStart 到达后 finalize）
@@ -308,6 +323,13 @@ impl MessagePipeline {
             completed: Vec::new(),
             current_ai_text: String::new(),
             current_ai_reasoning: String::new(),
+            reasoning_started_at: None,
+            group_ms: 0,
+            last_event_at: None,
+            finished_groups: Vec::new(),
+            group_active: false,
+            thinking_now: false,
+            reasoning_flushed: false,
             current_ai_tool_calls: Vec::new(),
             current_ai_finalized: false,
             pending_tools: HashMap::new(),
@@ -649,6 +671,10 @@ impl MessagePipeline {
 
     /// 追加流式文本 chunk
     pub fn push_chunk(&mut self, chunk: &str) {
+        // 正文开始 = 本组结束：冻结该组的间隔累计并开新组。
+        if !chunk.is_empty() {
+            self.freeze_group();
+        }
         match self.streaming_mode {
             StreamingMode::Streaming => {
                 self.current_ai_text.push_str(chunk);
@@ -667,8 +693,59 @@ impl MessagePipeline {
 
     /// 追加推理 chunk
     pub fn push_reasoning(&mut self, text: &str) {
+        // 思考一到达就进入 active（真机要求：切到思考立刻显示 ● Thinking）
+        self.thinking_now = true;
+        self.reasoning_flushed = false;
+        self.group_active = true;
+        if self.last_event_at.is_none() {
+            self.note_event();
+        }
         self.current_ai_reasoning.push_str(text);
         self.adaptive_policy.on_reasoning_chunk();
+    }
+
+    /// 本轮是否仍在"思考中"：组还活跃且还没开始输出正文。
+    /// 渲染层用它决定整个视图里是否允许存在 active 的思考行。
+    pub fn live_thinking_active(&self) -> bool {
+        // 1) 本组还没结束、且还没开始输出正文；
+        // 2) 必须真的"有东西在跑"：正在流式思考，或者还有工具没结束。
+        //    否则会出现"上一组已结束、新组还没产出思考"时把旧行标成活跃的错觉。
+        // 只要有未结束的工具（任何阶段，含排队/审批）或还在流式思考，就算"有活在跑"。
+        // 注意：不能再用 `current_ai_text.is_empty()` 做条件——正文已经输出、模型接着跑工具时，
+        // 文本仍在缓冲里，那样会把整段误判成已完成（真机表现：还在跑却显示 Thought）。
+        // 思考中（chunk 已到达且正文还没来）或还有工具未结束 —— 两者都算"在跑"。
+        self.thinking_now || !self.pending_tools.is_empty()
+    }
+
+    /// 打一个事件边界：把"距上一个事件"的间隔累加进当前组（单段封顶 600s）。
+    /// 事件 = 思考首 chunk / ToolStart / ToolEnd / 消息落库，对应参考实现的相邻消息边界。
+    fn note_event(&mut self) {
+        let now = std::time::Instant::now();
+        if let Some(prev) = self.last_event_at {
+            self.group_ms = self
+                .group_ms
+                .saturating_add((now - prev).as_millis().min(600_000) as u64);
+        }
+        self.last_event_at = Some(now);
+        self.group_active = true;
+    }
+
+    /// 正文到达 = 本组结束：冻结当前组耗时，开新组。
+    fn freeze_group(&mut self) {
+        // 冻结前把"最后一条事件到此刻"的增量也计入：这一段就是参考实现里
+        // 相邻消息（思考消息本身）的时间差，缺了它会让 `Thinking for 22s` 冻结成
+        // `Thought for 1s`（数字跳水）。
+        let now = std::time::Instant::now();
+        if let Some(prev) = self.last_event_at {
+            self.group_ms = self
+                .group_ms
+                .saturating_add((now - prev).as_millis().min(600_000) as u64);
+        }
+        self.finished_groups.push(self.group_ms);
+        self.group_ms = 0;
+        self.group_active = false;
+        self.thinking_now = false;
+        self.last_event_at = Some(now);
     }
 
     // ─── Block 模式缓冲区管理 ────────────────────────────────────────────
@@ -685,6 +762,8 @@ impl MessagePipeline {
 
     fn flush_block_buffer(&mut self) {
         if !self.block_buffer.is_empty() {
+            // block 模式下正文从这里落库，同样意味着"本组结束"
+            self.freeze_group();
             self.current_ai_text.push_str(&self.block_buffer);
             self.block_buffer.clear();
             self.block_scanner.reset();
@@ -763,6 +842,7 @@ impl MessagePipeline {
         is_background: bool,
     ) {
         self.finalize_current_ai();
+        self.note_event();
         self.register_tool_call(tool_call_id, name, &input);
 
         if name == "Agent" {
@@ -826,10 +906,17 @@ impl MessagePipeline {
 
     /// 工具调用结束（内部版本，只更新状态，不返回 PipelineAction）
     fn tool_end_internal(&mut self, tool_call_id: &str, name: &str, output: &str, is_error: bool) {
+        self.note_event();
         let pending = self.pending_tools.remove(tool_call_id);
         let input = pending
             .as_ref()
             .map(|p| p.input.clone())
+            .or_else(|| {
+                self.current_ai_tool_calls
+                    .iter()
+                    .find(|tool| tool.id == tool_call_id)
+                    .map(|tool| tool.arguments.clone())
+            })
             .unwrap_or(serde_json::Value::Null);
 
         if name == "Agent" {
@@ -999,6 +1086,9 @@ impl MessagePipeline {
     /// 标记当前 AI 轮次结束
     pub fn done(&mut self) {
         self.finalize_current_ai();
+        self.reasoning_started_at = None;
+        self.freeze_group();
+        self.last_event_at = None;
         self.current_ai_finalized = false;
         self.pending_tools.clear();
         self.completed_tools.clear();
@@ -1011,6 +1101,13 @@ impl MessagePipeline {
 
     /// 中断：finalize 当前状态并清理残留
     pub fn interrupt(&mut self) {
+        // 中断时当前思考段已经结束：必须冻结计时并熄灭 `thinking_now`。
+        // 否则 `live_thinking_active()`（thinking_now || 未结束工具）仍为真，
+        // 视图装配点会保留最后一行的活跃标记 —— 真机表现是"取消后
+        // `∴ Thinking for 54s…` 继续走秒、符号还在闪"。
+        if self.group_active || self.thinking_now {
+            self.freeze_group();
+        }
         self.finalize_current_ai();
         self.current_ai_finalized = false;
         self.pending_tools.clear();
@@ -1080,6 +1177,7 @@ impl MessagePipeline {
         self.completed.clear();
         self.current_ai_text.clear();
         self.current_ai_reasoning.clear();
+        self.reasoning_flushed = true;
         self.current_ai_tool_calls.clear();
         self.current_ai_finalized = false;
         self.pending_tools.clear();
@@ -1210,6 +1308,7 @@ impl MessagePipeline {
         self.completed.extend(msgs);
         self.current_ai_text.clear();
         self.current_ai_reasoning.clear();
+        self.reasoning_flushed = true;
         self.current_ai_tool_calls.clear();
         self.current_ai_finalized = true;
         self.has_snapshot_this_round = true;
@@ -1231,6 +1330,7 @@ impl MessagePipeline {
         self.has_snapshot_this_round = false;
         self.current_ai_text.clear();
         self.current_ai_reasoning.clear();
+        self.reasoning_flushed = true;
         self.current_ai_tool_calls.clear();
         self.current_ai_finalized = true;
     }

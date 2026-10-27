@@ -1232,6 +1232,7 @@ async fn test_tool_call_widget_renders_completed() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -1332,7 +1333,7 @@ async fn test_compact_done_with_re_inject() {
     );
     let has_compact = msgs.iter().any(|m| {
         if let MessageViewModel::SystemNote { content, .. } = m {
-            content.contains("✻ Context compressed")
+            content.contains("✻ Context compacted")
                 && content.contains("Read /a.rs")
                 && content.contains("Skill: skill.md")
         } else {
@@ -1354,7 +1355,7 @@ async fn test_compact_done_without_re_inject() {
     assert_eq!(msgs.len(), 1, "应只有 1 条压缩占位消息");
     let has_compact = msgs.iter().any(|m| {
         if let MessageViewModel::SystemNote { content, .. } = m {
-            content.contains("✻ Context compressed")
+            content.contains("✻ Context compacted")
         } else {
             false
         }
@@ -1643,8 +1644,8 @@ async fn test_tool_then_text_preserves_tool_block() {
         tool_call_id: "tc1".into(),
         name: "Bash".into(),
         display: "Bash".into(),
-        args: "ls".into(),
-        input: serde_json::json!({"command": "ls"}),
+        args: "cargo build -p cc-tui".into(),
+        input: serde_json::json!({"command": "cargo build -p cc-tui"}),
         source_agent_id: None,
     });
     app.push_agent_event(AgentEvent::AssistantChunk {

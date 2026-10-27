@@ -510,6 +510,40 @@ fn test_bash_description_extended() {
     );
 }
 
+#[test]
+fn test_bash_parameters_exclude_display_only_fields() {
+    let tool = BashTool::new(std::env::temp_dir().to_str().unwrap());
+    let parameters = tool.parameters();
+    // 与官方 schema 对齐：不暴露任何"仅用于前端展示"的私有参数
+    assert!(
+        parameters["properties"].get("file_inspect").is_none(),
+        "Bash schema 不应包含前端展示专用参数"
+    );
+    assert_eq!(parameters["required"], serde_json::json!(["command"]));
+}
+
+#[tokio::test]
+async fn test_bash_call_ignores_unknown_display_fields() {
+    for file_inspect in [false, true] {
+        let executor = make_completed_executor("inspected\n", "", 0);
+        let tool = BashTool::with_executor(".", executor.clone());
+        // 即使模型历史输出里带了已废弃字段，也应按普通命令执行
+        let output = tool
+            .invoke(serde_json::json!({
+                "command": "printf inspected",
+                "file_inspect": file_inspect
+            }))
+            .await
+            .expect("未知展示字段不应影响执行");
+        let requests = executor.requests.lock().await;
+        assert_eq!(requests.len(), 1, "始终只执行一次");
+        assert_eq!(requests[0].original_command, "printf inspected");
+        assert_eq!(requests[0].timeout_ms, 120_000);
+        assert!(!requests[0].run_in_background);
+        assert!(output.contains("inspected"), "执行结果不能因展示标记变化");
+    }
+}
+
 /// clamp 的契约不依赖 Git Bash 冷启动是否能在 100ms 内结束。
 #[tokio::test]
 async fn test_bash_timeout_clamped_to_minimum() {

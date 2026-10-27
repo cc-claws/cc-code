@@ -19,6 +19,13 @@ fn load_real_session() -> Vec<BaseMessage> {
 fn thought_titles(vms: &[MessageViewModel]) -> Vec<(Option<u64>, Option<String>)> {
     vms.iter()
         .flat_map(|vm| {
+            // 一等公民：思考标题可能挂在折叠组上
+            if let MessageViewModel::ToolCallGroup {
+                thinking: Some(t), ..
+            } = vm
+            {
+                return vec![(t.duration_ms, t.action_summary.clone())];
+            }
             if let MessageViewModel::AssistantBubble { blocks, .. } = vm {
                 blocks
                     .iter()

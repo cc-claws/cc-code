@@ -845,6 +845,84 @@ async fn test_stuck_cycling_thought_detected() {
     assert!(has_hint, "A→B→C 循环模式应被滑动窗口检测并注入换策略提示");
 }
 
+/// 验证「开头相同、后文不同」的连续编辑思考不被误判为卡住。
+///
+/// 典型场景：连续多轮 `Edit` 时模型每轮都以同一段套话起手，只有末尾说的文件名
+/// 不同。指纹早期只截前 200 字符，会把这几轮当成同一指纹并跳过工具执行，
+/// 导致正常编辑被吞掉。改为全文比对后不应再触发。
+#[tokio::test]
+async fn test_stuck_prefix_similar_edits_not_detected() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct PrefixSimilarLLM {
+        count: AtomicUsize,
+    }
+    #[async_trait::async_trait]
+    impl ReactLLM for PrefixSimilarLLM {
+        async fn generate_reasoning(
+            &self,
+            _messages: &[BaseMessage],
+            _tools: &[&dyn BaseTool],
+            _streaming: Option<crate::llm::types::StreamingContext>,
+        ) -> crate::error::AgentResult<Reasoning> {
+            let n = self.count.fetch_add(1, Ordering::SeqCst);
+            // 公共前缀远超 200 字符，只有末尾的文件序号不同
+            let prefix = "我先确认一下当前实现，再把这段逻辑替换成新的写法，注意保持项目既有风格，\
+                          不要顺手重构无关代码，也不要扩大改动范围，改完只做最小必要验证。"
+                .repeat(6);
+            let thought = format!("{prefix} 现在处理第 {n} 个文件。");
+            Ok(Reasoning::with_tools(
+                thought,
+                vec![ToolCall::new(
+                    "id1",
+                    "echo_tool",
+                    serde_json::json!({ "n": n }),
+                )],
+            ))
+        }
+    }
+
+    struct EchoTool;
+    #[async_trait::async_trait]
+    impl BaseTool for EchoTool {
+        fn name(&self) -> &str {
+            "echo_tool"
+        }
+        fn description(&self) -> &str {
+            "echoes"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({ "type": "object" })
+        }
+        async fn invoke(
+            &self,
+            _: serde_json::Value,
+        ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+            Ok("echo".to_string())
+        }
+    }
+
+    let agent = ReActAgent::new(PrefixSimilarLLM {
+        count: AtomicUsize::new(0),
+    })
+    .max_iterations(6)
+    .register_tool(Box::new(EchoTool));
+
+    let mut state = AgentState::new("/tmp");
+    let _ = agent
+        .execute(AgentInput::text("go"), &mut state, None)
+        .await;
+
+    let has_hint = state.messages().iter().any(|m| {
+        matches!(m, BaseMessage::Human { content, .. }
+            if content.text_content().contains(STUCK_HINT))
+    });
+    assert!(
+        !has_hint,
+        "开头相同但后文不同的思考不应被判定为卡住（否则正常编辑会被跳过执行）"
+    );
+}
+
 /// 验证两个工具调用通过批量 before_tools_batch 处理（HITL 批量审批路径）
 #[tokio::test]
 async fn test_batch_before_tools_execution() {

@@ -4,7 +4,7 @@
 //! 保留原始 JSON 形态（**reasoning block 无 `duration_ms`**，正是旧数据），
 //! 用于验证：
 //! 1. 旧数据不 panic、优雅降级（`Thought for N chars`）
-//! 2. 只读工具（Grep/Glob）注入 `action_summary`，Bash 不注入
+//! 2. 只读工具（Grep/Glob/只读 Bash）注入 `action_summary`，写盘 Bash 不注入
 //! 3. 完整渲染管线可跑通
 
 use super::*;
@@ -19,8 +19,19 @@ fn real_reasoning_msg_glob() -> &'static str {
 }
 
 /// 真实 assistant 消息（含 reasoning + Bash；逐字取自 threads.db 的等价结构）。
+///
+/// 命令故意选**写盘**类（`mysql ... < fix_orders.sql`）——用于验证非只读 Bash
+/// 不产生只读计数。带 `2>/dev/null` 的只读命令见 [`real_reasoning_msg_bash_stderr_redirect`]。
 fn real_reasoning_msg_bash() -> &'static str {
-    r#"{"role":"assistant","id":"019f1783-9999-7143-9614-63e803240000","content":[{"type":"reasoning","text":"让我用 Bash 查找 SQL 文件。","signature":""},{"type":"tool_use","id":"call_bash_1","name":"Bash","input":{"command":"find . -type f -name \"*.sql\" 2>/dev/null | head"}}],"tool_calls":[{"id":"call_bash_1","name":"Bash","arguments":{"command":"find . -type f -name \"*.sql\" 2>/dev/null | head"}}]}"#
+    r#"{"role":"assistant","id":"019f1783-9999-7143-9614-63e803240000","content":[{"type":"reasoning","text":"让我把修好的 SQL 直接灌进数据库。","signature":""},{"type":"tool_use","id":"call_bash_1","name":"Bash","input":{"command":"mysql -h 127.0.0.1 -u root orders < fix_orders.sql"}}],"tool_calls":[{"id":"call_bash_1","name":"Bash","arguments":{"command":"mysql -h 127.0.0.1 -u root orders < fix_orders.sql"}}]}"#
+}
+
+/// 真实 assistant 消息（含 reasoning + **只读** Bash，带 stderr 重定向）。
+///
+/// 命令逐字取自真实会话：`2>/dev/null` 只丢弃 stderr，不构成写盘，
+/// 因此必须判定为文件查询并计入只读动作汇总（回归 PRD §13.4）。
+fn real_reasoning_msg_bash_stderr_redirect() -> &'static str {
+    r#"{"role":"assistant","id":"019f1783-8888-7143-9614-63e803240000","content":[{"type":"reasoning","text":"让我用 Bash 查找 SQL 文件。","signature":""},{"type":"tool_use","id":"call_bash_2","name":"Bash","input":{"command":"find . -type f -name \"*.sql\" 2>/dev/null | head"}}],"tool_calls":[{"id":"call_bash_2","name":"Bash","arguments":{"command":"find . -type f -name \"*.sql\" 2>/dev/null | head"}}]}"#
 }
 
 #[test]
@@ -60,16 +71,32 @@ fn test_real_session_readonly_counted_bash_not() {
         "真实 Glob 会话应注入目录计数"
     );
 
-    // Bash（非只读）→ 不注入
+    // Bash（写盘）→ 不注入
     let bash_msg: BaseMessage = serde_json::from_str(real_reasoning_msg_bash()).unwrap();
-    let bash_tool = BaseMessage::Tool {
+    let bash_tool: BaseMessage = BaseMessage::Tool {
         id: cc_agent::messages::MessageId::new(),
         tool_call_id: "call_bash_1".to_string(),
         content: MessageContent::text("ok"),
         is_error: false,
     };
     let vms2 = MessagePipeline::messages_to_view_models(&[bash_msg, bash_tool], "/p");
-    assert_eq!(first_action_summary(&vms2), None, "Bash 不应产生只读计数");
+    assert_eq!(first_action_summary(&vms2), None, "写盘 Bash 不应产生只读计数");
+
+    // Bash（只读，带 2>/dev/null）→ 应注入 shell 命令计数
+    let stderr_msg: BaseMessage =
+        serde_json::from_str(real_reasoning_msg_bash_stderr_redirect()).unwrap();
+    let stderr_tool = BaseMessage::Tool {
+        id: cc_agent::messages::MessageId::new(),
+        tool_call_id: "call_bash_2".to_string(),
+        content: MessageContent::text("ok"),
+        is_error: false,
+    };
+    let vms3 = MessagePipeline::messages_to_view_models(&[stderr_msg, stderr_tool], "/p");
+    assert_eq!(
+        first_action_summary(&vms3).as_deref(),
+        Some("ran 1 shell command"),
+        "2>/dev/null 只是丢弃 stderr，只读命令应计入汇总"
+    );
 }
 
 #[test]
@@ -99,6 +126,10 @@ fn test_real_legacy_data_render_pipeline_no_panic() {
 fn all_reasoning_meta(vms: &[MessageViewModel]) -> Vec<(Option<u64>, Option<String>)> {
     vms.iter()
         .flat_map(|vm| {
+            // 一等公民：思考行可能挂在折叠组上
+            if let MessageViewModel::ToolCallGroup { thinking: Some(t), .. } = vm {
+                return vec![(t.duration_ms, t.action_summary.clone())];
+            }
             if let MessageViewModel::AssistantBubble { blocks, .. } = vm {
                 blocks
                     .iter()
@@ -174,20 +205,21 @@ fn test_multi_round_thinking_merged_with_accumulated_stats() {
     let vms = MessagePipeline::messages_to_view_models(&msgs, "/p");
     let metas = all_reasoning_meta(&vms);
 
-    // 段首一条：累加 3 轮（3000ms）+ read 2 files, searched for 1 pattern
+    // 段首一条：计数累加（read 2 files, searched for 1 pattern），
+    // 完成态耗时取最后一段（1000ms，对齐参考实现 §13.2）
     assert!(
-        metas.iter().any(|(d, a)| *d == Some(3000)
+        metas.iter().any(|(d, a)| *d == Some(1000)
             && a.as_deref() == Some("read 2 files, searched for 1 pattern")),
-        "段首应累加秒数与计数，实际: {metas:?}"
+        "段首应收敛计数、耗时取最后一段，实际: {metas:?}"
     );
     // 含文本轮独立（500ms）
     assert!(
         metas.iter().any(|(d, _)| *d == Some(500)),
         "含文本轮应独立，实际: {metas:?}"
     );
-    // 被合并的中间轮不应残留（无 Some(1000)）
+    // 被合并的中间轮不应残留为独立行（只应有一条合并行）
     assert!(
-        !metas.iter().any(|(d, _)| *d == Some(1000)),
+        metas.iter().filter(|(d, _)| *d == Some(1000)).count() == 1,
         "被合并的中间轮不应残留，实际: {metas:?}"
     );
 }
@@ -196,6 +228,13 @@ fn test_multi_round_thinking_merged_with_accumulated_stats() {
 
 /// 提取某 bubble 中所有 Reasoning block 的 (duration_ms, action_summary)
 fn reasoning_blocks_of(vm: &MessageViewModel) -> Vec<(Option<u64>, Option<String>)> {
+    // 一等公民：思考行可能挂在折叠组上
+    if let MessageViewModel::ToolCallGroup {
+        thinking: Some(t), ..
+    } = vm
+    {
+        return vec![(t.duration_ms, t.action_summary.clone())];
+    }
     if let MessageViewModel::AssistantBubble { blocks, .. } = vm {
         blocks
             .iter()
@@ -255,8 +294,8 @@ fn test_merge_removes_extra_reasoning_blocks_in_same_bubble() {
         1,
         "同 bubble 只应保留 1 个 Reasoning，实际: {rs:?}"
     );
-    // 时长应为两段之和
-    assert_eq!(rs[0].0, Some(3000), "耗时应累加为 3000ms");
+    // 完成态耗时取"最后一段"（对齐参考实现，§13.2）
+    assert_eq!(rs[0].0, Some(2000), "完成态耗时应取最后一段（2000ms）");
     assert_eq!(
         rs[0].1.as_deref(),
         Some("read 1 file"),
@@ -275,7 +314,8 @@ fn test_parallel_tools_read_counted_alongside_bash() {
             ToolCallRequest {
                 id: "b1".to_string(),
                 name: "Bash".to_string(),
-                arguments: serde_json::json!({ "command": "ls" }),
+                // 非只读命令：本轮改由确定性判定折叠，`ls` 会被判为文件查看，这里用 build 区分
+                arguments: serde_json::json!({ "command": "cargo build -p cc-tui" }),
             },
             ToolCallRequest {
                 id: "r1".to_string(),
@@ -389,6 +429,12 @@ fn test_merged_char_count_reflects_all_segments_on_fallback() {
     let (dur, chars) = vms
         .iter()
         .find_map(|vm| {
+            if let MessageViewModel::ToolCallGroup {
+                thinking: Some(t), ..
+            } = vm
+            {
+                return Some((t.duration_ms, t.text.chars().count()));
+            }
             if let MessageViewModel::AssistantBubble { blocks, .. } = vm {
                 blocks.iter().find_map(|b| {
                     if let ContentBlockView::Reasoning {

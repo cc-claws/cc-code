@@ -119,6 +119,9 @@ impl App {
             }
             self.render_rebuild();
         }
+        // 视图历史兜底裁剪：禁用 compact / 只走 micro compact 的会话同样要封顶
+        // （自动 full compact 路径里已裁过一次，这里是 O(1) 的长度比较）
+        self.trim_view_history(crate::app::agent_compact::MAX_VIEW_MESSAGES);
         // 后台任务：保持通道存活
         if self.session_mgr.current().has_running_subagents() {
             self.session_mgr.current_mut().agent.agent_done_pending_bg = true;
