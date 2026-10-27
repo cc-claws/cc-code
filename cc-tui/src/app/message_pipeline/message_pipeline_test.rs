@@ -2831,3 +2831,86 @@ fn test_merged_segment_keeps_single_thinking_owner() {
     assert_eq!(group_thinking, 1, "无正文时思考行应由折叠组持有");
     assert_eq!(bubble_reasoning, 0, "无正文时不得再保留思考气泡");
 }
+
+/// 提取 VM 序列中每段 Reasoning 的 `finished_at`（bubble 与组自带思考行都算，按 VM 顺序）
+fn reasoning_finished_at(vms: &[MessageViewModel]) -> Vec<Option<std::time::Instant>> {
+    let mut out = Vec::new();
+    for vm in vms {
+        match vm {
+            MessageViewModel::AssistantBubble { blocks, .. } => {
+                for b in blocks {
+                    if let ContentBlockView::Reasoning { finished_at, .. } = b {
+                        out.push(*finished_at);
+                    }
+                }
+            }
+            MessageViewModel::ToolCallGroup {
+                thinking: Some(t), ..
+            } => out.push(t.finished_at),
+            _ => {}
+        }
+    }
+    out
+}
+
+#[test]
+fn test_older_thinking_blocks_keep_no_finished_at() {
+    // Arrange：第一段思考带正文（构成段边界），中间一个 Read，末尾再来一段思考
+    let read_call = ToolCallRequest {
+        id: "tc0".to_string(),
+        name: "Read".to_string(),
+        arguments: json!({ "file_path": "/a.rs" }),
+    };
+    let msgs = vec![
+        BaseMessage::human("看下"),
+        BaseMessage::Ai {
+            id: cc_agent::messages::MessageId::new(),
+            content: MessageContent::blocks(vec![
+                ContentBlock::Reasoning {
+                    text: "第一段思考".to_string(),
+                    signature: None,
+                    duration_ms: Some(2000),
+                },
+                ContentBlock::Text {
+                    text: "我去看下实际内容。".into(),
+                },
+            ]),
+            tool_calls: vec![read_call.clone()],
+        },
+        BaseMessage::Tool {
+            id: cc_agent::messages::MessageId::new(),
+            tool_call_id: read_call.id.clone(),
+            content: MessageContent::text("文件内容"),
+            is_error: false,
+        },
+        BaseMessage::Ai {
+            id: cc_agent::messages::MessageId::new(),
+            content: MessageContent::blocks(vec![ContentBlock::Reasoning {
+                text: "第二段思考".to_string(),
+                signature: None,
+                duration_ms: Some(3000),
+            }]),
+            tool_calls: Vec::new(),
+        },
+    ];
+    let mut pipeline = MessagePipeline::new("/p".to_string());
+    // 模拟「最新一段思考刚刚结束」：已有冻结组耗时 + 结束时刻已记录
+    pipeline.finished_groups = vec![1000, 2000];
+    pipeline.last_event_at = Some(std::time::Instant::now());
+    pipeline
+        .thinking_ended_at
+        .set(Some(std::time::Instant::now()));
+    let mut vms = MessagePipeline::messages_to_view_models(&msgs, "/p");
+
+    // Act
+    pipeline.mark_live_thinking(&mut vms);
+
+    // Assert：只有最新的那段拿到 finished_at（进入 960ms 留存窗口），老段保持 None
+    let stamps = reasoning_finished_at(&vms);
+    assert_eq!(stamps.len(), 2, "应存在两段思考: {stamps:?}");
+    assert!(stamps[1].is_some(), "最新一段应打点: {stamps:?}");
+    assert!(
+        stamps[0].is_none(),
+        "更早的思考段不应被重新打点，否则历史行会闪成活跃态: {stamps:?}"
+    );
+}

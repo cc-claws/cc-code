@@ -277,7 +277,9 @@ impl MessagePipeline {
                 *duration_ms = Some((*ms).max(1000));
                 *a = false;
                 *active_since = None;
-                *finished_at = ended_at;
+                // 更早的历史思考段不重新打点：`ended_at` 是"最近一次思考结束"的时刻，
+                // 盖到老段上会让整片历史行落进 960ms 留存窗口，闪成 `● Thinking…` + 尾巴。
+                // 老段保持 None（重建时本就由 `from_base_message` 初始化为 None）。
             }
             // 同组分支：改了展示字段必须重算 hash，避免渲染缓存命中旧行
             vm.recompute_hash();
