@@ -105,7 +105,7 @@ impl PromptEnv {
 fn format_available_agents(cwd: &str, extra_agent_dirs: &[std::path::PathBuf]) -> String {
     let agents = cc_middlewares::scan_agents_with_extra_dirs(cwd, extra_agent_dirs);
     if agents.is_empty() {
-        return "No agents currently configured. You can add agent definitions in `.claude/agents/`.".to_string();
+        return "No agents currently configured. You can add agent definitions in `.claude/agents/` or `~/.claude/agents/`.".to_string();
     }
     agents
         .iter()

@@ -464,6 +464,7 @@ fn build_agent_inner(
     .with_cancel(cancel.clone())
     .with_parent_messages(parent_messages)
     .with_extra_skill_dirs(plugin_skill_dirs.clone())
+    .with_extra_agent_dirs(plugin_agent_dirs.clone())
     .with_background_registry(Arc::clone(&background_registry))
     .with_bg_event_sender(bg_event_tx)
     .with_registered_hooks(vec![])

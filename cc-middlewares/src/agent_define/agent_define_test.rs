@@ -82,11 +82,39 @@ fn test_candidate_paths_rejects_traversal() {
     assert!(AgentDefineMiddleware::candidate_paths("/tmp", "foo/../../bar").is_empty());
     assert!(AgentDefineMiddleware::candidate_paths("/tmp", "a\\b").is_empty());
     assert!(AgentDefineMiddleware::candidate_paths("/tmp", "").is_empty());
-    // 正常 agent_id 应产生 4 条候选路径
+    // 正常 agent_id：前 4 条是项目级候选；HOME 存在时后 2 条是用户级候选
+    let paths = AgentDefineMiddleware::candidate_paths("/tmp", "my-agent");
+    assert!(paths.len() >= 4);
     assert_eq!(
-        AgentDefineMiddleware::candidate_paths("/tmp", "my-agent").len(),
-        4
+        paths[0],
+        std::path::PathBuf::from("/tmp/.claude/agents/my-agent/agent.md")
     );
+    assert_eq!(
+        paths[1],
+        std::path::PathBuf::from("/tmp/.claude/agents/my-agent.md")
+    );
+    assert_eq!(
+        paths[2],
+        std::path::PathBuf::from("/tmp/agents/my-agent/agent.md")
+    );
+    assert_eq!(
+        paths[3],
+        std::path::PathBuf::from("/tmp/agents/my-agent.md")
+    );
+    if let Some(home) = dirs_next::home_dir() {
+        assert_eq!(paths.len(), 6);
+        assert_eq!(
+            paths[4],
+            home.join(".claude")
+                .join("agents")
+                .join("my-agent")
+                .join("agent.md")
+        );
+        assert_eq!(
+            paths[5],
+            home.join(".claude").join("agents").join("my-agent.md")
+        );
+    }
 }
 
 #[test]

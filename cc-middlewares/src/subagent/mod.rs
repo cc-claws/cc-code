@@ -182,6 +182,9 @@ pub struct SubAgentMiddleware {
     /// `None` = 子 Agent 自行读盘（会话中途改文件会让其 prompt 前缀抖动 → #360）。
     inherited_instructions: Option<InheritedInstructions>,
     extra_skill_dirs: Vec<PathBuf>,
+    /// 插件 agent 搜索目录（`SubAgentTool::load_agent_def` 在项目级与用户级
+    /// 之后、内置之前查找；见 #759）。
+    extra_agent_dirs: Vec<PathBuf>,
     permissions: Arc<crate::hitl::HumanInTheLoopMiddleware>,
 }
 
@@ -213,6 +216,7 @@ impl SubAgentMiddleware {
             deregister_runtime: None,
             inherited_instructions: None,
             extra_skill_dirs: Vec::new(),
+            extra_agent_dirs: Vec::new(),
             permissions: Arc::new(crate::hitl::HumanInTheLoopMiddleware::subagent_default()),
         }
     }
@@ -332,6 +336,11 @@ impl SubAgentMiddleware {
         self
     }
 
+    pub fn with_extra_agent_dirs(mut self, dirs: Vec<PathBuf>) -> Self {
+        self.extra_agent_dirs = dirs;
+        self
+    }
+
     /// Build SubAgentTool instance (clone Arc fields, do not transfer ownership)
     pub fn build_tool(&self, cwd: &str) -> SubAgentTool {
         let mut tool = SubAgentTool::new(
@@ -342,6 +351,7 @@ impl SubAgentMiddleware {
         );
         tool = tool.with_permissions(Arc::clone(&self.permissions));
         tool = tool.with_extra_skill_dirs(self.extra_skill_dirs.clone());
+        tool = tool.with_extra_agent_dirs(self.extra_agent_dirs.clone());
         if let Some(ref builder) = self.system_builder {
             tool = tool.with_system_builder(Arc::clone(builder));
         }
@@ -382,64 +392,87 @@ impl SubAgentMiddleware {
     }
 }
 
-/// Scan `{cwd}/.claude/agents/` directory, return `(agent_id, name, description)` list.
-/// Built-in agents are included as fallback — project-level agents with the same ID take precedence.
-pub fn scan_agents(cwd: &str) -> Vec<(String, String, String)> {
-    let mut result = Vec::new();
-    let mut seen_ids = std::collections::HashSet::new();
+/// Scan one agents directory, appending unseen agent_ids to `out`.
+///
+/// Accepts both `{id}.md` files and `{id}/agent.md` directories. Entries
+/// whose frontmatter fails to parse are skipped without reserving the id,
+/// so a broken higher-priority file cannot shadow a valid lower-priority
+/// definition. Callers scan directories in priority order; the first
+/// occurrence of an id wins.
+fn scan_one_dir(
+    dir: &Path,
+    seen_ids: &mut std::collections::HashSet<String>,
+    out: &mut Vec<(String, String, String)>,
+) {
+    if !dir.is_dir() {
+        return;
+    }
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
 
-    // 1. Scan project-level agents (highest priority)
-    let agents_dir = Path::new(cwd).join(".claude").join("agents");
-    if agents_dir.is_dir() {
-        if let Ok(entries) = std::fs::read_dir(&agents_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-
-                let (agent_id, file_path): (String, PathBuf) = if path.is_file() {
-                    if path.extension().and_then(|e| e.to_str()) != Some("md") {
-                        continue;
-                    }
-                    let id = path
-                        .file_stem()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .to_string();
-                    (id, path)
-                } else if path.is_dir() {
-                    let nested = path.join("agent.md");
-                    if !nested.is_file() {
-                        continue;
-                    }
-                    let id = path
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .to_string();
-                    (id, nested)
-                } else {
-                    continue;
-                };
-
-                let content = match std::fs::read_to_string(&file_path) {
-                    Ok(c) => c,
-                    Err(_) => continue,
-                };
-
-                if let Some(agent) = parse_agent_file(&content) {
-                    let name = if agent.frontmatter.name.is_empty() {
-                        agent_id.clone()
-                    } else {
-                        agent.frontmatter.name.clone()
-                    };
-                    let description = agent.frontmatter.description.clone();
-                    seen_ids.insert(agent_id.clone());
-                    result.push((agent_id, name, description));
-                }
+        let (agent_id, file_path): (String, PathBuf) = if path.is_file() {
+            if path.extension().and_then(|e| e.to_str()) != Some("md") {
+                continue;
             }
+            let id = path
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            (id, path)
+        } else if path.is_dir() {
+            let nested = path.join("agent.md");
+            if !nested.is_file() {
+                continue;
+            }
+            let id = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            (id, nested)
+        } else {
+            continue;
+        };
+
+        // First occurrence wins (callers scan in priority order).
+        if seen_ids.contains(&agent_id) {
+            continue;
+        }
+
+        let content = match std::fs::read_to_string(&file_path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        if let Some(agent) = parse_agent_file(&content) {
+            let name = if agent.frontmatter.name.is_empty() {
+                agent_id.clone()
+            } else {
+                agent.frontmatter.name.clone()
+            };
+            let description = agent.frontmatter.description.clone();
+            // Reserve the id only on successful parse (see doc comment above).
+            seen_ids.insert(agent_id.clone());
+            out.push((agent_id, name, description));
         }
     }
+}
 
-    // 2. Append built-in agents (project-level agents take precedence by ID)
+/// User-level agents directory (`~/.claude/agents/`), if a home dir exists.
+pub fn user_agents_dir() -> Option<PathBuf> {
+    dirs_next::home_dir().map(|h| h.join(".claude").join("agents"))
+}
+
+/// Append built-in agents not already seen (lowest priority).
+fn append_built_ins(
+    seen_ids: &mut std::collections::HashSet<String>,
+    out: &mut Vec<(String, String, String)>,
+) {
     for built_in in list_built_in_agents() {
         if seen_ids.insert(built_in.agent_id.to_string()) {
             if let Some(agent) = parse_agent_file(built_in.content) {
@@ -449,88 +482,51 @@ pub fn scan_agents(cwd: &str) -> Vec<(String, String, String)> {
                     agent.frontmatter.name.clone()
                 };
                 let description = agent.frontmatter.description.clone();
-                result.push((built_in.agent_id.to_string(), name, description));
+                out.push((built_in.agent_id.to_string(), name, description));
             }
         }
     }
+}
 
-    // Sort by agent_id for stable output
+/// Scan the given directories in order (first occurrence of an id wins),
+/// then append built-ins. `scan_agents` / `scan_agents_with_extra_dirs`
+/// build the directory list (project, user, extras) and delegate here so
+/// the priority logic stays testable without depending on `$HOME`.
+fn scan_ordered(dirs: &[PathBuf]) -> Vec<(String, String, String)> {
+    let mut result = Vec::new();
+    let mut seen_ids = std::collections::HashSet::new();
+    for dir in dirs {
+        scan_one_dir(dir, &mut seen_ids, &mut result);
+    }
+    append_built_ins(&mut seen_ids, &mut result);
     result.sort_by(|a, b| a.0.cmp(&b.0));
     result
 }
 
-/// 扫描 agent 目录，支持额外的插件 agent 搜索路径
-/// 项目级 agent 优先，同名 agent_id 去重时保留先出现的
+/// Scan agent directories in priority order, return `(agent_id, name, description)` list.
+/// Priority: project (`{cwd}/.claude/agents/`) > user (`~/.claude/agents/`) > built-in.
+/// Same-ID duplicates keep the first (highest-priority) occurrence.
+pub fn scan_agents(cwd: &str) -> Vec<(String, String, String)> {
+    let mut dirs = vec![Path::new(cwd).join(".claude").join("agents")];
+    if let Some(user_dir) = user_agents_dir() {
+        dirs.push(user_dir);
+    }
+    scan_ordered(&dirs)
+}
+
+/// 扫描 agent 目录，支持额外的插件 agent 搜索路径。
+/// 优先级：项目级 > 用户级 > 插件 > 内置，同名 agent_id 去重时保留先出现的。
+/// 与 `SubAgentTool::load_agent_def` 的查找顺序一致，列表里有的调用时一定找得到。
 pub fn scan_agents_with_extra_dirs(
     cwd: &str,
     extra_dirs: &[PathBuf],
 ) -> Vec<(String, String, String)> {
-    let mut result = scan_agents(cwd);
-    let mut seen_ids: std::collections::HashSet<String> =
-        result.iter().map(|(id, _, _)| id.clone()).collect();
-
-    for dir in extra_dirs {
-        if !dir.is_dir() {
-            continue;
-        }
-
-        let entries = match std::fs::read_dir(dir) {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-
-        for entry in entries.flatten() {
-            let path = entry.path();
-
-            let (agent_id, file_path): (String, PathBuf) = if path.is_file() {
-                if path.extension().and_then(|e| e.to_str()) != Some("md") {
-                    continue;
-                }
-                let id = path
-                    .file_stem()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_string();
-                (id, path)
-            } else if path.is_dir() {
-                let nested = path.join("agent.md");
-                if !nested.is_file() {
-                    continue;
-                }
-                let id = path
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_string();
-                (id, nested)
-            } else {
-                continue;
-            };
-
-            // Skip duplicates (CWD + built-in agents already registered)
-            if !seen_ids.insert(agent_id.clone()) {
-                continue;
-            }
-
-            let content = match std::fs::read_to_string(&file_path) {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
-
-            if let Some(agent) = parse_agent_file(&content) {
-                let name = if agent.frontmatter.name.is_empty() {
-                    agent_id.clone()
-                } else {
-                    agent.frontmatter.name.clone()
-                };
-                let description = agent.frontmatter.description.clone();
-                result.push((agent_id, name, description));
-            }
-        }
+    let mut dirs = vec![Path::new(cwd).join(".claude").join("agents")];
+    if let Some(user_dir) = user_agents_dir() {
+        dirs.push(user_dir);
     }
-
-    result.sort_by(|a, b| a.0.cmp(&b.0));
-    result
+    dirs.extend(extra_dirs.iter().cloned());
+    scan_ordered(&dirs)
 }
 
 #[async_trait]

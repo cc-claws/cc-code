@@ -260,8 +260,29 @@ fn test_scan_agents_with_extra_dirs_dedup() {
     // Duplicate "reviewer" should be deduped (CWD takes precedence)
     let reviewer_count = result.iter().filter(|(id, _, _)| id == "reviewer").count();
     assert_eq!(reviewer_count, 1, "duplicate agent_id should be deduped");
-    // Total: CWD reviewer (1) + built-in agents (4, none named "reviewer") + extra reviewer (deduped) = 5
-    assert_eq!(result.len(), 5);
+    let reviewer = result.iter().find(|(id, _, _)| id == "reviewer").unwrap();
+    assert_eq!(reviewer.2, "CWD reviewer", "project agent wins over plugin");
+    // 不断言总数：运行机的 ~/.claude/agents/（用户级）有内容时会多出条目。
+}
+
+#[test]
+fn test_scan_ordered_plugin_beats_builtin() {
+    use tempfile::tempdir;
+    let dir = tempdir().unwrap();
+    let extra_dir = dir.path().join("extra");
+    std::fs::create_dir_all(&extra_dir).unwrap();
+    std::fs::write(
+        extra_dir.join("explore.md"),
+        "---\nname: explore\ndescription: Plugin explore\n---\n\nPlugin explore.\n",
+    )
+    .unwrap();
+    // 经 scan_ordered 直接测优先级，不依赖运行机 $HOME 的用户级目录。
+    let result = scan_ordered(std::slice::from_ref(&extra_dir));
+    let explore = result.iter().find(|(id, _, _)| id == "explore").unwrap();
+    assert_eq!(
+        explore.2, "Plugin explore",
+        "plugin agent wins over built-in"
+    );
 }
 
 #[test]
