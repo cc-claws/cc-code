@@ -1001,3 +1001,22 @@ fn test_is_readonly_shell_command_detects_file_inspection() {
         assert!(!is_readonly_shell_command(cmd), "不应判定为只读查看: {cmd}");
     }
 }
+
+#[test]
+fn test_is_readonly_shell_command_rejects_write_variants() {
+    let no = [
+        "sed -n -i 's/a/b/' f",
+        "find . -name x -delete",
+        r"find . -name x -exec rm {} \;",
+        "sort -o out.txt in.txt",
+        "cat \"$(rm -f important)\"",
+        "grep x f | tee out.txt",
+    ];
+    for cmd in no {
+        assert!(!is_readonly_shell_command(cmd), "不应判定为只读查看: {cmd}");
+    }
+    let yes = ["sed -n '1,10p' f", "find . -name '*.rs'", "sort in.txt | uniq"];
+    for cmd in yes {
+        assert!(is_readonly_shell_command(cmd), "应判定为只读查看: {cmd}");
+    }
+}

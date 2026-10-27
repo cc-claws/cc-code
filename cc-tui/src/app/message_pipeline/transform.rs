@@ -211,7 +211,15 @@ impl MessagePipeline {
             if let MessageViewModel::ToolCallGroup { thinking, .. } = vm {
                 if let Some(t) = thinking.as_mut() {
                     if first {
-                        t.duration_ms = Some(self.group_ms.max(1000));
+                        // 进行中用 group_ms（渲染层再叠加实时增量）；
+                        // 已冻结时必须用**最后一个冻结组**的值——group_ms 此时已归零，
+                        // 直接取它会把手里的 22s 覆盖成 1s（Codex 审计 P2）。
+                        let base = if active {
+                            self.group_ms
+                        } else {
+                            self.finished_groups.last().copied().unwrap_or(self.group_ms)
+                        };
+                        t.duration_ms = Some(base.max(1000));
                         t.active = active;
                         t.active_since = self.last_event_at;
                         first = false;
@@ -242,7 +250,12 @@ impl MessagePipeline {
                 continue;
             };
             if first {
-                *duration_ms = Some(self.group_ms.max(1000));
+                let base = if active {
+                    self.group_ms
+                } else {
+                    self.finished_groups.last().copied().unwrap_or(self.group_ms)
+                };
+                *duration_ms = Some(base.max(1000));
                 *a = active;
                 *active_since = self.last_event_at;
                 first = false;

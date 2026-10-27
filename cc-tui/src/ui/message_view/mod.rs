@@ -668,6 +668,7 @@ impl PartialEq for ContentBlockView {
                     duration_ms: a_dur,
                     action_summary: a_act,
                     active: a_active,
+                    hint: a_hint,
                     ..
                 },
                 ContentBlockView::Reasoning {
@@ -675,9 +676,16 @@ impl PartialEq for ContentBlockView {
                     duration_ms: b_dur,
                     action_summary: b_act,
                     active: b_active,
+                    hint: b_hint,
                     ..
                 },
-            ) => a == b && a_dur == b_dur && a_act == b_act && a_active == b_active,
+            ) => {
+                a == b
+                    && a_dur == b_dur
+                    && a_act == b_act
+                    && a_active == b_active
+                    && a_hint == b_hint
+            }
             (ContentBlockView::ToolUse { name: a }, ContentBlockView::ToolUse { name: b }) => {
                 a == b
             }

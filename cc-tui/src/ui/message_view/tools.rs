@@ -145,6 +145,10 @@ pub fn is_readonly_shell_command(command: &str) -> bool {
     ];
 
     let mut saw_reader = false;
+    // 命令替换/子 shell 无法静态判定，保守判为非只读
+    if command.contains("$(") || command.contains('`') {
+        return false;
+    }
     for raw in command.split(['|', ';', '\n']).flat_map(|s| s.split("&&")) {
         let seg = raw.trim();
         if seg.is_empty() {
@@ -169,8 +173,21 @@ pub fn is_readonly_shell_command(command: &str) -> bool {
         if NEUTRAL.contains(&exe) {
             continue;
         }
+        let args: Vec<&str> = tokens.collect();
+        // 各命令的"会写盘"参数：命中即判为非只读
+        let writes = match exe {
+            "sed" => args.iter().any(|a| *a == "-i" || a.starts_with("-i") || *a == "--in-place"),
+            "find" => args
+                .iter()
+                .any(|a| *a == "-delete" || *a == "-exec" || a.starts_with("-fprint")),
+            "sort" => args.iter().any(|a| *a == "-o" || a.starts_with("-o")),
+            _ => false,
+        };
+        if writes {
+            return false;
+        }
         if exe == "sed" {
-            if tokens.any(|t| t.starts_with("-n")) {
+            if args.iter().any(|t| t.starts_with("-n")) {
                 saw_reader = true;
                 continue;
             }
