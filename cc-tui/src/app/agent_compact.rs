@@ -2,7 +2,60 @@ use super::{message_pipeline::PipelineAction, *};
 use crate::ui::branch_prefix::BranchPrefix;
 use cc_agent::{agent::events::CompactFileInfo, messages::BaseMessage};
 
+/// 视图历史上限（条）。
+///
+/// 自动 compact 改为保留历史后，长会话的 `view_messages` 会无上限增长——每条都带着
+/// rendered 快照、思考正文与工具输出。超限时裁掉最老的一段并插一行占位提示；
+/// 被裁的只是屏幕历史，模型上下文（pipeline 的规范消息）不受影响。
+///
+/// 取值口径：一屏约 20-40 行，一条 VM 通常占 1-3 行；1 万条约合 1-3 万行屏幕历史
+/// （数百到上千轮工具调用），正常会话几乎不可能触发，只在渲染快照确实堆积时才兜底。
+const MAX_VIEW_MESSAGES: usize = 10_000;
+
 impl App {
+    /// 视图历史超限时裁剪最老的一段。
+    ///
+    /// 需要同步三处下标：`round_start_vm_idx`（本轮重建起点）、`ephemeral_notes`
+    /// 的锚点、以及文本选区（跨裁剪会错位，直接作废）。
+    pub(crate) fn trim_view_history(&mut self, keep: usize) {
+        let session = self.session_mgr.current_mut();
+        let len = session.messages.view_messages.len();
+        if len <= keep {
+            return;
+        }
+        let drop_n = len - keep;
+        session.messages.view_messages.drain(..drop_n);
+        session.messages.view_messages.insert(
+            0,
+            MessageViewModel::system(format!(
+                "… 更早的 {drop_n} 条历史已省略（视图上限 {keep} 条，模型上下文不受影响）"
+            )),
+        );
+
+        // 锚点平移：被裁掉的丢弃，其余整体左移 drop_n，再让过第 0 行的占位
+        session
+            .messages
+            .ephemeral_notes
+            .retain(|(anchor, _)| *anchor >= drop_n);
+        for (anchor, _) in session.messages.ephemeral_notes.iter_mut() {
+            *anchor = anchor.saturating_sub(drop_n).saturating_add(1);
+        }
+        // 本轮起点同样平移；若起点已被裁掉，落到占位行之后
+        let view_len = session.messages.view_messages.len();
+        session.messages.round_start_vm_idx = session
+            .messages
+            .round_start_vm_idx
+            .saturating_sub(drop_n)
+            .saturating_add(1)
+            .min(view_len);
+
+        session.ui.text_selection.clear();
+        session.ui.pending_text_copy = None;
+        session.ui.presented_selection_snapshot = None;
+
+        self.render_rebuild();
+    }
+
     pub(crate) fn handle_compact_started(&mut self, manual: bool) -> (bool, bool, bool) {
         // 退出聚焦模式（如有）
         self.session_mgr.current_mut().focused_instance_id = None;
@@ -85,6 +138,8 @@ impl App {
             )));
             let end = self.session_mgr.current().messages.view_messages.len();
             self.session_mgr.current_mut().messages.round_start_vm_idx = end;
+            // 历史只增不减会吃满内存：超限时裁掉最老的一段（仅视图，不动模型上下文）
+            self.trim_view_history(MAX_VIEW_MESSAGES);
             return (true, false, false);
         }
 

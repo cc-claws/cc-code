@@ -57,7 +57,7 @@ fn test_is_live_covers_active_thinking_rows() {
     };
     assert!(
         !is_live(&frozen_bubble),
-        "已冻结且不在留存窗口内的思考不再需要每帧刷新"
+        "已冻结的思考不再需要每帧刷新"
     );
 
     let group = MessageViewModel::ToolCallGroup {
@@ -68,8 +68,8 @@ fn test_is_live_covers_active_thinking_rows() {
             duration_ms: Some(1000),
             action_summary: None,
             hint: None,
-            active: false,
-            active_since: None,
+            active: true,
+            active_since: Some(std::time::Instant::now()),
         }),
         collapsed: true,
         standalone_action: None,
@@ -77,7 +77,7 @@ fn test_is_live_covers_active_thinking_rows() {
     };
     assert!(
         is_live(&group),
-        "留存窗口内的组思考行必须算 live（到期帧需要重算）"
+        "活跃组的思考行必须算 live（走秒/闪烁依赖每帧重算）"
     );
 
     let frozen_group = MessageViewModel::ToolCallGroup {

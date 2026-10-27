@@ -1610,18 +1610,18 @@ pub fn render_view_model_with_flags(
                         });
                         let live_secs = live_ms.map(|ms| ms.max(1000) / 1000);
                         let (prefix, timing) = if let Some(secs) = live_secs {
-                            // `●` 本身闪烁（显/隐），用墙钟 500ms 相位驱动，
+                            // `∴` 本身闪烁（显/隐），用墙钟 500ms 相位驱动，
                             // 与 render_key 的相位判定同源，避免"时闪时不闪"。
-                            // 留存窗口内（思考已结束）不再闪烁，恒显 `●`。
+                            // 留存窗口内（思考已结束）不再闪烁，恒显 `∴`。
                             let dot = if !active {
-                                "● ".to_string()
+                                "∴ ".to_string()
                             } else {
                                 let phase = std::time::SystemTime::now()
                                     .duration_since(std::time::UNIX_EPOCH)
                                     .map(|d| (d.as_millis() / 500) % 2)
                                     .unwrap_or(0);
                                 if phase == 0 {
-                                    "● ".to_string()
+                                    "∴ ".to_string()
                                 } else {
                                     "  ".to_string()
                                 }
@@ -1629,6 +1629,7 @@ pub fn render_view_model_with_flags(
                             (dot, format!("Thinking for {secs}s"))
                         } else {
                             // 有耗时 → `Thought for Ns`；无耗时（历史旧数据）→ 回退字数
+                            // 冻结后不再带符号，只保留缩进（与活跃行对齐）
                             (
                                 "  ".to_string(),
                                 match duration_ms {
@@ -2793,18 +2794,19 @@ pub fn render_view_model_with_flags(
                 let hint = if detail_mode { "" } else { " (ctrl+o to expand)" };
                 let (prefix, timing) = if let Some(ms) = live_ms {
                     let secs = ms.max(1000) / 1000;
-                    // 圆点按墙钟 500ms 相位显隐，与 AssistantBubble 的思考行一致
+                    // `∴` 按墙钟 500ms 相位显隐，与 AssistantBubble 的思考行一致
                     let phase = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| (d.as_millis() / 500) % 2)
                         .unwrap_or(0);
                     let dot = if phase == 0 {
-                        "● ".to_string()
+                        "∴ ".to_string()
                     } else {
                         "  ".to_string()
                     };
                     (dot, format!("Thinking for {secs}s"))
                 } else {
+                    // 冻结后不再带符号，只保留缩进（与活跃行对齐）
                     (
                         "  ".to_string(),
                         match t.duration_ms {

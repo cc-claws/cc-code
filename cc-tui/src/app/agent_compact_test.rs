@@ -139,3 +139,45 @@ async fn test_manual_compact_error_resets_loading_false() {
         "手动 compact 失败后必须复位 compact_manual"
     );
 }
+
+/// 视图历史超限时裁掉最老的一段，并插一行占位；重建起点随之平移。
+#[tokio::test]
+async fn test_trim_view_history_drops_oldest_with_placeholder() {
+    let (mut app, _handle) = App::new_headless(80, 24).await;
+    for i in 0..10 {
+        app.apply_pipeline_action(PipelineAction::add_message(MessageViewModel::system(
+            format!("历史 {i}"),
+        )));
+    }
+    app.session_mgr.current_mut().messages.round_start_vm_idx = 10;
+
+    app.trim_view_history(4);
+
+    let vms = &app.session_mgr.current().messages.view_messages;
+    assert_eq!(vms.len(), 5, "应保留最近 4 条 + 1 行占位");
+    let placeholder = format!("{:?}", vms[0]);
+    assert!(
+        placeholder.contains("已省略") && placeholder.contains('6'),
+        "首行应是省略提示（裁掉 6 条），实际: {placeholder}"
+    );
+    assert_eq!(
+        app.session_mgr.current().messages.round_start_vm_idx,
+        5,
+        "重建起点应平移到新的视图末尾"
+    );
+}
+
+/// 未超限时不做任何改动。
+#[tokio::test]
+async fn test_trim_view_history_noop_within_limit() {
+    let (mut app, _handle) = App::new_headless(80, 24).await;
+    app.apply_pipeline_action(PipelineAction::add_message(MessageViewModel::system(
+        "历史".to_string(),
+    )));
+    app.trim_view_history(10);
+    assert_eq!(
+        app.session_mgr.current().messages.view_messages.len(),
+        1,
+        "未超限不应裁剪"
+    );
+}
