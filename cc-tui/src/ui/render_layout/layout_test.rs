@@ -15,6 +15,7 @@ async fn test_virtual_bash_inspect_group_height_matches_real_renderer() {
         ),
     ] {
         let mut group = MessageViewModel::ToolCallGroup {
+            thinking: None,
             category: ToolCategory::Inspect,
             tools: vec![ToolEntry {
                 tool_name: "Bash".into(),
@@ -332,6 +333,7 @@ async fn test_resize_preserves_following_detail_control_event() {
 fn make_hidden_group() -> MessageViewModel {
     use crate::ui::message_view::{ToolCategory, ToolEntry};
     let mut message = MessageViewModel::ToolCallGroup {
+        thinking: None,
         category: ToolCategory::Read,
         tools: vec![ToolEntry {
             tool_name: "Read".into(),

@@ -99,6 +99,10 @@ fn test_real_legacy_data_render_pipeline_no_panic() {
 fn all_reasoning_meta(vms: &[MessageViewModel]) -> Vec<(Option<u64>, Option<String>)> {
     vms.iter()
         .flat_map(|vm| {
+            // 一等公民：思考行可能挂在折叠组上
+            if let MessageViewModel::ToolCallGroup { thinking: Some(t), .. } = vm {
+                return vec![(t.duration_ms, t.action_summary.clone())];
+            }
             if let MessageViewModel::AssistantBubble { blocks, .. } = vm {
                 blocks
                     .iter()
@@ -197,6 +201,13 @@ fn test_multi_round_thinking_merged_with_accumulated_stats() {
 
 /// 提取某 bubble 中所有 Reasoning block 的 (duration_ms, action_summary)
 fn reasoning_blocks_of(vm: &MessageViewModel) -> Vec<(Option<u64>, Option<String>)> {
+    // 一等公民：思考行可能挂在折叠组上
+    if let MessageViewModel::ToolCallGroup {
+        thinking: Some(t), ..
+    } = vm
+    {
+        return vec![(t.duration_ms, t.action_summary.clone())];
+    }
     if let MessageViewModel::AssistantBubble { blocks, .. } = vm {
         blocks
             .iter()
@@ -390,6 +401,12 @@ fn test_merged_char_count_reflects_all_segments_on_fallback() {
     let (dur, chars) = vms
         .iter()
         .find_map(|vm| {
+            if let MessageViewModel::ToolCallGroup {
+                thinking: Some(t), ..
+            } = vm
+            {
+                return Some((t.duration_ms, t.text.chars().count()));
+            }
             if let MessageViewModel::AssistantBubble { blocks, .. } = vm {
                 blocks.iter().find_map(|b| {
                     if let ContentBlockView::Reasoning {

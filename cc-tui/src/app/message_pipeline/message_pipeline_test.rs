@@ -188,21 +188,30 @@ fn test_merge_file_inspect_preserves_reasoning_and_duration() {
         messages.push(BaseMessage::tool_result(id, "files"));
     }
     let vms = MessagePipeline::messages_to_view_models(&messages, "/tmp");
+    // 一等公民：思考行可能挂在折叠组上
     let reasoning: Vec<_> = vms
         .iter()
-        .filter_map(|vm| match vm {
-            MessageViewModel::AssistantBubble { blocks, .. } => Some(blocks),
-            _ => None,
-        })
-        .flatten()
-        .filter_map(|block| match block {
-            ContentBlockView::Reasoning {
-                text,
-                duration_ms,
-                action_summary,
-                ..
-            } => Some((text.as_str(), *duration_ms, action_summary.as_deref())),
-            _ => None,
+        .flat_map(|vm| match vm {
+            MessageViewModel::ToolCallGroup {
+                thinking: Some(t), ..
+            } => vec![(
+                t.text.as_str(),
+                t.duration_ms,
+                t.action_summary.as_deref(),
+            )],
+            MessageViewModel::AssistantBubble { blocks, .. } => blocks
+                .iter()
+                .filter_map(|block| match block {
+                    ContentBlockView::Reasoning {
+                        text,
+                        duration_ms,
+                        action_summary,
+                        ..
+                    } => Some((text.as_str(), *duration_ms, action_summary.as_deref())),
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
         })
         .collect();
     assert_eq!(
@@ -2501,6 +2510,13 @@ fn make_read_then_reasoning_messages() -> Vec<BaseMessage> {
 /// 提取首个 Reasoning block 的 action_summary
 fn first_action_summary(vms: &[MessageViewModel]) -> Option<String> {
     for vm in vms {
+        // 一等公民：思考行可能挂在折叠组上
+        if let MessageViewModel::ToolCallGroup {
+            thinking: Some(t), ..
+        } = vm
+        {
+            return t.action_summary.clone();
+        }
         if let MessageViewModel::AssistantBubble { blocks, .. } = vm {
             for b in blocks {
                 if let ContentBlockView::Reasoning { action_summary, .. } = b {
@@ -2531,6 +2547,7 @@ fn test_action_summary_injected_for_read_and_grep() {
 fn read_group_standalone_action(vms: &[MessageViewModel]) -> Option<Option<String>> {
     vms.iter().find_map(|vm| match vm {
         MessageViewModel::ToolCallGroup {
+            thinking: None,
             tools,
             standalone_action,
             ..

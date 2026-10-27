@@ -1244,6 +1244,7 @@ fn test_tool_call_group_error_visible_when_collapsed() {
     use crate::ui::message_view::{ToolCategory, ToolEntry};
 
     let vm = MessageViewModel::ToolCallGroup {
+        thinking: None,
         category: ToolCategory::Read,
         tools: vec![
             ToolEntry {
@@ -1292,6 +1293,7 @@ fn test_tool_call_group_detail_mode_shows_full_content() {
     // 可断行的长内容：渲染层预折行后仍应完整保留尾部标记（无空白长串会被硬断，不适合本断言）
     let long_content = format!("{}tail-marker", "word ".repeat(60));
     let vm = MessageViewModel::ToolCallGroup {
+        thinking: None,
         category: ToolCategory::Search,
         tools: vec![ToolEntry {
             tool_name: "Grep".to_string(),
@@ -1323,6 +1325,7 @@ fn test_tool_call_group_detail_mode_formats_bash_exit_code() {
     use crate::app::MessageViewModel;
     use crate::ui::message_view::{ToolCategory, ToolEntry};
     let vm = MessageViewModel::ToolCallGroup {
+        thinking: None,
         category: ToolCategory::Inspect,
         tools: vec![ToolEntry {
             tool_name: "Bash".to_string(),
@@ -1354,6 +1357,7 @@ fn test_standalone_action_summary_capitalizes_first_char() {
     // `read 1 file`。行首无符号，需在渲染时把首字母大写，与同族的
     // `Thought for 3s` / `Brewed for 1m` 摘要行保持一致。
     let vm = MessageViewModel::ToolCallGroup {
+        thinking: None,
         category: ToolCategory::Read,
         tools: vec![ToolEntry {
             tool_name: "Read".to_string(),
@@ -1404,6 +1408,7 @@ fn test_tool_call_group_detail_mode_shows_read_args_and_summary() {
     let abs = std::env::temp_dir().join("public").join("index.php");
     let abs_text = abs.to_string_lossy().into_owned();
     let vm = MessageViewModel::ToolCallGroup {
+        thinking: None,
         category: ToolCategory::Read,
         tools: vec![ToolEntry {
             tool_name: "Read".to_string(),
@@ -1435,6 +1440,7 @@ fn test_tool_call_group_detail_mode_shows_glob_args_and_found_summary() {
     use crate::app::MessageViewModel;
     use crate::ui::message_view::{ToolCategory, ToolEntry};
     let vm = MessageViewModel::ToolCallGroup {
+        thinking: None,
         category: ToolCategory::Glob,
         tools: vec![ToolEntry {
             tool_name: "Glob".to_string(),
@@ -1826,6 +1832,7 @@ fn test_toolcallgroup_detail_header_uses_unified_indicator_and_color() {
         file_inspect: false,
     };
     let vm = MessageViewModel::ToolCallGroup {
+        thinking: None,
         category: ToolCategory::Read,
         tools: vec![
             make_entry("Read", "/tmp/ok.rs", false),
@@ -2830,6 +2837,7 @@ fn test_all_paths_preserve_width_no_overflow() {
 
     // ToolCallGroup AskUser 长回答
     let vm = MessageViewModel::ToolCallGroup {
+        thinking: None,
         category: ToolCategory::AskUser,
         tools: vec![ToolEntry {
             tool_name: "AskUserQuestion".into(),
@@ -3679,6 +3687,7 @@ fn test_tool_call_group_detail_read_path_is_clickable() {
     use crate::ui::message_view::{MessageViewModel, ToolCategory, ToolEntry};
 
     let vm = MessageViewModel::ToolCallGroup {
+        thinking: None,
         category: ToolCategory::Read,
         tools: vec![ToolEntry {
             tool_name: "Read".to_string(),

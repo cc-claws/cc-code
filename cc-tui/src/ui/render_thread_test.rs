@@ -1542,6 +1542,7 @@ fn test_toggle_detail_during_execution_matches_fresh_render() {
 fn hidden_read_group() -> MessageViewModel {
     use crate::ui::message_view::{ToolCategory, ToolEntry};
     let mut vm = MessageViewModel::ToolCallGroup {
+        thinking: None,
         category: ToolCategory::Read,
         tools: vec![ToolEntry {
             tool_name: "Read".to_string(),

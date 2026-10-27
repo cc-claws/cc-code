@@ -2810,9 +2810,92 @@ pub fn render_view_model_with_flags(
             tools,
             collapsed: _collapsed,
             standalone_action,
+            thinking,
             ..
         } => {
             let mut lines = Vec::new();
+
+            // 一等公民：组自带思考行（活跃 → Thinking，冻结 → Thought），不再依赖 AssistantBubble。
+            if let Some(t) = thinking {
+                let live_ms = if t.active && !detail_mode {
+                    let base = t.duration_ms.unwrap_or(0);
+                    let extra = t
+                        .active_since
+                        .map(|anchor| anchor.elapsed().as_millis() as u64)
+                        .unwrap_or(0);
+                    Some(base + extra)
+                } else {
+                    None
+                };
+                let hint = if detail_mode { "" } else { " (ctrl+o to expand)" };
+                let (prefix, timing) = if let Some(ms) = live_ms {
+                    let secs = ms.max(1000) / 1000;
+                    (
+                        "● ".to_string(),
+                        format!("Thinking for {secs}s"),
+                    )
+                } else {
+                    (
+                        "  ".to_string(),
+                        match t.duration_ms {
+                            Some(ms) => format!("Thought for {}s", ms.div_ceil(1000).max(1)),
+                            None => format!("Thought for {} chars", t.text.chars().count()),
+                        },
+                    )
+                };
+                let actions = t
+                    .action_summary
+                    .as_deref()
+                    .map(|summary| {
+                        if live_ms.is_some() {
+                            format!(", {}", present_tense_summary(summary))
+                        } else {
+                            format!(", {summary}")
+                        }
+                    })
+                    .unwrap_or_default();
+                let ellipsis = if live_ms.is_some() { "…" } else { "" };
+                let title_color = if live_ms.is_some() {
+                    theme::cur().text_soft
+                } else {
+                    theme::cur().inactive
+                };
+                lines.push(Line::from(Span::styled(
+                    format!("{prefix}{timing}{actions}{ellipsis}{hint}"),
+                    Style::default().fg(title_color),
+                )));
+                // 详细模式：把思考正文按 ⎿ 前缀展开（与 AssistantBubble 的 Reasoning 行为一致）
+                if detail_mode && !t.text.is_empty() {
+                    for (idx, line) in t.text.lines().enumerate() {
+                        let prefix = if idx == 0 {
+                            BranchPrefix::PREFIX
+                        } else {
+                            BranchPrefix::HANG
+                        };
+                        push_prefixed_text(
+                            &mut lines,
+                            line,
+                            prefix,
+                            Style::default().fg(theme::cur().inactive),
+                            Style::default().fg(theme::cur().inactive),
+                            BranchPrefix::content_width(width),
+                        );
+                    }
+                }
+                // 活跃时补 ⎿ 提示（只用入组条目提供的 hint）
+                if live_ms.is_some_and(|ms| ms >= 2000) {
+                    if let Some(line) = t.hint.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                        push_prefixed_text(
+                            &mut lines,
+                            line,
+                            BranchPrefix::PREFIX,
+                            Style::default().fg(theme::cur().inactive),
+                            Style::default().fg(theme::cur().inactive),
+                            BranchPrefix::content_width(width),
+                        );
+                    }
+                }
+            }
 
             if *category == ToolCategory::AskUser {
                 // AskUserQuestion 聚合：统一标题 + 所有问答对
@@ -3054,7 +3137,8 @@ pub fn render_view_model_with_flags(
             } else {
                 // 折叠态：显示**纯动作行**（PRD §2.3，仅前面无 thinking bubble 的独立只读组）
                 // 以及出错工具的错误摘要。
-                if let Some(summary) = standalone_action {
+                // 组已自带思考行时，摘要已在标题里，折叠态不再重复一行
+            if let Some(summary) = standalone_action.as_ref().filter(|_| thinking.is_none()) {
                     // 该行独立成行、行首无符号，首字母必须大写才与同族的
                     // `Thought for 3s` / `Brewed for 1m` 摘要行一致；
                     // 文案层因续写场景需要仍是小写 `read N file`，故在此处转换。

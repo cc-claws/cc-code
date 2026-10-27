@@ -94,6 +94,17 @@ impl NoteTone {
     }
 }
 
+/// 折叠组自带的思考行数据（对应参考实现 group 上的 thoughtForMs / latestThinkingSummary）。
+#[derive(Debug, Clone, Default)]
+pub struct GroupThinking {
+    pub text: String,
+    pub duration_ms: Option<u64>,
+    pub action_summary: Option<String>,
+    pub hint: Option<String>,
+    pub active: bool,
+    pub active_since: Option<std::time::Instant>,
+}
+
 /// 渲染层的视图模型，从 BaseMessage/AgentEvent 转换而来。
 #[derive(Debug, Clone)]
 pub enum MessageViewModel {
@@ -191,6 +202,8 @@ pub enum MessageViewModel {
     ToolCallGroup {
         category: ToolCategory,
         tools: Vec<ToolEntry>,
+        /// 组自带的思考行（一等公民）：思考文本/耗时/计数/提示/活跃态都挂这里
+        thinking: Option<GroupThinking>,
         collapsed: bool,
         /// 纯动作行文案（PRD §2.3）：**前面无 thinking bubble** 的独立只读工具组，
         /// 其折叠态显示此摘要（如 `read 1 file, listed 1 directory`）。
@@ -359,15 +372,29 @@ impl PartialEq for MessageViewModel {
                     category: a,
                     tools: a_tools,
                     standalone_action: a_sa,
+                    thinking: a_thinking,
                     ..
                 },
                 MessageViewModel::ToolCallGroup {
                     category: b,
                     tools: b_tools,
                     standalone_action: b_sa,
+                    thinking: b_thinking,
                     ..
                 },
-            ) => a == b && a_tools == b_tools && a_sa == b_sa,
+            ) => {
+                let same_thinking = match (a_thinking, b_thinking) {
+                    (None, None) => true,
+                    (Some(x), Some(y)) => {
+                        x.duration_ms == y.duration_ms
+                            && x.action_summary == y.action_summary
+                            && x.hint == y.hint
+                            && x.active == y.active
+                    }
+                    _ => false,
+                };
+                a == b && a_tools == b_tools && a_sa == b_sa && same_thinking
+            }
             (
                 MessageViewModel::SubAgentGroup {
                     agent_id: a_id,

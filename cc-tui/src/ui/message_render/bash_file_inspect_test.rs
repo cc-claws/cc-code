@@ -18,6 +18,7 @@ fn make_bash_inspect_views(command: &str, output: &str) -> (MessageViewModel, Me
         *phase = ToolPhase::Finished;
     }
     let group = MessageViewModel::ToolCallGroup {
+        thinking: None,
         category: ToolCategory::Inspect,
         tools: vec![ToolEntry {
             tool_name: "Bash".into(),
@@ -224,7 +225,6 @@ fn test_render_bash_inspect_group_collapsed_snapshot() {
         actual,
         concat!(
             "  Thought for 19s, read 1 file, ran 3 shell commands (ctrl+o to expand)\n",
-            "\n",
             "  ⎿  Error: Exit code 2\n",
             "     [stderr]\n",
             "     grep: missing.txt: No such file or directory\n",
@@ -246,7 +246,6 @@ fn test_render_bash_inspect_group_expanded_snapshot() {
             concat!(
                 "  Thought for 19s, read 1 file, ran 3 shell commands\n",
                 "  ⎿  先检查文件。\n",
-                "\n",
                 "● Bash(ls src)\n",
                 "  ⎿  lib.rs\n",
                 "     main.rs\n",

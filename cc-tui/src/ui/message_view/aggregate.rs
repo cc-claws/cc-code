@@ -84,6 +84,7 @@ pub fn aggregate_tail_tool_groups(messages: &mut Vec<MessageViewModel>, from_idx
                 break;
             }
             let mut vm = MessageViewModel::ToolCallGroup {
+                thinking: None,
                 category: cat,
                 tools: entries,
                 collapsed: true,

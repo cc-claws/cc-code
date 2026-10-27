@@ -3,7 +3,9 @@ use ratatui::text::Text;
 
 use crate::{
     app::tool_display,
-    ui::message_view::{aggregate_tool_groups, tool_color, ContentBlockView, MessageViewModel},
+    ui::message_view::{
+        aggregate_tool_groups, tool_color, ContentBlockView, GroupThinking, MessageViewModel,
+    },
 };
 
 use super::MessagePipeline;
@@ -205,6 +207,22 @@ impl MessagePipeline {
         let active = self.group_active && self.current_ai_text.trim().is_empty();
         let mut first = true;
         for vm in vms.iter_mut().rev() {
+            // 一等公民：组自带思考行时，活跃/耗时直接打到组上
+            if let MessageViewModel::ToolCallGroup { thinking, .. } = vm {
+                if let Some(t) = thinking.as_mut() {
+                    if first {
+                        t.duration_ms = Some(self.group_ms.max(1000));
+                        t.active = active;
+                        t.active_since = self.last_event_at;
+                        first = false;
+                    } else if let Some(ms) = groups.next() {
+                        t.duration_ms = Some((*ms).max(1000));
+                        t.active = false;
+                        t.active_since = None;
+                    }
+                    continue;
+                }
+            }
             let MessageViewModel::AssistantBubble { blocks, .. } = vm else {
                 continue;
             };
@@ -570,12 +588,12 @@ pub(crate) fn merge_consecutive_thinking(vms: &mut Vec<MessageViewModel>) {
                     ..
                 } = &mut blocks[idx]
                 {
-                    *text = merged_text;
+                    *text = merged_text.clone();
                     *char_count = merged_char_count;
                     // R6：任一段缺耗时 → 显式清空（否则残留段首旧值造成低估）
                     *duration_ms = if missing_ms { None } else { Some(tot_ms) };
                     *hint = last_hint.clone();
-                    *action_summary = summary;
+                    *action_summary = summary.clone();
                 }
                 // 移除该 bubble 内其余 Reasoning block（文本已并入第一个）
                 let mut seen_first = false;
@@ -592,13 +610,48 @@ pub(crate) fn merge_consecutive_thinking(vms: &mut Vec<MessageViewModel>) {
             }
         }
         first.recompute_hash();
-        out.push(first);
+
+        // 一等公民：段内若有只读组，把思考数据挂到**组**上（组拥有思考行），
+        // 没有正文时不再单独产出思考气泡，屏幕上只剩一个 VM。
+        let mut attach_group: Option<usize> = None;
+        let mut probe = i + 1;
+        while probe < seg_end {
+            if matches!(vms[probe], MessageViewModel::ToolCallGroup { .. }) {
+                attach_group = Some(probe);
+                break;
+            }
+            probe += 1;
+        }
+        let merged_thinking = GroupThinking {
+            text: merged_text.clone(),
+            duration_ms: if missing_ms { None } else { Some(tot_ms) },
+            action_summary: summary.clone(),
+            hint: last_hint.clone(),
+            active: false,
+            active_since: None,
+        };
+        let bubble_has_text = match &first {
+            MessageViewModel::AssistantBubble { blocks, .. } => blocks
+                .iter()
+                .any(|b| matches!(b, ContentBlockView::Text { .. })),
+            _ => false,
+        };
+        if attach_group.is_none() || bubble_has_text {
+            out.push(first);
+        }
 
         // 段内其余 bubble 跳过；保留工具 VM（ToolCallGroup / ToolBlock）
         let mut m = i + 1;
         while m < seg_end {
             if !is_thinking_bubble(&vms[m]) {
-                out.push(vms[m].clone()); // 工具 VM 保留
+                let mut vm = vms[m].clone();
+                if attach_group == Some(m) {
+                    if let MessageViewModel::ToolCallGroup { thinking, .. } = &mut vm {
+                        *thinking = Some(merged_thinking.clone());
+                    }
+                    vm.recompute_hash();
+                }
+                out.push(vm); // 工具 VM 保留
             }
             m += 1;
         }
