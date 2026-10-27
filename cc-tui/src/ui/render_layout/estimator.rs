@@ -234,6 +234,11 @@ pub(super) fn summarize(vm: &MessageViewModel) -> LayoutSummary {
 #[path = "estimator_test.rs"]
 mod tests;
 
+/// 该 VM 的渲染结果是否随**墙钟**变化（需要每帧把 tick 打进缓存键）。
+///
+/// 除「运行中的工具块」外，活跃思考行（`● Thinking for Ns`，走秒 + 500ms 相位闪烁）
+/// 同样依赖时间。漏掉这类会让虚拟布局持续命中过期成品
+/// （Codex 审计：`render_layout` tick 只覆盖 `is_live`）。
 pub(in crate::ui) fn is_live(vm: &MessageViewModel) -> bool {
     match vm {
         MessageViewModel::ToolBlock {
@@ -244,6 +249,12 @@ pub(in crate::ui) fn is_live(vm: &MessageViewModel) -> bool {
         } => *phase != ToolPhase::Finished && !*is_error && tool_name != "AskUserQuestion",
         MessageViewModel::ShellCommand { exit_code, .. } => exit_code.is_none(),
         MessageViewModel::SubAgentGroup { is_running, .. } => *is_running,
+        MessageViewModel::AssistantBubble { blocks, .. } => blocks.iter().any(|b| {
+            matches!(b, ContentBlockView::Reasoning { active, .. } if *active)
+        }),
+        MessageViewModel::ToolCallGroup {
+            thinking: Some(t), ..
+        } => t.active,
         _ => false,
     }
 }

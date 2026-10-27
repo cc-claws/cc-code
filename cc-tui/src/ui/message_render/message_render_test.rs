@@ -3775,7 +3775,7 @@ fn test_system_note_without_tone_keeps_plain_style() {
 }
 
 #[test]
-fn test_active_thinking_tail_reports_hidden_lines() {
+fn test_normal_mode_hides_thinking_body() {
     let text = (1..=13)
         .map(|i| format!("n{i:02}"))
         .collect::<Vec<_>>()
@@ -3784,30 +3784,28 @@ fn test_active_thinking_tail_reports_hidden_lines() {
     if let MessageViewModel::AssistantBubble { blocks, .. } = &mut vm {
         blocks.push(ContentBlockView::Reasoning {
             char_count: text.chars().count(),
-            duration_ms: None,
+            duration_ms: Some(5000),
             action_summary: None,
             text,
             active: true,
             active_since: Some(std::time::Instant::now() - std::time::Duration::from_secs(3)),
-            finished_at: None,
             hint: None,
         });
     }
-    // Act
+    // Act：普通模式
     let rendered = rendered_text(&render_view_model(&vm, None, 80, false, 0));
-    // Assert：活跃态 `● Thinking for Ns…` 展示最后 10 行，其余 3 行折成展开提示
+    // Assert：只有摘要行，正文一行都不出现
     assert!(
-        rendered.contains("Thinking for 3s"),
-        "活跃态应显示走秒摘要行: {rendered}"
+        rendered.contains("Thinking for"),
+        "普通模式应保留走秒摘要行: {rendered}"
     );
-    assert!(
-        rendered.contains("… +3 lines (ctrl+o to expand)"),
-        "超过 10 行的思考应补展开提示，实际: {rendered}"
-    );
-    assert!(!rendered.contains("n01"), "被折叠的行不应出现: {rendered}");
-    assert!(rendered.contains("n04"), "尾部窗口应从第 4 行开始: {rendered}");
-    assert!(rendered.contains("n13"), "最后一行应可见: {rendered}");
-    // 详细模式（Ctrl+O）：显示完整正文，且不再出现展开提示
+    for hidden in ["n01", "n04", "n13"] {
+        assert!(
+            !rendered.contains(hidden),
+            "普通模式不应展示思考正文（{hidden}）: {rendered}"
+        );
+    }
+    // Act：详细模式
     let detail = rendered_text(&render_view_model(&vm, None, 80, true, 0));
     assert!(detail.contains("n01"), "详细模式应显示首行: {detail}");
     assert!(detail.contains("n13"), "详细模式应显示末行: {detail}");
@@ -3817,81 +3815,14 @@ fn test_active_thinking_tail_reports_hidden_lines() {
     );
 }
 
-/// 构造一个「思考结束」的 Reasoning 气泡，`finished_ago_ms` 表示结束至今的毫秒数。
-fn make_finished_thinking_vm(finished_ago_ms: u64) -> MessageViewModel {
-    let text = (1..=13)
-        .map(|i| format!("n{i:02}"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let mut vm = MessageViewModel::assistant();
-    if let MessageViewModel::AssistantBubble { blocks, .. } = &mut vm {
-        blocks.push(ContentBlockView::Reasoning {
-            char_count: text.chars().count(),
-            duration_ms: Some(5000),
-            action_summary: None,
-            text,
-            active: false,
-            active_since: None,
-            finished_at: Some(
-                std::time::Instant::now() - std::time::Duration::from_millis(finished_ago_ms),
-            ),
-            hint: None,
-        });
-    }
-    vm
-}
-
 #[test]
-fn test_finished_thinking_tail_retained_within_960ms() {
-    let vm = make_finished_thinking_vm(100);
-    // Act
-    let rendered = rendered_text(&render_view_model(&vm, None, 80, false, 0));
-    // Assert：留存窗口内保持活跃形态（● Thinking），尾巴仍在
-    assert!(
-        rendered.contains("Thinking for 5s"),
-        "留存窗口内应保持活跃形态，不应已落成 Thought: {rendered}"
-    );
-    assert!(
-        !rendered.contains("Thought for"),
-        "留存窗口内不应提前落成 Thought 摘要行: {rendered}"
-    );
-    assert!(rendered.contains("n13"), "留存窗口内尾巴应仍可见: {rendered}");
-    assert!(
-        rendered.contains("… +3 lines (ctrl+o to expand)"),
-        "留存窗口内展开提示应仍可见: {rendered}"
-    );
-}
-
-#[test]
-fn test_finished_thinking_tail_expires_after_960ms() {
-    let vm = make_finished_thinking_vm(1200);
-    // Act
-    let rendered = rendered_text(&render_view_model(&vm, None, 80, false, 0));
-    // Assert：只剩摘要行，尾巴整体收起
-    assert!(
-        rendered.contains("Thought for 5s"),
-        "摘要行应保留: {rendered}"
-    );
-    assert!(!rendered.contains("n13"), "超出窗口后尾巴应收起: {rendered}");
-    assert!(
-        !rendered.contains("… +3 lines"),
-        "超出窗口后不应再有展开提示: {rendered}"
-    );
-    assert!(
-        !rendered.contains("Thinking for"),
-        "超出窗口后应落成 Thought 摘要行，不再是活跃形态: {rendered}"
-    );
-}
-
-/// 构造一个「组自带思考行」的工具组 VM：`active` 为真表示思考进行中，
-/// 否则用 `finished_ago_ms` 表示思考结束至今的毫秒数。
-fn make_group_thinking_vm(active: bool, finished_ago_ms: Option<u64>) -> MessageViewModel {
+fn test_group_thinking_hides_body_in_normal_mode() {
     use crate::ui::message_view::{GroupThinking, MessageViewModel, ToolCategory};
     let text = (1..=13)
         .map(|i| format!("n{i:02}"))
         .collect::<Vec<_>>()
         .join("\n");
-    MessageViewModel::ToolCallGroup {
+    let vm = MessageViewModel::ToolCallGroup {
         category: ToolCategory::Read,
         tools: Vec::new(),
         thinking: Some(GroupThinking {
@@ -3899,68 +3830,22 @@ fn make_group_thinking_vm(active: bool, finished_ago_ms: Option<u64>) -> Message
             duration_ms: Some(5000),
             action_summary: Some("read 3 files".to_string()),
             hint: None,
-            active,
-            active_since: active.then(std::time::Instant::now),
-            finished_at: finished_ago_ms
-                .map(|ms| std::time::Instant::now() - std::time::Duration::from_millis(ms)),
+            active: true,
+            active_since: Some(std::time::Instant::now()),
         }),
         collapsed: false,
         standalone_action: None,
         content_hash: 0,
-    }
-}
-
-#[test]
-fn test_group_thinking_tail_visible_when_active() {
-    let vm = make_group_thinking_vm(true, None);
-    // Act
+    };
+    // Act：普通模式
     let rendered = rendered_text(&render_view_model(&vm, None, 80, false, 0));
-    // Assert：活跃态展示尾巴 + 现在时计数 + 展开提示
+    // Assert
+    assert!(rendered.contains("Thinking for"), "应保留走秒思考行: {rendered}");
     assert!(
-        rendered.contains("Thinking for"),
-        "活跃组应显示走秒思考行: {rendered}"
+        !rendered.contains("n13"),
+        "普通模式下组内思考正文不应出现: {rendered}"
     );
-    assert!(
-        rendered.contains("reading 3 files"),
-        "活跃组的计数应为现在时: {rendered}"
-    );
-    assert!(rendered.contains("n13"), "活跃组应展示尾巴末行: {rendered}");
-    assert!(
-        rendered.contains("… +3 lines (ctrl+o to expand)"),
-        "尾巴被折叠时应补展开提示: {rendered}"
-    );
-}
-
-#[test]
-fn test_group_thinking_tail_retained_within_960ms() {
-    let vm = make_group_thinking_vm(false, Some(100));
-    // Act
-    let rendered = rendered_text(&render_view_model(&vm, None, 80, false, 0));
-    // Assert：留存窗口内保持活跃形态，计数回到过去时，尾巴仍在
-    assert!(
-        rendered.contains("Thinking for"),
-        "留存窗口内应保持活跃形态: {rendered}"
-    );
-    assert!(
-        rendered.contains("read 3 files") && !rendered.contains("reading 3 files"),
-        "留存窗口内的计数应为过去时: {rendered}"
-    );
-    assert!(rendered.contains("n13"), "留存窗口内尾巴应仍可见: {rendered}");
-}
-
-#[test]
-fn test_group_thinking_tail_expires_after_960ms() {
-    let vm = make_group_thinking_vm(false, Some(1200));
-    // Act
-    let rendered = rendered_text(&render_view_model(&vm, None, 80, false, 0));
-    // Assert：只剩摘要行，尾巴整体收起
-    assert!(
-        rendered.contains("Thought for 5s, read 3 files"),
-        "超窗后应落成 Thought 摘要行: {rendered}"
-    );
-    assert!(!rendered.contains("n13"), "超窗后尾巴应收起: {rendered}");
-    assert!(
-        !rendered.contains("Thinking for"),
-        "超窗后不应再有活跃形态: {rendered}"
-    );
+    // Act：详细模式
+    let detail = rendered_text(&render_view_model(&vm, None, 80, true, 0));
+    assert!(detail.contains("n13"), "详细模式应展示组内思考正文: {detail}");
 }

@@ -58,7 +58,6 @@ impl MessagePipeline {
                 text: self.current_ai_reasoning.clone(),
                 active: thinking_now,
                 active_since: self.last_event_at,
-                finished_at: None,
                 hint: None,
             });
         }
@@ -206,14 +205,6 @@ impl MessagePipeline {
         // 活跃判定统一走 live_thinking_active()（thinking_now || 有工具未结束），
         // 与状态机保持单一来源。
         let active = self.live_thinking_active();
-        // 思考刚结束：记下结束时刻，供渲染层在 960ms 窗口内继续展示尾巴预览
-        // （只影响显示，不参与状态机；重新进入思考会清空）。
-        if active {
-            self.thinking_ended_at.set(None);
-        } else if self.thinking_ended_at.get().is_none() {
-            self.thinking_ended_at.set(Some(std::time::Instant::now()));
-        }
-        let ended_at = self.thinking_ended_at.get();
         let mut first = true;
         for vm in vms.iter_mut().rev() {
             // 一等公民：组自带思考行时，活跃/耗时直接打到组上
@@ -231,8 +222,6 @@ impl MessagePipeline {
                         t.duration_ms = Some(base.max(1000));
                         t.active = active;
                         t.active_since = self.last_event_at;
-                        // 结束后打点：渲染层据此在 THINKING_RETAIN_MS 窗口内保留尾巴
-                        t.finished_at = if active { None } else { ended_at };
                         first = false;
                     } else if let Some(ms) = groups.next() {
                         t.duration_ms = Some((*ms).max(1000));
@@ -256,7 +245,6 @@ impl MessagePipeline {
                 duration_ms,
                 active: a,
                 active_since,
-                finished_at,
                 ..
             }) = target
             else {
@@ -271,30 +259,15 @@ impl MessagePipeline {
                 *duration_ms = Some(base.max(1000));
                 *a = active;
                 *active_since = self.last_event_at;
-                *finished_at = if active { None } else { ended_at };
                 first = false;
             } else if let Some(ms) = groups.next() {
                 *duration_ms = Some((*ms).max(1000));
                 *a = false;
                 *active_since = None;
-                // 更早的历史思考段不重新打点：`ended_at` 是"最近一次思考结束"的时刻，
-                // 盖到老段上会让整片历史行落进 960ms 留存窗口，闪成 `● Thinking…` + 尾巴。
-                // 老段保持 None（重建时本就由 `from_base_message` 初始化为 None）。
             }
             // 同组分支：改了展示字段必须重算 hash，避免渲染缓存命中旧行
             vm.recompute_hash();
         }
-    }
-
-    /// 思考尾巴留存窗口是否仍需刷新。
-    ///
-    /// 渲染层的尾巴收起依赖"下一次重绘"，而空闲态没有事件驱动重绘；这里给出窗口
-    /// 剩余期（多留 200ms 覆盖 50ms tick），让事件循环在到期前后各补一帧。
-    pub fn thinking_retain_pending(&self) -> bool {
-        self.thinking_ended_at.get().is_some_and(|ended| {
-            ended.elapsed().as_millis()
-                < u128::from(crate::ui::message_view::THINKING_RETAIN_MS + 200)
-        })
     }
 
     /// Finalize 当前 AI 消息：将流式状态转为 BaseMessage 加入 completed
@@ -469,7 +442,6 @@ pub(crate) fn retry_merge_from(vms: &mut Vec<MessageViewModel>, from: usize) {
                     text: t.text.clone(),
                     active: t.active,
                     active_since: t.active_since,
-                    finished_at: t.finished_at,
                     hint: t.hint.clone(),
                 }],
                 is_streaming: false,
@@ -716,8 +688,6 @@ pub(crate) fn merge_consecutive_thinking(vms: &mut Vec<MessageViewModel>) {
             hint: last_hint.clone(),
             active: false,
             active_since: None,
-            // 归并出的历史段不打点：留存窗口只给"刚结束"的最新组（由 mark_live_thinking 补）
-            finished_at: None,
         };
         if attach_group.is_none() || bubble_has_text {
             out.push(first);

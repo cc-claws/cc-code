@@ -19,11 +19,6 @@ pub(crate) use tools::{
 pub use tools::{tool_color, AgentSummary, ToolCategory, ToolEntry};
 pub(crate) use utils::{instance_hash, parse_bg_hash};
 
-/// 思考结束后尾巴预览的留存窗口（ms）：超过即收起，只留 `Thought for Ns` 摘要行。
-///
-/// 渲染层用它判定是否展示尾巴，app 层用它决定窗口过期后需不需要补一次重绘。
-pub const THINKING_RETAIN_MS: u64 = 960;
-
 // 从工具名和入参构造 DiffInput（仅 Write/Edit 工具），实现见
 // [`crate::app::tool_display::build_diff_input`]（Edit 基于完整文件重建全文 diff）。
 // 实际的 `render_diff` 渲染由 message_render 在 detail_mode 下按当前终端 width 进行。
@@ -108,9 +103,6 @@ pub struct GroupThinking {
     pub hint: Option<String>,
     pub active: bool,
     pub active_since: Option<std::time::Instant>,
-    /// 思考结束时刻：供渲染层在 THINKING_RETAIN_MS 窗口内继续展示尾巴。
-    /// 只影响显示，不参与 hash / 比较（与 `ContentBlockView::Reasoning` 一致）。
-    pub finished_at: Option<std::time::Instant>,
 }
 
 /// 渲染层的视图模型，从 BaseMessage/AgentEvent 转换而来。
@@ -646,9 +638,6 @@ pub enum ContentBlockView {
         /// 进行中的实时起点：渲染时用 `now - active_since` 在 `duration_ms` 之上追加增量。
         /// 只影响显示，不参与哈希/比较（避免每次构造都换 hash）。
         active_since: Option<std::time::Instant>,
-        /// 思考结束时刻：结束后最多再留存 `THINKING_RETAIN_MS`，避免尾巴一结束就消失。
-        /// 只影响显示，不参与哈希/比较。
-        finished_at: Option<std::time::Instant>,
         /// 「最新动作」提示（`⎿` 行）：段内最后一条工具的参数（read→路径、bash→命令），
         /// 没有工具时渲染层回退显示思考文本尾行。
         hint: Option<String>,
@@ -866,7 +855,6 @@ impl MessageViewModel {
                             text: text.clone(),
                             active: false,
                             active_since: None,
-                            finished_at: None,
                             hint: None,
                         },
                         ContentBlock::ToolUse { name, .. } => ContentBlockView::ToolUse { name },

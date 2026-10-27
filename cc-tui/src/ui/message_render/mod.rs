@@ -22,7 +22,7 @@ use super::{
     branch_prefix::BranchPrefix,
     message_view::{
         AgentSummary, BackgroundTaskStarted, ContentBlockView, MessageViewModel, ToolCategory,
-        ToolEntry, THINKING_RETAIN_MS,
+        ToolEntry,
     },
     theme,
 };
@@ -1588,7 +1588,6 @@ pub fn render_view_model_with_flags(
                         text,
                         active: block_active,
                         active_since,
-                        finished_at,
                         ..
                     } => {
                         // Thought 标题：缩进 2 列对齐
@@ -1598,28 +1597,15 @@ pub fn render_view_model_with_flags(
                             " (ctrl+o to expand)"
                         };
                         // 运行中（本轮未结束且非详细模式）：对齐参考实现——
-                        // 行首圆点 + 现在时 + 省略号 + 走秒，不把思考内容一点点吐出来。
+                        // 行首圆点 + 现在时 + 省略号 + 走秒，**不吐思考正文**。
                         let active = *block_active && !detail_mode;
-                        // 思考结束后最多再留存 THINKING_RETAIN_MS：让用户看清最后的尾巴，
-                        // 又不至于把过期内容一直挂在屏幕上。
-                        let retained = !active
-                            && !detail_mode
-                            && finished_at.is_some_and(|t| {
-                                t.elapsed().as_millis() < u128::from(THINKING_RETAIN_MS)
-                            });
                         // 走秒口径同参考实现 Jc：已完成累计 + 距锚点（最后一段思考结束）的增量，
                         // 至少显示 1s。
-                        // 留存窗口内**保持活跃形态**（`● Thinking for Ns…` + 正文尾巴），
-                        // 窗口结束才落成 `Thought for Ns` 摘要行：已完成的 Thought 行不带任何正文。
-                        let live_ms = (active || retained).then(|| {
+                        let live_ms = active.then(|| {
                             let base = duration_ms.unwrap_or(0);
-                            let extra = if active {
-                                active_since
-                                    .map(|anchor| anchor.elapsed().as_millis() as u64)
-                                    .unwrap_or(0)
-                            } else {
-                                0
-                            };
+                            let extra = active_since
+                                .map(|anchor| anchor.elapsed().as_millis() as u64)
+                                .unwrap_or(0);
                             base + extra
                         });
                         let live_secs = live_ms.map(|ms| ms.max(1000) / 1000);
@@ -1677,50 +1663,7 @@ pub fn render_view_model_with_flags(
                             title,
                             Style::default().fg(title_color),
                         )]));
-                        // 普通模式：活跃（含结束后 960ms 留存窗口）展示最后 10 行正文，
-                        // 超出部分折成 `… +N lines`；不补 `⎿` 提示行。
-                        // 留存窗口结束 → 只剩 `Thought for Ns` 摘要行，不带任何正文。
-                        // 完整正文请按 Ctrl+O（详细模式，走下方 markdown 管线）。
-                        if retained || live_secs.is_some_and(|secs| secs >= 2) {
-                            let tail: Vec<&str> = text
-                                .lines()
-                                .map(str::trim)
-                                .filter(|line| !line.is_empty())
-                                .collect();
-                            let start_idx = tail.len().saturating_sub(10);
-                            for (idx, line) in tail[start_idx..].iter().enumerate() {
-                                let prefix = if idx == 0 {
-                                    BranchPrefix::PREFIX
-                                } else {
-                                    BranchPrefix::HANG
-                                };
-                                push_prefixed_text(
-                                    &mut lines,
-                                    line,
-                                    prefix,
-                                    Style::default().fg(theme::cur().inactive),
-                                    Style::default().fg(theme::cur().inactive),
-                                    BranchPrefix::content_width(width),
-                                );
-                            }
-                            // 超出 10 行的部分被折叠：补一行与工具输出同构的展开提示，
-                            // 避免"内容被悄悄截掉、无任何提示"。
-                            if start_idx > 0 {
-                                lines.push(Line::from(vec![
-                                    Span::styled(
-                                        BranchPrefix::HANG,
-                                        Style::default().fg(theme::cur().inactive),
-                                    ),
-                                    Span::styled(
-                                        format_expand_hint(start_idx),
-                                        Style::default().fg(theme::cur().subtle),
-                                    ),
-                                ]));
-                            }
-                        }
-                        // 非详细模式：仅显示摘要行，**不渲染**思考内容预览
-                        // （历史上曾显示 tail_lines 尾部 3 行预览，流式期间每次
-                        //  chunk 都重算重绘、行数跳动，已移除；展开请按 Ctrl+O）
+                        // 普通模式：只留这一行摘要，**不渲染任何思考正文**。
                         // 详细模式：显示完整 reasoning，走 markdown 解析 + DIM overlay
                         let content = if detail_mode {
                             Some(text.as_str())
@@ -2836,13 +2779,7 @@ pub fn render_view_model_with_flags(
             // 一等公民：组自带思考行（活跃 → Thinking，冻结 → Thought），不再依赖 AssistantBubble。
             if let Some(t) = thinking {
                 let active = t.active && !detail_mode;
-                // 思考结束后 THINKING_RETAIN_MS 内保持活跃形态（● + 尾巴），
-                // 窗口结束才落成 `Thought for Ns` 摘要行——与 AssistantBubble 同一口径。
-                let retained = !active
-                    && !detail_mode
-                    && t.finished_at.is_some_and(|when| {
-                        when.elapsed().as_millis() < u128::from(THINKING_RETAIN_MS)
-                    });
+                // 普通模式只留摘要行：进行中走秒，结束后落成 `Thought for Ns`，不吐正文。
                 let live_ms = if active {
                     let base = t.duration_ms.unwrap_or(0);
                     let extra = t
@@ -2850,29 +2787,21 @@ pub fn render_view_model_with_flags(
                         .map(|anchor| anchor.elapsed().as_millis() as u64)
                         .unwrap_or(0);
                     Some(base + extra)
-                } else if retained {
-                    // 窗口内走秒停住：用已完成累计时长
-                    Some(t.duration_ms.unwrap_or(0).max(1000))
                 } else {
                     None
                 };
                 let hint = if detail_mode { "" } else { " (ctrl+o to expand)" };
                 let (prefix, timing) = if let Some(ms) = live_ms {
                     let secs = ms.max(1000) / 1000;
-                    // 圆点按墙钟 500ms 相位显隐，与 AssistantBubble 的思考行一致；
-                    // 留存窗口内（思考已结束）不再闪烁，恒显 `●`。
-                    let dot = if !active {
+                    // 圆点按墙钟 500ms 相位显隐，与 AssistantBubble 的思考行一致
+                    let phase = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| (d.as_millis() / 500) % 2)
+                        .unwrap_or(0);
+                    let dot = if phase == 0 {
                         "● ".to_string()
                     } else {
-                        let phase = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| (d.as_millis() / 500) % 2)
-                            .unwrap_or(0);
-                        if phase == 0 {
-                            "● ".to_string()
-                        } else {
-                            "  ".to_string()
-                        }
+                        "  ".to_string()
                     };
                     (dot, format!("Thinking for {secs}s"))
                 } else {
@@ -2928,43 +2857,6 @@ pub fn render_view_model_with_flags(
                         }
                     }
                     lines.push(Line::from(""));
-                } else if retained || live_ms.is_some_and(|ms| ms >= 2000) {
-                    // 普通模式：展示最后 10 行思考尾巴；超出部分折成展开提示。
-                    // 组内尾巴沿用 `  ⎿  ` 前缀（与工具结果行同构），不额外换色。
-                    let tail: Vec<&str> = t
-                        .text
-                        .lines()
-                        .map(str::trim)
-                        .filter(|line| !line.is_empty())
-                        .collect();
-                    let start_idx = tail.len().saturating_sub(10);
-                    for (idx, line) in tail[start_idx..].iter().enumerate() {
-                        let prefix = if idx == 0 {
-                            BranchPrefix::PREFIX
-                        } else {
-                            BranchPrefix::HANG
-                        };
-                        push_prefixed_text(
-                            &mut lines,
-                            line,
-                            prefix,
-                            Style::default().fg(theme::cur().inactive),
-                            Style::default().fg(theme::cur().inactive),
-                            BranchPrefix::content_width(width),
-                        );
-                    }
-                    if start_idx > 0 {
-                        lines.push(Line::from(vec![
-                            Span::styled(
-                                BranchPrefix::HANG,
-                                Style::default().fg(theme::cur().inactive),
-                            ),
-                            Span::styled(
-                                format_expand_hint(start_idx),
-                                Style::default().fg(theme::cur().subtle),
-                            ),
-                        ]));
-                    }
                 }
             }
 

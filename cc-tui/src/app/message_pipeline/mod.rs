@@ -269,9 +269,6 @@ pub struct MessagePipeline {
     group_ms: u64,
     /// 上一个事件（思考首 chunk / ToolStart / ToolEnd / 消息落库）的到达时刻
     last_event_at: Option<std::time::Instant>,
-    /// 思考结束时刻：结束后的一小段窗口内继续展示尾巴预览（只影响显示，不参与状态机）。
-    /// 用 `Cell` 是为了在 `&self` 的纯展示路径（`mark_live_thinking`）里记录。
-    thinking_ended_at: std::cell::Cell<Option<std::time::Instant>>,
     /// 已冻结的组耗时，按时间顺序排列（每组在正文到达时冻结）
     finished_groups: Vec<u64>,
     /// 当前组是否仍在进行（正文到达即结束）——决定整行显示 Thinking 还是 Thought
@@ -329,7 +326,6 @@ impl MessagePipeline {
             reasoning_started_at: None,
             group_ms: 0,
             last_event_at: None,
-            thinking_ended_at: std::cell::Cell::new(None),
             finished_groups: Vec::new(),
             group_active: false,
             thinking_now: false,

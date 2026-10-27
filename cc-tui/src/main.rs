@@ -1071,13 +1071,6 @@ async fn run_app(
                 let loading = app.session_mgr.current_mut().ui.loading;
                 // 系统提示的最短可见时长到期 → 清除并触发一次重绘
                 let notice_expired = app.expire_system_notices();
-                // 思考尾巴留存的收起依赖重绘，空闲态没有其它事件，必须自己补帧
-                let thinking_retain_pending = app
-                    .session_mgr
-                    .current_mut()
-                    .messages
-                    .pipeline
-                    .thinking_retain_pending();
                 let should_render = cache_updated
                     || agent_updated
                     || bg_updated
@@ -1089,8 +1082,7 @@ async fn run_app(
                     || update_check_updated
                     || loading
                     || cursor_blinked
-                    || notice_expired
-                    || thinking_retain_pending;
+                    || notice_expired;
                 if should_render {
                     let now = Instant::now();
                     // loading 路径：限制帧率到 TARGET_FRAME_INTERVAL，降低 CPU 开销

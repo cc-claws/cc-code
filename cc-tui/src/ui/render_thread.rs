@@ -31,7 +31,7 @@ use super::{
         is_shell_running_status_line, render_view_model_with_flags, shell_output_status_text,
         shell_running_text,
     },
-    message_view::{ContentBlockView, MessageViewModel, ToolPhase, THINKING_RETAIN_MS},
+    message_view::{MessageViewModel, ToolPhase},
 };
 use cc_widgets::markdown::LinkHit;
 mod worker;
@@ -278,27 +278,6 @@ fn live_thinking_elapsed_ms(vm: &MessageViewModel) -> Option<u64> {
     })
 }
 
-/// 该 VM 的思考行是否仍在「结束后 960ms 留存窗口」内。
-///
-/// 留存状态只随时间变化、不进 `content_hash`，必须显式进渲染键：否则窗口过期后
-/// 缓存仍复用旧的"活跃态 + 尾巴"行，尾巴永远收不起来（对话停止后尤其明显）。
-fn thinking_retained_state(vm: &MessageViewModel) -> Option<bool> {
-    let finished = match vm {
-        MessageViewModel::AssistantBubble { blocks, .. } => blocks
-            .iter()
-            .find_map(|b| match b {
-                ContentBlockView::Reasoning { finished_at, .. } => Some(*finished_at),
-                _ => None,
-            })
-            .flatten(),
-        MessageViewModel::ToolCallGroup { thinking, .. } => {
-            thinking.as_ref().and_then(|t| t.finished_at)
-        }
-        _ => None,
-    };
-    finished.map(|t| t.elapsed().as_millis() < u128::from(THINKING_RETAIN_MS))
-}
-
 fn render_key(vm: &MessageViewModel, detail: bool, diff: bool) -> u64 {
     let mut h = DefaultHasher::new();
     vm.content_hash().hash(&mut h);
@@ -310,10 +289,6 @@ fn render_key(vm: &MessageViewModel, detail: bool, diff: bool) -> u64 {
             .map(|d| (d.as_millis() / 500) % 2)
             .unwrap_or(0);
         phase.hash(&mut h);
-    }
-    if let Some(retained) = thinking_retained_state(vm) {
-        // 窗口过期要换一次键，否则收起尾巴的那一帧永远命不中重绘
-        retained.hash(&mut h);
     }
     if detail_sensitive(vm) {
         detail.hash(&mut h);
