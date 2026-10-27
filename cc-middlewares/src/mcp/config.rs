@@ -296,13 +296,22 @@ pub(crate) fn load_merged_config_full(
     cwd: &Path,
     claude_home: &Path,
 ) -> (McpConfigFile, HashMap<String, String>) {
-    let mut plugin_sources: HashMap<String, String> = HashMap::new();
-
-    // 1. 加载全局配置
     // 经 app_home 解析（~/.cc-code），
     // 避免新版 settings.json 中的全局 MCP 配置被静默忽略。
     let global_path = cc_agent::app_home::global_settings_path();
-    let mut global = load_global_config(&global_path).unwrap_or_else(|e| {
+    load_merged_config_full_with_paths(cwd, claude_home, &global_path)
+}
+
+/// 内部实现：允许注入全局路径（便于测试，见 #760）
+fn load_merged_config_full_with_paths(
+    cwd: &Path,
+    claude_home: &Path,
+    global_path: &Path,
+) -> (McpConfigFile, HashMap<String, String>) {
+    let mut plugin_sources: HashMap<String, String> = HashMap::new();
+
+    // 1. 加载全局配置
+    let mut global = load_global_config(global_path).unwrap_or_else(|e| {
         tracing::warn!(
             path = %global_path.display(),
             error = %e,
@@ -311,7 +320,7 @@ pub(crate) fn load_merged_config_full(
         McpConfigFile::default()
     });
     for cfg in global.mcp_servers.values_mut() {
-        cfg.source = Some(ConfigSource::Global(global_path.clone()));
+        cfg.source = Some(ConfigSource::Global(global_path.to_path_buf()));
     }
 
     // 2. 加载插件 MCP 配置（~/.claude/ 目录下的已启用插件）

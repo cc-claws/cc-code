@@ -28,6 +28,30 @@ fn aggregatable_category(vm: &MessageViewModel) -> Option<ToolCategory> {
     ToolCategory::from_tool_block(tool_name, *file_inspect)
 }
 
+/// ToolBlock 按值拆字段进 ToolEntry（移动，不 clone）。调用方须已确认是 ToolBlock。
+fn tool_block_entry(vm: MessageViewModel) -> ToolEntry {
+    let MessageViewModel::ToolBlock {
+        tool_name,
+        display_name,
+        args_display,
+        content,
+        is_error,
+        file_inspect,
+        ..
+    } = vm
+    else {
+        unreachable!("进组项必为 ToolBlock")
+    };
+    ToolEntry {
+        tool_name,
+        display_name,
+        args_display,
+        content,
+        is_error,
+        file_inspect,
+    }
+}
+
 /// 将 view_messages 中相邻的只读 ToolBlock 聚合为 ToolCallGroup（支持跨类别，跳过空 thinking bubble）
 pub fn aggregate_tool_groups(messages: &mut Vec<MessageViewModel>) {
     aggregate_tail_tool_groups(messages, 0);
@@ -39,68 +63,74 @@ pub fn aggregate_tail_tool_groups(messages: &mut Vec<MessageViewModel>, from_idx
     if from_idx >= messages.len() {
         return;
     }
-    let mut result: Vec<MessageViewModel> = Vec::with_capacity(messages.len());
-    result.extend(messages[..from_idx].iter().cloned());
-
-    let mut i = from_idx;
-    let original_len = messages.len();
-    while i < original_len {
-        let vm = &messages[i];
-        if let Some(cat) = aggregatable_category(vm) {
-            let mut entries: Vec<ToolEntry> = Vec::new();
-            let mut j = i;
-            while j < original_len {
-                if let MessageViewModel::ToolBlock {
-                    tool_name: tn,
-                    display_name,
-                    args_display,
-                    content,
-                    is_error,
-                    file_inspect,
-                    ..
-                } = &messages[j]
-                {
-                    let entry_cat = aggregatable_category(&messages[j]);
-                    if entry_cat.is_some()
-                        && (cat == ToolCategory::AskUser)
-                            == (entry_cat == Some(ToolCategory::AskUser))
-                    {
-                        entries.push(ToolEntry {
-                            tool_name: tn.clone(),
-                            display_name: display_name.clone(),
-                            args_display: args_display.clone(),
-                            content: content.clone(),
-                            is_error: *is_error,
-                            file_inspect: *file_inspect,
-                        });
-                        j += 1;
-                        continue;
-                    }
-                }
-                if messages[j].is_reasoning_only() {
-                    j += 1;
+    // #757：整列取走后逐条移动重建。passthrough 项与进组项均不再 clone：
+    // 进组项的字段直接移动进 ToolEntry，组内被 reasoning-only 跳过的项丢弃，
+    // 输出内容与旧实现逐条一致。
+    let capacity = messages.len();
+    let mut iter = std::mem::take(messages).into_iter().peekable();
+    let mut result: Vec<MessageViewModel> = Vec::with_capacity(capacity);
+    for _ in 0..from_idx {
+        if let Some(vm) = iter.next() {
+            result.push(vm);
+        }
+    }
+    while let Some(vm) = iter.next() {
+        let Some(cat) = aggregatable_category(&vm) else {
+            result.push(vm);
+            continue;
+        };
+        let mut entries = vec![tool_block_entry(vm)];
+        while let Some(next) = iter.peek() {
+            if let Some(entry_cat) = aggregatable_category(next) {
+                if (cat == ToolCategory::AskUser) == (entry_cat == ToolCategory::AskUser) {
+                    let item = iter.next().expect("peeked item");
+                    entries.push(tool_block_entry(item));
                     continue;
                 }
-                break;
             }
-            let mut vm = MessageViewModel::ToolCallGroup {
-                thinking: None,
-                category: cat,
-                tools: entries,
-                collapsed: true,
-                standalone_action: None,
-                content_hash: 0,
-            };
-            vm.recompute_hash();
-            result.push(vm);
-            i = j;
-            continue;
+            if next.is_reasoning_only() {
+                iter.next();
+                continue;
+            }
+            break;
         }
-        result.push(messages[i].clone());
-        i += 1;
+        let mut vm = MessageViewModel::ToolCallGroup {
+            thinking: None,
+            category: cat,
+            tools: entries,
+            collapsed: true,
+            standalone_action: None,
+            content_hash: 0,
+        };
+        vm.recompute_hash();
+        result.push(vm);
     }
 
     *messages = result;
+}
+
+/// SubAgentGroup 按引用取批次摘要（截断字段仍需新串，与旧实现一致）。
+fn agent_summary(vm: &MessageViewModel) -> AgentSummary {
+    let MessageViewModel::SubAgentGroup {
+        agent_id,
+        task_preview,
+        total_steps,
+        is_error,
+        final_result,
+        ..
+    } = vm
+    else {
+        unreachable!("摘要来源必为 SubAgentGroup")
+    };
+    AgentSummary {
+        agent_id: agent_id.clone(),
+        task_preview: task_preview.chars().take(50).collect(),
+        tool_count: *total_steps,
+        is_error: *is_error,
+        final_result: final_result
+            .as_ref()
+            .map(|r| r.lines().next().unwrap_or("").chars().take(80).collect()),
+    }
 }
 
 /// 将连续的、已完成的 SubAgentGroup 聚合为批次汇总视图。
@@ -113,74 +143,58 @@ pub fn aggregate_batch_groups(messages: &mut Vec<MessageViewModel>) {
         return;
     }
 
-    let mut result: Vec<MessageViewModel> = Vec::with_capacity(messages.len());
-    let mut i = 0;
-    let len = messages.len();
+    // #757：整列取走后逐条移动重建，passthrough 项不再 clone；
+    // 组首条复用为汇总 VM（原地改 batch_agents/collapsed），其余组内条目只取摘要后丢弃。
+    let mut iter = std::mem::take(messages).into_iter().peekable();
+    let mut result: Vec<MessageViewModel> = Vec::new();
 
-    while i < len {
+    while let Some(mut vm) = iter.next() {
         let is_aggregatable = matches!(
-            &messages[i],
+            &vm,
             MessageViewModel::SubAgentGroup {
                 is_running: false,
                 batch_agents,
                 ..
             } if batch_agents.is_empty()
         );
-
         if !is_aggregatable {
-            result.push(messages[i].clone());
-            i += 1;
+            result.push(vm);
             continue;
         }
 
-        let run_start = i;
-        let mut batch_summaries: Vec<AgentSummary> = Vec::new();
-
-        while i < len {
-            if let MessageViewModel::SubAgentGroup {
-                agent_id,
-                task_preview,
-                total_steps,
-                is_running: false,
-                is_error,
-                final_result,
-                batch_agents,
-                ..
-            } = &messages[i]
-            {
-                if batch_agents.is_empty() {
-                    batch_summaries.push(AgentSummary {
-                        agent_id: agent_id.clone(),
-                        task_preview: task_preview.chars().take(50).collect(),
-                        tool_count: *total_steps,
-                        is_error: *is_error,
-                        final_result: final_result
-                            .as_ref()
-                            .map(|r| r.lines().next().unwrap_or("").chars().take(80).collect()),
-                    });
-                    i += 1;
-                    continue;
-                }
+        let mut batch_summaries = vec![agent_summary(&vm)];
+        let mut run_len = 1;
+        while let Some(next) = iter.peek() {
+            let is_next = matches!(
+                next,
+                MessageViewModel::SubAgentGroup {
+                    is_running: false,
+                    batch_agents,
+                    ..
+                } if batch_agents.is_empty()
+            );
+            if !is_next {
+                break;
             }
-            break;
+            let item = iter.next().expect("peeked item");
+            batch_summaries.push(agent_summary(&item));
+            run_len += 1;
         }
 
-        let run_len = i - run_start;
         if run_len <= 1 {
-            result.push(messages[run_start].clone());
+            result.push(vm);
         } else {
-            let mut merged = messages[run_start].clone();
             if let MessageViewModel::SubAgentGroup {
                 ref mut batch_agents,
                 ref mut collapsed,
                 ..
-            } = merged
+            } = vm
             {
                 *batch_agents = batch_summaries;
                 *collapsed = true;
             }
-            merged.recompute_hash();
-            result.push(merged);
+            vm.recompute_hash();
+            result.push(vm);
         }
     }
 
