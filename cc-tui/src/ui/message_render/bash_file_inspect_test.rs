@@ -246,6 +246,7 @@ fn test_render_bash_inspect_group_expanded_snapshot() {
             concat!(
                 "  Thought for 19s, read 1 file, ran 3 shell commands\n",
                 "  ⎿  先检查文件。\n",
+                "\n",
                 "● Bash(ls src)\n",
                 "  ⎿  lib.rs\n",
                 "     main.rs\n",

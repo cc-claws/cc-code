@@ -2788,3 +2788,34 @@ fn test_build_streaming_bubble_holds_long_unfinished_line() {
         "未出现换行时整段照常显示"
     );
 }
+
+#[test]
+fn test_merged_segment_keeps_single_thinking_owner() {
+    // 思考 + Read（无正文）：思考行必须只由组持有，否则同一段思考会被渲染两次
+    let msgs = make_ai_with_tools(&[("Read", "/a.rs")]);
+    let vms = MessagePipeline::messages_to_view_models(&msgs, "/tmp");
+    let group_thinking = vms
+        .iter()
+        .filter(|vm| {
+            matches!(
+                vm,
+                MessageViewModel::ToolCallGroup {
+                    thinking: Some(_),
+                    ..
+                }
+            )
+        })
+        .count();
+    let bubble_reasoning = vms
+        .iter()
+        .filter(|vm| {
+            matches!(
+                vm,
+                MessageViewModel::AssistantBubble { blocks, .. }
+                    if blocks.iter().any(|b| matches!(b, ContentBlockView::Reasoning { .. }))
+            )
+        })
+        .count();
+    assert_eq!(group_thinking, 1, "无正文时思考行应由折叠组持有");
+    assert_eq!(bubble_reasoning, 0, "无正文时不得再保留思考气泡");
+}

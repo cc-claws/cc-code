@@ -2830,10 +2830,13 @@ pub fn render_view_model_with_flags(
                 let hint = if detail_mode { "" } else { " (ctrl+o to expand)" };
                 let (prefix, timing) = if let Some(ms) = live_ms {
                     let secs = ms.max(1000) / 1000;
-                    (
-                        "● ".to_string(),
-                        format!("Thinking for {secs}s"),
-                    )
+                    // 圆点按墙钟 500ms 相位显隐，与 AssistantBubble 的思考行一致
+                    let phase = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| (d.as_millis() / 500) % 2)
+                        .unwrap_or(0);
+                    let dot = if phase == 0 { "● " } else { "  " };
+                    (dot.to_string(), format!("Thinking for {secs}s"))
                 } else {
                     (
                         "  ".to_string(),
@@ -2864,23 +2867,28 @@ pub fn render_view_model_with_flags(
                     format!("{prefix}{timing}{actions}{ellipsis}{hint}"),
                     Style::default().fg(title_color),
                 )));
-                // 详细模式：把思考正文按 ⎿ 前缀展开（与 AssistantBubble 的 Reasoning 行为一致）
+                // 详细模式：思考正文与 AssistantBubble 保持同一条渲染管线
+                // （markdown 解析 + DIM 压暗 + 折行），避免组内/组外观感不一致。
                 if detail_mode && !t.text.is_empty() {
-                    for (idx, line) in t.text.lines().enumerate() {
-                        let prefix = if idx == 0 {
-                            BranchPrefix::PREFIX
-                        } else {
-                            BranchPrefix::HANG
-                        };
-                        push_prefixed_text(
-                            &mut lines,
-                            line,
-                            prefix,
-                            Style::default().fg(theme::cur().inactive),
-                            Style::default().fg(theme::cur().inactive),
-                            BranchPrefix::content_width(width),
-                        );
+                    let content_width = BranchPrefix::content_width(width);
+                    let parsed = super::markdown::parse_markdown(&t.text, content_width);
+                    let dimmed = dim_markdown_lines(parsed);
+                    for (i, line) in dimmed.into_iter().enumerate() {
+                        for (j, wline) in wrap_line_spans(line, content_width).into_iter().enumerate() {
+                            let prefix = if i == 0 && j == 0 {
+                                BranchPrefix::PREFIX
+                            } else {
+                                BranchPrefix::HANG
+                            };
+                            let mut spans = vec![Span::styled(
+                                prefix,
+                                Style::default().fg(theme::cur().inactive),
+                            )];
+                            spans.extend(wline.spans);
+                            lines.push(Line::from(spans));
+                        }
                     }
+                    lines.push(Line::from(""));
                 }
                 // 活跃时补 ⎿ 提示（只用入组条目提供的 hint）
                 if live_ms.is_some_and(|ms| ms >= 2000) {

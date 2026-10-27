@@ -410,7 +410,37 @@ pub(crate) fn retry_merge_from(vms: &mut Vec<MessageViewModel>, from: usize) {
     if from >= vms.len() {
         return;
     }
-    let mut tail: Vec<MessageViewModel> = vms.split_off(from);
+    let tail: Vec<MessageViewModel> = vms.split_off(from);
+    // 组自带的思考在重跑归并前先还原成思考气泡：否则 clear 之后思考正文/耗时/活跃态
+    // 无法恢复（Codex 审计 P1：二次归并丢数据）。
+    let mut expanded: Vec<MessageViewModel> = Vec::with_capacity(tail.len() + 2);
+    for mut vm in tail {
+        let thinking = match &mut vm {
+            MessageViewModel::ToolCallGroup { thinking, .. } => thinking.take(),
+            _ => None,
+        };
+        if let Some(t) = thinking {
+            let mut bubble = MessageViewModel::AssistantBubble {
+                blocks: vec![ContentBlockView::Reasoning {
+                    char_count: t.text.chars().count(),
+                    duration_ms: t.duration_ms,
+                    action_summary: t.action_summary.clone(),
+                    text: t.text.clone(),
+                    active: t.active,
+                    active_since: t.active_since,
+                    hint: t.hint.clone(),
+                }],
+                is_streaming: false,
+                collapsed: false,
+                content_hash: 0,
+            };
+            bubble.recompute_hash();
+            expanded.push(bubble);
+            vm.recompute_hash();
+        }
+        expanded.push(vm);
+    }
+    let mut tail = expanded;
     clear_action_summaries(&mut tail);
     merge_consecutive_thinking(&mut tail);
     vms.extend(tail);
