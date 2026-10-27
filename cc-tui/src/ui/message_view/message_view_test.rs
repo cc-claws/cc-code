@@ -372,6 +372,7 @@ fn test_aggregate_file_inspect_skips_only_empty_thinking() {
                 action_summary: None,
                 active: false,
                 active_since: None,
+                finished_at: None,
                 hint: None,
             }],
             is_streaming: false,

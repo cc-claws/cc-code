@@ -3773,3 +3773,88 @@ fn test_system_note_without_tone_keeps_plain_style() {
         "普通系统提示不应带 ● 前缀: {rendered}"
     );
 }
+
+#[test]
+fn test_active_thinking_tail_reports_hidden_lines() {
+    let text = (1..=13)
+        .map(|i| format!("n{i:02}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut vm = MessageViewModel::assistant();
+    if let MessageViewModel::AssistantBubble { blocks, .. } = &mut vm {
+        blocks.push(ContentBlockView::Reasoning {
+            char_count: text.chars().count(),
+            duration_ms: None,
+            action_summary: None,
+            text,
+            active: true,
+            active_since: Some(std::time::Instant::now() - std::time::Duration::from_secs(3)),
+            finished_at: None,
+            hint: None,
+        });
+    }
+    // Act
+    let rendered = rendered_text(&render_view_model(&vm, None, 80, false, 0));
+    // Assert：只渲染最后 10 行，其余 3 行折成展开提示
+    assert!(
+        rendered.contains("… +3 lines (ctrl+o to expand)"),
+        "超过 10 行的思考应补展开提示，实际: {rendered}"
+    );
+    assert!(!rendered.contains("n01"), "被折叠的行不应出现: {rendered}");
+    assert!(rendered.contains("n04"), "尾部窗口应从第 4 行开始: {rendered}");
+    assert!(rendered.contains("n13"), "最后一行应可见: {rendered}");
+}
+
+/// 构造一个「思考结束」的 Reasoning 气泡，`finished_ago_ms` 表示结束至今的毫秒数。
+fn make_finished_thinking_vm(finished_ago_ms: u64) -> MessageViewModel {
+    let text = (1..=13)
+        .map(|i| format!("n{i:02}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut vm = MessageViewModel::assistant();
+    if let MessageViewModel::AssistantBubble { blocks, .. } = &mut vm {
+        blocks.push(ContentBlockView::Reasoning {
+            char_count: text.chars().count(),
+            duration_ms: Some(5000),
+            action_summary: None,
+            text,
+            active: false,
+            active_since: None,
+            finished_at: Some(
+                std::time::Instant::now() - std::time::Duration::from_millis(finished_ago_ms),
+            ),
+            hint: None,
+        });
+    }
+    vm
+}
+
+#[test]
+fn test_finished_thinking_tail_retained_within_960ms() {
+    let vm = make_finished_thinking_vm(100);
+    // Act
+    let rendered = rendered_text(&render_view_model(&vm, None, 80, false, 0));
+    // Assert
+    assert!(rendered.contains("n13"), "留存窗口内尾巴应仍可见: {rendered}");
+    assert!(
+        rendered.contains("… +3 lines (ctrl+o to expand)"),
+        "留存窗口内展开提示应仍可见: {rendered}"
+    );
+}
+
+#[test]
+fn test_finished_thinking_tail_expires_after_960ms() {
+    let vm = make_finished_thinking_vm(1200);
+    // Act
+    let rendered = rendered_text(&render_view_model(&vm, None, 80, false, 0));
+    // Assert：只剩摘要行，尾巴整体收起
+    assert!(
+        rendered.contains("Thought for 5s"),
+        "摘要行应保留: {rendered}"
+    );
+    assert!(!rendered.contains("n13"), "超出窗口后尾巴应收起: {rendered}");
+    assert!(
+        !rendered.contains("… +3 lines"),
+        "超出窗口后不应再有展开提示: {rendered}"
+    );
+}

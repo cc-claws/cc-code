@@ -662,6 +662,9 @@ fn push_prefixed_text(
     ));
 }
 
+/// 思考结束后尾巴预览的留存窗口（ms）：超过即收起，只留 `Thought for Ns` 摘要行。
+const THINKING_RETAIN_MS: u64 = 960;
+
 /// 格式化折叠截断提示语：统一对齐为 `… +N lines (ctrl+o to expand)`。
 ///
 /// - `remaining == 0`（仅因单行折行超配额）：`… (ctrl+o to expand)`
@@ -1588,6 +1591,7 @@ pub fn render_view_model_with_flags(
                         text,
                         active: block_active,
                         active_since,
+                        finished_at,
                         hint: last_hint,
                     } => {
                         // Thought 标题：缩进 2 列对齐
@@ -1599,6 +1603,13 @@ pub fn render_view_model_with_flags(
                         // 运行中（本轮未结束且非详细模式）：对齐参考实现——
                         // 行首圆点 + 现在时 + 省略号 + 走秒，不把思考内容一点点吐出来。
                         let active = *block_active && !detail_mode;
+                        // 思考结束后最多再留存 THINKING_RETAIN_MS：让用户看清最后的尾巴，
+                        // 又不至于把过期内容一直挂在屏幕上。
+                        let retained = !active
+                            && !detail_mode
+                            && finished_at.is_some_and(|t| {
+                                t.elapsed().as_millis() < u128::from(THINKING_RETAIN_MS)
+                            });
                         // 走秒口径同参考实现 Jc：已完成累计 + 距锚点（最后一段思考结束）的增量，
                         // 至少显示 1s。
                         let live_ms = active.then(|| {
@@ -1666,8 +1677,8 @@ pub fn render_view_model_with_flags(
                             .filter(|h| !h.is_empty());
                         // `⎿` 只在**活跃组**渲染（参考实现 `fm = isActive && summary`）；
                         // 冻结后的 Thought 行不补提示，避免与下方工具块重复。
-                        if live_secs.is_none() {
-                            // 已完成组：不渲染任何提示行
+                        if live_secs.is_none() && !retained {
+                            // 已完成且超出留存窗口：不渲染任何提示行
                         } else if let Some(line) = hint_line {
                             push_prefixed_text(
                                 &mut lines,
@@ -1677,7 +1688,7 @@ pub fn render_view_model_with_flags(
                                 Style::default().fg(theme::cur().inactive),
                                 BranchPrefix::content_width(width),
                             );
-                        } else if live_secs.is_some_and(|secs| secs >= 2) {
+                        } else if retained || live_secs.is_some_and(|secs| secs >= 2) {
                             let tail: Vec<&str> = text
                                 .lines()
                                 .map(str::trim)
@@ -1698,6 +1709,20 @@ pub fn render_view_model_with_flags(
                                     Style::default().fg(theme::cur().inactive),
                                     BranchPrefix::content_width(width),
                                 );
+                            }
+                            // 超出 10 行的部分被折叠：补一行与工具输出同构的展开提示，
+                            // 避免"内容被悄悄截掉、无任何提示"。
+                            if start_idx > 0 {
+                                lines.push(Line::from(vec![
+                                    Span::styled(
+                                        BranchPrefix::HANG,
+                                        Style::default().fg(theme::cur().inactive),
+                                    ),
+                                    Span::styled(
+                                        format_expand_hint(start_idx),
+                                        Style::default().fg(theme::cur().subtle),
+                                    ),
+                                ]));
                             }
                         }
                         // 非详细模式：仅显示摘要行，**不渲染**思考内容预览

@@ -638,6 +638,9 @@ pub enum ContentBlockView {
         /// 进行中的实时起点：渲染时用 `now - active_since` 在 `duration_ms` 之上追加增量。
         /// 只影响显示，不参与哈希/比较（避免每次构造都换 hash）。
         active_since: Option<std::time::Instant>,
+        /// 思考结束时刻：结束后最多再留存 `THINKING_RETAIN_MS`，避免尾巴一结束就消失。
+        /// 只影响显示，不参与哈希/比较。
+        finished_at: Option<std::time::Instant>,
         /// 「最新动作」提示（`⎿` 行）：段内最后一条工具的参数（read→路径、bash→命令），
         /// 没有工具时渲染层回退显示思考文本尾行。
         hint: Option<String>,
@@ -855,6 +858,7 @@ impl MessageViewModel {
                             text: text.clone(),
                             active: false,
                             active_since: None,
+                            finished_at: None,
                             hint: None,
                         },
                         ContentBlock::ToolUse { name, .. } => ContentBlockView::ToolUse { name },

@@ -58,6 +58,7 @@ impl MessagePipeline {
                 text: self.current_ai_reasoning.clone(),
                 active: thinking_now,
                 active_since: self.last_event_at,
+                finished_at: None,
                 hint: None,
             });
         }
@@ -205,6 +206,14 @@ impl MessagePipeline {
         // 活跃判定统一走 live_thinking_active()（thinking_now || 有工具未结束），
         // 与状态机保持单一来源。
         let active = self.live_thinking_active();
+        // 思考刚结束：记下结束时刻，供渲染层在 960ms 窗口内继续展示尾巴预览
+        // （只影响显示，不参与状态机；重新进入思考会清空）。
+        if active {
+            self.thinking_ended_at.set(None);
+        } else if self.thinking_ended_at.get().is_none() {
+            self.thinking_ended_at.set(Some(std::time::Instant::now()));
+        }
+        let ended_at = self.thinking_ended_at.get();
         let mut first = true;
         for vm in vms.iter_mut().rev() {
             // 一等公民：组自带思考行时，活跃/耗时直接打到组上
@@ -244,6 +253,7 @@ impl MessagePipeline {
                 duration_ms,
                 active: a,
                 active_since,
+                finished_at,
                 ..
             }) = target
             else {
@@ -258,11 +268,13 @@ impl MessagePipeline {
                 *duration_ms = Some(base.max(1000));
                 *a = active;
                 *active_since = self.last_event_at;
+                *finished_at = if active { None } else { ended_at };
                 first = false;
             } else if let Some(ms) = groups.next() {
                 *duration_ms = Some((*ms).max(1000));
                 *a = false;
                 *active_since = None;
+                *finished_at = ended_at;
             }
             // 同组分支：改了展示字段必须重算 hash，避免渲染缓存命中旧行
             vm.recompute_hash();
@@ -441,6 +453,7 @@ pub(crate) fn retry_merge_from(vms: &mut Vec<MessageViewModel>, from: usize) {
                     text: t.text.clone(),
                     active: t.active,
                     active_since: t.active_since,
+                    finished_at: None,
                     hint: t.hint.clone(),
                 }],
                 is_streaming: false,
