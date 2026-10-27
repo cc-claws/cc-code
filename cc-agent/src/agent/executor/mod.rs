@@ -482,7 +482,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
     /// 改用滑动窗口（最近 STUCK_WINDOW_SIZE 轮）+ 频率检测
     /// （同一指纹累计出现 STUCK_REPEAT_THRESHOLD 次）。
     ///
-    /// 指纹按 trim 后判空：无 thinking 的模型常在工具调用轮返回 `"\n"`/`" "`，
+    /// 指纹按空白归一化后判空：无 thinking 的模型常在工具调用轮返回 `"\n"`/`" "`，
     /// 按原样入窗会因逐轮完全相同而被误判为思考循环。
     ///
     /// 检测到循环时注入换策略 Human 消息，并返回 true 让主循环跳过
@@ -526,25 +526,36 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
         false
     }
 
-    /// 提取 thinking 内容指纹（前 200 字符）
+    /// 提取 thinking 内容指纹（全文，空白归一化）
     ///
     /// 优先从 source_message 的 Reasoning blocks 提取，
     /// 回退到 thought 字段（Text blocks）。
+    ///
+    /// 早期只取前 200 字符：连续多轮同质任务（典型如逐文件 `Edit`）的思考常以
+    /// 相同套话起手、后文才分化，前 200 字符一致就被判成同一指纹，进而跳过
+    /// 本轮工具执行——误伤正常编辑。改为全文比对后，真退化循环（逐字重复全文）
+    /// 仍能命中，只是"开头雷同"的轮次不再误触发。
+    ///
+    /// 空白归一化：流式拼接与块边界会引入不同空白，逐字比较会漏判。
     fn thinking_fingerprint(reasoning: &Reasoning) -> String {
-        // 优先从 source_message 提取 reasoning blocks 文本
-        if let Some(ref msg) = reasoning.source_message {
+        let raw = if let Some(ref msg) = reasoning.source_message {
+            // 优先从 source_message 提取 reasoning blocks 文本
             let r: String = msg
                 .content_blocks()
                 .iter()
                 .filter_map(|b| b.as_reasoning())
                 .collect::<Vec<_>>()
                 .join("");
-            if !r.is_empty() {
-                return r.chars().take(200).collect();
+            if r.is_empty() {
+                reasoning.thought.clone()
+            } else {
+                r
             }
-        }
-        // 回退到 thought 字段
-        reasoning.thought.chars().take(200).collect()
+        } else {
+            // 回退到 thought 字段
+            reasoning.thought.clone()
+        };
+        raw.split_whitespace().collect::<Vec<_>>().join(" ")
     }
 }
 
