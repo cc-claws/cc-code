@@ -1232,6 +1232,7 @@ async fn test_tool_call_widget_renders_completed() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,

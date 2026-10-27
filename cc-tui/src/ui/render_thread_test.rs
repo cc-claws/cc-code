@@ -1213,6 +1213,7 @@ fn write_tool_block_vm() -> MessageViewModel {
         }),
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -1548,6 +1549,7 @@ fn hidden_read_group() -> MessageViewModel {
             args_display: Some("file.txt".to_string()),
             content: "success".to_string(),
             is_error: false,
+            file_inspect: false,
         }],
         collapsed: true,
         content_hash: 0,
@@ -2053,6 +2055,7 @@ fn test_read_tool_header_link_survives_wrap_map_roundtrip() {
         started_at: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         content_hash: 0,
     };
     let (lines, links) = render_view_model_with_links(&vm, Some(1), 80, false, 0);
@@ -2068,7 +2071,10 @@ fn test_read_tool_header_link_survives_wrap_map_roundtrip() {
         "路径起点应能命中链接"
     );
     // 路径中间任意一点也应命中
-    let mid = (hit.line, (hit.g_start + (hit.g_end - hit.g_start) / 2) as u16);
+    let mid = (
+        hit.line,
+        (hit.g_start + (hit.g_end - hit.g_start) / 2) as u16,
+    );
     assert_eq!(
         crate::event::find_clicked_link(mid, &wrap_map, &links, 80).as_deref(),
         Some(hit.url.as_str()),
@@ -2118,12 +2124,16 @@ fn test_rebuild_produces_tool_path_links_in_cache() {
         started_at: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         content_hash: 0,
     };
     task.rebuild(vec![vm]);
     let c = cache.read();
     eprintln!("cache.links = {:?}", c.links);
-    eprintln!("cache.lines = {:?}", c.lines.iter().map(|l| l.to_string()).collect::<Vec<_>>());
+    eprintln!(
+        "cache.lines = {:?}",
+        c.lines.iter().map(|l| l.to_string()).collect::<Vec<_>>()
+    );
     assert!(
         c.links.iter().any(|h| h.url.contains("Cargo.toml")),
         "工具头路径链接必须进入 cache.links"

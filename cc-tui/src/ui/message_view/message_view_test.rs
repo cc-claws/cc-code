@@ -146,6 +146,14 @@ fn test_ai_message_with_only_text_renders_text() {
 
 #[test]
 fn test_tool_category_new_names() {
+    assert!(super::tools::is_file_inspect(
+        "Bash",
+        &json!({"file_inspect": true})
+    ));
+    assert!(!super::tools::is_file_inspect(
+        "Read",
+        &json!({"file_inspect": true})
+    ));
     assert_eq!(
         ToolCategory::from_tool_name("Read"),
         Some(ToolCategory::Read)
@@ -165,6 +173,247 @@ fn test_tool_category_new_names() {
         ToolCategory::from_tool_name("AskUserQuestion"),
         Some(ToolCategory::AskUser)
     );
+    assert_eq!(
+        ToolCategory::from_tool_block("Bash", true),
+        Some(ToolCategory::Inspect)
+    );
+    assert_eq!(ToolCategory::from_tool_block("Bash", false), None);
+}
+
+#[test]
+fn test_file_inspect_requires_explicit_boolean_flag() {
+    for input in [
+        json!({}),
+        json!({"file_inspect": false}),
+        json!({"file_inspect": "true"}),
+        json!({"file_inspect": 1}),
+        json!({"file_inspect": null}),
+    ] {
+        assert!(
+            !super::is_file_inspect("Bash", &input),
+            "只有显式布尔 true 才能折叠：{input}"
+        );
+    }
+}
+
+fn make_test_tool_block(
+    name: &str,
+    file_inspect: bool,
+    phase: ToolPhase,
+    timeout_ms: Option<u64>,
+    shell_backgrounded: bool,
+    content: &str,
+) -> MessageViewModel {
+    let mut vm = MessageViewModel::tool_block_with_id(
+        format!("{name}-id"),
+        name.to_string(),
+        name.to_string(),
+        Some("test-command".to_string()),
+        false,
+    );
+    if let MessageViewModel::ToolBlock {
+        file_inspect: flag,
+        phase: actual_phase,
+        timeout_ms: actual_timeout,
+        shell_backgrounded: actual_backgrounded,
+        content: actual_content,
+        ..
+    } = &mut vm
+    {
+        *flag = file_inspect;
+        *actual_phase = phase;
+        *actual_timeout = timeout_ms;
+        *actual_backgrounded = shell_backgrounded;
+        *actual_content = content.to_string();
+    }
+    vm.recompute_hash();
+    vm
+}
+
+#[test]
+fn test_aggregate_bash_file_inspect_joins_read_group() {
+    let mut messages = vec![
+        make_test_tool_block("Bash", true, ToolPhase::Finished, None, false, "files"),
+        make_test_tool_block(
+            "Read",
+            false,
+            ToolPhase::Finished,
+            None,
+            false,
+            "Read 1 lines",
+        ),
+    ];
+
+    aggregate_tool_groups(&mut messages);
+
+    assert!(matches!(
+        messages.as_slice(),
+        [MessageViewModel::ToolCallGroup { tools, .. }]
+            if tools.len() == 2 && tools[0].tool_name == "Bash" && tools[0].file_inspect
+    ));
+}
+
+#[test]
+fn test_aggregate_bash_file_inspect_joins_group_unless_backgrounded() {
+    // §13.1：只要 file_inspect=true 就入组（任意 phase、带 timeout 也入组）
+    let grouped = [
+        (ToolPhase::Queued, None, false, "files"),
+        (ToolPhase::AwaitingApproval, None, false, "files"),
+        (ToolPhase::Running, None, false, "files"),
+        (ToolPhase::Finished, None, false, "files"),
+        (ToolPhase::Finished, Some(1_000), false, "files"),
+    ];
+    for (phase, timeout_ms, shell_backgrounded, content) in grouped {
+        let mut messages = vec![make_test_tool_block(
+            "Bash",
+            true,
+            phase,
+            timeout_ms,
+            shell_backgrounded,
+            content,
+        )];
+        aggregate_tool_groups(&mut messages);
+        assert!(
+            matches!(messages.as_slice(), [MessageViewModel::ToolCallGroup { .. }]),
+            "应入组: phase={phase:?} timeout={timeout_ms:?}"
+        );
+    }
+
+    // 仍排除：已转后台、内容为后台启动标记
+    for (shell_backgrounded, content) in [
+        (true, "files"),
+        (
+            false,
+            "<background-task-started><task-id>shell-1</task-id><command>ls</command><output>out.log</output></background-task-started>",
+        ),
+    ] {
+        let mut messages = vec![make_test_tool_block(
+            "Bash",
+            true,
+            ToolPhase::Finished,
+            None,
+            shell_backgrounded,
+            content,
+        )];
+        aggregate_tool_groups(&mut messages);
+        assert!(
+            matches!(messages.as_slice(), [MessageViewModel::ToolBlock { .. }]),
+            "后台态应保持单条"
+        );
+    }
+}
+
+#[test]
+fn test_aggregate_single_bash_file_inspect_still_groups() {
+    let mut messages = vec![make_test_tool_block(
+        "Bash",
+        true,
+        ToolPhase::Finished,
+        None,
+        false,
+        "files",
+    )];
+
+    aggregate_tool_groups(&mut messages);
+
+    assert!(matches!(
+        messages.as_slice(),
+        [MessageViewModel::ToolCallGroup { tools, .. }]
+            if tools.len() == 1 && tools[0].file_inspect
+    ));
+}
+
+#[test]
+fn test_aggregate_bash_without_flag_splits_groups() {
+    let mut messages = vec![
+        make_test_tool_block(
+            "Read",
+            false,
+            ToolPhase::Finished,
+            None,
+            false,
+            "Read 1 lines",
+        ),
+        make_test_tool_block("Bash", false, ToolPhase::Finished, None, false, "files"),
+        make_test_tool_block("Bash", true, ToolPhase::Finished, None, false, "files"),
+    ];
+    aggregate_tool_groups(&mut messages);
+    assert!(
+        matches!(
+            messages.as_slice(),
+            [
+                MessageViewModel::ToolCallGroup { .. },
+                MessageViewModel::ToolBlock {
+                    file_inspect: false,
+                    ..
+                },
+                MessageViewModel::ToolCallGroup { .. }
+            ]
+        ),
+        "未声明的 Bash 必须保留单条并打断分组"
+    );
+}
+
+#[test]
+fn test_aggregate_file_inspect_skips_only_empty_thinking() {
+    let mut messages = vec![
+        make_test_tool_block("Bash", true, ToolPhase::Finished, None, false, "files"),
+        MessageViewModel::AssistantBubble {
+            blocks: vec![ContentBlockView::Reasoning {
+                text: String::new(),
+                char_count: 0,
+                duration_ms: None,
+                action_summary: None,
+                active: false,
+                active_since: None,
+                hint: None,
+            }],
+            is_streaming: false,
+            collapsed: false,
+            content_hash: 0,
+        },
+        make_test_tool_block("Bash", true, ToolPhase::Finished, None, false, "files"),
+    ];
+    aggregate_tool_groups(&mut messages);
+    assert!(
+        matches!(messages.as_slice(), [MessageViewModel::ToolCallGroup { tools, .. }] if tools.len() == 2),
+        "空思考仍可跨过，不能打断相邻文件查询分组"
+    );
+}
+
+#[test]
+fn test_tool_block_hash_includes_file_inspect() {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let a = make_test_tool_block("Bash", false, ToolPhase::Finished, None, false, "files");
+    let b = make_test_tool_block("Bash", true, ToolPhase::Finished, None, false, "files");
+    let mut a_hasher = DefaultHasher::new();
+    let mut b_hasher = DefaultHasher::new();
+    a.hash(&mut a_hasher);
+    b.hash(&mut b_hasher);
+    assert_ne!(a, b, "仅 file_inspect 不同的工具块不能判为相等");
+    assert_ne!(a_hasher.finish(), b_hasher.finish());
+}
+
+#[test]
+fn test_history_rebuild_preserves_bash_file_inspect() {
+    let result = BaseMessage::tool_result("bash", "files");
+    let vm = MessageViewModel::from_base_message(
+        &result,
+        &[(
+            "bash".to_string(),
+            "Bash".to_string(),
+            json!({"command":"ls", "file_inspect": true}),
+        )],
+    );
+    assert!(matches!(
+        vm,
+        MessageViewModel::ToolBlock {
+            file_inspect: true,
+            ..
+        }
+    ));
 }
 
 #[test]

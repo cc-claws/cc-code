@@ -14,7 +14,7 @@ mod utils;
 
 pub use aggregate::{aggregate_batch_groups, aggregate_tail_tool_groups, aggregate_tool_groups};
 pub(crate) use tools::{
-    parse_subagent_tool_count, skill_invocation_display, BackgroundTaskStarted,
+    is_file_inspect, parse_subagent_tool_count, skill_invocation_display, BackgroundTaskStarted,
 };
 pub use tools::{tool_color, AgentSummary, ToolCategory, ToolEntry};
 pub(crate) use utils::{instance_hash, parse_bg_hash};
@@ -148,6 +148,8 @@ pub enum MessageViewModel {
         timeout_ms: Option<u64>,
         /// Shell 已从前台移交到后台，结果 marker 到达后仍保留运行状态提示。
         shell_backgrounded: bool,
+        /// Bash 是否由模型声明为纯文件查看命令。
+        file_inspect: bool,
         /// 预计算的语义 hash（构造/变更时更新，rebuild 直接读取避免重算）
         content_hash: u64,
     },
@@ -264,6 +266,7 @@ impl PartialEq for MessageViewModel {
                     started_at: a_started,
                     timeout_ms: a_timeout,
                     shell_backgrounded: a_backgrounded,
+                    file_inspect: a_file_inspect,
                     phase: a_phase,
                     live_output: a_output,
                     source_agent_id: a_source,
@@ -279,6 +282,7 @@ impl PartialEq for MessageViewModel {
                     started_at: b_started,
                     timeout_ms: b_timeout,
                     shell_backgrounded: b_backgrounded,
+                    file_inspect: b_file_inspect,
                     phase: b_phase,
                     live_output: b_output,
                     source_agent_id: b_source,
@@ -294,6 +298,7 @@ impl PartialEq for MessageViewModel {
                     && a_started.is_some() == b_started.is_some()
                     && a_timeout == b_timeout
                     && a_backgrounded == b_backgrounded
+                    && a_file_inspect == b_file_inspect
                     && a_phase == b_phase
                     && a_output == b_output
                     && a_source == b_source
@@ -448,6 +453,7 @@ impl Hash for MessageViewModel {
                 started_at,
                 timeout_ms,
                 shell_backgrounded,
+                file_inspect,
                 phase,
                 live_output,
                 source_agent_id,
@@ -465,6 +471,7 @@ impl Hash for MessageViewModel {
                 started_at.is_some().hash(state);
                 timeout_ms.hash(state);
                 shell_backgrounded.hash(state);
+                file_inspect.hash(state);
                 phase.hash(state);
                 live_output.hash(state);
                 source_agent_id.hash(state);
@@ -585,6 +592,14 @@ pub enum ContentBlockView {
         action_summary: Option<String>,
         /// 原始推理全文（详细模式展开时显示；不参与哈希/比较）
         text: String,
+        /// 该思考段是否仍在进行中：运行中显示 `● Thinking for Ns, …`（现在时 + 走秒）
+        active: bool,
+        /// 进行中的实时起点：渲染时用 `now - active_since` 在 `duration_ms` 之上追加增量。
+        /// 只影响显示，不参与哈希/比较（避免每次构造都换 hash）。
+        active_since: Option<std::time::Instant>,
+        /// 「最新动作」提示（`⎿` 行）：段内最后一条工具的参数（read→路径、bash→命令），
+        /// 没有工具时渲染层回退显示思考文本尾行。
+        hint: Option<String>,
     },
     /// 工具使用请求（AI 发起的调用请求）
     ToolUse { name: String },
@@ -611,15 +626,17 @@ impl PartialEq for ContentBlockView {
                     char_count: a,
                     duration_ms: a_dur,
                     action_summary: a_act,
+                    active: a_active,
                     ..
                 },
                 ContentBlockView::Reasoning {
                     char_count: b,
                     duration_ms: b_dur,
                     action_summary: b_act,
+                    active: b_active,
                     ..
                 },
-            ) => a == b && a_dur == b_dur && a_act == b_act,
+            ) => a == b && a_dur == b_dur && a_act == b_act && a_active == b_active,
             (ContentBlockView::ToolUse { name: a }, ContentBlockView::ToolUse { name: b }) => {
                 a == b
             }
@@ -642,12 +659,16 @@ impl Hash for ContentBlockView {
                 char_count,
                 duration_ms,
                 action_summary,
+                active,
+                hint,
                 ..
             } => {
                 1u8.hash(state);
                 char_count.hash(state);
                 duration_ms.hash(state);
                 action_summary.hash(state);
+                active.hash(state);
+                hint.hash(state);
             }
             ContentBlockView::ToolUse { name } => {
                 2u8.hash(state);
@@ -783,6 +804,9 @@ impl MessageViewModel {
                             duration_ms,
                             action_summary: None,
                             text: text.clone(),
+                            active: false,
+                            active_since: None,
+                            hint: None,
                         },
                         ContentBlock::ToolUse { name, .. } => ContentBlockView::ToolUse { name },
                         ContentBlock::Image { .. } => ContentBlockView::Text {
@@ -951,6 +975,7 @@ impl MessageViewModel {
                 } else {
                     build_diff_input(&tool_name, &input, cwd, Some(tool_call_id.as_str()))
                 };
+                let file_inspect = tools::is_file_inspect(&tool_name, &input);
                 let mut vm = MessageViewModel::ToolBlock {
                     tool_name,
                     tool_call_id: tool_call_id.clone(),
@@ -967,6 +992,7 @@ impl MessageViewModel {
                     started_at: None,
                     timeout_ms: input.get("timeout").and_then(serde_json::Value::as_u64),
                     shell_backgrounded: false,
+                    file_inspect,
                     content_hash: 0,
                 };
                 vm.recompute_hash();
@@ -1039,14 +1065,23 @@ impl MessageViewModel {
         matches!(self, MessageViewModel::AssistantBubble { .. })
     }
 
-    /// 判断是否为"仅含推理内容"的 AssistantBubble（渲染时不可见）
-    /// 用于在工具分组合并时跳过中间的空 thinking bubble
+    /// 判断是否为可跳过的空 thinking bubble。
+    /// 有正文、耗时或动作摘要的推理必须留给后续归并，不能在工具聚合时丢弃。
     pub fn is_reasoning_only(&self) -> bool {
         match self {
             MessageViewModel::AssistantBubble { blocks, .. } => {
                 blocks.is_empty()
                     || blocks.iter().all(|b| match b {
-                        ContentBlockView::Reasoning { .. } => true,
+                        ContentBlockView::Reasoning {
+                            text,
+                            duration_ms,
+                            action_summary,
+                            ..
+                        } => {
+                            text.trim().is_empty()
+                                && duration_ms.unwrap_or(0) == 0
+                                && action_summary.is_none()
+                        }
                         ContentBlockView::Text { raw, .. } => raw.trim().is_empty(),
                         _ => false,
                     })
@@ -1192,6 +1227,7 @@ impl MessageViewModel {
             started_at: None,
             timeout_ms: None,
             shell_backgrounded: false,
+            file_inspect: false,
             content_hash: 0,
         };
         vm.recompute_hash();

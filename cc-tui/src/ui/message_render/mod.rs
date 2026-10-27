@@ -22,6 +22,7 @@ use super::{
     branch_prefix::BranchPrefix,
     message_view::{
         AgentSummary, BackgroundTaskStarted, ContentBlockView, MessageViewModel, ToolCategory,
+        ToolEntry,
     },
     theme,
 };
@@ -637,7 +638,11 @@ fn format_write_summary_line(
 ///
 /// 与 [`tool_file_url`] 一致：命中区登记不受 `osc8::enabled()` 影响。
 fn write_target_url(path_text: &str) -> Option<String> {
-    Some(url::Url::from_file_path(absolute_link_path(path_text)?).ok()?.to_string())
+    Some(
+        url::Url::from_file_path(absolute_link_path(path_text)?)
+            .ok()?
+            .to_string(),
+    )
 }
 
 fn push_prefixed_text(
@@ -766,6 +771,12 @@ fn error_summary_lines(content: &str, width: usize, max_lines: usize) -> Vec<Lin
     out
 }
 
+fn tool_entry_is_error(entry: &ToolEntry) -> bool {
+    entry.is_error
+        || (entry.tool_name == "Bash"
+            && parse_exit_code(&entry.content).is_some_and(|code| code != 0))
+}
+
 /// 按显示列宽（unicode-width）截断字符串。
 /// 若超出 max_width，则截断并追加 '…'（占 1 列宽），确保结果总显示列宽不超过 max_width。
 pub(crate) fn truncate_to_display_width(s: &str, max_width: usize) -> String {
@@ -803,6 +814,31 @@ fn uppercase_first_char(s: &str) -> String {
         Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
         None => String::new(),
     }
+}
+
+/// 把已完成态的动作摘要改成进行时（`read 2 files` → `reading 2 files`），
+/// 用于运行中的 Thinking 行，对齐参考实现的 `Thinking for 1s, reading 2 files…`。
+fn present_tense_summary(summary: &str) -> String {
+    const VERBS: [(&str, &str); 6] = [
+        ("searched for ", "searching for "),
+        ("listed ", "listing "),
+        ("recalled ", "recalling "),
+        ("updated ", "updating "),
+        ("ran ", "running "),
+        ("read ", "reading "),
+    ];
+    summary
+        .split(", ")
+        .map(|part| {
+            for (from, to) in VERBS {
+                if let Some(rest) = part.strip_prefix(from) {
+                    return format!("{to}{rest}");
+                }
+            }
+            part.to_string()
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Write/Edit/Read 工具头里承载路径的文本部分：Write/Edit 是整段摘要，
@@ -1550,7 +1586,9 @@ pub fn render_view_model_with_flags(
                         duration_ms,
                         action_summary,
                         text,
-                        ..
+                        active: block_active,
+                        active_since,
+                        hint: last_hint,
                     } => {
                         // Thought 标题：缩进 2 列对齐
                         let hint = if detail_mode {
@@ -1558,22 +1596,110 @@ pub fn render_view_model_with_flags(
                         } else {
                             " (ctrl+o to expand)"
                         };
-                        // 有耗时 → `Thought for Ns`；无耗时（流式中/历史旧数据）→ 回退字数
-                        let timing = match duration_ms {
-                            Some(ms) => format!("Thought for {}s", ms.div_ceil(1000).max(1)),
-                            None => format!("Thought for {char_count} chars"),
+                        // 运行中（本轮未结束且非详细模式）：对齐参考实现——
+                        // 行首圆点 + 现在时 + 省略号 + 走秒，不把思考内容一点点吐出来。
+                        let active = *block_active && !detail_mode;
+                        // 走秒口径同参考实现 Jc：已完成累计 + 距锚点（最后一段思考结束）的增量，
+                        // 至少显示 1s。
+                        let live_ms = active.then(|| {
+                            let base = duration_ms.unwrap_or(0);
+                            let extra = active_since
+                                .map(|anchor| anchor.elapsed().as_millis() as u64)
+                                .unwrap_or(0);
+                            base + extra
+                        });
+                        let live_secs = live_ms.map(|ms| ms.max(1000) / 1000);
+                        let (prefix, timing) = if let Some(secs) = live_secs {
+                            // `●` 本身闪烁（显/隐），用墙钟 500ms 相位驱动，
+                            // 与 render_key 的相位判定同源，避免"时闪时不闪"。
+                            let phase = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| (d.as_millis() / 500) % 2)
+                                .unwrap_or(0);
+                            let dot = if phase == 0 { "● ".to_string() } else { "  ".to_string() };
+                            (dot, format!("Thinking for {secs}s"))
+                        } else {
+                            // 有耗时 → `Thought for Ns`；无耗时（历史旧数据）→ 回退字数
+                            (
+                                "  ".to_string(),
+                                match duration_ms {
+                                    Some(ms) => {
+                                        format!("Thought for {}s", ms.div_ceil(1000).max(1))
+                                    }
+                                    None => format!("Thought for {char_count} chars"),
+                                },
+                            )
                         };
                         // 紧随的只读工具计数（如 `read 1 file, listed 1 directory`）
                         let actions = action_summary
                             .as_deref()
-                            .map(|s| format!(", {s}"))
+                            .map(|s| {
+                                if active {
+                                    format!(", {}", present_tense_summary(s))
+                                } else {
+                                    format!(", {s}")
+                                }
+                            })
                             .unwrap_or_default();
-                        let title = format!("  {timing}{actions}{hint}");
+                        let ellipsis = if active { "…" } else { "" };
+                        let title = format!("{prefix}{timing}{actions}{ellipsis}{hint}");
+                        // 颜色对齐参考实现 `dimColor={!isActiveGroup}`：
+                        // 活跃用正常亮度（text_soft），结束后才压暗（inactive）。
+                        let title_color = if live_secs.is_some() {
+                            theme::cur().text_soft
+                        } else {
+                            theme::cur().inactive
+                        };
                         lines.push(Line::from(vec![Span::styled(
                             title,
-                            // 与回合结束总结行（✻ … · done HH:MM）同色 MUTED
-                            Style::default().fg(theme::cur().inactive),
+                            Style::default().fg(title_color),
                         )]));
+                        // 活跃满 2 秒后补一行思考摘要（对齐参考实现的 latestThinkingSummary）：
+                        // 只取最后一条**完整**非空行，避免流式半行抖动。
+                        // `⎿` 提示行（对齐参考实现）：
+                        // - 有工具动作 → 显示该动作（命令/路径/pattern），单行；
+                        // - 否则回退思考摘要，尾部最多 10 行（`ak = 10`）；
+                        // - 有内容就常驻渲染，避免"快闪看不到"（参考实现另有 3s 最小保持）。
+                        let hint_line = last_hint
+                            .as_ref()
+                            .map(|h| h.trim().to_string())
+                            .filter(|h| !h.is_empty());
+                        // `⎿` 只在**活跃组**渲染（参考实现 `fm = isActive && summary`）；
+                        // 冻结后的 Thought 行不补提示，避免与下方工具块重复。
+                        if live_secs.is_none() {
+                            // 已完成组：不渲染任何提示行
+                        } else if let Some(line) = hint_line {
+                            push_prefixed_text(
+                                &mut lines,
+                                &line,
+                                BranchPrefix::PREFIX,
+                                Style::default().fg(theme::cur().inactive),
+                                Style::default().fg(theme::cur().inactive),
+                                BranchPrefix::content_width(width),
+                            );
+                        } else if live_secs.is_some_and(|secs| secs >= 2) {
+                            let tail: Vec<&str> = text
+                                .lines()
+                                .map(str::trim)
+                                .filter(|line| !line.is_empty())
+                                .collect();
+                            let start_idx = tail.len().saturating_sub(10);
+                            for (idx, line) in tail[start_idx..].iter().enumerate() {
+                                let prefix = if idx == 0 {
+                                    BranchPrefix::PREFIX
+                                } else {
+                                    BranchPrefix::HANG
+                                };
+                                push_prefixed_text(
+                                    &mut lines,
+                                    line,
+                                    prefix,
+                                    Style::default().fg(theme::cur().inactive),
+                                    Style::default().fg(theme::cur().inactive),
+                                    BranchPrefix::content_width(width),
+                                );
+                            }
+                        }
                         // 非详细模式：仅显示摘要行，**不渲染**思考内容预览
                         // （历史上曾显示 tail_lines 尾部 3 行预览，流式期间每次
                         //  chunk 都重算重绘、行数跳动，已移除；展开请按 Ctrl+O）
@@ -1823,8 +1949,10 @@ pub fn render_view_model_with_flags(
                             let visible_g = summary.graphemes(true).count();
                             let path_g = header_args.graphemes(true).count();
                             let truncated =
-                                sanitize_display_text(header_args).graphemes(true).count() > visible_g;
-                            let visible = path_g.min(visible_g.saturating_sub(usize::from(truncated)));
+                                sanitize_display_text(header_args).graphemes(true).count()
+                                    > visible_g;
+                            let visible =
+                                path_g.min(visible_g.saturating_sub(usize::from(truncated)));
                             if visible > 0 {
                                 link_hits.push(cc_widgets::markdown::LinkHit {
                                     line: header_line,
@@ -2053,7 +2181,8 @@ pub fn render_view_model_with_flags(
                                         } else {
                                             BranchPrefix::HANG
                                         };
-                                        let mut spans = Vec::with_capacity(seg.line.spans.len() + 1);
+                                        let mut spans =
+                                            Vec::with_capacity(seg.line.spans.len() + 1);
                                         spans.push(Span::styled(
                                             prefix.to_string(),
                                             Style::default().fg(border_color),
@@ -2751,7 +2880,8 @@ pub fn render_view_model_with_flags(
                 // 详细模式：显示每条工具的名称和结果
                 // Read 工具只显示行数摘要，不展开文件内容
                 for entry in tools {
-                    let entry_color = if entry.is_error {
+                    let entry_is_error = tool_entry_is_error(entry);
+                    let entry_color = if entry_is_error {
                         theme::cur().error
                     } else {
                         theme::cur().success
@@ -2807,10 +2937,21 @@ pub fn render_view_model_with_flags(
                                 }
                             }
                             if let Some(last_line) = lines.last_mut() {
-                                last_line.spans.push(Span::styled(
-                                    format!("({})", summary),
-                                    Style::default().fg(theme::cur().text_soft),
-                                ));
+                                if entry.tool_name == "Bash" {
+                                    last_line.spans.extend([
+                                        Span::raw("("),
+                                        Span::styled(
+                                            summary,
+                                            Style::default().fg(theme::cur().text_soft),
+                                        ),
+                                        Span::raw(")"),
+                                    ]);
+                                } else {
+                                    last_line.spans.push(Span::styled(
+                                        format!("({})", summary),
+                                        Style::default().fg(theme::cur().text_soft),
+                                    ));
+                                }
                             }
                         }
                     }
@@ -2847,6 +2988,47 @@ pub fn render_view_model_with_flags(
                                 BranchPrefix::content_width(width),
                             );
                         }
+                    } else if entry.tool_name == "Bash" {
+                        let empty_output = entry.content.trim().is_empty()
+                            || (!entry_is_error
+                                && strip_exit_code_suffix(&entry.content).is_empty());
+                        if empty_output && !entry_is_error {
+                            lines.push(Line::from(vec![
+                                BranchPrefix::span(false),
+                                Span::styled(
+                                    "(No output)",
+                                    Style::default().fg(theme::cur().inactive),
+                                ),
+                            ]));
+                            continue;
+                        }
+                        let mut error_header = String::new();
+                        let bash_lines = transform_bash_output_lines(
+                            &entry.content,
+                            parse_exit_code(&entry.content),
+                            &mut error_header,
+                        );
+                        let content_width = BranchPrefix::content_width(width);
+                        let border_color = if entry_is_error {
+                            theme::cur().error
+                        } else {
+                            theme::cur().inactive
+                        };
+                        for item in bash_lines {
+                            let text_color = if item.is_error_header || entry_is_error {
+                                theme::cur().error
+                            } else {
+                                theme::cur().text_soft
+                            };
+                            push_prefixed_text(
+                                &mut lines,
+                                item.text.as_ref(),
+                                item.prefix,
+                                Style::default().fg(border_color),
+                                Style::default().fg(text_color),
+                                content_width,
+                            );
+                        }
                     } else if !entry.content.is_empty() {
                         for (i, line) in entry.content.lines().enumerate() {
                             let first_prefix = if i == 0 {
@@ -2877,14 +3059,30 @@ pub fn render_view_model_with_flags(
                     // `Thought for 3s` / `Brewed for 1m` 摘要行一致；
                     // 文案层因续写场景需要仍是小写 `read N file`，故在此处转换。
                     lines.push(Line::from(Span::styled(
-                        format!("  {}", uppercase_first_char(summary)),
+                        format!("  {} (ctrl+o to expand)", uppercase_first_char(summary)),
                         Style::default().fg(theme::cur().inactive),
                     )));
                 }
                 for entry in tools {
-                    if entry.is_error && !entry.content.is_empty() {
+                    if tool_entry_is_error(entry) && !entry.content.is_empty() {
+                        let bash_summary;
+                        let mut error_header = String::new();
+                        let content = if entry.tool_name == "Bash" {
+                            bash_summary = transform_bash_output_lines(
+                                &entry.content,
+                                parse_exit_code(&entry.content),
+                                &mut error_header,
+                            )
+                            .iter()
+                            .map(|line| line.text.as_ref())
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                            bash_summary.as_str()
+                        } else {
+                            &entry.content
+                        };
                         lines.extend(error_summary_lines(
-                            &entry.content,
+                            content,
                             width,
                             if detail_mode {
                                 usize::MAX
@@ -2908,6 +3106,10 @@ mod background_task_tests;
 #[cfg(test)]
 #[path = "bash_status_test.rs"]
 mod bash_status_tests;
+
+#[cfg(test)]
+#[path = "bash_file_inspect_test.rs"]
+mod bash_file_inspect_tests;
 
 #[cfg(test)]
 mod tests {

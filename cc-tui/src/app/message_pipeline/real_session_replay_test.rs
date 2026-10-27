@@ -174,20 +174,21 @@ fn test_multi_round_thinking_merged_with_accumulated_stats() {
     let vms = MessagePipeline::messages_to_view_models(&msgs, "/p");
     let metas = all_reasoning_meta(&vms);
 
-    // 段首一条：累加 3 轮（3000ms）+ read 2 files, searched for 1 pattern
+    // 段首一条：计数累加（read 2 files, searched for 1 pattern），
+    // 完成态耗时取最后一段（1000ms，对齐参考实现 §13.2）
     assert!(
-        metas.iter().any(|(d, a)| *d == Some(3000)
+        metas.iter().any(|(d, a)| *d == Some(1000)
             && a.as_deref() == Some("read 2 files, searched for 1 pattern")),
-        "段首应累加秒数与计数，实际: {metas:?}"
+        "段首应收敛计数、耗时取最后一段，实际: {metas:?}"
     );
     // 含文本轮独立（500ms）
     assert!(
         metas.iter().any(|(d, _)| *d == Some(500)),
         "含文本轮应独立，实际: {metas:?}"
     );
-    // 被合并的中间轮不应残留（无 Some(1000)）
+    // 被合并的中间轮不应残留为独立行（只应有一条合并行）
     assert!(
-        !metas.iter().any(|(d, _)| *d == Some(1000)),
+        metas.iter().filter(|(d, _)| *d == Some(1000)).count() == 1,
         "被合并的中间轮不应残留，实际: {metas:?}"
     );
 }
@@ -255,8 +256,8 @@ fn test_merge_removes_extra_reasoning_blocks_in_same_bubble() {
         1,
         "同 bubble 只应保留 1 个 Reasoning，实际: {rs:?}"
     );
-    // 时长应为两段之和
-    assert_eq!(rs[0].0, Some(3000), "耗时应累加为 3000ms");
+    // 完成态耗时取"最后一段"（对齐参考实现，§13.2）
+    assert_eq!(rs[0].0, Some(2000), "完成态耗时应取最后一段（2000ms）");
     assert_eq!(
         rs[0].1.as_deref(),
         Some("read 1 file"),

@@ -8,6 +8,321 @@ fn _normalize_vms(vms: Vec<MessageViewModel>) -> Vec<String> {
     vms.iter().map(|vm| format!("{:?}", vm)).collect()
 }
 
+#[test]
+fn test_readonly_action_summary_shell_command_count() {
+    assert_eq!(
+        super::transform::readonly_action_summary_ext(0, 0, 0, 1, 0, 0).as_deref(),
+        Some("ran 1 shell command")
+    );
+    assert_eq!(
+        super::transform::readonly_action_summary_ext(1, 1, 1, 3, 0, 0).as_deref(),
+        Some("read 1 file, listed 1 directory, searched for 1 pattern, ran 3 shell commands")
+    );
+}
+
+#[test]
+fn test_tool_end_without_pending_keeps_file_inspect() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.handle_event(AgentEvent::ToolStart {
+        tool_call_id: "tc_inspect".into(),
+        name: "Bash".into(),
+        display: "Bash".into(),
+        args: "ls".into(),
+        input: json!({"command": "ls", "file_inspect": true}),
+        source_agent_id: None,
+    });
+    pipeline.pending_tools.remove("tc_inspect");
+    pipeline.handle_event(AgentEvent::ToolEnd {
+        tool_call_id: "tc_inspect".into(),
+        name: "Bash".into(),
+        output: "file.txt".into(),
+        is_error: false,
+        source_agent_id: None,
+    });
+
+    assert!(matches!(
+        pipeline.build_tail_vms().as_slice(),
+        [.., MessageViewModel::ToolCallGroup { tools, .. }]
+            if tools.iter().any(|tool| tool.tool_name == "Bash" && tool.file_inspect)
+    ));
+}
+
+#[test]
+fn test_restore_path_file_inspect_matches_streaming() {
+    let background = "<background-task-started><task-id>shell-1</task-id><command>ls</command><output>out.log</output></background-task-started>";
+    let cases = [
+        (json!({"command": "ls", "file_inspect": true}), "files"),
+        (json!({"command": "ls", "file_inspect": false}), "files"),
+        (json!({"command": "ls"}), "files"),
+        (
+            json!({"command": "ls", "file_inspect": true, "timeout": 1000}),
+            "files",
+        ),
+        (json!({"command": "ls", "file_inspect": true}), background),
+        (
+            json!({"command": "ls", "file_inspect": true}),
+            "missing file\n[Exit code: 2]",
+        ),
+    ];
+    for (input, output) in cases {
+        let messages = vec![
+            BaseMessage::ai_from_blocks(vec![ContentBlock::tool_use(
+                "inspect",
+                "Bash",
+                input.clone(),
+            )]),
+            BaseMessage::tool_result("inspect", output),
+        ];
+        let mut pipeline = MessagePipeline::new("/tmp".to_string());
+        pipeline.handle_event(AgentEvent::ToolStart {
+            tool_call_id: "inspect".into(),
+            name: "Bash".into(),
+            display: "Bash".into(),
+            args: "ls".into(),
+            input: input.clone(),
+            source_agent_id: None,
+        });
+        pipeline.handle_event(AgentEvent::ToolEnd {
+            tool_call_id: "inspect".into(),
+            name: "Bash".into(),
+            output: output.into(),
+            is_error: false,
+            source_agent_id: None,
+        });
+        let restored = MessagePipeline::messages_to_view_models(&messages, "/tmp");
+        assert_eq!(
+            pipeline.build_tail_vms(),
+            restored,
+            "流式与恢复路径应等价：{input}"
+        );
+        pipeline.set_completed(messages);
+        assert_eq!(
+            pipeline.build_tail_vms(),
+            restored,
+            "快照 reconcile 后形态应保持一致：{input}"
+        );
+    }
+}
+
+#[test]
+fn test_restore_path_background_marker_not_aggregated() {
+    let messages = vec![
+        BaseMessage::ai_from_blocks(vec![ContentBlock::tool_use(
+            "inspect",
+            "Bash",
+            json!({"command": "ls", "file_inspect": true, "run_in_background": true}),
+        )]),
+        BaseMessage::tool_result(
+            "inspect",
+            "<background-task-started><task-id>shell-1</task-id><command>ls</command><output>out.log</output></background-task-started>",
+        ),
+    ];
+    let restored = MessagePipeline::messages_to_view_models(&messages, "/tmp");
+    assert!(
+        matches!(
+            restored.as_slice(),
+            [MessageViewModel::ToolBlock {
+                file_inspect: true,
+                ..
+            }]
+        ),
+        "恢复路径没有运行时后台状态，必须通过合法 marker 阻止折叠"
+    );
+}
+
+#[test]
+fn test_file_inspect_snapshot_boundary_matches_history_grouping() {
+    let input = json!({"command": "ls", "file_inspect": true});
+    let messages = vec![
+        BaseMessage::ai_from_blocks(vec![ContentBlock::tool_use("first", "Bash", input.clone())]),
+        BaseMessage::tool_result("first", "files"),
+        BaseMessage::ai_from_blocks(vec![ContentBlock::tool_use(
+            "second",
+            "Bash",
+            input.clone(),
+        )]),
+        BaseMessage::tool_result("second", "files"),
+    ];
+    let mut pipeline = MessagePipeline::new("/tmp".into());
+    pipeline.set_completed(messages[..2].to_vec());
+    pipeline.handle_event(AgentEvent::ToolStart {
+        tool_call_id: "second".into(),
+        name: "Bash".into(),
+        display: "Bash".into(),
+        args: "ls".into(),
+        input,
+        source_agent_id: None,
+    });
+    pipeline.handle_event(AgentEvent::ToolEnd {
+        tool_call_id: "second".into(),
+        name: "Bash".into(),
+        output: "files".into(),
+        is_error: false,
+        source_agent_id: None,
+    });
+    let restored = MessagePipeline::messages_to_view_models(&messages, "/tmp");
+    assert_eq!(
+        pipeline.build_tail_vms(),
+        restored,
+        "已完成快照和新增流式工具必须共同聚合，不能拆成两行摘要"
+    );
+    pipeline.set_completed(messages[2..].to_vec());
+    assert_eq!(
+        pipeline.build_tail_vms(),
+        restored,
+        "下一次快照不得改变分组"
+    );
+}
+
+#[test]
+fn test_merge_file_inspect_preserves_reasoning_and_duration() {
+    let mut messages = Vec::new();
+    for (id, text, duration) in [
+        ("first", "先列举文件", 10_000),
+        ("second", "再查看内容", 20_000),
+    ] {
+        messages.push(BaseMessage::ai_from_blocks(vec![
+            ContentBlock::reasoning_with_duration(text, duration),
+            ContentBlock::tool_use(id, "Bash", json!({"command": "ls", "file_inspect": true})),
+        ]));
+        messages.push(BaseMessage::tool_result(id, "files"));
+    }
+    let vms = MessagePipeline::messages_to_view_models(&messages, "/tmp");
+    let reasoning: Vec<_> = vms
+        .iter()
+        .filter_map(|vm| match vm {
+            MessageViewModel::AssistantBubble { blocks, .. } => Some(blocks),
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|block| match block {
+            ContentBlockView::Reasoning {
+                text,
+                duration_ms,
+                action_summary,
+                ..
+            } => Some((text.as_str(), *duration_ms, action_summary.as_deref())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        reasoning,
+        vec![(
+            "先列举文件\n\n再查看内容",
+            Some(20_000),
+            Some("ran 2 shell commands")
+        )],
+        "工具聚合不能吞掉后续思考正文；完成态耗时取最后一段（对齐参考实现）"
+    );
+}
+
+#[test]
+fn test_merge_thinking_counts_shell_commands_only_from_groups() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.push_reasoning("检查文件");
+    for (id, timeout, finished) in [
+        ("grouped", None, true),
+        ("running", None, false),
+        ("timed", Some(1000), true),
+    ] {
+        let mut input = json!({"command": "ls", "file_inspect": true});
+        if let Some(timeout) = timeout {
+            input["timeout"] = json!(timeout);
+        }
+        pipeline.handle_event(AgentEvent::ToolStart {
+            tool_call_id: id.into(),
+            name: "Bash".into(),
+            display: "Bash".into(),
+            args: "ls".into(),
+            input,
+            source_agent_id: None,
+        });
+        if finished {
+            pipeline.handle_event(AgentEvent::ToolEnd {
+                tool_call_id: id.into(),
+                name: "Bash".into(),
+                output: "files".into(),
+                is_error: false,
+                source_agent_id: None,
+            });
+        }
+    }
+    let vms = pipeline.build_tail_vms();
+    // §13.1：运行中 / 带 timeout 的文件查询 Bash 都入组，因此三条全部计入
+    assert_eq!(
+        first_action_summary(&vms).as_deref(),
+        Some("ran 3 shell commands"),
+        "运行中与带 timeout 的 file_inspect Bash 也应计入组内"
+    );
+    assert!(
+        !vms.iter().any(|vm| matches!(vm, MessageViewModel::ToolBlock { .. })),
+        "三条都应进组，不应残留单条 ToolBlock"
+    );
+    let entries = vms
+        .iter()
+        .find_map(|vm| match vm {
+            MessageViewModel::ToolCallGroup { tools, .. } => Some(tools.len()),
+            _ => None,
+        })
+        .expect("应有只读工具组");
+    assert_eq!(entries, 3, "组内应包含三条 Bash 条目");
+}
+
+#[test]
+fn test_file_inspect_background_runtime_preserves_standalone_state() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.push_reasoning("检查文件");
+    pipeline.handle_event(AgentEvent::ToolStart {
+        tool_call_id: "inspect".into(),
+        name: "Bash".into(),
+        display: "Bash".into(),
+        args: "ls".into(),
+        input: json!({"command": "ls", "file_inspect": true}),
+        source_agent_id: None,
+    });
+    let started_at = std::time::Instant::now();
+    pipeline.sync_shell_runtime(None, "inspect", started_at, 120_000, true);
+    let running = pipeline.build_tail_vms();
+    assert!(
+        matches!(
+            running.last(),
+            Some(MessageViewModel::ToolBlock {
+                phase: ToolPhase::Running,
+                shell_backgrounded: true,
+                file_inspect: true,
+                ..
+            })
+        ),
+        "运行时后台状态必须在聚合前生效"
+    );
+    assert_eq!(first_action_summary(&running), None, "后台调用不得计入摘要");
+    pipeline.handle_event(AgentEvent::ToolEnd {
+        tool_call_id: "inspect".into(),
+        name: "Bash".into(),
+        output: "<background-task-started><task-id>shell-1</task-id><command>ls</command><output>out.log</output></background-task-started>".into(),
+        is_error: false,
+        source_agent_id: None,
+    });
+    let backgrounded = pipeline.build_tail_vms();
+    assert!(
+        matches!(
+            backgrounded.last(),
+            Some(MessageViewModel::ToolBlock {
+                phase: ToolPhase::Finished,
+                shell_backgrounded: true,
+                file_inspect: true,
+                ..
+            })
+        ),
+        "后台启动结果到达后也必须保持单条"
+    );
+    assert_eq!(
+        first_action_summary(&backgrounded),
+        None,
+        "后台启动结果不得计入摘要"
+    );
+}
+
 /// 测试：流式路径和恢复路径对简单文本回复产生一致的输出
 #[test]
 fn test_streaming_vs_restore_text_only() {
@@ -2230,15 +2545,16 @@ fn test_action_summary_absorbs_read_group_before_thought() {
 
     let vms = MessagePipeline::messages_to_view_models(&msgs, "/p");
 
+    // §13.6：不再跨段吸收——前置 Read 组保留自己的摘要行，Thought 行不带计数
     assert_eq!(
         first_action_summary(&vms).as_deref(),
-        Some("read 1 file"),
-        "Thought 应吸收前置 Read 计数"
+        None,
+        "Thought 不应吸收前置 Read 计数"
     );
     assert_eq!(
         read_group_standalone_action(&vms),
-        Some(None),
-        "计数归属 Thought 后，工具组不能重复显示独立动作行"
+        Some(Some("read 1 file".to_string())),
+        "前置工具组应保留自己的独立动作行"
     );
 }
 
@@ -2254,15 +2570,16 @@ fn test_build_tail_merges_completed_read_with_streaming_thought() {
 
     let tail_vms = pipeline.build_tail_vms();
 
+    // §13.6：实时流式 Thought 同样不吸收前缀计数
     assert_eq!(
         first_action_summary(&tail_vms).as_deref(),
-        Some("read 1 file"),
-        "实时流式 Thought 应吸收 completed 前缀中的 Read 计数"
+        None,
+        "实时流式 Thought 不应吸收 completed 前缀中的 Read 计数"
     );
     assert_eq!(
         read_group_standalone_action(&tail_vms),
-        Some(None),
-        "实时归并后工具组不能重复显示独立动作行"
+        Some(Some("read 1 file".to_string())),
+        "前缀工具组保留自己的动作行"
     );
 }
 

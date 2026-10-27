@@ -414,6 +414,7 @@ fn test_tool_block_error_visible_when_collapsed() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -453,6 +454,7 @@ fn test_tool_block_header_and_output_strip_terminal_control_sequences() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -490,6 +492,7 @@ fn test_running_bash_toolblock_after_threshold_shows_control_b_hint() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: Some(std::time::Instant::now() - std::time::Duration::from_secs(39)),
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Running,
@@ -550,6 +553,7 @@ fn test_running_bash_toolblock_before_threshold_hides_control_b_hint() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: Some(std::time::Instant::now()),
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Running,
@@ -620,6 +624,7 @@ fn test_backgrounded_bash_renders_timeout_with_minute_and_second() {
         started_at: Some(std::time::Instant::now()),
         timeout_ms: Some(560_000),
         shell_backgrounded: true,
+        file_inspect: false,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Running,
         live_output: None,
@@ -658,6 +663,7 @@ fn test_backgrounded_bash_shows_manage_status_and_timeout_not_ctrl_b_hint() {
         diff_input: None,
         timeout_ms: Some(600_000),
         shell_backgrounded: true,
+        file_inspect: false,
         started_at: Some(std::time::Instant::now()),
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Running,
@@ -709,6 +715,7 @@ fn test_backgrounded_bash_result_marker_keeps_running_status_until_exit() {
             diff_input: None,
             timeout_ms: Some(600_000),
             shell_backgrounded: true,
+            file_inspect: false,
             started_at: Some(std::time::Instant::now()),
             content_hash: 0,
             phase: crate::ui::message_view::ToolPhase::Running,
@@ -746,6 +753,7 @@ fn test_tool_block_read_collapsed_shows_summary() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -786,6 +794,7 @@ fn test_tool_block_detail_mode_includes_diff_lines() {
         }),
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -844,6 +853,7 @@ fn test_tool_block_inline_diff_switch_controls_normal_page_only() {
         }),
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -894,6 +904,7 @@ fn test_edit_diff_replaces_tool_result_line() {
         }),
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -942,6 +953,7 @@ fn test_write_create_keeps_tool_result_line() {
         }),
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -981,6 +993,7 @@ fn test_inline_diff_switch_does_not_expand_other_blocks() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -1029,6 +1042,7 @@ fn test_tool_block_detail_mode_diff_respects_terminal_width() {
         }),
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -1082,6 +1096,7 @@ fn test_tool_block_detail_mode_shows_full_long_output() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -1139,6 +1154,7 @@ fn test_bash_non_detail_mode_shows_first_three_lines() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -1187,6 +1203,7 @@ fn test_bash_tool_block_promotes_exit_code_and_indents_body() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -1235,6 +1252,7 @@ fn test_tool_call_group_error_visible_when_collapsed() {
                 args_display: Some("ok_file.txt".to_string()),
                 content: "ok content".to_string(),
                 is_error: false,
+                file_inspect: false,
             },
             ToolEntry {
                 tool_name: "Read".to_string(),
@@ -1242,6 +1260,7 @@ fn test_tool_call_group_error_visible_when_collapsed() {
                 args_display: Some("missing.txt".to_string()),
                 content: "Error: file not found".to_string(),
                 is_error: true,
+                file_inspect: false,
             },
         ],
         collapsed: true,
@@ -1280,6 +1299,7 @@ fn test_tool_call_group_detail_mode_shows_full_content() {
             args_display: Some("needle".to_string()),
             content: long_content,
             is_error: false,
+            file_inspect: false,
         }],
         collapsed: true,
         content_hash: 0,
@@ -1299,6 +1319,34 @@ fn test_tool_call_group_detail_mode_shows_full_content() {
 }
 
 #[test]
+fn test_tool_call_group_detail_mode_formats_bash_exit_code() {
+    use crate::app::MessageViewModel;
+    use crate::ui::message_view::{ToolCategory, ToolEntry};
+    let vm = MessageViewModel::ToolCallGroup {
+        category: ToolCategory::Inspect,
+        tools: vec![ToolEntry {
+            tool_name: "Bash".to_string(),
+            display_name: "Bash".to_string(),
+            args_display: Some("grep needle file.txt".to_string()),
+            content: "stderr\n[Exit code: 2]".to_string(),
+            is_error: false,
+            file_inspect: true,
+        }],
+        collapsed: true,
+        content_hash: 0,
+        standalone_action: None,
+    };
+
+    let text = rendered_text(&render_view_model(&vm, Some(1), 100, true, 0));
+
+    assert!(
+        text.contains("Error: Exit code 2"),
+        "应显示 Bash 退出码错误头: {text}"
+    );
+    assert!(text.contains("stderr"), "应保留 Bash stderr 内容: {text}");
+}
+
+#[test]
 fn test_standalone_action_summary_capitalizes_first_char() {
     use crate::app::MessageViewModel;
     use crate::ui::message_view::{ToolCategory, ToolEntry};
@@ -1313,6 +1361,7 @@ fn test_standalone_action_summary_capitalizes_first_char() {
             args_display: Some("foo.txt".to_string()),
             content: String::new(),
             is_error: false,
+            file_inspect: false,
         }],
         collapsed: true,
         content_hash: 0,
@@ -1324,6 +1373,10 @@ fn test_standalone_action_summary_capitalizes_first_char() {
     assert!(
         text.contains("Read 1 file"),
         "独立成行的动作摘要首字母应大写: {text}"
+    );
+    assert!(
+        text.contains("(ctrl+o to expand)"),
+        "普通模式独立摘要应提示可展开: {text}"
     );
     assert!(
         !text.contains("  read 1 file"),
@@ -1358,6 +1411,7 @@ fn test_tool_call_group_detail_mode_shows_read_args_and_summary() {
             args_display: Some(abs_text.clone()),
             content: "Read 61 lines".to_string(),
             is_error: false,
+            file_inspect: false,
         }],
         collapsed: true,
         content_hash: 0,
@@ -1388,6 +1442,7 @@ fn test_tool_call_group_detail_mode_shows_glob_args_and_found_summary() {
             args_display: Some("app/admin/controller/**/*.php".to_string()),
             content: "app\\admin\\control2\napp\\admin\\control3\napp\\admin\\control4".to_string(),
             is_error: false,
+            file_inspect: false,
         }],
         collapsed: true,
         content_hash: 0,
@@ -1634,6 +1689,7 @@ fn test_bash_toolblock_nonzero_exit_shows_failed() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -1666,6 +1722,7 @@ fn test_bash_toolblock_zero_exit_stays_green() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -1698,6 +1755,7 @@ fn test_bash_toolblock_error_keeps_name_neutral_color() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -1734,6 +1792,7 @@ fn test_non_bash_toolblock_error_keeps_name_neutral_color() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -1764,6 +1823,7 @@ fn test_toolcallgroup_detail_header_uses_unified_indicator_and_color() {
         args_display: Some(args.to_string()),
         content: "Read 1 lines".to_string(),
         is_error,
+        file_inspect: false,
     };
     let vm = MessageViewModel::ToolCallGroup {
         category: ToolCategory::Read,
@@ -1821,6 +1881,7 @@ fn test_bash_nonzero_exit_result_lines_use_error_color() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -1857,6 +1918,7 @@ fn test_bash_zero_exit_result_lines_use_soft_color() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -1893,6 +1955,7 @@ fn test_non_bash_tool_exit_code() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -2035,6 +2098,7 @@ fn test_tool_block_header_long_args_single_line_and_truncated() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -2112,6 +2176,7 @@ fn test_tool_block_header_detail_mode_long_token_no_space_keeps_header() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -2155,6 +2220,7 @@ fn test_tool_block_header_detail_mode_wraps_full_command_aligned() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -2224,6 +2290,7 @@ fn test_tool_block_header_detail_mode_short_command_stays_single_line() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -2269,6 +2336,7 @@ fn test_tool_block_header_cjk_truncation_width_aligned() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -2562,6 +2630,7 @@ fn test_tool_block_long_json_wraps_with_hanging_indent() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -2719,6 +2788,7 @@ fn test_all_paths_preserve_width_no_overflow() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -2767,6 +2837,7 @@ fn test_all_paths_preserve_width_no_overflow() {
             args_display: None,
             content: format!("[问: {}]\n回答: {}", long_cjk, long_cjk),
             is_error: false,
+            file_inspect: false,
         }],
         collapsed: true,
         content_hash: 0,
@@ -2811,6 +2882,7 @@ fn test_wrapped_indented_line_keeps_leading_indent() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -3135,8 +3207,9 @@ fn test_websearch_detail_mode_wraps_full_query_without_early_truncation() {
 /// 并给出路径在逻辑行中的起点供链接命中区换算。
 #[test]
 fn test_format_write_summary_line_bolds_count_and_path() {
-    let (line, path_start, path) = format_write_summary_line("Wrote 3 lines src/a.rs", theme::cur().text_soft)
-        .expect("应识别 Write 结果行");
+    let (line, path_start, path) =
+        format_write_summary_line("Wrote 3 lines src/a.rs", theme::cur().text_soft)
+            .expect("应识别 Write 结果行");
     assert_eq!(line.spans.len(), 4);
     assert_eq!(line.spans[0].content.as_ref(), "Wrote ");
     assert_eq!(line.spans[1].content.as_ref(), "3");
@@ -3162,8 +3235,9 @@ fn test_format_write_summary_line_bolds_count_and_path() {
 
 #[test]
 fn test_format_write_summary_line_singular_unit() {
-    let (line, path_start, _) = format_write_summary_line("Wrote 1 line a.rs", theme::cur().text_soft)
-        .expect("应识别单数文案");
+    let (line, path_start, _) =
+        format_write_summary_line("Wrote 1 line a.rs", theme::cur().text_soft)
+            .expect("应识别单数文案");
     assert_eq!(line.spans[2].content.as_ref(), " line to ");
     assert_eq!(path_start, "Wrote 1 line to ".chars().count());
 }
@@ -3236,6 +3310,7 @@ fn test_tool_result_url_keeps_body_style() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -3327,6 +3402,7 @@ fn test_bash_output_collapse_hint_matches_unified_style() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -3366,6 +3442,7 @@ fn test_bash_output_collapse_hint_matches_unified_style_single_line() {
         diff_input: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
@@ -3416,6 +3493,7 @@ fn make_file_tool_block(tool: &str, args: &str) -> MessageViewModel {
         started_at: None,
         timeout_ms: None,
         shell_backgrounded: false,
+        file_inspect: false,
         content_hash: 0,
     }
 }
@@ -3451,7 +3529,11 @@ fn test_tool_block_read_path_link_excludes_line_range_suffix() {
     let vm = make_file_tool_block("Read", "src/a.rs · lines 10-20");
     let (lines, links) = render_view_model_with_links(&vm, Some(1), 80, false, 0);
     assert_eq!(links.len(), 1, "Read 的路径应登记一个命中区");
-    assert_eq!(linked_text(&lines, &links[0]), "src/a.rs", "行号范围不参与链接");
+    assert_eq!(
+        linked_text(&lines, &links[0]),
+        "src/a.rs",
+        "行号范围不参与链接"
+    );
 }
 
 #[test]
@@ -3500,7 +3582,10 @@ fn test_tool_block_detail_mode_wrapped_path_link_maps_to_visible_segments() {
         absolute.contains("very/long/path/to/some/deep/file.rs"),
         "绝对路径应保留原始相对路径尾部: {absolute}"
     );
-    assert!(absolute.contains(&linked_text(&lines, &links[0])), "链接目标应与显示路径一致");
+    assert!(
+        absolute.contains(&linked_text(&lines, &links[0])),
+        "链接目标应与显示路径一致"
+    );
     for hit in &links {
         let line_graphemes = lines[hit.line].to_string().graphemes(true).count();
         assert!(
@@ -3511,7 +3596,10 @@ fn test_tool_block_detail_mode_wrapped_path_link_maps_to_visible_segments() {
         );
         let label = linked_text(&lines, hit);
         assert!(!label.is_empty());
-        assert!(absolute.contains(&label), "折行后每段应命中路径片段: {label}");
+        assert!(
+            absolute.contains(&label),
+            "折行后每段应命中路径片段: {label}"
+        );
     }
 }
 
@@ -3598,6 +3686,7 @@ fn test_tool_call_group_detail_read_path_is_clickable() {
             args_display: Some("Cargo.toml".to_string()),
             content: "Read 96 lines".to_string(),
             is_error: false,
+            file_inspect: false,
         }],
         collapsed: true,
         standalone_action: None,
@@ -3610,7 +3699,10 @@ fn test_tool_call_group_detail_read_path_is_clickable() {
         label.ends_with("Cargo.toml"),
         "详细模式应显示绝对路径: {label}"
     );
-    assert!(label.contains('/') || label.contains('\\'), "应为绝对路径: {label}");
+    assert!(
+        label.contains('/') || label.contains('\\'),
+        "应为绝对路径: {label}"
+    );
     assert!(links[0].url.starts_with("file:///"), "{}", links[0].url);
 }
 

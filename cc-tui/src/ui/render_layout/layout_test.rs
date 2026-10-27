@@ -2,6 +2,57 @@ use super::*;
 use crate::ui::render_thread::{spawn_render_thread, RenderEvent};
 
 #[tokio::test]
+async fn test_virtual_bash_inspect_group_height_matches_real_renderer() {
+    use crate::ui::message_view::{ToolCategory, ToolEntry};
+    for content in [
+        String::new(),
+        "[Command completed with exit code 0]".into(),
+        "{\"items\":[\"a\",\"b\",\"c\"],\"ok\":true}".into(),
+        cc_middlewares::middleware::format_command_output(
+            &"查找上下文\n".repeat(20),
+            "grep: missing file",
+            2,
+        ),
+    ] {
+        let mut group = MessageViewModel::ToolCallGroup {
+            category: ToolCategory::Inspect,
+            tools: vec![ToolEntry {
+                tool_name: "Bash".into(),
+                display_name: "Bash".into(),
+                args_display: Some(format!("grep needle {}/tail.txt", "很长的目录/".repeat(20))),
+                content,
+                is_error: false,
+                file_inspect: true,
+            }],
+            collapsed: true,
+            standalone_action: Some("ran 1 shell command".into()),
+            content_hash: 0,
+        };
+        group.recompute_hash();
+        let mut renderer = VirtualRenderer::default();
+        for detail in [false, true, false] {
+            let messages = vec![group.clone()];
+            let (reference, wrap) = make_reference(&messages, detail);
+            let cache = make_complete(&mut renderer, messages, detail).await;
+            assert_eq!(
+                cache.lines, reference,
+                "单行命令头、组内错误摘要和 JSON 输出不得被估算高度裁剪"
+            );
+            assert_eq!(
+                cache.total_lines,
+                wrap.last().map_or(0, |line| line.visual_row_end),
+                "组高度必须按实际折行数修正"
+            );
+            assert_eq!(
+                renderer.metadata[0].measured,
+                Some(cache.total_lines),
+                "切换展开态后高度索引必须与实际渲染行数一致"
+            );
+        }
+    }
+}
+
+#[tokio::test]
 async fn test_virtual_streaming_output_json_and_cjk_height_matches_real_renderer() {
     use crate::ui::message_view::{ToolOutputPreview, ToolPhase};
     for tail in [
@@ -288,6 +339,7 @@ fn make_hidden_group() -> MessageViewModel {
             args_display: Some("file.txt".into()),
             content: "success".into(),
             is_error: false,
+            file_inspect: false,
         }],
         collapsed: true,
         content_hash: 0,

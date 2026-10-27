@@ -85,6 +85,8 @@ pub enum ToolCategory {
     Grep,
     /// Read 读取
     Read,
+    /// Bash 文件查看（模型显式声明）
+    Inspect,
     /// Write/Edit 写入
     Write,
     /// AskUserQuestion 提问
@@ -101,6 +103,23 @@ impl ToolCategory {
             _ => None,
         }
     }
+
+    /// 按工具名和 Bash 的文件查看标记分配聚合分类。
+    pub fn from_tool_block(name: &str, file_inspect: bool) -> Option<Self> {
+        if name == "Bash" && file_inspect {
+            return Some(Self::Inspect);
+        }
+        Self::from_tool_name(name)
+    }
+}
+
+/// 文件查看类 Bash（模型显式声明 `file_inspect=true` 才成立）。
+pub fn is_file_inspect(tool_name: &str, input: &serde_json::Value) -> bool {
+    tool_name == "Bash"
+        && input
+            .get("file_inspect")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
 }
 
 /// 工具条目（聚合组内）
@@ -111,6 +130,7 @@ pub struct ToolEntry {
     pub args_display: Option<String>,
     pub content: String,
     pub is_error: bool,
+    pub file_inspect: bool,
 }
 
 /// SubAgent 批次聚合的摘要信息

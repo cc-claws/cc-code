@@ -1,5 +1,6 @@
 //! 高度只用于滚动定位；可见区域始终由真实 renderer 计算。
 use super::super::message_view::{ContentBlockView, MessageViewModel, ToolPhase};
+use crate::ui::message_render::decorators::bash::{parse_exit_code, transform_bash_output_lines};
 
 #[derive(Clone)]
 pub(super) struct LayoutSummary {
@@ -168,7 +169,19 @@ pub(super) fn summarize(vm: &MessageViewModel) -> LayoutSummary {
                     if tool.tool_name == "Read" {
                         3
                     } else {
-                        rows(&tool.content) + 3
+                        let output_rows = if tool.tool_name == "Bash" {
+                            let mut error_header = String::new();
+                            transform_bash_output_lines(
+                                &tool.content,
+                                parse_exit_code(&tool.content),
+                                &mut error_header,
+                            )
+                            .len()
+                            .max(1)
+                        } else {
+                            rows(&tool.content)
+                        };
+                        output_rows + 3
                     }
                 })
                 .sum::<usize>();

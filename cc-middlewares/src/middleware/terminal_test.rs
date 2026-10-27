@@ -510,6 +510,35 @@ fn test_bash_description_extended() {
     );
 }
 
+#[test]
+fn test_bash_parameters_expose_file_inspect_without_making_it_required() {
+    let tool = BashTool::new(std::env::temp_dir().to_str().unwrap());
+    let parameters = tool.parameters();
+    assert_eq!(parameters["properties"]["file_inspect"]["type"], "boolean");
+    assert_eq!(parameters["required"], serde_json::json!(["command"]));
+}
+
+#[tokio::test]
+async fn test_bash_call_ignores_file_inspect() {
+    for file_inspect in [false, true] {
+        let executor = make_completed_executor("inspected\n", "", 0);
+        let tool = BashTool::with_executor(".", executor.clone());
+        let output = tool
+            .invoke(serde_json::json!({
+                "command": "printf inspected",
+                "file_inspect": file_inspect
+            }))
+            .await
+            .expect("展示标记不应影响执行");
+        let requests = executor.requests.lock().await;
+        assert_eq!(requests.len(), 1, "始终只执行一次");
+        assert_eq!(requests[0].original_command, "printf inspected");
+        assert_eq!(requests[0].timeout_ms, 120_000);
+        assert!(!requests[0].run_in_background);
+        assert!(output.contains("inspected"), "执行结果不能因展示标记变化");
+    }
+}
+
 /// clamp 的契约不依赖 Git Bash 冷启动是否能在 100ms 内结束。
 #[tokio::test]
 async fn test_bash_timeout_clamped_to_minimum() {

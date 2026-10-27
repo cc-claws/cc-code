@@ -200,6 +200,20 @@ impl App {
                     session.messages.ephemeral_notes.push((insert_pos, vm));
                 }
 
+                // 全局归一：整个视图里最多只允许一行是"进行中"的思考行。
+                // pipeline 侧只保证自己那次重建产出的 tail 内唯一，prefix 里可能残留旧标记，
+                // 这里做最终收敛，避免屏幕上同时出现多行 `● Thinking …`。
+                // 跨轮合并：让上一轮尾部的组与本轮开头的思考收敛到同一段，
+                // 否则会出现"一条 409s 的组 + 紧接着一条 1s 的空组"两行。
+                if prefix_len > 0 && prefix_len < session.messages.view_messages.len() {
+                    crate::app::message_pipeline::transform::retry_merge_from(
+                        &mut session.messages.view_messages,
+                        prefix_len.saturating_sub(1),
+                    );
+                }
+                let keep_live = session.messages.pipeline.live_thinking_active();
+                normalize_active_thinking(&mut session.messages.view_messages, keep_live);
+
                 let anchor_message_idx = {
                     let cache = self.session_mgr.current().messages.render_cache.read();
                     let ui = &self.session_mgr.current().ui;
@@ -232,6 +246,79 @@ impl App {
                 };
                 self.render_rebuild_with_anchor(anchor_message_idx);
             }
+        }
+    }
+}
+
+fn count_active(vms: &[MessageViewModel]) -> usize {
+    let mut n = 0;
+    for vm in vms {
+        if let MessageViewModel::AssistantBubble { blocks, .. } = vm {
+            n += blocks
+                .iter()
+                .filter(|b| matches!(b, ContentBlockView::Reasoning { active: true, .. }))
+                .count();
+        }
+    }
+    n
+}
+
+/// 整个视图里只保留**最后一个** active 的思考行，其余全部回落为已完成态。
+fn normalize_active_thinking(vms: &mut [MessageViewModel], keep_live: bool) {
+    let before = count_active(vms);
+    let last_kind = match vms.last() {
+        Some(MessageViewModel::AssistantBubble { blocks, is_streaming, .. }) => format!(
+            "bubble(streaming={is_streaming}, last_block_is_text={})",
+            matches!(blocks.last(), Some(ContentBlockView::Text { .. }))
+        ),
+        Some(MessageViewModel::ToolBlock { tool_name, phase, .. }) => {
+            format!("tool({tool_name}, {phase:?})")
+        }
+        Some(MessageViewModel::ToolCallGroup { .. }) => "group".to_string(),
+        Some(other) => format!("{other:?}").chars().take(24).collect(),
+        None => "empty".to_string(),
+    };
+    if before > 0 {
+        tracing::debug!(
+            vms = vms.len(),
+            active_before = before,
+            last = %last_kind,
+            keep_live,
+            "normalize_active_thinking"
+        );
+    }
+    let mut seen = false;
+    for vm in vms.iter_mut().rev() {
+        let mut vm_dirty = false;
+        let MessageViewModel::AssistantBubble { blocks, .. } = vm else {
+            continue;
+        };
+        for block in blocks.iter_mut().rev() {
+            if let ContentBlockView::Reasoning {
+                active,
+                active_since,
+                ..
+            } = block
+            {
+                let mut changed = false;
+                if !keep_live || seen || !*active {
+                    if *active || active_since.is_some() {
+                        changed = true;
+                    }
+                    *active = false;
+                    *active_since = None;
+                } else {
+                    seen = true;
+                }
+                if changed {
+                    // 关键：改完 active 必须重算哈希，否则渲染缓存会一直返回旧行
+                    // （真机表现：滚动历史里每行都冻在 `● Thinking for Ns…`）。
+                    vm_dirty = true;
+                }
+            }
+        }
+        if vm_dirty {
+            vm.recompute_hash();
         }
     }
 }

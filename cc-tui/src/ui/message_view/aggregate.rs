@@ -1,7 +1,32 @@
 use super::{
-    tools::{AgentSummary, ToolCategory, ToolEntry},
+    tools::{AgentSummary, BackgroundTaskStarted, ToolCategory, ToolEntry},
     MessageViewModel,
 };
+
+fn aggregatable_category(vm: &MessageViewModel) -> Option<ToolCategory> {
+    let MessageViewModel::ToolBlock {
+        tool_name,
+        file_inspect,
+        shell_backgrounded,
+        content,
+        ..
+    } = vm
+    else {
+        return None;
+    };
+
+    // 对齐参考实现：运行中的文件查询 Bash 也进组（计数含在跑的这条）。
+    // 仍排除已转后台 / 后台启动标记的——它们要留在单条里显示后台状态。
+    if tool_name == "Bash"
+        && (!file_inspect
+            || *shell_backgrounded
+            || BackgroundTaskStarted::parse(content).is_some())
+    {
+        return None;
+    }
+
+    ToolCategory::from_tool_block(tool_name, *file_inspect)
+}
 
 /// 将 view_messages 中相邻的只读 ToolBlock 聚合为 ToolCallGroup（支持跨类别，跳过空 thinking bubble）
 pub fn aggregate_tool_groups(messages: &mut Vec<MessageViewModel>) {
@@ -21,54 +46,54 @@ pub fn aggregate_tail_tool_groups(messages: &mut Vec<MessageViewModel>, from_idx
     let original_len = messages.len();
     while i < original_len {
         let vm = &messages[i];
-        if let MessageViewModel::ToolBlock { tool_name, .. } = vm {
-            if let Some(cat) = ToolCategory::from_tool_name(tool_name) {
-                let mut entries: Vec<ToolEntry> = Vec::new();
-                let mut j = i;
-                while j < original_len {
-                    if let MessageViewModel::ToolBlock {
-                        tool_name: tn,
-                        display_name,
-                        args_display,
-                        content,
-                        is_error,
-                        ..
-                    } = &messages[j]
+        if let Some(cat) = aggregatable_category(vm) {
+            let mut entries: Vec<ToolEntry> = Vec::new();
+            let mut j = i;
+            while j < original_len {
+                if let MessageViewModel::ToolBlock {
+                    tool_name: tn,
+                    display_name,
+                    args_display,
+                    content,
+                    is_error,
+                    file_inspect,
+                    ..
+                } = &messages[j]
+                {
+                    let entry_cat = aggregatable_category(&messages[j]);
+                    if entry_cat.is_some()
+                        && (cat == ToolCategory::AskUser)
+                            == (entry_cat == Some(ToolCategory::AskUser))
                     {
-                        let entry_cat = ToolCategory::from_tool_name(tn);
-                        if entry_cat.is_some()
-                            && (cat == ToolCategory::AskUser)
-                                == (entry_cat == Some(ToolCategory::AskUser))
-                        {
-                            entries.push(ToolEntry {
-                                tool_name: tn.clone(),
-                                display_name: display_name.clone(),
-                                args_display: args_display.clone(),
-                                content: content.clone(),
-                                is_error: *is_error,
-                            });
-                            j += 1;
-                            continue;
-                        }
-                    }
-                    if messages[j].is_reasoning_only() {
+                        entries.push(ToolEntry {
+                            tool_name: tn.clone(),
+                            display_name: display_name.clone(),
+                            args_display: args_display.clone(),
+                            content: content.clone(),
+                            is_error: *is_error,
+                            file_inspect: *file_inspect,
+                        });
                         j += 1;
                         continue;
                     }
-                    break;
                 }
-                let mut vm = MessageViewModel::ToolCallGroup {
-                    category: cat,
-                    tools: entries,
-                    collapsed: true,
-                    standalone_action: None,
-                    content_hash: 0,
-                };
-                vm.recompute_hash();
-                result.push(vm);
-                i = j;
-                continue;
+                if messages[j].is_reasoning_only() {
+                    j += 1;
+                    continue;
+                }
+                break;
             }
+            let mut vm = MessageViewModel::ToolCallGroup {
+                category: cat,
+                tools: entries,
+                collapsed: true,
+                standalone_action: None,
+                content_hash: 0,
+            };
+            vm.recompute_hash();
+            result.push(vm);
+            i = j;
+            continue;
         }
         result.push(messages[i].clone());
         i += 1;
