@@ -286,6 +286,17 @@ impl MessagePipeline {
         }
     }
 
+    /// 思考尾巴留存窗口是否仍需刷新。
+    ///
+    /// 渲染层的尾巴收起依赖"下一次重绘"，而空闲态没有事件驱动重绘；这里给出窗口
+    /// 剩余期（多留 200ms 覆盖 50ms tick），让事件循环在到期前后各补一帧。
+    pub fn thinking_retain_pending(&self) -> bool {
+        self.thinking_ended_at.get().is_some_and(|ended| {
+            ended.elapsed().as_millis()
+                < u128::from(crate::ui::message_view::THINKING_RETAIN_MS + 200)
+        })
+    }
+
     /// Finalize 当前 AI 消息：将流式状态转为 BaseMessage 加入 completed
     pub(crate) fn finalize_current_ai(&mut self) {
         if self.current_ai_finalized {

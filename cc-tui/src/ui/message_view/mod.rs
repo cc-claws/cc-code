@@ -19,6 +19,11 @@ pub(crate) use tools::{
 pub use tools::{tool_color, AgentSummary, ToolCategory, ToolEntry};
 pub(crate) use utils::{instance_hash, parse_bg_hash};
 
+/// 思考结束后尾巴预览的留存窗口（ms）：超过即收起，只留 `Thought for Ns` 摘要行。
+///
+/// 渲染层用它判定是否展示尾巴，app 层用它决定窗口过期后需不需要补一次重绘。
+pub const THINKING_RETAIN_MS: u64 = 960;
+
 // 从工具名和入参构造 DiffInput（仅 Write/Edit 工具），实现见
 // [`crate::app::tool_display::build_diff_input`]（Edit 基于完整文件重建全文 diff）。
 // 实际的 `render_diff` 渲染由 message_render 在 detail_mode 下按当前终端 width 进行。

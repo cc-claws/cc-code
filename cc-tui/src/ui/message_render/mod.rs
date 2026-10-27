@@ -22,7 +22,7 @@ use super::{
     branch_prefix::BranchPrefix,
     message_view::{
         AgentSummary, BackgroundTaskStarted, ContentBlockView, MessageViewModel, ToolCategory,
-        ToolEntry,
+        ToolEntry, THINKING_RETAIN_MS,
     },
     theme,
 };
@@ -661,9 +661,6 @@ fn push_prefixed_text(
         content_width,
     ));
 }
-
-/// 思考结束后尾巴预览的留存窗口（ms）：超过即收起，只留 `Thought for Ns` 摘要行。
-const THINKING_RETAIN_MS: u64 = 960;
 
 /// 格式化折叠截断提示语：统一对齐为 `… +N lines (ctrl+o to expand)`。
 ///
