@@ -1693,3 +1693,67 @@ async fn test_agent_stop_unknown_task_id_errors() {
         "错误应指明目标 id：{err}"
     );
 }
+
+#[test]
+fn test_load_agent_def_from_extra_agent_dirs() {
+    let dir = tempdir().unwrap();
+    let extra_dir = dir.path().join("plugin_agents");
+    std::fs::create_dir_all(&extra_dir).unwrap();
+    std::fs::write(
+        extra_dir.join("ops-check.md"),
+        "---\nname: ops-check\ndescription: Plugin ops check\n---\n\nCheck ops.\n",
+    )
+    .unwrap();
+    // 嵌套目录形式同样找得到
+    let nested = extra_dir.join("deep-agent");
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::write(
+        nested.join("agent.md"),
+        "---\nname: deep-agent\ndescription: Nested plugin agent\n---\n\nDeep.\n",
+    )
+    .unwrap();
+
+    let tool = make_subagent_tool(vec![]).with_extra_agent_dirs(vec![extra_dir]);
+    let cwd = dir.path().to_str().unwrap();
+    let agent = tool.load_agent_def("ops-check", cwd).unwrap();
+    assert_eq!(agent.frontmatter.description, "Plugin ops check");
+    let nested_agent = tool.load_agent_def("deep-agent", cwd).unwrap();
+    assert_eq!(nested_agent.frontmatter.description, "Nested plugin agent");
+}
+
+#[test]
+fn test_load_agent_def_project_beats_extra_dir() {
+    let dir = tempdir().unwrap();
+    let cwd_agents = dir.path().join(".claude").join("agents");
+    std::fs::create_dir_all(&cwd_agents).unwrap();
+    std::fs::write(
+        cwd_agents.join("reviewer.md"),
+        "---\nname: reviewer\ndescription: Project reviewer\n---\n\nReview.\n",
+    )
+    .unwrap();
+    let extra_dir = dir.path().join("extra");
+    std::fs::create_dir_all(&extra_dir).unwrap();
+    std::fs::write(
+        extra_dir.join("reviewer.md"),
+        "---\nname: reviewer\ndescription: Plugin reviewer\n---\n\nReview.\n",
+    )
+    .unwrap();
+
+    let tool = make_subagent_tool(vec![]).with_extra_agent_dirs(vec![extra_dir]);
+    let agent = tool
+        .load_agent_def("reviewer", dir.path().to_str().unwrap())
+        .unwrap();
+    assert_eq!(agent.frontmatter.description, "Project reviewer");
+}
+
+#[test]
+fn test_load_agent_def_traversal_id_ignores_extra_dirs() {
+    let dir = tempdir().unwrap();
+    let extra_dir = dir.path().join("extra");
+    std::fs::create_dir_all(&extra_dir).unwrap();
+    let tool = make_subagent_tool(vec![]).with_extra_agent_dirs(vec![extra_dir]);
+    let err = tool
+        .load_agent_def("../secret", dir.path().to_str().unwrap())
+        .unwrap_err();
+    assert!(err.contains("cannot find agent definition"), "{err}");
+}

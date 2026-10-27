@@ -90,6 +90,8 @@ pub struct SubAgentTool {
     /// 父 Agent 的冻结指引（含父 cwd），供子 Agent 链继承（避免每轮重读，见 #360）
     pub(crate) inherited_instructions: Option<super::super::InheritedInstructions>,
     pub(crate) extra_skill_dirs: Vec<std::path::PathBuf>,
+    /// 插件 agent 搜索目录：项目级与用户级之后、内置之前查找（见 #759）。
+    pub(crate) extra_agent_dirs: Vec<std::path::PathBuf>,
     pub(crate) permissions: Arc<crate::hitl::HumanInTheLoopMiddleware>,
 }
 
@@ -155,6 +157,7 @@ impl SubAgentTool {
             deregister_runtime: None,
             inherited_instructions: None,
             extra_skill_dirs: Vec::new(),
+            extra_agent_dirs: Vec::new(),
             permissions: Arc::new(crate::hitl::HumanInTheLoopMiddleware::subagent_default()),
         }
     }
@@ -251,6 +254,11 @@ impl SubAgentTool {
         self
     }
 
+    pub fn with_extra_agent_dirs(mut self, dirs: Vec<std::path::PathBuf>) -> Self {
+        self.extra_agent_dirs = dirs;
+        self
+    }
+
     pub(crate) fn permission_config(
         &self,
         mut config: crate::subagent::SubAgentMiddlewareConfig,
@@ -271,9 +279,28 @@ impl SubAgentTool {
     }
 
     pub(crate) fn load_agent_def(&self, agent_id: &str, cwd: &str) -> Result<ClaudeAgent, String> {
+        // 查找顺序（与 scan_agents_with_extra_dirs 的列表顺序一致）：
+        // 项目级（candidate_paths 的 cwd 部分）> 用户级（candidate_paths 的
+        // home 部分）> 插件（extra_agent_dirs）> 内置。
         let agent_path = AgentDefineMiddleware::candidate_paths(cwd, agent_id)
             .into_iter()
-            .find(|p| p.is_file());
+            .find(|p| p.is_file())
+            .or_else(|| {
+                // candidate_paths 为空即 agent_id 不安全（分隔符/..），插件
+                // 目录同样不得用它拼路径，否则等于重开路径遍历口子。
+                if !AgentDefineMiddleware::is_safe_agent_id(agent_id) {
+                    return None;
+                }
+                self.extra_agent_dirs
+                    .iter()
+                    .flat_map(|dir| {
+                        [
+                            dir.join(agent_id).join("agent.md"),
+                            dir.join(format!("{agent_id}.md")),
+                        ]
+                    })
+                    .find(|p| p.is_file())
+            });
 
         if let Some(path) = agent_path {
             let content = std::fs::read_to_string(&path)
@@ -287,7 +314,7 @@ impl SubAgentTool {
         }
 
         let built_in = get_built_in_agent(agent_id)
-            .ok_or_else(|| format!("Error: cannot find agent definition '{}'. Check .claude/agents/ directory or use a built-in agent (explore, plan, general-purpose, verification)", agent_id))?;
+            .ok_or_else(|| format!("Error: cannot find agent definition '{}'. Check .claude/agents/ or ~/.claude/agents/ directory or use a built-in agent (explore, plan, general-purpose, verification)", agent_id))?;
         parse_agent_file(built_in.content).ok_or_else(|| {
             format!(
                 "Error: failed to parse built-in agent definition '{}'",

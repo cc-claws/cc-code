@@ -31,6 +31,11 @@ impl AgentOverrides {
 /// 2. `{cwd}/.claude/agents/{agent_id}.md`
 /// 3. `{cwd}/agents/{agent_id}/agent.md`
 /// 4. `{cwd}/agents/{agent_id}.md`
+/// 5. `{home}/.claude/agents/{agent_id}/agent.md`（用户级，见 #759）
+/// 6. `{home}/.claude/agents/{agent_id}.md`（用户级，见 #759）
+///
+/// 插件目录不在此列：调用侧（`SubAgentTool::load_agent_def`）在上述路径
+/// 之后再查 `extra_agent_dirs`，最终优先级为：项目级 > 用户级 > 插件 > 内置。
 ///
 /// Agent 定义文件格式（CC YAML frontmatter）：
 /// ```markdown
@@ -53,19 +58,24 @@ impl AgentDefineMiddleware {
         Self
     }
 
+    /// agent_id 安全检查：空、含路径分隔符或 `..` 一律视为不安全，
+    /// 调用侧在查插件目录前同样用它把关，防止路径遍历。
+    pub fn is_safe_agent_id(agent_id: &str) -> bool {
+        !agent_id.is_empty()
+            && !agent_id.contains('/')
+            && !agent_id.contains('\\')
+            && !agent_id.contains("..")
+    }
+
     /// 根据 cwd 和 agent_id 构建候选路径列表
     ///
     /// 如果 agent_id 包含路径分隔符或 `..`，返回空列表以防止路径遍历。
     pub fn candidate_paths(cwd: &str, agent_id: &str) -> Vec<PathBuf> {
-        if agent_id.is_empty()
-            || agent_id.contains('/')
-            || agent_id.contains('\\')
-            || agent_id.contains("..")
-        {
+        if !Self::is_safe_agent_id(agent_id) {
             return Vec::new();
         }
         let cwd = Path::new(cwd);
-        vec![
+        let mut paths = vec![
             cwd.join(".claude")
                 .join("agents")
                 .join(agent_id)
@@ -75,7 +85,14 @@ impl AgentDefineMiddleware {
                 .join(format!("{}.md", agent_id)),
             cwd.join("agents").join(agent_id).join("agent.md"),
             cwd.join("agents").join(format!("{}.md", agent_id)),
-        ]
+        ];
+        // 用户级：~/.claude/agents（项目级优先，用户级次之）
+        if let Some(home) = dirs_next::home_dir() {
+            let user_agents = home.join(".claude").join("agents");
+            paths.push(user_agents.join(agent_id).join("agent.md"));
+            paths.push(user_agents.join(format!("{}.md", agent_id)));
+        }
+        paths
     }
 
     /// 按优先级找到第一个存在的文件
