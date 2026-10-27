@@ -215,6 +215,12 @@ enum Commands {
         #[command(subcommand)]
         action: PluginAction,
     },
+    /// 信任项目：允许加载该项目的 .claude/settings.json 与 settings.local.json 中的 hooks
+    TrustProject {
+        /// 项目目录（默认当前目录）
+        #[arg(default_value = ".")]
+        path: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -425,6 +431,28 @@ fn main() -> Result<()> {
                     }
                 }
             })
+        }
+        Some(Commands::TrustProject { path }) => {
+            let canon = std::path::Path::new(&path)
+                .canonicalize()
+                .unwrap_or_else(|_| std::path::PathBuf::from(&path));
+            if !canon.is_dir() {
+                eprintln!("目录不存在: {path}");
+                std::process::exit(1);
+            }
+            match cc_middlewares::hooks::loader::trust_project(canon.to_str().unwrap_or(&path)) {
+                Ok(()) => {
+                    println!(
+                        "已信任项目: {}\n该项目的 .claude/settings.json 与 settings.local.json 中的 hooks 将被加载。",
+                        canon.display()
+                    );
+                    Ok(())
+                }
+                Err(e) => {
+                    eprintln!("信任项目失败: {e}");
+                    std::process::exit(1);
+                }
+            }
         }
     }
 }
@@ -891,6 +919,11 @@ async fn run_app(
             if !global_hooks.is_empty() {
                 hook_groups.push(global_hooks);
             }
+            let project_hooks =
+                cc_middlewares::hooks::loader::load_settings_project_hooks(&app.services.cwd);
+            if !project_hooks.is_empty() {
+                hook_groups.push(project_hooks);
+            }
             let local_hooks =
                 cc_middlewares::hooks::loader::load_settings_local_hooks(&app.services.cwd);
             if !local_hooks.is_empty() {
@@ -1149,6 +1182,9 @@ async fn run_app(
             .map(|pd| pd.all_hooks.clone())
             .unwrap_or_default();
         hooks.extend(cc_middlewares::hooks::loader::load_global_settings_hooks());
+        hooks.extend(cc_middlewares::hooks::loader::load_settings_project_hooks(
+            &app.services.cwd,
+        ));
         hooks.extend(cc_middlewares::hooks::loader::load_settings_local_hooks(
             &app.services.cwd,
         ));
