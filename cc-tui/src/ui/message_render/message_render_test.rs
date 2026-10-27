@@ -3882,3 +3882,85 @@ fn test_finished_thinking_tail_expires_after_960ms() {
         "超出窗口后应落成 Thought 摘要行，不再是活跃形态: {rendered}"
     );
 }
+
+/// 构造一个「组自带思考行」的工具组 VM：`active` 为真表示思考进行中，
+/// 否则用 `finished_ago_ms` 表示思考结束至今的毫秒数。
+fn make_group_thinking_vm(active: bool, finished_ago_ms: Option<u64>) -> MessageViewModel {
+    use crate::ui::message_view::{GroupThinking, MessageViewModel, ToolCategory};
+    let text = (1..=13)
+        .map(|i| format!("n{i:02}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    MessageViewModel::ToolCallGroup {
+        category: ToolCategory::Read,
+        tools: Vec::new(),
+        thinking: Some(GroupThinking {
+            text,
+            duration_ms: Some(5000),
+            action_summary: Some("read 3 files".to_string()),
+            hint: None,
+            active,
+            active_since: active.then(std::time::Instant::now),
+            finished_at: finished_ago_ms
+                .map(|ms| std::time::Instant::now() - std::time::Duration::from_millis(ms)),
+        }),
+        collapsed: false,
+        standalone_action: None,
+        content_hash: 0,
+    }
+}
+
+#[test]
+fn test_group_thinking_tail_visible_when_active() {
+    let vm = make_group_thinking_vm(true, None);
+    // Act
+    let rendered = rendered_text(&render_view_model(&vm, None, 80, false, 0));
+    // Assert：活跃态展示尾巴 + 现在时计数 + 展开提示
+    assert!(
+        rendered.contains("Thinking for"),
+        "活跃组应显示走秒思考行: {rendered}"
+    );
+    assert!(
+        rendered.contains("reading 3 files"),
+        "活跃组的计数应为现在时: {rendered}"
+    );
+    assert!(rendered.contains("n13"), "活跃组应展示尾巴末行: {rendered}");
+    assert!(
+        rendered.contains("… +3 lines (ctrl+o to expand)"),
+        "尾巴被折叠时应补展开提示: {rendered}"
+    );
+}
+
+#[test]
+fn test_group_thinking_tail_retained_within_960ms() {
+    let vm = make_group_thinking_vm(false, Some(100));
+    // Act
+    let rendered = rendered_text(&render_view_model(&vm, None, 80, false, 0));
+    // Assert：留存窗口内保持活跃形态，计数回到过去时，尾巴仍在
+    assert!(
+        rendered.contains("Thinking for"),
+        "留存窗口内应保持活跃形态: {rendered}"
+    );
+    assert!(
+        rendered.contains("read 3 files") && !rendered.contains("reading 3 files"),
+        "留存窗口内的计数应为过去时: {rendered}"
+    );
+    assert!(rendered.contains("n13"), "留存窗口内尾巴应仍可见: {rendered}");
+}
+
+#[test]
+fn test_group_thinking_tail_expires_after_960ms() {
+    let vm = make_group_thinking_vm(false, Some(1200));
+    // Act
+    let rendered = rendered_text(&render_view_model(&vm, None, 80, false, 0));
+    // Assert：只剩摘要行，尾巴整体收起
+    assert!(
+        rendered.contains("Thought for 5s, read 3 files"),
+        "超窗后应落成 Thought 摘要行: {rendered}"
+    );
+    assert!(!rendered.contains("n13"), "超窗后尾巴应收起: {rendered}");
+    assert!(
+        !rendered.contains("Thinking for"),
+        "超窗后不应再有活跃形态: {rendered}"
+    );
+}

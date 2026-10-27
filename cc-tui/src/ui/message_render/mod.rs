@@ -2838,26 +2838,46 @@ pub fn render_view_model_with_flags(
 
             // 一等公民：组自带思考行（活跃 → Thinking，冻结 → Thought），不再依赖 AssistantBubble。
             if let Some(t) = thinking {
-                let live_ms = if t.active && !detail_mode {
+                let active = t.active && !detail_mode;
+                // 思考结束后 THINKING_RETAIN_MS 内保持活跃形态（● + 尾巴），
+                // 窗口结束才落成 `Thought for Ns` 摘要行——与 AssistantBubble 同一口径。
+                let retained = !active
+                    && !detail_mode
+                    && t.finished_at.is_some_and(|when| {
+                        when.elapsed().as_millis() < u128::from(THINKING_RETAIN_MS)
+                    });
+                let live_ms = if active {
                     let base = t.duration_ms.unwrap_or(0);
                     let extra = t
                         .active_since
                         .map(|anchor| anchor.elapsed().as_millis() as u64)
                         .unwrap_or(0);
                     Some(base + extra)
+                } else if retained {
+                    // 窗口内走秒停住：用已完成累计时长
+                    Some(t.duration_ms.unwrap_or(0).max(1000))
                 } else {
                     None
                 };
                 let hint = if detail_mode { "" } else { " (ctrl+o to expand)" };
                 let (prefix, timing) = if let Some(ms) = live_ms {
                     let secs = ms.max(1000) / 1000;
-                    // 圆点按墙钟 500ms 相位显隐，与 AssistantBubble 的思考行一致
-                    let phase = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| (d.as_millis() / 500) % 2)
-                        .unwrap_or(0);
-                    let dot = if phase == 0 { "● " } else { "  " };
-                    (dot.to_string(), format!("Thinking for {secs}s"))
+                    // 圆点按墙钟 500ms 相位显隐，与 AssistantBubble 的思考行一致；
+                    // 留存窗口内（思考已结束）不再闪烁，恒显 `●`。
+                    let dot = if !active {
+                        "● ".to_string()
+                    } else {
+                        let phase = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| (d.as_millis() / 500) % 2)
+                            .unwrap_or(0);
+                        if phase == 0 {
+                            "● ".to_string()
+                        } else {
+                            "  ".to_string()
+                        }
+                    };
+                    (dot, format!("Thinking for {secs}s"))
                 } else {
                     (
                         "  ".to_string(),
@@ -2871,7 +2891,8 @@ pub fn render_view_model_with_flags(
                     .action_summary
                     .as_deref()
                     .map(|summary| {
-                        if live_ms.is_some() {
+                        // 现在时只在真正活跃时用；留存窗口内已结束，计数回归过去时
+                        if active {
                             format!(", {}", present_tense_summary(summary))
                         } else {
                             format!(", {summary}")
@@ -2910,6 +2931,43 @@ pub fn render_view_model_with_flags(
                         }
                     }
                     lines.push(Line::from(""));
+                } else if retained || live_ms.is_some_and(|ms| ms >= 2000) {
+                    // 普通模式：展示最后 10 行思考尾巴；超出部分折成展开提示。
+                    // 组内尾巴沿用 `  ⎿  ` 前缀（与工具结果行同构），不额外换色。
+                    let tail: Vec<&str> = t
+                        .text
+                        .lines()
+                        .map(str::trim)
+                        .filter(|line| !line.is_empty())
+                        .collect();
+                    let start_idx = tail.len().saturating_sub(10);
+                    for (idx, line) in tail[start_idx..].iter().enumerate() {
+                        let prefix = if idx == 0 {
+                            BranchPrefix::PREFIX
+                        } else {
+                            BranchPrefix::HANG
+                        };
+                        push_prefixed_text(
+                            &mut lines,
+                            line,
+                            prefix,
+                            Style::default().fg(theme::cur().inactive),
+                            Style::default().fg(theme::cur().inactive),
+                            BranchPrefix::content_width(width),
+                        );
+                    }
+                    if start_idx > 0 {
+                        lines.push(Line::from(vec![
+                            Span::styled(
+                                BranchPrefix::HANG,
+                                Style::default().fg(theme::cur().inactive),
+                            ),
+                            Span::styled(
+                                format_expand_hint(start_idx),
+                                Style::default().fg(theme::cur().subtle),
+                            ),
+                        ]));
+                    }
                 }
             }
 

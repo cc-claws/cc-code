@@ -103,6 +103,9 @@ pub struct GroupThinking {
     pub hint: Option<String>,
     pub active: bool,
     pub active_since: Option<std::time::Instant>,
+    /// 思考结束时刻：供渲染层在 THINKING_RETAIN_MS 窗口内继续展示尾巴。
+    /// 只影响显示，不参与 hash / 比较（与 `ContentBlockView::Reasoning` 一致）。
+    pub finished_at: Option<std::time::Instant>,
 }
 
 /// 渲染层的视图模型，从 BaseMessage/AgentEvent 转换而来。

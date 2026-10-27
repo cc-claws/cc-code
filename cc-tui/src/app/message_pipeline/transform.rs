@@ -231,11 +231,14 @@ impl MessagePipeline {
                         t.duration_ms = Some(base.max(1000));
                         t.active = active;
                         t.active_since = self.last_event_at;
+                        // 结束后打点：渲染层据此在 THINKING_RETAIN_MS 窗口内保留尾巴
+                        t.finished_at = if active { None } else { ended_at };
                         first = false;
                     } else if let Some(ms) = groups.next() {
                         t.duration_ms = Some((*ms).max(1000));
                         t.active = false;
                         t.active_since = None;
+                        // 更早的组不再补尾巴（窗口早已过，保留原值即可）
                     }
                     // 原地改了展示字段 → 必须重算 hash，否则渲染缓存命中旧行
                     vm.recompute_hash();
@@ -453,7 +456,7 @@ pub(crate) fn retry_merge_from(vms: &mut Vec<MessageViewModel>, from: usize) {
                     text: t.text.clone(),
                     active: t.active,
                     active_since: t.active_since,
-                    finished_at: None,
+                    finished_at: t.finished_at,
                     hint: t.hint.clone(),
                 }],
                 is_streaming: false,
@@ -700,6 +703,8 @@ pub(crate) fn merge_consecutive_thinking(vms: &mut Vec<MessageViewModel>) {
             hint: last_hint.clone(),
             active: false,
             active_since: None,
+            // 归并出的历史段不打点：留存窗口只给"刚结束"的最新组（由 mark_live_thinking 补）
+            finished_at: None,
         };
         if attach_group.is_none() || bubble_has_text {
             out.push(first);
