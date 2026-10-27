@@ -76,7 +76,9 @@ impl Command for GcCommand {
                     ],
                 ));
                 let alloc_delta = after.current_allocated as isize - after.current_rss as isize;
-                if alloc_delta != 0 {
+                // allocated == 0 表示分配器读数不可用（Windows stats 读不到或计数失真），
+                // 不是「分配器空闲」：不输出 0 B 及其派生差值（#758）。
+                if alloc_delta != 0 && after.current_allocated > 0 {
                     // alloc_delta = allocated - RSS（有向差，带符号输出）：
                     // - 为正（allocated 更大）：多为两者采样时刻/记账口径差（先读 RSS 后读
                     //   allocated，其间 /gc 自身仍在分配），不解读为「超出物理内存」。

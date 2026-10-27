@@ -160,3 +160,30 @@ fn test_dump_stats() {
     dump_stats();
     eprintln!("=== end ===");
 }
+
+/// #758：mimalloc stats 计数为负时整份快照不可信，不得钳成 0 再派生指标。
+#[test]
+fn test_mimalloc_allocated_from_json_negative_is_unreliable() {
+    // Issue 实测值：malloc_normal.current 已为负
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"malloc_normal":{"current":-101783472},"malloc_huge":{"current":0}}"#,
+    )
+    .unwrap();
+    assert_eq!(mimalloc_allocated_from_json(&v), None);
+
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"malloc_normal":{"current":1024},"malloc_huge":{"current":-5}}"#,
+    )
+    .unwrap();
+    assert_eq!(mimalloc_allocated_from_json(&v), None);
+}
+
+#[test]
+fn test_mimalloc_allocated_from_json_positive_sums() {
+    // 短进程正常读数：两分量相加
+    let v: serde_json::Value = serde_json::from_str(
+        r#"{"malloc_normal":{"current":14565896},"malloc_huge":{"current":0}}"#,
+    )
+    .unwrap();
+    assert_eq!(mimalloc_allocated_from_json(&v), Some(14565896));
+}

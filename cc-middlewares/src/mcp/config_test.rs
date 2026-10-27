@@ -355,10 +355,30 @@ fn test_expand_env_vars_with_context_fallback_to_env() {
 #[test]
 fn test_load_merged_config_full_no_plugins() {
     let dir = tempfile::tempdir().unwrap();
-    // 没有 settings.json，没有插件目录
-    let (config, plugin_sources) = load_merged_config_full(dir.path(), dir.path());
+    // 没有 settings.json，没有插件目录。全局路径注入 tempdir 内不存在的文件，
+    // 避免读取开发者本机 ~/.cc-code/settings.json（#760：旧实现写死全局路径，
+    // 本机配了任意 MCP 服务器时此断言必红，CI 干净 home 下却必绿）。
+    let global_path = dir.path().join("settings.json");
+    let (config, plugin_sources) =
+        load_merged_config_full_with_paths(dir.path(), dir.path(), &global_path);
     assert!(config.mcp_servers.is_empty());
     assert!(plugin_sources.is_empty());
+}
+
+#[test]
+fn test_load_merged_config_full_global_path_injected() {
+    // 注入的全局路径确实生效（正向对照）：tempdir 内的 settings.json 被读到，
+    // 而非本机全局配置。
+    let dir = tempfile::tempdir().unwrap();
+    let global_path = dir.path().join("settings.json");
+    std::fs::write(
+        &global_path,
+        r#"{"mcpServers":{"injected":{"command":"npx","args":["-y","x"]}}}"#,
+    )
+    .unwrap();
+    let (config, _) = load_merged_config_full_with_paths(dir.path(), dir.path(), &global_path);
+    assert_eq!(config.mcp_servers.len(), 1);
+    assert!(config.mcp_servers.contains_key("injected"));
 }
 
 #[test]

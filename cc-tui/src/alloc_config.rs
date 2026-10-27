@@ -368,6 +368,19 @@ fn mimalloc_stats_json() -> Option<String> {
     }
 }
 
+/// 从 mimalloc stats JSON 解析 allocated（malloc_normal + malloc_huge 的 current）。
+/// 任一 current 为负说明该份 stats 已失真（长会话后 mimalloc 计数可为负，见 #758），
+/// 返回 None 表示整份快照不可信：调用方不得用 0 冒充读数再派生碎片/未识别指标。
+#[cfg(any(target_os = "windows", test))]
+pub(crate) fn mimalloc_allocated_from_json(v: &serde_json::Value) -> Option<usize> {
+    let normal = v["malloc_normal"]["current"].as_i64().unwrap_or(0);
+    let huge = v["malloc_huge"]["current"].as_i64().unwrap_or(0);
+    if normal < 0 || huge < 0 {
+        return None;
+    }
+    Some(normal as usize + huge as usize)
+}
+
 /// 从 stats JSON 的 `mi_stat_count` 对象读 current 字段。
 #[cfg(target_os = "windows")]
 fn json_current(v: &serde_json::Value, name: &str) -> usize {
@@ -384,10 +397,11 @@ pub fn query_stats() -> Option<AllocStats> {
     let proc = sys.process(pid)?;
     // sysinfo 的字节值是全进程 WorkingSet。
     let current_rss = proc.memory() as usize;
-    // stats 不可读时回退 0，不用 RSS 冒充 allocated（否则差异诊断失真）
+    // stats 不可读或计数失真（负值，见 #758）时回退 0，不用 RSS 冒充 allocated
+    // （否则差异诊断失真）；/gc 侧对 allocated == 0 不输出 allocated-RSS 行。
     let current_allocated = mimalloc_stats_json()
         .and_then(|json| serde_json::from_str::<serde_json::Value>(&json).ok())
-        .map(|v| json_current(&v, "malloc_normal") + json_current(&v, "malloc_huge"))
+        .and_then(|v| mimalloc_allocated_from_json(&v))
         .unwrap_or(0);
     Some(AllocStats {
         current_rss,
@@ -408,7 +422,12 @@ pub fn query_stats() -> Option<AllocStats> {
 pub fn query_breakdown() -> Option<AllocBreakdown> {
     let json = mimalloc_stats_json()?;
     let v: serde_json::Value = serde_json::from_str(&json).ok()?;
-    let allocated = json_current(&v, "malloc_normal") + json_current(&v, "malloc_huge");
+    // 计数失真时整份快照不可信（#758）：返回 None，/gc 跳过分配器明细段与
+    // 已知/未识别段，不再用 0 派生「碎片 = active」「未识别为负」。
+    let allocated = match mimalloc_allocated_from_json(&v) {
+        Some(allocated) => allocated,
+        None => return None,
+    };
     let active = json_current(&v, "page_committed");
     let committed = json_current(&v, "committed");
     let reserved = json_current(&v, "reserved");
