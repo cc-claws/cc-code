@@ -16,7 +16,6 @@ const BASH_DESCRIPTION: &str = r#"Executes one command using Bash (Git Bash on W
 Usage:
 - Each invocation starts in the configured working directory. Changes made with cd, environment assignments, and shell state do not persist across calls. Commands use bash -c, not a login shell
 - Prefer a dedicated tool over Bash for read-only work, unless none can accomplish the task; use Bash for commands, builds, scripts, and operations that need shell execution. Mapping: read files → Read (NOT cat/head/tail); edit files → Edit (NOT sed/awk); write files → Write (NOT echo >/cat <<EOF); search contents → Grep (NOT grep/rg); find files → Glob (NOT find/ls); reply to the user → return text directly (NOT echo/printf).
-- `file_inspect` (optional, display-only): set it to true only when EVERY executable in the command is a file lister/reader — one of ls, cat, head, tail, find, wc, rg, grep, tree, du, stat, file, `sed -n` — allowance for neutral `cd` / `pwd` / `echo` / `printf`; this holds for each part of `&&`, `;` and `|`. A single such command also qualifies. Leave it unset for anything else: builds, tests, installs, git, version checks (`cargo --version`, `uname`, `whoami`), or any command that runs another program. When unsure, leave it unset.
 - You can specify an optional timeout in milliseconds (up to 600000ms / 10 minutes). Default is 120000ms (2 minutes)
 - Keep dependent commands ordered; use && when a later command should run only after success. Independent operations may run separately.
 - In hosts with background support, timeout limits foreground waiting and the command continues in the background; without background support, timeout cancels the command
@@ -200,10 +199,6 @@ impl BaseTool for BashTool {
                 "run_in_background": {
                     "type": "boolean",
                     "description": "Set to true to run this command in the background. Only use this if you don't need the result immediately and are OK being notified when the command completes later"
-                },
-                "file_inspect": {
-                    "type": "boolean",
-                    "description": "Set true only when every executable in this command is a file lister/reader (ls / cat / head / tail / find / wc / rg / grep / tree / du / sed -n; neutral cd / pwd / echo / printf allowed), for each part of `&&`, `;` and `|`. A single such command qualifies too. Leave it unset for builds, tests, installs, git, version checks, or any command that runs another program."
                 }
             },
             "required": ["command"]

@@ -115,14 +115,11 @@ impl ToolCategory {
 
 /// 文件查看类 Bash（模型显式声明 `file_inspect=true` 才成立）。
 pub fn is_file_inspect(tool_name: &str, input: &serde_json::Value) -> bool {
+    // 判定权 100% 在前端的命令词法上：模型不再需要、也不应该输出展示专用参数。
+    // （历史会话里残留的 `file_inspect` 字段一律忽略。）
     if tool_name != "Bash" {
         return false;
     }
-    // 模型显式声明优先（可覆盖启发式）
-    if let Some(flag) = input.get("file_inspect").and_then(serde_json::Value::as_bool) {
-        return flag;
-    }
-    // 未声明时退回确定性判定：命令里每个可执行都是文件查看器才算（参考实现同款思路）
     input
         .get("command")
         .and_then(serde_json::Value::as_str)

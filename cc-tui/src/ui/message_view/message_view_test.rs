@@ -147,9 +147,14 @@ fn test_ai_message_with_only_text_renders_text() {
 
 #[test]
 fn test_tool_category_new_names() {
+    // 判定只看命令本身；历史残留的 file_inspect 字段一律忽略
     assert!(super::tools::is_file_inspect(
         "Bash",
-        &json!({"file_inspect": true})
+        &json!({"command": "ls -la"})
+    ));
+    assert!(!super::tools::is_file_inspect(
+        "Bash",
+        &json!({"command": "cargo build", "file_inspect": true})
     ));
     assert!(!super::tools::is_file_inspect(
         "Read",
@@ -976,7 +981,7 @@ fn test_rebuilt_user_message_only_links_identifiers_with_real_image_blocks() {
 fn test_is_readonly_shell_command_detects_file_inspection() {
     let yes = [
         "grep -rn \"x\" app/ | head -5",
-        "cd /d/code/nt_order && sed -n '159,260p' app/a.php | grep -n FBE",
+        "cd /work/project && sed -n '159,260p' app/a.php | grep -n needle",
         "grep -rn A app/ ; echo '---' ; grep -rn B app/",
         "ls -la",
         "find . -name '*.rs'",
@@ -990,7 +995,7 @@ fn test_is_readonly_shell_command_detects_file_inspection() {
     let no = [
         "cargo build -p cc-tui",
         "git show origin/test:app/x.php",
-        "cd /d/code/nt_order && git status",
+        "cd /work/project && git status",
         "cat a.txt > b.txt",
         "echo hello",
         "cd /tmp",
