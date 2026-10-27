@@ -542,6 +542,9 @@ impl App {
                 .map(|pd| pd.all_hooks.clone())
                 .unwrap_or_default();
             hooks.extend(cc_middlewares::hooks::loader::load_global_settings_hooks());
+            hooks.extend(cc_middlewares::hooks::loader::load_settings_project_hooks(
+                &self.services.cwd,
+            ));
             hooks.extend(cc_middlewares::hooks::loader::load_settings_local_hooks(
                 &self.services.cwd,
             ));

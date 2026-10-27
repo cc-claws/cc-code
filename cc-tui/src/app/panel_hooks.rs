@@ -9,9 +9,12 @@ impl App {
             .as_ref()
             .map(|pd| pd.all_hooks.clone())
             .unwrap_or_default();
-        // 合并 settings.local.json 中的 hooks
+        // 合并 settings.json / settings.local.json 中的 hooks
         let global_hooks = cc_middlewares::hooks::loader::load_global_settings_hooks();
         hooks.extend(global_hooks);
+        let project_hooks =
+            cc_middlewares::hooks::loader::load_settings_project_hooks(&self.services.cwd);
+        hooks.extend(project_hooks);
         let local_hooks =
             cc_middlewares::hooks::loader::load_settings_local_hooks(&self.services.cwd);
         hooks.extend(local_hooks);

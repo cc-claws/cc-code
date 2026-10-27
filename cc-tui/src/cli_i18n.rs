@@ -33,6 +33,7 @@ pub fn localized_command(mut command: Command, lc: &LcRegistry) -> Command {
         "json",
         "plugin",
         "scope",
+        "path",
     ] {
         if command.get_arguments().any(|arg| arg.get_id() == id) {
             command = command.mut_arg(id, |arg| {
@@ -46,7 +47,7 @@ pub fn localized_command(mut command: Command, lc: &LcRegistry) -> Command {
             });
         }
     }
-    for name in ["acp", "update", "plugin", "list", "install", "uninstall"] {
+    for name in ["acp", "update", "plugin", "list", "install", "uninstall", "trust-project"] {
         if command.get_subcommands().any(|sub| sub.get_name() == name) {
             command = command.mut_subcommand(name, |sub| localized_command(sub, lc));
         }
