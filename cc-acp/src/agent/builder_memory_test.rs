@@ -278,6 +278,9 @@ async fn make_scripted_model_endpoint(
 #[path = "builder_memory_compact_test.rs"]
 mod compact_tests;
 
+#[path = "builder_memory_live_test.rs"]
+mod live_tests;
+
 async fn make_two_turn_requests(
     protocol: MockProvider,
     embedded_memory: bool,
