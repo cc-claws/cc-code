@@ -888,3 +888,44 @@ CI 干净环境通过；与本特性无关。
   CC 同样累加间隔，但其组有更细的消息边界；
 - 根治方案是引入真正的 `TurnGroup` VM（思考 + 连续工具 = 一个对象），替代事后拼接；
   本轮只做了边界重合并，属于渐进式修补。
+
+### 13.9 折叠组成为一等公民（2026-10-27 18:45，重构）
+
+前几节记录的问题（§13.6 计数归属、§13.8 跨轮不合并、409s 无限累加、⎿ 重复）都源自同一结构：
+**思考行挂在 `AssistantBubble` 上，工具组由 `aggregate` 事后拼出，两者再用 `merge_consecutive_thinking` 缝合**。
+
+本次把组提升为一等公民：
+
+```rust
+ToolCallGroup {
+    category, tools, collapsed, standalone_action,
+    thinking: Option<GroupThinking>,   // 新增：组自带的思考行
+}
+
+pub struct GroupThinking {
+    pub text: String,              // 合并后的思考全文（详细模式展开）
+    pub duration_ms: Option<u64>,  // 完成态耗时
+    pub action_summary: Option<String>, // 计数摘要
+    pub hint: Option<String>,      // ⎿ 提示（只来自入组条目）
+    pub active: bool,              // 是否仍在进行
+    pub active_since: Option<Instant>,  // 活跃走秒锚点
+}
+```
+
+- merge 阶段：段内若有只读组，把思考数据挂到**组**上；无正文时**不再产出思考气泡**，一屏只剩一个 VM；
+- 渲染：组自己画 `● Thinking for Ns, …` / `  Thought for Ns, …`，详细态还负责展开思考正文；
+- 活跃态/耗时（`mark_live_thinking`）直接打到组上，不再改 bubble 的 Reasoning；
+- 折叠态的 `standalone_action` 在有 `thinking` 时不再渲染，避免摘要重复。
+
+验证：`cargo test -p cc-tui --lib` **1721 passed / 0 failed / 11 ignored**；`cargo clippy -p cc-tui --all-targets` **0 warning**。
+
+产生的测试改动（结构变化导致，非行为回退）：
+
+- 三个提取辅助函数（`reasoning_blocks_of` / `all_reasoning_meta` / `thought_titles`）同时支持 `group.thinking`；
+- 两个渲染快照去掉"标题后的空行"——旧结构是 bubble 与组之间的分隔，合并成一个 VM 后不再存在。
+
+仍未解决（下一步）：
+
+- 跨轮合并目前靠 `retry_merge_from` 在装配点补合；组本身仍**不跨重建持久**，
+  要彻底消除需把组写进 `completed` 历史表示（或 VM 层缓存）；
+- 数值口径仍与参考实现不完全相同（事件到达时刻 vs 消息 `timestamp`）。
