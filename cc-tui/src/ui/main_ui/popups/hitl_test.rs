@@ -712,8 +712,112 @@ async fn test_hitl_small_terminal_and_empty_batch_do_not_panic() {
 
 // ═══════════════════════════════════════════════════════════════════════
 //  渲染快照导出：用 `cargo test -p cc-tui dump_hitl -- --nocapture` 查看
-//  这三个用例不做断言，只把真实渲染结果打印出来，用于与参考实现对拍。
+//  这些用例不做断言，只把真实渲染结果打印出来，用于与参考实现对拍。
 // ═══════════════════════════════════════════════════════════════════════
+
+#[tokio::test]
+async fn test_hitl_write_existing_file_renders_diff_markers() {
+    let dir = tempfile::tempdir().expect("临时目录");
+    let path = dir.path().join("weather.json");
+    std::fs::write(
+        &path,
+        "{\n  \"city\": \"WuHan\",\n  \"source\": \"weather\"\n}\n",
+    )
+    .expect("写入旧内容");
+    let item = BatchItem {
+        tool_call_id: String::new(),
+        tool_name: "Write".to_string(),
+        input: serde_json::json!({
+            "file_path": path.to_string_lossy(),
+            "content": "{\n  \"city\": \"武汉\",\n  \"source\": \"weather\"\n}\n",
+        }),
+    };
+    let (mut app, mut handle) = make_headless_hitl(120, 30, "en", vec![item]).await;
+    let lines = make_hitl_snapshot(&mut app, &mut handle);
+    let joined = lines.join("\n");
+    assert!(joined.contains('−'), "覆盖已有文件应显示删除标记");
+    assert!(joined.contains('+'), "覆盖已有文件应显示新增标记");
+    assert!(joined.contains("武汉"), "新内容应可见");
+    assert!(joined.contains("source"), "未改动的行作为上下文出现");
+}
+
+#[tokio::test]
+async fn test_hitl_write_new_file_has_no_diff_markers() {
+    let dir = tempfile::tempdir().expect("临时目录");
+    let path = dir.path().join("fresh.json");
+    let item = BatchItem {
+        tool_call_id: String::new(),
+        tool_name: "Write".to_string(),
+        input: serde_json::json!({
+            "file_path": path.to_string_lossy(),
+            "content": "{\n  \"city\": \"武汉\"\n}\n",
+        }),
+    };
+    let (mut app, mut handle) = make_headless_hitl(120, 30, "en", vec![item]).await;
+    let lines = make_hitl_snapshot(&mut app, &mut handle);
+    let joined = lines.join("\n");
+    assert!(joined.contains("武汉"), "新文件内容应可见");
+    assert!(
+        !joined.contains('+') && !joined.contains('−'),
+        "新建文件不应出现 diff 标记"
+    );
+}
+
+#[tokio::test]
+async fn test_hitl_edit_diff_includes_surrounding_context_lines() {
+    let dir = tempfile::tempdir().expect("临时目录");
+    let path = dir.path().join("weather.json");
+    std::fs::write(
+        &path,
+        "{\n  \"city\": \"WuHan\",\n  \"calendar\": \"lunar\",\n  \"source\": \"weather\",\n  \"fetchedAt\": \"today\"\n}\n",
+    )
+    .expect("写入样例文件");
+    let item = BatchItem {
+        tool_call_id: String::new(),
+        tool_name: "Edit".to_string(),
+        input: serde_json::json!({
+            "file_path": path.to_string_lossy(),
+            "old_string": "  \"city\": \"WuHan\",",
+            "new_string": "  \"city\": \"Wuhan\",",
+        }),
+    };
+    let (mut app, mut handle) = make_headless_hitl(120, 30, "en", vec![item]).await;
+    let lines = make_hitl_snapshot(&mut app, &mut handle);
+    let joined = lines.join("\n");
+    assert!(joined.contains("Wuhan"), "修改后的行应出现");
+    assert!(joined.contains("calendar"), "改动行之后应有上下文行");
+    assert!(
+        !joined.contains("source: weather"),
+        "上下文行用 diff 形式渲染，不能退回参数列表"
+    );
+}
+
+#[tokio::test]
+async fn test_hitl_bash_description_sits_above_body_rule_without_prefix() {
+    let item = BatchItem {
+        tool_call_id: String::new(),
+        tool_name: "Bash".to_string(),
+        input: serde_json::json!({
+            "command": "git status --short",
+            "description": "Check the working tree",
+        }),
+    };
+    let (mut app, mut handle) = make_headless_hitl(100, 24, "en", vec![item]).await;
+    let lines = make_hitl_snapshot(&mut app, &mut handle);
+    let desc_index = lines
+        .iter()
+        .position(|line| line.contains("Check the working tree"))
+        .expect("描述行应存在");
+    let rule_index = lines
+        .iter()
+        .position(|line| line.trim_start().starts_with('╌'))
+        .expect("内容区虚线应存在");
+    assert!(desc_index < rule_index, "描述行应在虚线之上");
+    assert!(
+        !lines.iter().any(|line| line.contains("description:")),
+        "描述不能带参数前缀重复出现"
+    );
+}
 
 fn dump_snapshot(title: &str, lines: &[String]) {
     let width = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
@@ -740,6 +844,29 @@ async fn dump_hitl_bash_approval() {
     .await;
     let lines = make_hitl_snapshot(&mut app, &mut handle);
     dump_snapshot("Bash 常规审批（120×24 zh-CN）", &lines);
+}
+
+#[tokio::test]
+async fn dump_hitl_edit_real_file_context() {
+    let dir = tempfile::tempdir().expect("临时目录");
+    let path = dir.path().join("weather.json");
+    std::fs::write(
+        &path,
+        "{\n  \"city\": \"WuHan\",\n  \"calendar\": \"lunar\",\n  \"source\": \"中国天气网\",\n  \"fetchedAt\": \"农历九月十九\"\n}\n",
+    )
+    .expect("写入样例文件");
+    let item = BatchItem {
+        tool_call_id: String::new(),
+        tool_name: "Edit".to_string(),
+        input: serde_json::json!({
+            "file_path": path.to_string_lossy(),
+            "old_string": "  \"city\": \"WuHan\",",
+            "new_string": "  \"city\": \"武汉\",",
+        }),
+    };
+    let (mut app, mut handle) = make_headless_hitl(120, 24, "zh-CN", vec![item]).await;
+    let lines = make_hitl_snapshot(&mut app, &mut handle);
+    dump_snapshot("Edit 真实文件上下文（120×24 zh-CN）", &lines);
 }
 
 #[tokio::test]
@@ -984,8 +1111,7 @@ async fn dump_hitl_batch_multi_tool() {
         ),
         make_tool_item("Read", serde_json::json!({ "file_path": "README.md" })),
     ];
-    let (mut app, mut handle) =
-        make_headless_hitl(120, 30, "en", items.to_vec()).await;
+    let (mut app, mut handle) = make_headless_hitl(120, 30, "en", items.to_vec()).await;
     let lines = make_hitl_snapshot(&mut app, &mut handle);
     dump_snapshot("批量 3 工具（光标第 1 项）(en) 120×30", &lines);
 }

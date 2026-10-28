@@ -20,6 +20,8 @@ pub(super) struct ApprovalContent {
     pub title: String,
     /// 副标题（对齐参考实现：Edit/Write 显示文件路径，Skill 显示警告语，Bash 无）。
     pub subtitle: Option<String>,
+    /// 描述行（对齐参考实现：工具带 `description` 时显示在标题下方、虚线之上）。
+    pub description: Option<String>,
     /// 提问句（对齐参考实现的 `Do you want to proceed?`）。
     pub question: String,
     /// 审批原因说明（对齐参考实现的 decisionReason 区）。空表示不渲染。
@@ -100,6 +102,7 @@ pub(super) fn build_content(app: &App, width: usize) -> Option<ApprovalContent> 
         return None;
     };
     let lc = &app.services.lc;
+    let project_cwd = app.services.cwd.clone();
     let cursor = prompt.cursor.min(prompt.items.len().saturating_sub(1));
     let sections = prompt
         .items
@@ -146,7 +149,7 @@ pub(super) fn build_content(app: &App, width: usize) -> Option<ApprovalContent> 
                 return rows;
             }
             // 当前项：标题行已由 popup 层统一绘制，这里只输出工具参数内容。
-            rows.extend(input_rows(item, width, index == cursor));
+            rows.extend(input_rows(item, width, index == cursor, &project_cwd));
             rows
         })
         .collect();
@@ -258,9 +261,23 @@ pub(super) fn build_content(app: &App, width: usize) -> Option<ApprovalContent> 
     });
     // 审批原因区（对齐 CC 的 decisionReason）：每行一条，末尾附 /permissions 提示。
     let notice = prompt.notice.clone();
+    // 描述行：`description` 属于「这一步要做什么」的说明，参考实现放在标题下方、
+    // 虚线之上，且不带 `description:` 前缀，也不重复出现在参数区。
+    let description = prompt
+        .items
+        .get(cursor)
+        .and_then(|item| item.input.get("description"))
+        .and_then(serde_json::Value::as_str)
+        .map(|text| {
+            sanitize_display_text_preserving_newlines(text)
+                .trim()
+                .to_string()
+        })
+        .filter(|text| !text.is_empty());
     Some(ApprovalContent {
         title,
         subtitle,
+        description,
         question,
         notice,
         sections,
@@ -353,7 +370,12 @@ fn choice_rows(
     rows
 }
 
-fn input_rows(item: &BatchItem, width: usize, active: bool) -> Vec<Line<'static>> {
+fn input_rows(
+    item: &BatchItem,
+    width: usize,
+    active: bool,
+    project_cwd: &str,
+) -> Vec<Line<'static>> {
     let mut rows = Vec::new();
     let Some(map) = item.input.as_object() else {
         push_text(
@@ -369,7 +391,7 @@ fn input_rows(item: &BatchItem, width: usize, active: bool) -> Vec<Line<'static>
     if item.tool_name == "Skill" {
         if let Some(desc) = map.get("description").and_then(serde_json::Value::as_str) {
             let desc = sanitize_display_text_preserving_newlines(desc);
-            for row in wrap_text(&desc, width.saturating_sub(2).max(20)) {
+            for row in wrap_text(&desc, width.saturating_sub(3).max(20)) {
                 rows.push(Line::from(vec![
                     Span::styled("│ ", Style::default().fg(theme::cur().inactive)),
                     Span::styled(row, Style::default().fg(theme::cur().text_soft)),
@@ -385,21 +407,26 @@ fn input_rows(item: &BatchItem, width: usize, active: bool) -> Vec<Line<'static>
         .then(|| map.get("command").and_then(serde_json::Value::as_str))
         .flatten();
     if let Some(command) = command {
-        push_text(&mut rows, command, width, theme::cur().text_soft);
-    }
-    // 命令/脚本超过一行时，为每行加 `│` gutter（对齐参考实现的 needsGutter）
-    if rows.len() > 1 {
-        rows = rows
-            .into_iter()
-            .map(|row| {
-                let mut spans = vec![Span::styled(
-                    "│ ",
-                    Style::default().fg(theme::cur().inactive),
-                )];
-                spans.extend(row.spans);
-                Line::from(spans)
-            })
-            .collect();
+        let command = sanitize_display_text_preserving_newlines(command);
+        // body 行统一缩进 1 格，故可用宽度先减 1
+        let plain = wrap_text(&command, width.saturating_sub(1).max(20));
+        if plain.len() > 1 {
+            // 长命令换行时画 `│ ` 引文块（对齐参考实现的 needsGutter），
+            // 每行再让出 gutter 的 2 列，保证不会被渲染层二次软换行。
+            let guttered = width.saturating_sub(3).max(20);
+            rows.extend(wrap_text(&command, guttered).into_iter().map(|row| {
+                Line::from(vec![
+                    Span::styled("│ ", Style::default().fg(theme::cur().inactive)),
+                    Span::styled(row, Style::default().fg(theme::cur().text_soft)),
+                ])
+            }));
+        } else {
+            rows.extend(
+                plain
+                    .into_iter()
+                    .map(|row| Line::styled(row, Style::default().fg(theme::cur().text_soft))),
+            );
+        }
     }
     // 只有「操作单个文件」的工具，其路径才提升为弹窗副标题、内容区不再重复：
     // Edit / Write / Read / NotebookEdit。Grep 的 `path` 是搜索范围，属普通参数。
@@ -438,18 +465,36 @@ fn input_rows(item: &BatchItem, width: usize, active: bool) -> Vec<Line<'static>
                 old,
                 new,
                 width,
+                project_cwd,
             );
         }
     }
-    // Write 的 content：不带 `content:` 前缀，多行加 `│ ` gutter（对齐参考实现的引用块）。
+    // Write 的 content：文件已存在时按 diff 渲染（用户要看改了什么），
+    // 新文件才走「新建文件代码预览」——带行号 gutter + 语法高亮、无 diff 底色。
     if item.tool_name == "Write" {
         if let Some(content) = map.get("content").and_then(serde_json::Value::as_str) {
             let content = sanitize_display_text_preserving_newlines(content);
-            for row in wrap_text(&content, width.saturating_sub(2).max(20)) {
-                rows.push(Line::from(vec![
-                    Span::styled("│ ", Style::default().fg(theme::cur().inactive)),
-                    Span::styled(row, Style::default().fg(theme::cur().text_soft)),
-                ]));
+            let file_path = map
+                .get("file_path")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default();
+            match cached_file_content(file_path, project_cwd).filter(|old| !old.trim().is_empty()) {
+                // 覆盖已有文件：给整文件 diff，让用户看到新增/删除的行
+                Some(old) => rows.extend(render_diff_rows(
+                    file_path,
+                    sanitize_display_text_preserving_newlines(&old),
+                    content,
+                    false,
+                    width,
+                )),
+                // 新建：create 预览（行号 + 语法高亮，无 diff 底色）
+                None => rows.extend(cc_widgets::diff::render_new_file_code(
+                    file_path,
+                    &content,
+                    width.saturating_sub(1).max(20),
+                    &theme::widgets_theme(),
+                    usize::MAX,
+                )),
             }
         }
     }
@@ -478,6 +523,7 @@ fn input_rows(item: &BatchItem, width: usize, active: bool) -> Vec<Line<'static>
     });
     for (key, value) in rest {
         if (key == "command" && command.is_some())
+            || key == "description"
             || path.is_some_and(|(path_key, _)| key == path_key)
             || (key == "content" && item.tool_name == "Write")
             || ((key == "old_string" || key == "new_string") && edit.is_some())
@@ -507,9 +553,12 @@ fn push_text(
     color: ratatui::style::Color,
 ) {
     rows.extend(
-        wrap_text(&sanitize_display_text_preserving_newlines(text), width)
-            .into_iter()
-            .map(|text| Line::styled(text, Style::default().fg(color))),
+        wrap_text(
+            &sanitize_display_text_preserving_newlines(text),
+            width.saturating_sub(1).max(20),
+        )
+        .into_iter()
+        .map(|text| Line::styled(text, Style::default().fg(color))),
     );
 }
 
@@ -517,6 +566,10 @@ fn push_text(
 ///
 /// 与消息区的 diff 渲染共用同一套实现（`cc_widgets::diff::render_diff`），
 /// 对齐参考实现的 `color-diff-napi` 输出形态。
+///
+/// 审批只拿到 `old_string` / `new_string` 片段，直接 diff 片段只有被改的那几行、
+/// 看不到上下文。参考实现会先读文件再算 diff，因此这里同样优先用磁盘上的真实
+/// 文件内容构造「全文 → 替换后全文」，让 diff 自然带出前后上下文行。
 ///
 /// `render_diff` 会在开头输出「文件路径行 + 增删摘要行」，但审批弹窗的标题区
 /// 已经显示了路径、参考实现也不打印摘要，因此这里跳过前两行。
@@ -526,13 +579,32 @@ fn push_rich_diff(
     old: &str,
     new: &str,
     width: usize,
+    project_cwd: &str,
 ) {
+    let (old_content, new_content) = full_file_pair(file_path, project_cwd, old, new);
+    rows.extend(render_diff_rows(
+        file_path,
+        old_content,
+        new_content,
+        old.is_empty(),
+        width,
+    ));
+}
+
+/// 渲染一整份 diff 并去掉「文件路径行 + 增删摘要行」。
+fn render_diff_rows(
+    file_path: &str,
+    old_content: String,
+    new_content: String,
+    is_new_file: bool,
+    width: usize,
+) -> Vec<Line<'static>> {
     let input = cc_widgets::diff::DiffInput {
         file_path: file_path.to_string(),
-        old_content: sanitize_display_text_preserving_newlines(old),
-        new_content: sanitize_display_text_preserving_newlines(new),
-        is_new_file: old.is_empty(),
-        is_deleted_file: new.is_empty(),
+        old_content,
+        new_content,
+        is_new_file,
+        is_deleted_file: false,
         is_binary: false,
     };
     let theme = theme::widgets_theme();
@@ -549,7 +621,99 @@ fn push_rich_diff(
                 || text.trim_start().starts_with("Removed ")
         })
         .count();
-    rows.extend(rendered.into_iter().skip(skip).map(replace_remove_marker));
+    rendered
+        .into_iter()
+        .skip(skip)
+        .map(replace_remove_marker)
+        .collect()
+}
+
+/// 把 `old_string` / `new_string` 片段还原成「替换前全文 / 替换后全文」。
+///
+/// 读不到文件（新建、路径不存在、超过大小上限、片段已不匹配磁盘内容）时回退为
+/// 片段本身，保证审批内容始终可渲染。
+fn full_file_pair(file_path: &str, project_cwd: &str, old: &str, new: &str) -> (String, String) {
+    let fallback = |old: &str, new: &str| {
+        (
+            sanitize_display_text_preserving_newlines(old),
+            sanitize_display_text_preserving_newlines(new),
+        )
+    };
+    if old.is_empty() || file_path.is_empty() {
+        return fallback(old, new);
+    }
+    let Some(content) = cached_file_content(file_path, project_cwd) else {
+        return fallback(old, new);
+    };
+    // 片段在磁盘内容里定位不到，说明入参已与当前文件不一致（例如同批次前一步
+    // 刚改过），此时按全文 diff 会渲染成整文件删改，退回片段 diff 更可信。
+    if !content.contains(old) {
+        return fallback(old, new);
+    }
+    let replaced = content.replacen(old, new, 1);
+    (
+        sanitize_display_text_preserving_newlines(&content),
+        sanitize_display_text_preserving_newlines(&replaced),
+    )
+}
+
+/// 缓存的文件快照：mtime + 长度用于失效判定。
+struct FileSnapshot {
+    mtime: u64,
+    len: u64,
+    text: String,
+}
+
+/// 审批渲染期读取文件内容：按 (mtime, len) 缓存，超过 512 KB 不读。
+///
+/// `build_content` 每帧都会被调用，不能每次真读盘；审批弹窗停留期间用户也可能
+/// 改动同一文件，所以用 mtime 作为失效条件。
+fn cached_file_content(file_path: &str, project_cwd: &str) -> Option<String> {
+    use std::sync::{LazyLock, Mutex};
+
+    const MAX_BYTES: u64 = 512 * 1024;
+    static CACHE: LazyLock<Mutex<std::collections::HashMap<String, FileSnapshot>>> =
+        LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+    let path = std::path::Path::new(file_path);
+    let resolved = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::path::Path::new(project_cwd).join(path)
+    };
+    let meta = std::fs::metadata(&resolved).ok()?;
+    if !meta.is_file() || meta.len() > MAX_BYTES {
+        return None;
+    }
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|delta| delta.as_secs())
+        .unwrap_or(0);
+    let key = resolved.to_string_lossy().to_string();
+    if let Ok(cache) = CACHE.lock() {
+        if let Some(snapshot) = cache.get(&key) {
+            if snapshot.mtime == modified && snapshot.len == meta.len() {
+                return Some(snapshot.text.clone());
+            }
+        }
+    }
+    let text = std::fs::read_to_string(&resolved).ok()?;
+    if let Ok(mut cache) = CACHE.lock() {
+        if cache.len() > 32 {
+            cache.clear();
+        }
+        cache.insert(
+            key,
+            FileSnapshot {
+                mtime: modified,
+                len: meta.len(),
+                text: text.clone(),
+            },
+        );
+    }
+    Some(text)
 }
 
 /// 把 diff 行里的 ASCII 删除标记 `- ` 换成 U+2212 `−`（对齐参考实现的减号）。

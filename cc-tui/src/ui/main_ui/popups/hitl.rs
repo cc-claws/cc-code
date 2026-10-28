@@ -19,9 +19,10 @@ pub(crate) fn hitl_popup_height(app: &App, width: u16, max_height: u16) -> u16 {
     let Some(model) = content::build_content(app, usize::from(width)) else {
         return 0;
     };
-    // chrome：顶部实线 + 标题 + [副标题] + 空行 + 提问句
+    // chrome：顶部实线 + 标题 + [副标题] + [描述] + 空行 + 提问句
     // 内容区若存在再额外占 2 行（上下虚线）。
-    let base_chrome = 4 + usize::from(model.subtitle.is_some());
+    let base_chrome =
+        4 + usize::from(model.subtitle.is_some()) + usize::from(model.description.is_some());
     let chrome_rows = base_chrome + model.notice.len();
     let content_rows = model.sections.iter().map(Vec::len).sum::<usize>();
     let hint_gap = usize::from(!model.hints.is_empty());
@@ -80,8 +81,9 @@ pub(crate) fn render_hitl_popup(f: &mut Frame, app: &mut App, area: Rect) {
     let height = usize::from(area.height);
 
     // ── 空间预算 ────────────────────────────────────────────────────
-    // 必须显示的固定行：顶部实线(1) + 标题(1) + [副标题] + 空行(1) + 提问(1)
-    let base_chrome = 4 + usize::from(model.subtitle.is_some());
+    // 必须显示的固定行：顶部实线(1) + 标题(1) + [副标题] + [描述] + 空行(1) + 提问(1)
+    let base_chrome =
+        4 + usize::from(model.subtitle.is_some()) + usize::from(model.description.is_some());
     let mut budget = height.saturating_sub(base_chrome);
 
     // 内容区想要的行数与上下虚线
@@ -171,6 +173,12 @@ pub(crate) fn render_hitl_popup(f: &mut Frame, app: &mut App, area: Rect) {
     // 2b. 副标题行（缩进 1，弱化色）：Edit/Write 显示文件路径
     if let Some(subtitle) = &model.subtitle {
         lines.push(subtitle_line(subtitle, width));
+    }
+
+    // 2c. 描述行（缩进 1，正文色）：工具自带 `description` 时说明这一步要做什么，
+    //     参考实现把它放在标题下方、虚线之上。
+    if let Some(description) = &model.description {
+        lines.push(question_line(description, width));
     }
 
     // 3. 上虚线 + 内容 + 下虚线：内容为空时整块省略，
