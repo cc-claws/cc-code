@@ -716,7 +716,7 @@ subagent-tool-uses = { $count } tool uses
 bg-drawer-hint-short = ↑/↓ to select · ctrl+x ctrl+k to stop all agents
 bg-drawer-hint-full = Enter to view · x to stop · ctrl+x ctrl+k to stop all agents
 
-# ── 审批弹窗标题（对齐 Claude Code 工具名） ──
+# ── 审批弹窗标题（对齐参考实现工具名） ──
 hitl-title-bash = Bash command
 hitl-title-edit = Edit file
 hitl-title-write = Write file
