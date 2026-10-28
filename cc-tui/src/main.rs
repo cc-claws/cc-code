@@ -443,8 +443,9 @@ fn main() -> Result<()> {
             match cc_middlewares::hooks::loader::trust_project(canon.to_str().unwrap_or(&path)) {
                 Ok(()) => {
                     println!(
-                        "已信任项目: {}\n该项目的 .claude/settings.json 与 settings.local.json 中的 hooks 将被加载。",
-                        canon.display()
+                        "已信任项目: {}\n已写入: {}\n该项目的 .claude/settings.json 与 settings.local.json 中的 hooks 将被加载。",
+                        canon.display(),
+                        cc_middlewares::hooks::loader::trust_file_path_display()
                     );
                     Ok(())
                 }
@@ -936,6 +937,11 @@ async fn run_app(
                 hook_groups.push(local_hooks);
             }
 
+            // 未信任时 hooks 会被静默跳过；在 UI 上明确告知原因与放行命令，
+            // 否则用户只看到"hooks 不生效"却查不到（#18）。
+            let untrusted_notice =
+                cc_middlewares::hooks::loader::untrusted_project_hooks_notice(&app.services.cwd);
+
             let flat_hooks: Vec<cc_middlewares::hooks::RegisteredHook> =
                 hook_groups.iter().flatten().cloned().collect();
 
@@ -998,6 +1004,10 @@ async fn run_app(
             // Wire notification receiver to active session's AgentComm
             app.session_mgr.current_mut().agent.acp_notification_rx = Some(notification_rx);
             app.acp_client = Some(acp_client);
+
+            if let Some(notice) = untrusted_notice {
+                app.push_system_note(notice);
+            }
         }
     }
 
