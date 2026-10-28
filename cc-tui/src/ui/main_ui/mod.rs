@@ -8,7 +8,10 @@ mod status_bar;
 pub(crate) use status_bar::{format_token_count, truncate_spans_to_width};
 mod sticky_header;
 mod viewport_layout;
-pub use viewport_layout::{prepare_width, required_rows};
+#[cfg(any(test, feature = "headless"))]
+pub use viewport_layout::prepare_width;
+pub use viewport_layout::WidthPreparation;
+pub use viewport_layout::{prepare_viewport, required_rows, try_prepare_width};
 
 pub(crate) use message_area::highlight_line_spans;
 

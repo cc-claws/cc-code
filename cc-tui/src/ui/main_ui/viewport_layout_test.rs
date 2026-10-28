@@ -3,6 +3,7 @@ use crate::{app::MessageViewModel, terminal_backend::viewport::ViewportState, ui
 use ratatui::{backend::TestBackend, layout::Size, Terminal, TerminalOptions, Viewport};
 
 async fn make_messages(app: &mut App, text: &str) {
+    app.session_mgr.current().messages.invalidate_layout();
     let messages = vec![MessageViewModel::user(text.into())];
     app.session_mgr.current_mut().messages.view_messages = messages.clone();
     let sender = app.session_mgr.current().messages.render_tx.clone();

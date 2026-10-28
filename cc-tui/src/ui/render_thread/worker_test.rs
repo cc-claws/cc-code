@@ -76,7 +76,7 @@ async fn test_worker_auto_promotes_anchored_rebuild_without_rendering_full_histo
         .map(|index| {
             MessageViewModel::system_with_detail(
                 format!("history {index}"),
-                "offscreen history\n".repeat(10_000),
+                "offscreen history\n".repeat(if index == 0 { 1_000 } else { 10_000 }),
             )
         })
         .collect();
@@ -97,7 +97,7 @@ async fn test_worker_auto_promotes_anchored_rebuild_without_rendering_full_histo
         let layout = output
             .virtual_layout
             .as_ref()
-            .expect("auto 必须从带锚点重建识别三十万行详情并升档");
+            .expect("auto 必须从带锚点重建识别大体量详情并升档");
         assert!(
             layout.diagnostics.resident_segments <= 2,
             "只能物化尾部窗口"
@@ -112,12 +112,16 @@ async fn test_worker_auto_promotes_anchored_rebuild_without_rendering_full_histo
             .iter()
             .any(|line| line.to_string().contains("tail line 39")));
     }
-    let epoch = cache.read().virtual_layout.as_ref().unwrap().history_epoch;
     let mut smaller = vec![MessageViewModel::system_with_detail(
         "history 0".to_owned(),
-        "offscreen history\n".repeat(10_000),
+        "offscreen history\n".repeat(1_000),
     )];
     smaller.extend((1..31).map(|index| MessageViewModel::system(format!("smaller {index}"))));
+    let mut smaller_layout = crate::ui::render_layout::VirtualRenderer::default();
+    smaller_layout.sync_messages(&smaller);
+    assert!(smaller_layout.estimated_detail_rows() < super::AUTO_DETAIL_ROWS);
+    assert!(smaller_layout.estimated_detail_bytes() <= super::AUTO_DETAIL_BYTES);
+    assert!(smaller.len() < super::AUTO_DETAIL_MESSAGES);
     let version = cache.read().version;
     tx.send(RenderEvent::RebuildWithAnchor {
         messages: smaller,
@@ -128,14 +132,16 @@ async fn test_worker_auto_promotes_anchored_rebuild_without_rendering_full_histo
     make_wait_for_version(&cache, &notify, version + 1).await;
     {
         let output = cache.read();
-        let layout = output
-            .virtual_layout
-            .as_ref()
-            .expect("同一代际不能因估算下降来回切档");
-        assert_eq!(
-            layout.history_epoch, epoch,
-            "稳定首条和消息数不应误判历史替换"
+        // 主题变化也会推进布局代际；这里验证同一历史的升档锁存，
+        // 缩小后的数据必须低于所有阈值，不能依靠再次触发升档掩盖误判。
+        assert!(
+            output.virtual_layout.is_some(),
+            "稳定首条和消息数的内容更新不能因估算下降退出虚拟模式"
         );
+        assert!(output
+            .lines
+            .iter()
+            .any(|line| line.to_string().contains("smaller 30")));
     }
     let version = cache.read().version;
     tx.send(RenderEvent::RebuildWithAnchor {

@@ -50,8 +50,7 @@ impl App {
             .session_mgr
             .current_mut()
             .messages
-            .render_tx
-            .try_send(RenderEvent::ToggleToolMessages(show_tool_messages));
+            .send_render_event(RenderEvent::ToggleToolMessages(show_tool_messages));
     }
 
     pub fn toggle_detail_mode(&mut self) {
@@ -65,8 +64,7 @@ impl App {
             .session_mgr
             .current()
             .messages
-            .render_tx
-            .try_send(RenderEvent::ToggleDetail(new_visible));
+            .send_render_event(RenderEvent::ToggleDetail(new_visible));
     }
 
     /// 切换 Write/Edit 工具结果内联 diff 的显隐
@@ -81,8 +79,7 @@ impl App {
             .session_mgr
             .current()
             .messages
-            .render_tx
-            .try_send(RenderEvent::ToggleDiff(new_visible));
+            .send_render_event(RenderEvent::ToggleDiff(new_visible));
     }
 
     /// 添加一个图片附件到待发送列表
@@ -299,7 +296,7 @@ impl App {
             .as_ref()
             .and_then(|config| config.config.detail_render_strategy.clone())
             .unwrap_or_else(|| "auto".to_owned());
-        let _ = self.session_mgr.current_mut().messages.render_tx.try_send(
+        let _ = self.session_mgr.current_mut().messages.send_render_event(
             crate::ui::render_thread::RenderEvent::SetDetailStrategy(strategy),
         );
     }
@@ -413,6 +410,7 @@ impl App {
                 .unwrap_or_default()
         });
         let view_msgs = self.merge_shell_records_into_view(view_msgs, &base_msgs, shell_records);
+        self.session_mgr.current().messages.invalidate_layout();
         self.session_mgr.current_mut().messages.view_messages = view_msgs;
 
         // 同步 Pipeline 内部状态，确保后续流式事件能正确续接
@@ -492,8 +490,7 @@ impl App {
             .session_mgr
             .current_mut()
             .messages
-            .render_tx
-            .try_send(RenderEvent::Rebuild(vms));
+            .send_render_event(RenderEvent::Rebuild(vms));
         true
     }
 
@@ -633,8 +630,7 @@ impl App {
             .session_mgr
             .current_mut()
             .messages
-            .render_tx
-            .try_send(RenderEvent::Clear);
+            .send_render_event(RenderEvent::Clear);
 
         // 归还已释放内存页给 OS
         crate::alloc_config::alloc_collect();

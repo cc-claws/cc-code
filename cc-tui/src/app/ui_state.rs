@@ -66,7 +66,7 @@ pub struct UiState {
     pub messages_area: Option<ratatui::layout::Rect>,
     /// 欢迎卡的完整视觉行数；鼠标命中缓存消息时从统一滚动坐标扣除。
     pub message_prefix_rows: usize,
-    /// 全宽正文测量（列宽、最终缓存版本、视觉行数），避免空闲帧反复宽窄重排。
+    /// 全宽正文测量（列宽、内容布局版本、视觉行数），视口物化不使测量失效。
     pub full_width_message_rows: Option<(u16, u64, usize)>,
     pub message_scrollbar_metrics: Option<MessageScrollbarMetrics>,
     /// 隐藏时仍保留最右侧轨道的位置，用于悬停唤出。

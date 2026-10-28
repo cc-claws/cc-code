@@ -57,10 +57,10 @@ pub(crate) fn apply_theme_impl(
     session.messages.round_start_vm_idx = 0;
     session.messages.view_messages = view_msgs.clone();
     // 与 `App::render_rebuild` 同口径：直接投递整屏重建，提示立即出现
+    session.messages.invalidate_layout();
     let _ = session
         .messages
-        .render_tx
-        .try_send(crate::ui::render_thread::RenderEvent::Rebuild(view_msgs));
+        .send_render_event(crate::ui::render_thread::RenderEvent::Rebuild(view_msgs));
 }
 
 impl App {

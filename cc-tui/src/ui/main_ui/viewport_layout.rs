@@ -1,8 +1,62 @@
 //! 增长与全屏布局共用的内容测量，所有高度上限以宿主终端为准。
 
 use super::{active_panel_height, bg_agent_bar, message_area, queued_messages, status_bar};
-use crate::{app::App, ui::welcome};
-use ratatui::layout::Rect;
+use crate::{
+    app::App,
+    ui::{
+        render_thread::{PreparedWidth, RenderEvent, WidthPreparationRequest},
+        welcome,
+    },
+};
+use ratatui::layout::{Rect, Size};
+
+/// 只在目标布局就绪后提交视口计划，等待期间继续保留上一帧。
+pub fn prepare_viewport(
+    app: &mut App,
+    size: Size,
+) -> Option<crate::terminal_backend::viewport::ViewportPlan> {
+    let previous_size = app.global_ui.viewport.terminal_size;
+    if previous_size != Size::default() && previous_size != size {
+        crate::terminal_backend::viewport::mark_screen_reflow();
+        app.global_ui.terminal_reflow_pending = true;
+    }
+    app.global_ui.viewport.terminal_size = size;
+    app.global_ui.viewport.sync_welcome(
+        app.session_mgr.current().metadata.session_id,
+        !app.session_mgr.current().messages.view_messages.is_empty(),
+    );
+    let fullscreen = app.global_ui.viewport.fullscreen_latched
+        || app
+            .session_mgr
+            .current()
+            .messages
+            .width_preparation
+            .entering_fullscreen;
+    if !try_prepare_width(app, size.width, fullscreen) {
+        return None;
+    }
+    let required = required_rows(app, Rect::new(0, 0, size.width, size.height));
+    let mut next_viewport = app.global_ui.viewport.clone();
+    let plan = next_viewport.prepare(required, size);
+    if plan.enter_fullscreen && !fullscreen {
+        // 窄宽首帧就绪前不能锁定全屏或改变真实终端模式。
+        app.session_mgr
+            .current_mut()
+            .messages
+            .width_preparation
+            .entering_fullscreen = true;
+        if !try_prepare_width(app, size.width, true) {
+            return None;
+        }
+    }
+    app.session_mgr
+        .current_mut()
+        .messages
+        .width_preparation
+        .entering_fullscreen = false;
+    app.global_ui.viewport = next_viewport;
+    Some(plan)
+}
 
 pub(super) struct BottomHeights {
     pub attachment: u16,
@@ -95,14 +149,19 @@ fn message_rows(app: &App, width: u16) -> usize {
     } else {
         let session = app.session_mgr.current();
         let cache = session.messages.render_cache.read();
-        session
-            .ui
-            .full_width_message_rows
-            .filter(|(measured_width, version, _)| {
-                *measured_width == width && *version == cache.version
-            })
-            .map(|(_, _, rows)| rows)
-            .unwrap_or(cache.total_lines)
+        if cache.width == width {
+            // 虚拟列表物化新窗口后会修正估计高度，同宽时直接采用最新测量。
+            cache.total_lines
+        } else {
+            session
+                .ui
+                .full_width_message_rows
+                .filter(|(measured_width, revision, _)| {
+                    *measured_width == width && *revision == session.messages.layout_revision()
+                })
+                .map(|(_, _, rows)| rows)
+                .unwrap_or(cache.total_lines)
+        }
     };
     cached_rows.saturating_add(message_area::visual_line_count(
         &message_area::visible_tail(app),
@@ -114,89 +173,147 @@ pub(super) fn content_rows(app: &App, width: u16) -> usize {
     message_rows(app, width).saturating_add(welcome_rows(app, width))
 }
 
-/// 宽度变化时先等后台重排，避免用上一帧的行数判定不可逆的全屏切换。
-pub async fn prepare_width(app: &mut App, width: u16) {
+#[derive(Clone, PartialEq, Eq)]
+struct WidthContext {
+    request: WidthPreparationRequest,
+    epoch: u64,
+    thread: Option<cc_agent::thread::ThreadId>,
+    focused_instance: Option<String>,
+    theme: u64,
+}
+
+struct PendingWidth {
+    revision: u64,
+    ready: tokio::sync::oneshot::Receiver<PreparedWidth>,
+}
+
+#[derive(Default)]
+pub struct WidthPreparation {
+    context: Option<WidthContext>,
+    pending: Option<PendingWidth>,
+    revision: Option<u64>,
+    width: u16,
+    measured_rows: usize,
+    /// 全屏计划必须等窄宽首帧就绪后才提交给终端。
+    pub entering_fullscreen: bool,
+}
+
+/// 只投递/收取布局准备，不等待 worker。稳定布局滚动没有宽度屏障。
+pub fn try_prepare_width(app: &mut App, width: u16, fullscreen: bool) -> bool {
     if width == 0 {
-        return;
+        return true;
     }
     let size = app.global_ui.viewport.terminal_size;
-    // 先处理之前排队的快照；同宽 barrier 不触发重新渲染。
-    let cache_width = app.session_mgr.current().messages.render_cache.read().width;
-    let initial_width = if app.global_ui.viewport.fullscreen_latched && cache_width > 0 {
-        cache_width
-    } else {
-        width
-    };
-    wait_for_width(app, initial_width).await;
-    let (cache_width, version, rows) = {
-        let cache = app.session_mgr.current().messages.render_cache.read();
-        (cache.width, cache.version, cache.total_lines)
-    };
-    let measured = app.session_mgr.current().ui.full_width_message_rows.filter(
-        |(measured_width, measured_version, _)| {
-            *measured_width == width && *measured_version == version
-        },
-    );
-    let full_rows = if cache_width == width {
-        rows
-    } else if let Some((_, _, rows)) = measured {
-        rows
-    } else {
-        // 窄缓存不能用于推断全宽高度，尤其跨过吉祥物与折行的临界列宽时。
-        wait_for_width(app, width).await;
-        app.session_mgr
-            .current()
-            .messages
-            .render_cache
-            .read()
-            .total_lines
-    };
-    let mut target = width;
-    if app.global_ui.viewport.fullscreen_latched && width > 1 {
-        let terminal = Rect::new(0, 0, width, size.height);
-        let available = size
-            .height
-            .saturating_sub(BottomHeights::measure(app, terminal).total());
-        let message_rows = if app.session_mgr.current().current_view_messages().is_empty() {
-            0
-        } else {
-            full_rows
-        };
-        let content = message_rows
-            .saturating_add(welcome_rows(app, width))
-            .saturating_add(message_area::visual_line_count(
+    let session = app.session_mgr.current();
+    let context = WidthContext {
+        request: WidthPreparationRequest {
+            width,
+            available_rows: size.height.saturating_sub(
+                BottomHeights::measure(app, Rect::new(0, 0, width, size.height)).total(),
+            ) as usize,
+            extra_rows: welcome_rows(app, width).saturating_add(message_area::visual_line_count(
                 &message_area::visible_tail(app),
                 width,
-            ));
-        if content > available as usize {
-            target -= 1;
+            )),
+            has_messages: !session.current_view_messages().is_empty(),
+            fullscreen,
+        },
+        epoch: session.messages.layout_epoch(),
+        thread: session.current_thread_id.clone(),
+        focused_instance: session.focused_instance_id.clone(),
+        theme: crate::ui::theme::fingerprint(),
+    };
+    let revision = session.messages.layout_revision();
+    let mut state = std::mem::take(&mut app.session_mgr.current_mut().messages.width_preparation);
+    if state.context.as_ref() != Some(&context) {
+        state.context = Some(context.clone());
+        state.pending = None;
+        state.revision = None;
+        app.session_mgr.current_mut().ui.full_width_message_rows = None;
+    }
+    let mut completed = false;
+    if let Some(pending) = &mut state.pending {
+        match pending.ready.try_recv() {
+            Ok(prepared) => {
+                state.revision = Some(pending.revision);
+                state.width = prepared.width;
+                state.measured_rows = prepared.measured_rows;
+                // 测量只适用于同一批布局，不能把后续 viewport/tick 的发布当成新布局。
+                app.session_mgr.current_mut().ui.full_width_message_rows =
+                    Some((width, pending.revision, prepared.full_width_rows));
+                state.pending = None;
+                completed = true;
+            }
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+                app.session_mgr.current_mut().messages.width_preparation = state;
+                return false;
+            }
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                state.pending = None;
+                state.revision = None;
+            }
         }
     }
-    if app.session_mgr.current().messages.render_cache.read().width != target {
-        wait_for_width(app, target).await;
+    let (cache_width, cache_rows) = {
+        let session = app.session_mgr.current();
+        let cache = session.messages.render_cache.read();
+        (cache.width, cache.total_lines)
+    };
+    let request = context.request;
+    let fit_changed = !completed
+        && request.fullscreen
+        && width > 1
+        && if cache_width == width {
+            let rows = if request.has_messages { cache_rows } else { 0 };
+            rows.saturating_add(request.extra_rows) > request.available_rows
+        } else if cache_width == width - 1 && cache_rows != state.measured_rows {
+            let rows = if request.has_messages { cache_rows } else { 0 };
+            let extra = welcome_rows(app, cache_width).saturating_add(
+                message_area::visual_line_count(&message_area::visible_tail(app), cache_width),
+            );
+            rows.saturating_add(extra) <= request.available_rows
+        } else {
+            false
+        };
+    // 流式内容可在等待期间推进；先呈现已经完成的同视图布局，下一帧再追最新版本，
+    // 避免持续输出让确认永远落后并饿死绘制。历史/模式变化由 context 隔离。
+    if (state.revision == Some(revision) || completed) && cache_width == state.width && !fit_changed
+    {
+        app.session_mgr.current_mut().messages.last_resize_width = Some(state.width);
+        app.session_mgr.current_mut().messages.width_preparation = state;
+        return true;
     }
-    let version = app
+    let (reply, ready) = tokio::sync::oneshot::channel();
+    if app
         .session_mgr
         .current()
         .messages
-        .render_cache
-        .read()
-        .version;
-    app.session_mgr.current_mut().ui.full_width_message_rows = Some((width, version, full_rows));
-}
-
-async fn wait_for_width(app: &mut App, target: u16) {
-    // 同宽时也等待此前排队的恢复/子视口/折叠快照，首帧就按目标内容决策。
-    let (done, ready) = tokio::sync::oneshot::channel();
-    let sender = app.session_mgr.current().messages.render_tx.clone();
-    if sender
-        .send(crate::ui::render_thread::RenderEvent::ResizeAndWait(
-            target, done,
-        ))
-        .await
+        .render_tx
+        .try_send(RenderEvent::PrepareWidth {
+            request: context.request,
+            reply,
+        })
         .is_ok()
     {
-        let _ = ready.await;
-        app.session_mgr.current_mut().messages.last_resize_width = Some(target);
+        state.pending = Some(PendingWidth { revision, ready });
+    }
+    // 通道满时不记为已投递，下一次绘制期限重试。
+    app.session_mgr.current_mut().messages.width_preparation = state;
+    false
+}
+
+/// Headless 调用方可显式等待；生产主循环只调用 try_prepare_width。
+#[cfg(any(test, feature = "headless"))]
+pub async fn prepare_width(app: &mut App, width: u16) {
+    while !try_prepare_width(app, width, app.global_ui.viewport.fullscreen_latched) {
+        tokio::task::yield_now().await;
     }
 }
+
+#[cfg(test)]
+#[path = "width_preparation_test.rs"]
+mod width_preparation_tests;
+
+#[cfg(test)]
+#[path = "width_recovery_test.rs"]
+mod width_recovery_tests;

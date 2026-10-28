@@ -10,8 +10,7 @@ impl App {
         let vms = self.resolve_render_vms(session);
         let _ = session
             .messages
-            .render_tx
-            .try_send(RenderEvent::Rebuild(vms));
+            .send_render_event(RenderEvent::Rebuild(vms));
     }
 
     /// 发送带滚动锚点的全量重建到渲染线程。
@@ -25,15 +24,13 @@ impl App {
             let vms = self.resolve_render_vms(session);
             let _ = session
                 .messages
-                .render_tx
-                .try_send(RenderEvent::Rebuild(vms));
+                .send_render_event(RenderEvent::Rebuild(vms));
         } else {
             let vms = self.resolve_render_vms(session);
             let adjusted_anchor = anchor_message_idx.min(vms.len().saturating_sub(1));
             let _ = session
                 .messages
-                .render_tx
-                .try_send(RenderEvent::RebuildWithAnchor {
+                .send_render_event(RenderEvent::RebuildWithAnchor {
                     messages: vms,
                     anchor_message_idx: adjusted_anchor,
                 });
@@ -78,6 +75,7 @@ impl App {
         messages: &[cc_agent::messages::BaseMessage],
         extra: Option<MessageViewModel>,
     ) {
+        self.session_mgr.current().messages.invalidate_layout();
         // 历史/主题替换立即作废待复制快照，不能等异步渲染发布后才推进代际。
         let ui = &mut self.session_mgr.current_mut().ui;
         ui.text_selection.clear();
@@ -267,11 +265,17 @@ fn count_active(vms: &[MessageViewModel]) -> usize {
 fn normalize_active_thinking(vms: &mut [MessageViewModel], keep_live: bool) {
     let before = count_active(vms);
     let last_kind = match vms.last() {
-        Some(MessageViewModel::AssistantBubble { blocks, is_streaming, .. }) => format!(
+        Some(MessageViewModel::AssistantBubble {
+            blocks,
+            is_streaming,
+            ..
+        }) => format!(
             "bubble(streaming={is_streaming}, last_block_is_text={})",
             matches!(blocks.last(), Some(ContentBlockView::Text { .. }))
         ),
-        Some(MessageViewModel::ToolBlock { tool_name, phase, .. }) => {
+        Some(MessageViewModel::ToolBlock {
+            tool_name, phase, ..
+        }) => {
             format!("tool({tool_name}, {phase:?})")
         }
         Some(MessageViewModel::ToolCallGroup { .. }) => "group".to_string(),

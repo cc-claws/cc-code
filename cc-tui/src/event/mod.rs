@@ -10,7 +10,9 @@ pub mod keyboard;
 mod macros;
 pub mod mouse;
 mod mouse_batch;
+mod redraw_scheduler;
 pub use input_pump::pause_input;
+pub use redraw_scheduler::RedrawScheduler;
 
 #[cfg(test)]
 #[path = "scrollbar_test.rs"]
@@ -39,6 +41,14 @@ mod welcome_prefix_test;
 #[cfg(test)]
 #[path = "open_target_test.rs"]
 mod open_target_test;
+
+#[cfg(test)]
+#[path = "frame_boundary_test.rs"]
+mod frame_boundary_test;
+
+#[cfg(test)]
+#[path = "responsiveness_test.rs"]
+mod responsiveness_test;
 
 #[cfg(all(test, windows))]
 #[path = "hover_console_test.rs"]
@@ -95,6 +105,8 @@ pub enum Action {
 pub struct EventReader {
     pending: VecDeque<Event>,
     pump: input_pump::InputPump,
+    selection_frame_pending: bool,
+    waiting_for_frame: bool,
 }
 
 impl EventReader {
@@ -106,11 +118,26 @@ impl EventReader {
         Ok(Self {
             pending: VecDeque::new(),
             pump: input_pump::InputPump::start()?,
+            selection_frame_pending: false,
+            waiting_for_frame: false,
         })
+    }
+
+    pub fn is_waiting_for_frame(&self) -> bool {
+        self.waiting_for_frame
+    }
+
+    pub fn frame_presented(&mut self) {
+        self.selection_frame_pending = false;
+        self.waiting_for_frame = false;
     }
 }
 
-pub async fn next_event(app: &mut App, reader: &mut EventReader) -> Result<Option<Action>> {
+pub async fn next_event(
+    app: &mut App,
+    reader: &mut EventReader,
+    timeout: Duration,
+) -> Result<Option<Action>> {
     if poll_message_selection_copy(app) {
         return Ok(Some(Action::Redraw));
     }
@@ -125,17 +152,38 @@ pub async fn next_event(app: &mut App, reader: &mut EventReader) -> Result<Optio
 
     let ev = match reader.pending.pop_front() {
         Some(ev) => ev,
-        None => match reader.pump.next(Duration::from_millis(50))? {
+        None => match reader.pump.next(timeout)? {
             Some(ev) => ev,
             None => return Ok(None),
         },
     };
+    // MouseUp 会从已呈现快照提取选区并复制。合并重画后仍须保留旧的先画后释放顺序。
+    if selection_needs_frame(app, reader.selection_frame_pending, &ev) {
+        reader.pending.push_front(ev);
+        reader.waiting_for_frame = true;
+        return Ok(Some(Action::Redraw));
+    }
     let ev = detect_simulated_paste(ev, &mut reader.pending, |timeout| reader.pump.next(timeout))?;
     let mut boundary = None;
     let events =
         mouse_batch::collect_mouse_batch(ev, &mut boundary, || reader.pump.next(Duration::ZERO))?;
     reader.pending.extend(boundary);
-    handle_event_batch(app, events).await
+    let action = handle_event_batch(app, events).await?;
+    if matches!(&action, Some(Action::Redraw)) && selection_is_dragging(app) {
+        reader.selection_frame_pending = true;
+    }
+    Ok(action)
+}
+
+fn selection_is_dragging(app: &App) -> bool {
+    let ui = &app.session_mgr.current().ui;
+    ui.text_selection.dragging || ui.screen_selection.dragging
+}
+
+fn selection_needs_frame(app: &App, frame_pending: bool, event: &Event) -> bool {
+    frame_pending
+        && selection_is_dragging(app)
+        && matches!(event, Event::Mouse(mouse) if mouse.kind == MouseEventKind::Up(MouseButton::Left))
 }
 
 async fn handle_event_batch(app: &mut App, events: Vec<Event>) -> Result<Option<Action>> {

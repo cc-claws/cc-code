@@ -15,6 +15,8 @@ use super::{oauth_prompt::OAuthPrompt, setup_wizard::SetupWizardPanel};
 /// 这里的字段纯粹是 UI 层面的临时状态（高亮计时、弹窗、鼠标探测等）。
 pub struct GlobalUiState {
     pub viewport: crate::terminal_backend::viewport::ViewportState,
+    /// 布局准备可能跨多个循环，宿主 reflow 的清理请求保留到实际输出成功。
+    pub terminal_reflow_pending: bool,
     pub(crate) agent_center: Option<super::agent_center::AgentCenter>,
     pub(crate) agent_catalog: Vec<crate::thread::ThreadMeta>,
     pub(crate) agent_count_checked: Option<Instant>,
@@ -49,6 +51,7 @@ impl GlobalUiState {
     pub fn new() -> Self {
         Self {
             viewport: Default::default(),
+            terminal_reflow_pending: false,
             agent_center: None,
             agent_catalog: Vec::new(),
             agent_count_checked: None,

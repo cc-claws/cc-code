@@ -113,7 +113,7 @@ fn save_config_now(panel: &mut ConfigPanel, ctx: &mut PanelContext<'_>) {
                 .detail_render_strategy
                 .clone()
                 .unwrap_or_else(|| "auto".to_owned());
-            let _ = session.messages.render_tx.try_send(
+            let _ = session.messages.send_render_event(
                 crate::ui::render_thread::RenderEvent::SetDetailStrategy(strategy),
             );
         }
@@ -121,8 +121,7 @@ fn save_config_now(panel: &mut ConfigPanel, ctx: &mut PanelContext<'_>) {
             session.ui.diff_visible = want_diff;
             let _ = session
                 .messages
-                .render_tx
-                .try_send(crate::ui::render_thread::RenderEvent::ToggleDiff(want_diff));
+                .send_render_event(crate::ui::render_thread::RenderEvent::ToggleDiff(want_diff));
         }
         // #319: 保存失败时记录错误用于 UI 展示，而非静默忽略
         match App::save_config(cfg, ctx.services.config_path_override.as_deref()) {

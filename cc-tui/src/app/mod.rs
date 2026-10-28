@@ -556,6 +556,7 @@ impl App {
                     .ephemeral_notes
                     .retain(|(a, _)| *a < user_msg_idx);
                 {
+                    self.session_mgr.current().messages.invalidate_layout();
                     let remaining = self
                         .session_mgr
                         .current_mut()
@@ -566,8 +567,7 @@ impl App {
                         .session_mgr
                         .current_mut()
                         .messages
-                        .render_tx
-                        .try_send(RenderEvent::Rebuild(remaining));
+                        .send_render_event(RenderEvent::Rebuild(remaining));
                 }
                 // 截断 origin_messages（回滚 StateSnapshot 扩展的内容）
                 let pre_len = self.session_mgr.current_mut().metadata.pre_submit_state_len;
