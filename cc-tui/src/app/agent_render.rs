@@ -99,7 +99,7 @@ impl App {
     /// 面板代码和中断处理等路径 B 调用点应使用此方法，而非直接 push 到 view_messages。
     /// 重绘请求内置于此：提示只写进 `view_messages` 而不发渲染事件的话，要等到下一次
     /// 用户输入（或其它事件）才会出现在屏幕上（issue #572）。
-    pub(crate) fn push_system_note(&mut self, content: String) {
+    pub fn push_system_note(&mut self, content: String) {
         self.session_mgr
             .current_mut()
             .messages
