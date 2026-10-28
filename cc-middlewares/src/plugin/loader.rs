@@ -589,7 +589,7 @@ pub fn load_enabled_plugins_aggregated(claude_dir: &Path) -> PluginLoadResult {
         .iter()
         .filter_map(|plugin| {
             // #17 fix: Only load hooks from trusted plugins.
-            // Plugin install path must be in trusted_projects or CC_CODE_TRUST_PROJECT_HOOKS=1.
+            // Plugin install path must be in trusted_projects.jsonl or CC_CODE_TRUST_PROJECT_HOOKS=1.
             let install_path = plugin.install_path.to_string_lossy().to_string();
             if !crate::hooks::loader::is_project_trusted(&install_path) {
                 tracing::warn!(
