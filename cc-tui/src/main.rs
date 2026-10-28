@@ -998,13 +998,24 @@ async fn run_app(
     // Spinner tick 驱动：每次渲染前推进一帧
     app.session_mgr.current_mut().spinner_state.advance_tick();
 
+    // 交互和后台更新共用约 30 FPS 的期限；未绘制成功的尾帧保持待处理。
+    const TARGET_FRAME_INTERVAL: Duration = Duration::from_millis(33);
+    const EVENT_POLL_INTERVAL: Duration = Duration::from_millis(50);
+    let mut redraw = event::RedrawScheduler::new(TARGET_FRAME_INTERVAL, Instant::now());
     // 初始全量绘制一次
-    if let Err(e) = draw_app(terminal, &mut app).await {
-        tracing::error!(error = %e, "初始绘制失败");
+    let rendered = match draw_app(terminal, &mut app) {
+        Ok(rendered) => rendered,
+        Err(e) => {
+            tracing::error!(error = %e, "初始绘制失败");
+            false
+        }
+    };
+    redraw.finish_draw(Instant::now(), rendered);
+    if rendered {
+        event_reader.frame_presented();
     }
     // 初始写出一次终端标题（Idle / Ready 状态）
     app.refresh_terminal_title();
-    let mut last_render = Instant::now();
     // ConPTY 鼠标追踪定期刷新：Windows Terminal / ConPTY 偶发丢失 ?1000h 模式，
     // 导致鼠标事件"断流"（RENDER 正常但 Down/Drag 全无）。每 5 秒检查一次，
     // 若超过 5 秒无鼠标事件则重新发送鼠标追踪序列。
@@ -1012,10 +1023,6 @@ async fn run_app(
     const MOUSE_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
     const MOUSE_SILENCE_THRESHOLD_MS: u64 = 5_000;
 
-    /// loading 动画帧率限制间隔（约 30 FPS）。
-    /// 仅在 loading=true 且无用户事件的 poll 超时路径生效，
-    /// 用户交互（键盘/鼠标/resize）始终立即渲染。
-    const TARGET_FRAME_INTERVAL: Duration = Duration::from_millis(33);
     /// 终端标题刷新间隔（100ms，对齐 Codex: TERMINAL_TITLE_SPINNER_INTERVAL）
     const TITLE_REFRESH_INTERVAL: Duration = Duration::from_millis(100);
     let mut last_title_refresh = Instant::now();
@@ -1056,8 +1063,41 @@ async fn run_app(
         app.request_update_check_if_due();
         let update_check_updated = app.poll_update_check();
 
+        let cache_updated = app
+            .session_mgr
+            .current()
+            .messages
+            .render_cache
+            .read()
+            .version
+            != app.session_mgr.current().messages.last_render_version;
+        if cache_updated
+            || agent_updated
+            || bg_updated
+            || shell_updated
+            || bg_shell_updated
+            || agent_shell_updated
+            || panic_updated
+            || git_branch_updated
+            || update_check_updated
+            || app.session_mgr.current().ui.loading
+            || cursor_blinked
+        {
+            redraw.request_redraw();
+        }
+
         // NOTE: 不对 next_event/draw_app 使用 ?，避免 terminal 错误导致跳过 session ID 打印
-        let next = match event::next_event(&mut app, event_reader).await {
+        let timeout = redraw.wait_timeout(Instant::now(), EVENT_POLL_INTERVAL);
+        let next_result = if event_reader.is_waiting_for_frame() {
+            // 左键释放须等选区快照真正呈现；Pending 仍按帧期限重试，不反复消费释放事件。
+            if !timeout.is_zero() {
+                tokio::time::sleep(timeout).await;
+            }
+            Ok(None)
+        } else {
+            event::next_event(&mut app, event_reader, timeout).await
+        };
+        let next = match next_result {
             Ok(ev) => ev,
             Err(e) => {
                 tracing::error!(error = %e, "event loop: next_event 错误，退出循环");
@@ -1069,65 +1109,17 @@ async fn run_app(
                 event::Action::Quit => break 'event_loop,
                 event::Action::Submit(input) => {
                     app.submit_message(input);
-                    if let Err(e) = draw_app(terminal, &mut app).await {
-                        tracing::error!(error = %e, "event loop: draw_app 错误");
-                    }
-                    last_render = Instant::now();
+                    redraw.request_redraw();
                 }
                 event::Action::RunShellCommand(command) => {
                     app.run_shell_command(command);
-                    if let Err(e) = draw_app(terminal, &mut app).await {
-                        tracing::error!(error = %e, "event loop: draw_app 错误");
-                    }
-                    last_render = Instant::now();
+                    redraw.request_redraw();
                 }
                 event::Action::Redraw => {
-                    // 有用户交互（键盘/鼠标/resize）→ 始终重绘
-                    if let Err(e) = draw_app(terminal, &mut app).await {
-                        tracing::error!(error = %e, "event loop: draw_app 错误");
-                    }
-                    last_render = Instant::now();
+                    redraw.request_redraw();
                 }
             },
             None => {
-                // 无用户事件（poll 超时）：在阻塞结束后重新读取缓存版本
-                // 这样能捕获渲染线程在等待期间发出的更新
-                let cache_version = app
-                    .session_mgr
-                    .current_mut()
-                    .messages
-                    .render_cache
-                    .read()
-                    .version;
-                let cache_updated =
-                    cache_version != app.session_mgr.current_mut().messages.last_render_version;
-                let loading = app.session_mgr.current_mut().ui.loading;
-                // 系统提示的最短可见时长到期 → 清除并触发一次重绘
-                let notice_expired = app.expire_system_notices();
-                let should_render = cache_updated
-                    || agent_updated
-                    || bg_updated
-                    || shell_updated
-                    || bg_shell_updated
-                    || agent_shell_updated
-                    || panic_updated
-                    || git_branch_updated
-                    || update_check_updated
-                    || loading
-                    || cursor_blinked
-                    || notice_expired;
-                if should_render {
-                    let now = Instant::now();
-                    // loading 路径：限制帧率到 TARGET_FRAME_INTERVAL，降低 CPU 开销
-                    // 非 loading 路径（cache_updated/agent_updated/bg_updated）始终立即渲染
-                    if !loading || now.duration_since(last_render) >= TARGET_FRAME_INTERVAL {
-                        if let Err(e) = draw_app(terminal, &mut app).await {
-                            tracing::error!(error = %e, "event loop: draw_app 错误");
-                        }
-                        last_render = now;
-                    }
-                }
-
                 // 自动 recap：同步最新配置并检查是否满足触发条件
                 if let Some(ref cfg) = app.services.peri_config {
                     app.auto_recap.enabled = cfg.config.auto_recap.unwrap_or(true);
@@ -1137,6 +1129,32 @@ async fn run_app(
                 } else {
                     app.auto_recap.log_blocked();
                 }
+            }
+        }
+        // 输入等待期间 worker 仍可发布缓存，连续交互也不能漏掉后台更新或提示到期。
+        let cache_updated = app
+            .session_mgr
+            .current()
+            .messages
+            .render_cache
+            .read()
+            .version
+            != app.session_mgr.current().messages.last_render_version;
+        let notice_expired = app.expire_system_notices();
+        if cache_updated || app.session_mgr.current().ui.loading || notice_expired {
+            redraw.request_redraw();
+        }
+        if redraw.is_due(Instant::now()) {
+            let rendered = match draw_app(terminal, &mut app) {
+                Ok(rendered) => rendered,
+                Err(e) => {
+                    tracing::error!(error = %e, "event loop: draw_app 错误");
+                    false
+                }
+            };
+            redraw.finish_draw(Instant::now(), rendered);
+            if rendered {
+                event_reader.frame_presented();
             }
         }
         // ── ConPTY 鼠标追踪定期刷新 ──────────────────────────────────────────
@@ -1263,7 +1281,7 @@ async fn run_app(
     Ok(exit_msg)
 }
 
-async fn draw_app(terminal: &mut Terminal<TuiBackend<io::Stdout>>, app: &mut App) -> Result<()> {
+fn draw_app(terminal: &mut Terminal<TuiBackend<io::Stdout>>, app: &mut App) -> Result<bool> {
     #[cfg(windows)]
     {
         // crossterm 缓存 ANSI 能力，不能感知外部进程关闭 VT；清屏/绘制前恢复。
@@ -1278,30 +1296,15 @@ async fn draw_app(terminal: &mut Terminal<TuiBackend<io::Stdout>>, app: &mut App
         }
     }
     let size = terminal.size()?;
-    // 尺寸变化会让宿主 reflow 正常屏内容，旧帧可能落到受管区域之上；记下这次风险，
-    // 退出时改为从屏幕顶部清理，否则顶部会残留边框。
-    let reflowed = app.global_ui.viewport.terminal_size != Size::default()
-        && app.global_ui.viewport.terminal_size != size;
-    if reflowed {
-        viewport::mark_screen_reflow();
-    }
-    app.global_ui.viewport.terminal_size = size;
-    ui::main_ui::prepare_width(app, size.width).await;
-    app.global_ui.viewport.sync_welcome(
-        app.session_mgr.current().metadata.session_id,
-        !app.session_mgr.current().messages.view_messages.is_empty(),
-    );
-    let required_rows = ui::main_ui::required_rows(app, Rect::new(0, 0, size.width, size.height));
-    let plan = app.global_ui.viewport.prepare(required_rows, size);
-    if plan.enter_fullscreen {
-        // 滚动条会改变正文宽度；等待重排期间继续保留旧屏，首帧就绪后再切屏。
-        ui::main_ui::prepare_width(app, size.width).await;
-    }
+    let Some(plan) = ui::main_ui::prepare_viewport(app, size) else {
+        return Ok(false);
+    };
     execute!(
         terminal.backend_mut(),
         ratatui::crossterm::terminal::BeginSynchronizedUpdate
     )?;
-    let draw_result = draw_prepared_app(terminal, app, size, plan, reflowed);
+    let reflow_pending = app.global_ui.terminal_reflow_pending;
+    let draw_result = draw_prepared_app(terminal, app, size, plan, reflow_pending);
     // 绘制失败也必须结束同步输出，避免终端停留在等待提交的状态。
     let end_result = execute!(
         terminal.backend_mut(),
@@ -1309,7 +1312,8 @@ async fn draw_app(terminal: &mut Terminal<TuiBackend<io::Stdout>>, app: &mut App
     );
     draw_result?;
     end_result?;
-    Ok(())
+    app.global_ui.terminal_reflow_pending = false;
+    Ok(true)
 }
 
 /// 此段不允许异步等待：滚屏/切屏、差分缓存重置与首帧输出必须连续完成。

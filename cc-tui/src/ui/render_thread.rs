@@ -108,6 +108,23 @@ impl RenderCache {
     }
 }
 
+/// 一次完整的宽度准备由 worker 顺序完成，UI 不等待其中的宽/窄中间态。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WidthPreparationRequest {
+    pub width: u16,
+    pub available_rows: usize,
+    pub extra_rows: usize,
+    pub has_messages: bool,
+    pub fullscreen: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct PreparedWidth {
+    pub width: u16,
+    pub full_width_rows: usize,
+    pub measured_rows: usize,
+}
+
 /// 渲染线程接收的事件
 pub enum RenderEvent {
     /// 仅影响本地渲染，不改变 Agent 或系统提示词。
@@ -135,6 +152,10 @@ pub enum RenderEvent {
     Resize(u16),
     /// 重排完成后通知 UI；增长视口必须先取得新宽度的实际行数才能判断触底。
     ResizeAndWait(u16, tokio::sync::oneshot::Sender<()>),
+    PrepareWidth {
+        request: WidthPreparationRequest,
+        reply: tokio::sync::oneshot::Sender<PreparedWidth>,
+    },
     /// 清空所有消息
     Clear,
     /// 切换工具调用消息的显示状态
@@ -776,15 +797,23 @@ impl RenderTask {
             }
             (visual_base, wrap_map)
         };
-        let mut cache = self.cache.write();
-        cache.virtual_layout = None;
-        cache.lines = deduped;
-        cache.message_offsets = offsets;
-        cache.total_lines = total_lines;
-        cache.wrap_map = wrap_map;
-        cache.links = global_links;
-        cache.width = self.width;
-        cache.version += 1;
+        let mut next = RenderCache {
+            lines: deduped,
+            message_offsets: offsets,
+            total_lines,
+            wrap_map,
+            links: global_links,
+            width: self.width,
+            ..RenderCache::new()
+        };
+        let old = {
+            let mut cache = self.cache.write();
+            next.version = cache.version + 1;
+            next.scroll_anchor = cache.scroll_anchor;
+            std::mem::replace(&mut *cache, next)
+        };
+        // 全量旧成品的析构放在锁外，避免 UI 读缓存时等待历史行释放。
+        drop(old);
     }
 
     /// 与 SubAgentGroup 渲染规则一致；折叠/批次摘要/被 final_result 替代的条目不计时刷新。
@@ -1234,6 +1263,29 @@ impl RenderTask {
                 self.resize(new_width);
                 let _ = done.send(());
             }
+            RenderEvent::PrepareWidth { request, reply } => {
+                self.resize(request.width);
+                let full_width_rows = self.cache.read().total_lines;
+                let message_rows = if request.has_messages {
+                    full_width_rows
+                } else {
+                    0
+                };
+                let width = if request.fullscreen
+                    && request.width > 1
+                    && message_rows.saturating_add(request.extra_rows) > request.available_rows
+                {
+                    request.width - 1
+                } else {
+                    request.width
+                };
+                self.resize(width);
+                let _ = reply.send(PreparedWidth {
+                    width,
+                    full_width_rows,
+                    measured_rows: self.cache.read().total_lines,
+                });
+            }
             RenderEvent::Clear => {
                 self.message_lines.clear();
                 self.message_lines.shrink_to_fit();
@@ -1248,17 +1300,15 @@ impl RenderTask {
                 self.message_hashes.shrink_to_fit();
                 self.last_messages.clear();
                 self.last_messages.shrink_to_fit();
-                let mut cache = self.cache.write();
-                cache.virtual_layout = None;
-                cache.lines.clear();
-                cache.lines.shrink_to_fit();
-                cache.message_offsets.clear();
-                cache.message_offsets.shrink_to_fit();
-                cache.total_lines = 0;
-                cache.wrap_map = Vec::new();
-                cache.links = Vec::new();
-                cache.scroll_anchor = None;
-                cache.version += 1;
+                let mut next = RenderCache::new();
+                let old = {
+                    let mut cache = self.cache.write();
+                    next.version = cache.version + 1;
+                    next.width = cache.width;
+                    std::mem::replace(&mut *cache, next)
+                };
+                // 清空同样只在锁内交换，旧行、换行表与链接在锁外释放。
+                drop(old);
             }
             RenderEvent::ToggleToolMessages(show) => {
                 self.show_tool_messages = show;
@@ -1354,3 +1404,7 @@ pub fn spawn_render_thread(
 #[cfg(test)]
 #[path = "render_thread_test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "cache_publish_test.rs"]
+mod cache_publish_tests;

@@ -118,6 +118,58 @@ impl RenderWorker {
     }
     async fn handle(&mut self, event: RenderEvent, rx: &mut mpsc::Receiver<RenderEvent>) {
         match event {
+            RenderEvent::PrepareWidth { request, reply } => {
+                let restore_viewport = self.virtual_active
+                    && self.task.width < request.width
+                    && self
+                        .task
+                        .cache
+                        .read()
+                        .total_lines
+                        .saturating_add(request.extra_rows)
+                        <= request.available_rows;
+                let viewport = self.viewport;
+                if restore_viewport {
+                    // 窄宽已能容纳时，全宽重测完整窗口，避免切宽清空实测高度后
+                    // 又因旧的局部视口退回过大的估计值。
+                    self.viewport = Viewport {
+                        top: 0,
+                        height: request.available_rows,
+                        follow_tail: false,
+                        anchor: None,
+                    };
+                }
+                self.resize(request.width).await;
+                let full_width_rows = self.task.cache.read().total_lines;
+                let message_rows = if request.has_messages {
+                    full_width_rows
+                } else {
+                    0
+                };
+                let width = if request.fullscreen
+                    && request.width > 1
+                    && message_rows.saturating_add(request.extra_rows) > request.available_rows
+                {
+                    request.width - 1
+                } else {
+                    request.width
+                };
+                self.viewport = viewport;
+                self.resize(width).await;
+                if restore_viewport && width == request.width {
+                    self.publish_virtual().await;
+                }
+                let _ = reply.send(PreparedWidth {
+                    width,
+                    full_width_rows,
+                    measured_rows: self.task.cache.read().total_lines,
+                });
+                self.task.notify.notify_one();
+            }
+            RenderEvent::ResizeAndWait(width, done) => {
+                self.resize(width).await;
+                let _ = done.send(());
+            }
             RenderEvent::SetDetailStrategy(value) => {
                 let strategy = match value.as_str() {
                     "cache" => Strategy::Cache,
@@ -199,9 +251,9 @@ impl RenderWorker {
                 self.task.handle_event(RenderEvent::Clear, rx);
                 self.task.notify.notify_one();
             }
-            RenderEvent::Resize(width) if self.virtual_active => {
-                self.task.width = width;
-                self.publish_virtual().await;
+            RenderEvent::Resize(width) => {
+                self.resize(width).await;
+                self.task.notify.notify_one();
             }
             RenderEvent::ToggleDetail(show) if self.virtual_active => {
                 self.task.detail_mode = show;
@@ -212,14 +264,20 @@ impl RenderWorker {
                 self.publish_virtual().await;
             }
             event => {
-                // #650 宽度重排屏障：ResizeAndWait 的等待方靠 done 通道同步，
-                // 这一帧不额外 notify，避免切换中途多画一帧未就绪的宽度。
-                let width_barrier = matches!(event, RenderEvent::ResizeAndWait(..));
                 self.task.handle_event(event, rx);
-                if !width_barrier {
-                    self.task.notify.notify_one();
-                }
+                self.task.notify.notify_one();
             }
+        }
+    }
+    async fn resize(&mut self, width: u16) {
+        if self.task.width == width && self.task.cache.read().width == width {
+            return;
+        }
+        if self.virtual_active {
+            self.task.width = width;
+            self.publish_virtual().await;
+        } else {
+            self.task.resize(width);
         }
     }
     pub async fn run(mut self, mut rx: mpsc::Receiver<RenderEvent>) {

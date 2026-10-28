@@ -470,6 +470,7 @@ impl super::App {
             session.main_scroll_position = position;
             session.main_input_draft = Some(draft);
         }
+        session.messages.invalidate_layout();
         session.focused_instance_id = id.filter(|id| session.subagent_sessions.contains_key(id));
         let draft = if let Some(sub) = session
             .focused_instance_id

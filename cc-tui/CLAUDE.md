@@ -52,6 +52,8 @@ TUI 输入 → AcpTuiClient.new_session() / .prompt()
 
 所有消息更新通过统一 `RebuildAll` 路径触发（无增量更新）。`MessagePipeline` 维护规范状态，`build_tail_vms()` 构建尾部 VMs，`messages_to_view_models()` 是唯一转换入口。流式文本通过 16ms 间隔 + 自适应分块策略触发 RebuildAll。独立 `RenderThread` 处理渲染，通过 `RenderCache(RwLock)` 与 UI 线程同步。
 
+输入、后台更新与动画共用 33ms 绘制期限，连续请求不能推迟尾帧。`prepare_viewport` 通过 `try_prepare_width` 非阻塞投递/收取宽度确认，未就绪时保留旧屏并继续处理输入；同一内容布局的滚动不再投递宽度屏障。内容请求使用独立 revision，历史/模式/视图替换另推进 epoch，避免误收旧确认；虚拟窗口实测高度仅在是否可容纳的边界改变时重新准备宽度。缓存构造及旧成品析构在共享写锁外完成。拖选后的左键释放仍等最后一帧呈现，再从快照提取复制内容。
+
 **[TRAP]** Ephemeral VM（SystemNote/CacheWarning）依赖锚点机制：`ephemeral_notes: Vec<(usize, MessageViewModel)>` 记录插入时的 `view_messages.len()` 作为位置索引（非 MessageId）。RebuildAll 时通过 `(anchor - prefix_len).min(tail_len) + prefix_len` 计算插入位置。`retain()` 路径通过 `anchor >= prefix_len` 过滤过期锚点。新增 ephemeral VM 类型必须同步更新过滤逻辑。（详见 spec/global/domains/message-pipeline.md#issue_2026-05-12-systemnote-position-drift-on-rebuild）
 
 **[TRAP]** BaseMessage vs MessageViewModel 维度混淆：`completed_len_at_round_start` 是 BaseMessage 长度，`prefix_len` 是 VM 索引，两者非 1:1。`prefix_len` 必须用 `round_start_vm_idx`，`drain` 必须钳位。**禁止 Pipeline 内部返回 `RebuildAll`**——Pipeline 不拥有 `round_start_vm_idx`。（详见 spec/global/domains/message-pipeline.md#issue_2026-05-20-llm-error-message-area-clear-flicker）

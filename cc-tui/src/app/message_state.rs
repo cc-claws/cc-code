@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
 
 use cc_agent::interaction::channel_types::ChannelNotification;
 use parking_lot::RwLock;
@@ -82,6 +85,11 @@ pub struct MessageState {
     pub last_resize_width: Option<u16>,
     /// 已成功投递的视口，通道满时保留旧值以便下一帧重试。
     pub last_viewport: Option<(usize, usize, bool, u16, Option<ViewportAnchor>)>,
+    /// 内容布局请求独立于视口物化的 cache.version，普通滚动不推进此版本。
+    layout_revision: AtomicU64,
+    /// 历史替换/模式切换使旧的异步宽度确认失效。
+    layout_epoch: AtomicU64,
+    pub width_preparation: crate::ui::main_ui::WidthPreparation,
     /// Channel 消息通知接收端
     pub channel_notification_rx: Option<tokio::sync::mpsc::UnboundedReceiver<ChannelNotification>>,
 }
@@ -109,8 +117,44 @@ impl MessageState {
             ephemeral_notes: Vec::new(),
             last_resize_width: None,
             last_viewport: None,
+            layout_revision: AtomicU64::new(0),
+            layout_epoch: AtomicU64::new(0),
+            width_preparation: Default::default(),
             channel_notification_rx: None,
         }
+    }
+
+    pub(crate) fn layout_revision(&self) -> u64 {
+        self.layout_revision.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn layout_epoch(&self) -> u64 {
+        self.layout_epoch.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn invalidate_layout(&self) {
+        self.layout_epoch.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// 所有内容/模式变更共用此入口；发送失败不把新布局标记为已入队。
+    pub(crate) fn send_render_event(
+        &self,
+        event: RenderEvent,
+    ) -> Result<(), mpsc::error::TrySendError<RenderEvent>> {
+        let replaces_layout = matches!(
+            event,
+            RenderEvent::Clear
+                | RenderEvent::ToggleDetail(_)
+                | RenderEvent::ToggleDiff(_)
+                | RenderEvent::ToggleToolMessages(_)
+                | RenderEvent::SetDetailStrategy(_)
+        );
+        self.render_tx.try_send(event)?;
+        self.layout_revision.fetch_add(1, Ordering::Relaxed);
+        if replaces_layout {
+            self.invalidate_layout();
+        }
+        Ok(())
     }
 
     /// 添加系统通知并记录锚点位置。

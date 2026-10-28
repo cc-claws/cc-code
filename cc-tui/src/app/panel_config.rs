@@ -50,7 +50,7 @@ impl App {
                 .detail_render_strategy
                 .clone()
                 .unwrap_or_else(|| "auto".to_owned());
-            let _ = self.session_mgr.current_mut().messages.render_tx.try_send(
+            let _ = self.session_mgr.current_mut().messages.send_render_event(
                 crate::ui::render_thread::RenderEvent::SetDetailStrategy(strategy),
             );
         }
