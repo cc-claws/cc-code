@@ -1,4 +1,4 @@
-use crate::app::{App, PendingBgShellNotification};
+use crate::app::{App, PendingAttachment, PendingBgShellNotification};
 use cc_acp::{
     session::steering::{STEERING_NOT_CONSUMED, STEERING_NOT_ENQUEUED},
     transport::{
@@ -40,6 +40,16 @@ fn make_notification(owner: Option<&str>, task_id: &str) -> PendingBgShellNotifi
         content: format!(
             "<background-task-completed>\n<task-id>{task_id}</task-id>\n<command>echo done</command>\n<status>completed (exit 0)</status>\n<output>/tmp/{task_id}.output</output>\n</background-task-completed>"
         ),
+    }
+}
+
+fn make_image(id: usize) -> PendingAttachment {
+    PendingAttachment {
+        label: format!("clipboard_{id}.png"),
+        media_type: "image/png".into(),
+        base64_data: format!("image-{id}"),
+        size_bytes: 7,
+        image_id: id,
     }
 }
 
@@ -91,6 +101,90 @@ async fn assert_no_request(server: &MpscServerTransport) {
             panic!("不能额外发起推理轮次或重复投递通知，实际收到 {message:?}")
         }
     }
+}
+
+#[tokio::test]
+async fn test_idle_background_notifications_preserve_draft_and_attachments() {
+    let (mut app, _handle) = App::new_headless(80, 24).await;
+    make_submission_ready(&mut app);
+    let (client, server) = make_client("owner-a").await;
+    app.acp_client = Some(client);
+    app.session_mgr.current_mut().current_thread_id = Some("owner-a".into());
+    app.session_mgr
+        .current_mut()
+        .ui
+        .textarea
+        .insert_str("正在编辑 ");
+    app.paste_text_into_textarea("草稿第一行\n第二行");
+    app.session_mgr
+        .current_mut()
+        .ui
+        .textarea
+        .insert_str(" [Image #2]");
+    app.session_mgr
+        .current_mut()
+        .metadata
+        .pending_attachments
+        .push(make_image(2));
+    app.session_mgr
+        .current_mut()
+        .ui
+        .textarea
+        .move_cursor(tui_textarea::CursorMove::Jump(0, 2));
+    let draft = app.session_mgr.current().ui.textarea.lines().join("\n");
+    let cursor = app.session_mgr.current().ui.textarea.cursor();
+    let next_pasted_text_id = app.session_mgr.current().ui.next_pasted_text_id;
+    let mut first = make_notification(Some("owner-a"), "first-task");
+    // 命令中恰好有草稿占位符时，也不能展开或带上草稿附件。
+    first.content = first
+        .content
+        .replace("echo done", "echo [Pasted text #1 +2 lines] [Image #2]");
+    let second = make_notification(Some("owner-a"), "second-task");
+    let expected_notification = format!(
+        "<system-reminder>\n{}\n\n{}\n</system-reminder>",
+        first.content, second.content
+    );
+    app.inject_bg_shell_notifications(vec![first, second]);
+    let session = app.session_mgr.current();
+    assert!(session.ui.loading, "通知仍应自动开启一轮执行");
+    assert_eq!(
+        session.ui.textarea.lines().join("\n"),
+        draft,
+        "草稿不能丢失"
+    );
+    assert_eq!(session.ui.textarea.cursor(), cursor, "光标位置不能变化");
+    assert_eq!(session.ui.pasted_text_blocks.len(), 1, "粘贴映射不能丢失");
+    assert_eq!(session.ui.next_pasted_text_id, next_pasted_text_id);
+    assert_eq!(session.metadata.pending_attachments.len(), 1);
+    assert_eq!(session.metadata.pending_attachments[0].image_id, 2);
+    assert_eq!(
+        app.expand_pasted_text(&draft),
+        "正在编辑 草稿第一行\n第二行 [Image #2]"
+    );
+    let (notification_id, method, params) = receive_request(&server).await;
+    assert_eq!(method, "session/prompt");
+    assert_eq!(
+        params["message"]["content"].as_str(),
+        Some(expected_notification.as_str()),
+        "两条通知应合并发送，且不能携带或展开草稿"
+    );
+    assert!(server
+        .send_response(notification_id, Ok(json!({})))
+        .await
+        .is_ok());
+    assert_no_request(&server).await;
+    app.handle_agent_event(crate::app::AgentEvent::Done);
+    app.route_slash_input(draft);
+    let (draft_id, method, params) = receive_request(&server).await;
+    assert_eq!(method, "session/prompt");
+    let content = params["message"]["content"]
+        .as_array()
+        .expect("用户提交草稿时应包含文字和图片");
+    assert_eq!(content.len(), 2);
+    assert_eq!(content[0]["text"], "正在编辑 草稿第一行\n第二行 [Image #2]");
+    assert_eq!(content[1]["type"], "image");
+    assert_eq!(content[1]["source"]["data"], "image-2");
+    assert!(server.send_response(draft_id, Ok(json!({}))).await.is_ok());
 }
 
 #[tokio::test]
@@ -217,6 +311,11 @@ async fn test_done_before_rejected_receipt_submits_idle_notification_once() {
     app.acp_client = Some(client);
     app.session_mgr.current_mut().current_thread_id = Some("owner-a".into());
     app.set_loading(true);
+    app.session_mgr
+        .current_mut()
+        .ui
+        .textarea
+        .insert_str("迟到回执期间的草稿");
     app.inject_bg_shell_notifications(vec![make_notification(Some("owner-a"), "late-task")]);
     let (id, method, _) = receive_request(&server).await;
     assert_eq!(method, "peri/session/steer");
@@ -235,6 +334,11 @@ async fn test_done_before_rejected_receipt_submits_idle_notification_once() {
     assert!(params["message"]["content"]
         .to_string()
         .contains("late-task"));
+    assert_eq!(
+        app.session_mgr.current().ui.textarea.lines(),
+        ["迟到回执期间的草稿"],
+        "迟到回执触发自动提交时也不能清空草稿"
+    );
     assert!(app
         .session_mgr
         .current()

@@ -9,7 +9,7 @@ use cc_acp::{
 use cc_agent::messages::MessageContent;
 use tokio::sync::oneshot;
 
-use super::{App, PendingBgShellNotification};
+use super::{App, PendingBgShellNotification, QueuedMessage};
 
 type Attempt = (Option<String>, Option<Instant>);
 
@@ -221,13 +221,15 @@ impl App {
                 self.spawn_bg_shell_notification(notification, attempt.clone());
             }
         } else {
-            self.submit_message(
+            // 自动提交通知时，保留用户正在编辑的草稿及其附件。
+            self.submit_queued_message(QueuedMessage::new(
                 notifications
                     .into_iter()
                     .map(|notification| notification.content)
                     .collect::<Vec<_>>()
                     .join("\n\n"),
-            );
+                Vec::new(),
+            ));
         }
         true
     }
