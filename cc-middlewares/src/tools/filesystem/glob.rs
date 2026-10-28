@@ -46,13 +46,16 @@ fn is_virtual_fs_root(_path: &Path) -> bool {
     false
 }
 
-const GLOB_FILES_DESCRIPTION: &str = r#"Find local files by name using glob patterns such as "**/*.js" or "src/**/*.rs".
+const GLOB_FILES_DESCRIPTION: &str = r#"Fast file pattern matching tool that works with any codebase size.
 
 Usage:
-- Provide pattern; path defaults to the working directory and may be absolute or relative to it.
-- Results are sorted by modification time, newest first, with at most 1000 paths returned.
-- Search honors applicable ignore rules; hidden and generated directories may be excluded. A missing result does not establish that a file is absent.
-- Narrow broad patterns when results are truncated. Use Grep to search file contents."#;
+- Supports glob patterns like "**/*.js" or "src/**/*.ts". Use ** for recursive matching.
+- path defaults to the working directory. If specified, must be a valid directory path (omit or leave empty to use current directory; DO NOT pass "undefined" or "null").
+- Returns matching file paths sorted by modification time (newest first), with at most 1000 paths returned.
+- Relativizes paths under the current working directory to save context.
+- Search honors applicable ignore rules (.gitignore, .ignore); hidden and version-control metadata directories are excluded.
+- When results are truncated, narrow the search pattern or specify a more specific path.
+- When doing an open-ended search requiring multiple rounds of globbing and grepping, use the Agent tool instead."#;
 
 fn glob_match(pattern: &str, path: &str) -> bool {
     glob::Pattern::new(pattern)
@@ -60,12 +63,26 @@ fn glob_match(pattern: &str, path: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// 路径相对化辅助函数：将位于 cwd 内部的路径转换为相对路径，统一使用正斜杠
+fn relativize_path(path: &Path, cwd: &Path) -> String {
+    if let Ok(rel) = path.strip_prefix(cwd) {
+        let s = rel.to_string_lossy().replace('\\', "/");
+        if s.is_empty() {
+            ".".to_string()
+        } else {
+            s
+        }
+    } else {
+        path.to_string_lossy().replace('\\', "/")
+    }
+}
+
 /// 使用 ignore::WalkBuilder 收集匹配文件，原生支持 .gitignore + 隐藏文件过滤。
 ///
 /// 使用 Top-K 最小堆就地维护最新的 MAX_RESULTS 个文件，避免全量收集后二次 metadata 调用。
-/// 返回 (results, total_matched, truncated)：results 为最新的 MAX_RESULTS 个文件，
+/// 返回 (results, total_matched, truncated)：results 为最新的 MAX_RESULTS 个文件（相对于 cwd），
 /// total_matched 为总匹配数，truncated 为是否因安全上限提前中止。
-fn collect_files(base: &Path, pattern: &str) -> (Vec<String>, usize, bool) {
+fn collect_files(base: &Path, cwd: &Path, pattern: &str) -> (Vec<String>, usize, bool) {
     let mut builder = ignore::WalkBuilder::new(base);
     builder
         .hidden(true) // 搜索隐藏文件
@@ -127,7 +144,6 @@ fn collect_files(base: &Path, pattern: &str) -> (Vec<String>, usize, bool) {
             continue;
         }
 
-        let abs_path = e.path().to_string_lossy().to_string();
         if let Ok(rel) = e.path().strip_prefix(base) {
             let rel_str = rel.to_string_lossy().replace('\\', "/");
             if glob_match(pattern, &rel_str) {
@@ -137,7 +153,8 @@ fn collect_files(base: &Path, pattern: &str) -> (Vec<String>, usize, bool) {
                     .ok()
                     .and_then(|m| m.modified().ok())
                     .unwrap_or(std::time::UNIX_EPOCH);
-                heap.push((Reverse(mtime), abs_path));
+                let rel_path = relativize_path(e.path(), cwd);
+                heap.push((Reverse(mtime), rel_path));
                 if heap.len() > MAX_RESULTS {
                     heap.pop(); // 弹出最旧的
                 }
@@ -171,11 +188,11 @@ impl BaseTool for GlobFilesTool {
             "properties": {
                 "pattern": {
                     "type": "string",
-                    "description": "The glob pattern to match files against (e.g. \"**/*.js\", \"src/**/*.rs\", \"*.config.json\"). Use ** for recursive matching"
+                    "description": "The glob pattern to match files against (e.g. \"**/*.js\", \"src/**/*.rs\", \"*.config.json\"). Use ** for recursive matching."
                 },
                 "path": {
                     "type": "string",
-                    "description": "The directory to search in. Absolute path or relative to cwd. If not specified, the current working directory is used"
+                    "description": "The directory to search in. Absolute path or relative to cwd. If not specified, the current working directory is used. Omit this field to use the default directory; DO NOT pass \"undefined\" or \"null\"."
                 }
             },
             "required": ["pattern"]
@@ -225,10 +242,13 @@ impl BaseTool for GlobFilesTool {
         // 移到 spawn_blocking 避免阻塞 tokio 工作线程，外层加超时兜底
         let pattern_owned = pattern.to_string();
         let search_root_owned = search_root.clone();
+        let cwd_owned = self.cwd.clone();
 
         let result = tokio::time::timeout(
             Duration::from_secs(GLOB_TIMEOUT_SECS),
-            tokio::task::spawn_blocking(move || collect_files(&search_root_owned, &pattern_owned)),
+            tokio::task::spawn_blocking(move || {
+                collect_files(&search_root_owned, Path::new(&cwd_owned), &pattern_owned)
+            }),
         )
         .await;
 
@@ -250,13 +270,13 @@ impl BaseTool for GlobFilesTool {
         };
 
         if results.is_empty() {
-            Ok("No files found.".to_string())
+            Ok("No files found".to_string())
         } else {
             let mut output = results.join("\n");
             if total_matched > MAX_RESULTS {
                 let persist_hint = persist_truncated_output(&output);
                 output = format!(
-                    "{}\n\n[Output truncated: {} files total, showing first {}]{}",
+                    "{}\n\n(Results are truncated. Consider using a more specific path or pattern. Output truncated: {} files total, showing first {}){}",
                     output, total_matched, MAX_RESULTS, persist_hint
                 );
             }

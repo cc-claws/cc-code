@@ -15,7 +15,7 @@ const BASH_DESCRIPTION: &str = r#"Executes one command using Bash (Git Bash on W
 
 Usage:
 - Each invocation starts in the configured working directory. Changes made with cd, environment assignments, and shell state do not persist across calls. Commands use bash -c, not a login shell
-- Prefer a dedicated tool over Bash for read-only work, unless none can accomplish the task; use Bash for commands, builds, scripts, and operations that need shell execution. Mapping: read files → Read (NOT cat/head/tail); edit files → Edit (NOT sed/awk); write files → Write (NOT echo >/cat <<EOF); search contents → Grep (NOT grep/rg); find files → Glob (NOT find/ls); reply to the user → return text directly (NOT echo/printf).
+- Prefer a dedicated tool over Bash for read-only work, unless none can accomplish the task; use Bash for commands, builds, scripts, and operations that need shell execution. Mapping: read files → Read (NOT cat/head/tail); edit files → Edit (NOT sed/awk); write files → Write (NOT echo >/cat <<EOF); search contents → Grep (NOT grep/rg, Grep integrates with permissions and clickable links); find files → Glob (NOT find/ls); reply to the user → return text directly (NOT echo/printf).
 - You can specify an optional timeout in milliseconds (up to 600000ms / 10 minutes). Default is 120000ms (2 minutes)
 - Keep dependent commands ordered; use && when a later command should run only after success. Independent operations may run separately.
 - In hosts with background support, timeout limits foreground waiting and the command continues in the background; without background support, timeout cancels the command
