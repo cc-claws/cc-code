@@ -543,14 +543,39 @@ fn test_existing_jsonl_wins_over_legacy() {
     let cwd = project.path().to_str().unwrap();
     let other = tempdir().unwrap();
 
+    // 前置：.jsonl 已存在（内容指向另一个目录），旧的纯文本清单同时残留。
+    // 必须手动建 .jsonl，因为 trust_project_in 内部会先读取，
+    // 若此时 .jsonl 缺失就会先把旧文件迁移掉，测不到「已有 jsonl」这条路径。
+    std::fs::write(
+        home.path().join(TRUST_FILE_NAME),
+        format!(
+            "{}\n",
+            serde_json::to_string(&TrustedProject {
+                path: other.path().to_string_lossy().to_string(),
+                trusted_at: None,
+            })
+            .unwrap()
+        ),
+    )
+    .unwrap();
     std::fs::write(
         home.path().join(LEGACY_TRUST_FILE_NAME),
         other.path().to_str().unwrap(),
     )
     .unwrap();
+
     trust_project_in(home.path(), cwd).unwrap();
 
+    // 新目录被追加进 .jsonl
     assert!(is_project_trusted_in(home.path(), cwd));
-    // 旧文件仍在（未迁移），迁移只在 .jsonl 缺失时发生
-    assert!(home.path().join(LEGACY_TRUST_FILE_NAME).exists());
+    // .jsonl 已存在，迁移不会触发，旧文件原样保留
+    assert!(
+        home.path().join(LEGACY_TRUST_FILE_NAME).exists(),
+        "已有 .jsonl 时不应触发迁移"
+    );
+    // 也没有生成迁移留档
+    assert!(
+        !home.path().join(LEGACY_BACKUP_FILE_NAME).exists(),
+        "未触发迁移时不应生成留档文件"
+    );
 }
