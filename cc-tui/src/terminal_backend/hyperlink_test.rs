@@ -1,111 +1,130 @@
 use super::*;
-use ratatui::buffer::Cell;
-use ratatui::style::{Color, Style};
+use ratatui::layout::Rect;
+use ratatui::style::{Color, Modifier, Style};
 
-fn cell(symbol: &str, style: Style) -> Cell {
-    let mut cell = Cell::default();
-    cell.set_symbol(symbol);
-    cell.set_style(style);
-    cell
+fn make_buffer(x: u16, y: u16, symbol: &str, style: Style) -> Buffer {
+    let mut buffer = Buffer::empty(Rect::new(0, 0, 10, 4));
+    buffer[(x, y)].set_symbol(symbol).set_style(style);
+    buffer
 }
 
-/// 全局登记表是进程级状态，测试必须串行覆盖各分支：拆成多个 `#[test]`
-/// 会并行跑同一个表（清空/登记互相踩），这里一个用例顺序走完。
+fn make_prepared_frame(previous: &Frame, buffer: &mut Buffer) -> Frame {
+    previous.prepare(buffer);
+    take_prepared_frame(previous).expect("应生成当前帧").frame
+}
+
 #[test]
 fn test_hyperlink_registry_wraps_registered_cells_only() {
-    // 未启用：登记被忽略，也不包裹。
+    let baseline = Frame::default();
+    let mut buffer = make_buffer(3, 1, "h", Style::default());
     begin_frame(false);
-    register(3, 1, "https://a.example/x", true);
+    register(3, 1, "https://a.example/x", true, (0, 0, 1));
+    let frame = make_prepared_frame(&baseline, &mut buffer);
     assert_eq!(
-        decorate(3, 1, &cell("h", Style::default())),
+        frame.decorate(3, 1, &buffer[(3, 1)]),
         None,
         "未启用时不得注入 OSC 8"
     );
-
-    // 启用后：登记的 cell 被包裹并染成链接色，未登记/空白 cell 不受影响。
     begin_frame(true);
-    register(3, 1, "https://a.example/x", true);
-    let decorated = decorate(3, 1, &cell("h", Style::default())).expect("登记过的 cell 应被包裹");
+    register(3, 1, "https://a.example/x", true, (0, 0, 1));
+    let frame = make_prepared_frame(&baseline, &mut buffer);
+    assert_eq!(buffer[(3, 1)].symbol(), "h", "差分 buffer 必须保持纯文本");
+    assert_eq!(
+        buffer[(3, 1)].fg,
+        Color::LightBlue,
+        "链接颜色必须在差分前生效"
+    );
+    let decorated = frame
+        .decorate(3, 1, &buffer[(3, 1)])
+        .expect("登记过的格子应被包裹");
     assert_eq!(
         decorated.symbol(),
-        "\x1b]8;;https://a.example/x\x07h\x1b]8;;\x07",
-        "包裹 = open(BEL 收尾) + 原 symbol + close，与 CC 的 OSC8_END 一致"
-    );
-    assert_eq!(
-        decorated.style().fg,
-        Some(Color::LightBlue),
-        "链接前景色取 12 号槽（实测与 CC 观感一致）"
+        format!(
+            "\x1b]8;id=cc-code-{}-{}-0-0-1;https://a.example/x\x07h\x1b]8;;\x07",
+            std::process::id(),
+            frame.namespace
+        ),
+        "同一命中区必须使用显式锚点，并在字符后关闭链接"
     );
     assert!(
-        !decorated
-            .style()
-            .add_modifier
-            .contains(ratatui::style::Modifier::UNDERLINED),
-        "CC 不加人工下划线，悬停样式交给终端"
+        !decorated.modifier.contains(Modifier::UNDERLINED),
+        "下划线交由终端悬停状态处理"
     );
     assert_eq!(
-        decorate(4, 1, &cell("t", Style::default())),
+        frame.decorate(4, 1, &Cell::new("t")),
         None,
-        "同一行的其它 cell 不包裹"
+        "同一行其他格子不包裹"
     );
+    assert_eq!(frame.decorate(3, 2, &Cell::new("x")), None, "其他行不包裹");
     assert_eq!(
-        decorate(3, 2, &cell("x", Style::default())),
+        frame.decorate(3, 1, &Cell::new(" ")),
         None,
-        "其它行不包裹"
+        "空白格子不得成为热点"
     );
-    assert_eq!(
-        decorate(3, 1, &cell(" ", Style::default())),
-        None,
-        "空白 cell 不包裹，避免把空格变成热点"
-    );
-
-    // 新的一帧必须清空上一帧登记，否则滚动后旧坐标会挂上错误的链接。
     begin_frame(true);
+    let frame = make_prepared_frame(&frame, &mut buffer);
     assert_eq!(
-        decorate(3, 1, &cell("h", Style::default())),
+        frame.decorate(3, 1, &buffer[(3, 1)]),
         None,
-        "跨帧不得残留登记"
+        "每帧必须重新登记链接"
     );
 }
 
-/// URL 里的控制字符必须剥离，否则能提前终止 OSC 8 序列注入任意终端指令。
 #[test]
 fn test_hyperlink_url_control_chars_are_stripped() {
+    let baseline = Frame::default();
+    let mut buffer = make_buffer(0, 0, "x", Style::default());
     begin_frame(true);
-    register(0, 0, "https://a.example/\u{7}evil", true);
-    let decorated = decorate(0, 0, &cell("x", Style::default())).expect("应包裹");
-    assert!(
-        !decorated.symbol().contains("\u{7}evil\u{7}"),
-        "URL 内的 BEL 不得冒充序列终结符: {:?}",
-        decorated.symbol()
+    register(
+        0,
+        0,
+        "https://a.example/\u{7}evil\u{1b}\\\n",
+        true,
+        (0, 0, 1),
     );
+    let frame = make_prepared_frame(&baseline, &mut buffer);
+    let decorated = frame
+        .decorate(0, 0, &buffer[(0, 0)])
+        .expect("登记过的格子应被包裹");
+    assert!(
+        decorated.symbol().contains(";https://a.example/evil\\\x07"),
+        "URI 内控制字符必须被剥离"
+    );
+    assert_eq!(
+        decorated.symbol().matches('\x07').count(),
+        2,
+        "URI 不得额外注入 OSC 终结符"
+    );
+    assert_eq!(
+        decorated.symbol().matches('\x1b').count(),
+        2,
+        "URI 不得额外注入终端命令"
+    );
+}
+
+#[test]
+fn test_hyperlink_preserves_cell_color_when_recolor_disabled() {
+    let baseline = Frame::default();
+    let own_color = Color::Rgb(255, 255, 255);
+    let mut buffer = make_buffer(
+        2,
+        0,
+        "I",
+        Style::default().fg(own_color).bg(Color::DarkGray),
+    );
+    begin_frame(true);
+    register(2, 0, "file:///tmp/a.png", false, (0, 2, 3));
+    let frame = make_prepared_frame(&baseline, &mut buffer);
+    let decorated = frame
+        .decorate(2, 0, &buffer[(2, 0)])
+        .expect("登记过的格子应被包裹");
     assert!(
         decorated
             .symbol()
-            .starts_with("\x1b]8;;https://a.example/evil\x07"),
-        "控制字符剥离后 URL 应保持完整: {:?}",
-        decorated.symbol()
+            .contains(";file:///tmp/a.png\x07I\x1b]8;;\x07"),
+        "保留附件文件链接"
     );
-}
-
-/// `recolor = false` 的链接只包 OSC 8，必须保留渲染层给的前景色。
-///
-/// 回归护栏：附件引用行用正文前景色（白），输出层若照旧染成链接蓝，
-/// 用户看到的就是蓝色而不是设计要求的白色。
-#[test]
-fn test_hyperlink_preserves_cell_color_when_recolor_disabled() {
-    begin_frame(true);
-    register(2, 0, "file:///tmp/a.png", false);
-    let own_color = Style::default().fg(Color::Rgb(255, 255, 255));
-    let decorated = decorate(2, 0, &cell("I", own_color)).expect("登记过的 cell 仍应包 OSC 8");
-    assert_eq!(
-        decorated.symbol(),
-        "\x1b]8;;file:///tmp/a.png\x07I\x1b]8;;\x07",
-        "不改色也必须保留可点击的 OSC 8 包裹"
-    );
-    assert_eq!(
-        decorated.style().fg,
-        Some(Color::Rgb(255, 255, 255)),
-        "recolor=false 时前景色必须原样保留"
-    );
+    assert_eq!(buffer[(2, 0)].fg, own_color, "差分前保留附件自身颜色");
+    assert_eq!(decorated.fg, own_color, "输出层不得再次改色");
+    assert_eq!(decorated.bg, Color::DarkGray, "选区背景必须保留");
 }

@@ -130,7 +130,7 @@
 
 ### URL 超链接（工具结果 / `!` 命令输出）
 
-纯文本里裸写的 `http://` / `https://` 不做任何着色，而是变成**真超链接**：消息区按可见行扫描出 URL 命中区并登记屏幕坐标，`WidthSafeBackend` 真正写字节时按坐标包上 OSC 8 转义序列（`cc-tui/src/ui/osc8.rs` + `cc-tui/src/terminal_backend/hyperlink.rs`）。**转义序列绝不写进 frame buffer**——`ratatui` 的 `Buffer::diff` 用 `symbol.width()` 决定跳过后续多少个 cell，序列载荷是可见字符，一旦进 buffer，链接后面的整段文字会被跳过不画。
+纯文本里裸写的 `http://` / `https://` 会变成**真超链接**：消息区登记 URL 命中区及稳定锚点，所有组件和选区绘制后先把链接色写入 frame buffer 样式，再由 `WidthSafeBackend` 在输出时包上 OSC 8 转义序列（`cc-tui/src/ui/osc8.rs` + `cc-tui/src/terminal_backend/hyperlink.rs`）。URL、锚点或启用状态变化时，即使文字相同也只补画受影响的字符；附件等 `recolor=false` 的链接保留自身颜色。**转义序列绝不写进 frame buffer**——`ratatui` 的 `Buffer::diff` 用 `symbol.width()` 决定跳过后续多少个 cell，序列载荷是可见字符，一旦进 buffer，链接后面的整段文字会被跳过不画。
 
 | 项 | 规则 |
 |----|------|
@@ -139,7 +139,7 @@
 | 可点击 | 悬停提示、Ctrl/Cmd+点击、右键「打开链接」由终端提供；cc-code 自己的单击命中区也登记了同一批 URL（`link_from_parts`） |
 | 识别范围 | 只认 `http://` / `https://`，口径对齐参考实现 `OutputLine.tsx::URL_IN_JSON`（`/https?:\/\/[^\s"'<>\\]+/g`），并额外切掉句末 `)` `]` `}` `,` `;` `.` `:` |
 | 覆盖范围 | 所有走 `⎿` 前缀的工具结果行（Bash / Read / Grep / Glob 等）+ 用户 `!命令` 输出 + 退化成纯 URL 的 Markdown 链接；**用户自己输入的气泡不参与** |
-| 序列格式 | `ESC]8;;URL BEL` … `ESC]8;;BEL`，与参考实现的 `OSC8_END`（BEL）一致 |
+| 序列格式 | `ESC]8;id=稳定锚点;URL BEL` … `ESC]8;;BEL`；同一命中区共用 ID，独立命中区和后端互不混组，BEL 收尾与参考实现的 `OSC8_END` 一致 |
 | 关闭开关 | `DISABLE_HYPERLINKS=1` 时不注入序列（只影响 OSC 8，不影响点击命中区） |
 
 > 注意与 Markdown 链接区分：AI 回复正文里的 `[text](url)` 走 `cc-widgets/src/markdown/render_state.rs` 的 `theme.link()`（= SAGE `#4EBA65` + 下划线，见「Markdown 渲染」），**不受本规则影响**。本条只作用于「裸 URL 文本」。
