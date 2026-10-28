@@ -93,6 +93,8 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 ### v0.6.x 新增功能
 
+**滚动与输入响应优化（v0.6.201）：** 后台准备布局时继续处理输入；稳定滚动复用已确认宽度，用户交互、流式输出与后台更新采用统一绘制节奏。全屏切换、窗口缩放和选区复制保持必要的帧顺序。详见 [CHANGELOG](./CHANGELOG.md)。
+
 **只读 Bash 并入工具折叠组（v0.6.197）：** 文件查询类 Bash（`ls`、`cat`、`grep`、`rg`、`find`、`head`、`awk` 等）现在与 `Read` / `Grep` / `Glob` 并入同一个只读组，折叠摘要显示 `ran N shell commands`，与 `read`、`searched` 并列。判定改为**前端命令词法**——模型不再传 `file_inspect`（已从工具 schema 删除），`2>/dev/null` / `2>&1` 与引号内的分隔符、`>` 不再被误判成写盘。思考行收敛为一行摘要：运行中 `∴ Thinking for Ns…`、冻结后 `  Thought for Ns`，正文走 `Ctrl+O`。自动 compact 不再清空消息区，卡住检测也不再误伤连续编辑。详见 [CHANGELOG](./CHANGELOG.md)。
 
 **文件查询类 Bash 折叠（v0.6.195）：** 只读查看文件的 Bash 调用现在可以并入只读工具组。模型通过可选参数 `file_inspect` 标记（单条命令同样适用），折叠摘要显示 `ran N shell commands`，与 `read`、`searched` 并列；失败的命令在折叠态仍保留退出码与 stderr，`Ctrl+O` 展开完整命令与输出。运行中、已转后台、模型显式设了 `timeout` 的命令不会折叠，实时输出与 `Ctrl+B` 提示不受影响。详见 [CHANGELOG](./CHANGELOG.md)。
@@ -111,6 +113,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **滚动与输入响应优化** | v0.6.201 | 后台布局准备不再阻塞输入处理，稳定滚动复用已确认宽度；交互与流式更新采用统一绘制节奏，全屏、窗口缩放和选区复制边界保持原有顺序（#768）。 |
 | **只读 Bash 并入工具折叠组** | v0.6.197 | 文件查询类 Bash 并入只读工具组，判定改为前端命令词法（`file_inspect` 已从工具 schema 删除），`2>/dev/null` 与引号内分隔符不再误判；思考行收敛为一行摘要（`∴ Thinking for Ns…` → `Thought for Ns`），自动 compact 保留可见历史，卡住检测不再误伤连续编辑。 |
 | **文件查询类 Bash 折叠** | v0.6.195 | 只读查看文件的 Bash 调用带模型给出的可选参数 `file_inspect`，并入只读工具组：折叠摘要显示 `ran N shell commands`，与 `read`、`searched` 并列，单条命令同样折叠；失败命令保留退出码与 stderr，`Ctrl+O` 逐条展开命令与输出。运行中、已转后台、显式设了 `timeout` 的命令保持单条，实时输出与 `Ctrl+B` 照常工作。 |
 | **工具头文件路径可点击** | v0.6.194 | `Write`/`Edit`/`Read` 的工具调用行路径现在包成 OSC 8 `file://` 链接，点击用系统默认程序打开文件，`Wrote N lines to <path>` 结果行同样可点。链接目标是绝对路径、显示文本保持相对 / `~` 记法，`DISABLE_HYPERLINKS=1` 退回纯文本，Windows 直接 exec `explorer.exe`（不经 `cmd` 再解析）。长会话超过 5000 行 / 300 条消息 / 16 MB 时自动切窗口化渲染，不再每次变化都重建整张行表。 |
@@ -120,8 +123,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **Skill 一级核心工具** | v0.6.191 | 技能成为一级核心工具：模型自己调用 `Skill`，不再靠 `Read` 打开 `SKILL.md` 触发；`/skill-name` 也不再向历史注入伪造的 `Ai[ToolUse: Read]` + `Tool[ToolResult]` 消息。核心工具白名单由 11 增至 12；`context: fork` 技能在隔离子代理中执行并等待结果，压缩恢复按工具名精确配对，只恢复最近激活的技能正文（#730）。 |
 | **状态栏工具名 inactive** | v0.6.191 | 状态栏工具统计里的工具名改用调色板 `inactive`，不再走默认前景色，与其他次要信息同层级（#729）。 |
 | **传统终端缺字形降级** | v0.6.191 | 传统终端（如经典 conhost）缺字形时，`❯` 与 `⏵` 定向降级为可渲染字符；同批补齐面板箭头、recap 前缀、todo、面板导航与滚动条的缺字降级（#727）。 |
-| **最近工具最短可见时长** | v0.6.190 | 最近工具行最短可见时长由 300ms 经 800ms 调到 1200ms，不再一闪而过；最近工具图标统一为 `◐`，不再翻成 `✓`（#723）。 |
-> 更早版本（v0.6.0 – v0.6.189）见 [CHANGELOG](./CHANGELOG.md)。
+> 更早版本（v0.6.0 – v0.6.190）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---
 
