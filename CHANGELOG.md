@@ -6,6 +6,12 @@ Perihelion Agent 版本变更记录。
 
 ## Unreleased
 
+## v0.6.204 — 2026-10-28
+
+### Performance
+
+- **语法高亮全局集改为启动阶段后台预热（#644）**：`SYNTAX_SET` / `THEME_SET` 两个 `Lazy` 静态变量此前在渲染线程首次遇到代码块或 diff 时同步初始化，debug 构建约 103ms（release 约 10–20ms）直接压在首帧上。现于 TUI 启动流程中用 `spawn_blocking` 后台提前触发，与终端初始化并行完成，首帧不再等待；语法覆盖、配色与常驻内存均无变化。
+
 ## v0.6.203 — 2026-10-28
 
 ### Fixes
