@@ -113,6 +113,8 @@ No credentials configured? The deterministic layer still runs and an LLM classif
 
 | Feature | Version | Description |
 |---------|---------|-------------|
+| **Background Notifications Preserve Drafts** | v0.6.203 | Background shell notifications no longer clear an unsent draft or consume its pasted text and images; the cursor and attachments remain available for editing and sending (#777). |
+| **Consistent Markdown Link Colors** | v0.6.203 | Markdown links retain their underline and use the existing terminal hyperlink blue instead of the theme's success color (#775). |
 | **Scrolling and Input Responsiveness** | v0.6.201 | Background layout preparation no longer blocks input processing. Stable scrolling reuses its prepared width; input and streaming updates share a redraw schedule, while fullscreen, resize and selection-copy boundaries retain their ordering (#768). |
 | **Read-Only Bash in Tool Groups** | v0.6.197 | File-inspection Bash folds into the read-only tool group; classification is purely lexical on the frontend (`file_inspect` removed from the tool schema), and `2>/dev/null`, quoted separators or quoted `>` no longer break it. Thinking rows are one-line summaries (`∴ Thinking for Ns…` → `Thought for Ns`), auto-compact keeps the visible history, and the stuck detector stops misfiring on consecutive edits. |
 | **Collapsed File-Inspection Bash** | v0.6.195 | Bash calls that only inspect files carry an optional `file_inspect` argument from the model and fold into the read-only tool group: the collapsed summary reads `ran N shell commands` beside `read` / `searched`, a single command folds too, failures keep their exit code and stderr, and `Ctrl+O` expands every command with its output. Running, backgrounded or explicitly-timed-out commands stay standalone so live output and `Ctrl+B` keep working. |
@@ -121,9 +123,7 @@ No credentials configured? The deterministic layer still runs and an LLM classif
 | **Image Attachment Links** | v0.6.192 | Sent images are saved to the system temp dir (`cc-code-images/<session_uuid>/<image_id>.<ext>`) only while their `[Image #N]` placeholder is still in the input, and each gets a `  ⎿  [Image #N]` line below your message. With a saved path and OSC 8 enabled the reference opens the local image in supported terminals; save failures never block sending, and no local path is sent to the model in Phase 1 (#734). |
 | **Status Bar Separator in Muted Color** | v0.6.192 | The ` | ` separators on the status bar's first line now use the muted secondary color instead of the terminal default foreground, so they stop outshining the model name, cwd and token counts. Only the separator color changed; text, columns and layout are untouched (#735). |
 | **Skill as a First-Class Core Tool** | v0.6.191 | Skills are now a first-class core tool: the model calls `Skill` itself instead of opening `SKILL.md` through `Read`, and `/skill-name` no longer injects a faked `Ai[ToolUse: Read]` + `Tool[ToolResult]` pair into history. The core tool whitelist grows from 11 to 12; `context: fork` skills run in an isolated sub-agent and wait for its result, and skill instructions survive compaction by exact tool-name pairing (#730). |
-| **Status Bar Tool Names in Inactive** | v0.6.191 | Tool names in the status bar's tool statistics now use the palette `inactive` color instead of the default foreground, sitting at the same level as other secondary status-bar information (#729). |
-| **Legacy Console Glyph Fallbacks** | v0.6.191 | On legacy terminals without the glyphs (classic conhost and friends), `❯` and `⏵` now fall back to renderable characters; the same pass covers panel arrows, recap prefixes, todo markers, panel navigation and scrollbars (#727). |
-> Older releases (v0.6.0 – v0.6.190) are listed in the [CHANGELOG](./CHANGELOG.md).
+> Older releases (v0.6.0 – v0.6.191) are listed in the [CHANGELOG](./CHANGELOG.md).
 
 ---
 
