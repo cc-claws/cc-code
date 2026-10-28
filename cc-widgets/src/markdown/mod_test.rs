@@ -94,15 +94,17 @@ fn parse_bold_italic() {
 }
 
 #[test]
-fn parse_link() {
+fn test_parse_link_defers_color_to_terminal() {
     let text = parse_markdown("[text](url)", &default_theme(), 80);
     assert!(!text.lines.is_empty());
     let has_link = text.lines.iter().any(|l| {
-        l.spans
-            .iter()
-            .any(|s| s.content.contains("text") && s.style.fg == Some(default_theme().link()))
+        l.spans.iter().any(|s| {
+            s.content.contains("text")
+                && s.style.fg.is_none()
+                && s.style.add_modifier.contains(Modifier::UNDERLINED)
+        })
     });
-    assert!(has_link, "Expected link text with link color");
+    assert!(has_link, "链接应保留下划线，前景色交由终端层统一设置");
 }
 
 #[test]

@@ -1528,7 +1528,8 @@ impl<'a> RenderState<'a> {
                 if self.hyperlinks {
                     self.inline_style = self
                         .inline_style
-                        .fg(self.theme.link())
+                        // 链接颜色由终端层统一设置为蓝色。
+                        // .fg(self.theme.link())
                         .add_modifier(Modifier::UNDERLINED);
                 }
             }
