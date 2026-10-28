@@ -630,6 +630,12 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
         // stdin 上的原始字节，事件读取器一旦启动就会抢先消费。`theme = "auto"`
         // 依赖这次探测，非 auto 主题不受影响。
         cc_tui::terminal_theme::preload();
+        // 预热语法高亮的 Lazy 全局集（SYNTAX_SET ~68ms / THEME_SET ~35ms debug），
+        // 移出渲染线程首帧，与后续终端初始化重叠。(#644)
+        tokio::task::spawn_blocking(|| {
+            let _ = &*cc_widgets::markdown::highlight::SYNTAX_SET;
+            let _ = &*cc_widgets::markdown::highlight::THEME_SET;
+        });
         // 推送键盘增强标志：支持 kitty 协议的终端才能区分 `Ctrl+Enter` 与 `Enter`
         // （Terminal.app 等不支持者会忽略，行为不变）。必须与退出时的 restore 成对出现。
         cc_tui::keyboard_modes::enable_keyboard_enhancement();
