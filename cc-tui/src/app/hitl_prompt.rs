@@ -70,6 +70,15 @@ pub struct HitlBatchPrompt {
     pub last_visible_height: u16,
     /// 当前滚动偏移（行）。Paragraph::scroll 用，让光标保持可见。
     pub scroll_offset: u16,
+    /// 审批原因说明（对齐参考实现的 `decisionReason` 渲染）。
+    ///
+    /// 有值时在内容区下方多渲染 1~3 行，格式如：
+    /// `CC Code requested permissions to edit <path> which is a sensitive file.`
+    /// `Permission rule Bash requires confirmation for this command.`
+    /// `/permissions to update rules`
+    pub notice: Vec<String>,
+    /// 是否提供「不再询问」类持久授权（高危操作置 false，对齐 CC 的 offersStanding）。
+    pub offers_standing: bool,
     /// 回复 channel
     pub response_tx: tokio::sync::oneshot::Sender<Vec<HitlDecision>>,
 }
@@ -87,6 +96,8 @@ impl HitlBatchPrompt {
             cursor: 0,
             last_visible_height: 0,
             scroll_offset: 0,
+            notice: Vec::new(),
+            offers_standing: true,
             response_tx,
         }
     }

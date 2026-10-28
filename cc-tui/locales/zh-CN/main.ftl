@@ -290,10 +290,10 @@ login-confirm-delete = :确认删除
 
 hitl-single-title =  ⚠ 工具审批 (1 项)
 hitl-batch-title =  ⚠ 批量工具审批
-hitl-choice-once = [同意本次]
-hitl-choice-session = [本次会话同意]
-hitl-choice-reject = [拒绝]
-hitl-key-hint = ↑↓ 选择 · Tab 切换工具 · Enter 确认 · Esc 全部拒绝
+hitl-choice-once = 同意
+hitl-choice-session = 同意，本次会话不再询问
+hitl-choice-reject = 拒绝
+hitl-key-hint = Esc 取消 · Tab 修改
 hitl-run-command = 运行命令
 hitl-edit-file = 编辑文件
 hitl-read-file = 读取文件
@@ -714,3 +714,20 @@ agent-center-read-ended = 会话读取任务已结束，请重新打开中心
 subagent-tool-uses = { $count } 个工具调用
 bg-drawer-hint-short = ↑/↓ 选择 · ctrl+x ctrl+k 停止全部 Agent
 bg-drawer-hint-full = Enter 查看 · x 停止 · ctrl+x ctrl+k 停止全部 Agent
+
+# ── 审批弹窗标题（对齐参考实现工具名） ──
+hitl-title-bash = Bash command
+hitl-title-edit = Edit file
+hitl-title-write = Write file
+hitl-title-read = Read file
+hitl-title-search = Search
+hitl-title-skill = Skill
+hitl-question-default = 是否继续？
+hitl-question-edit = 是否允许此编辑写入 { $file }？
+hitl-question-write = 是否允许写入 { $file }？
+hitl-title-skill-named = 使用技能「{ $name }」？
+hitl-skill-caveat = CC Code 可能会使用此技能中的说明、代码或文件。
+hitl-notice-sensitive = CC Code 请求编辑敏感文件 { $path }。
+hitl-notice-rule = 权限规则 { $tool } 要求确认此命令。
+hitl-notice-permissions-hint = /permissions 更新规则
+hitl-title-mcp = 调用 { $tool }

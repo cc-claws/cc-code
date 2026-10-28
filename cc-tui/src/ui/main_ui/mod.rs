@@ -289,42 +289,45 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
 
     // 输入框渲染
     let cursor_visible = app.session_mgr.current().ui.cursor_visible;
-    let textarea_ref = &app.session_mgr.current_mut().ui.textarea;
-    render_textarea(
-        f,
-        textarea_ref,
-        chunks[5],
-        shell_mode,
-        app.focused,
-        cursor_visible,
-    );
+    // 区域始终记录（点击定位依赖它），但高度为 0 时跳过绘制，避免越界。
     app.session_mgr.current_mut().ui.textarea_area = Some(chunks[5]);
-
-    // 输入提示符
-    let prompt_x = chunks[5].x;
-    let prompt_y = chunks[5].y + 1;
-    let prompt_area = Rect {
-        x: prompt_x,
-        y: prompt_y,
-        width: 2,
-        height: 1,
-    };
-    let loading = app.session_mgr.current_mut().ui.loading;
-    let (prompt, prompt_style) = textarea_prompt(shell_mode, loading);
-    if chunks[5].height >= 2 {
-        f.render_widget(Paragraph::new(prompt).style(prompt_style), prompt_area);
-    }
-
-    // 统一命令/Skills 提示条 或 @ 提及弹窗（互斥）
-    if app.session_mgr.current_mut().ui.at_mention.active {
-        crate::app::at_mention::popup::render_at_mention_popup(
+    if chunks[5].height > 0 {
+        let textarea_ref = &app.session_mgr.current_mut().ui.textarea;
+        render_textarea(
             f,
-            &app.session_mgr.current_mut().ui.at_mention,
+            textarea_ref,
             chunks[5],
-            &app.services.lc,
+            shell_mode,
+            app.focused,
+            cursor_visible,
         );
-    } else {
-        popups::hints::render_unified_hint(f, app, chunks[5]);
+
+        // 输入提示符
+        let prompt_x = chunks[5].x;
+        let prompt_y = chunks[5].y + 1;
+        let prompt_area = Rect {
+            x: prompt_x,
+            y: prompt_y,
+            width: 2,
+            height: 1,
+        };
+        let loading = app.session_mgr.current_mut().ui.loading;
+        let (prompt, prompt_style) = textarea_prompt(shell_mode, loading);
+        if chunks[5].height >= 2 {
+            f.render_widget(Paragraph::new(prompt).style(prompt_style), prompt_area);
+        }
+
+        // 统一命令/Skills 提示条 或 @ 提及弹窗（互斥）
+        if app.session_mgr.current_mut().ui.at_mention.active {
+            crate::app::at_mention::popup::render_at_mention_popup(
+                f,
+                &app.session_mgr.current_mut().ui.at_mention,
+                chunks[5],
+                &app.services.lc,
+            );
+        } else {
+            popups::hints::render_unified_hint(f, app, chunks[5]);
+        }
     }
 
     // 状态栏
@@ -676,14 +679,22 @@ fn render_back_to_bottom_button(
 
 /// 计算底部展开区所需高度（无激活面板时返回 0）
 fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 {
-    // plugin 面板可以占 70%，AskUser 弹窗允许 75%（选项多/文字长需要更多空间），其他最多 60%
+    // plugin 面板可以占 70%，AskUser 弹窗允许 75%（选项多/文字长需要更多空间），
+    // 审批弹窗 85%（对齐参考实现：审批时消息区压缩到最小，弹窗优先占据空间），
+    // 其他最多 60%
     let is_plugin_panel = app.global_panels.is_active(crate::app::PanelKind::Plugin);
     let has_ask_user = matches!(
         &app.session_mgr.current().agent.interaction_prompt,
         Some(crate::app::InteractionPrompt::Questions(_))
     );
+    let has_approval = matches!(
+        &app.session_mgr.current().agent.interaction_prompt,
+        Some(crate::app::InteractionPrompt::Approval(_))
+    );
     let max_h = if is_plugin_panel {
         screen_height * 70 / 100
+    } else if has_approval {
+        screen_height * 85 / 100
     } else if has_ask_user {
         screen_height * 3 / 4
     } else {

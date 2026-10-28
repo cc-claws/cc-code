@@ -70,6 +70,27 @@ pub(super) struct BottomHeights {
 impl BottomHeights {
     pub(super) fn measure(app: &App, terminal: Rect) -> Self {
         let line_count = app.session_mgr.current().ui.textarea.lines().len();
+        // 审批弹窗激活时（对齐参考实现）：输入框、状态栏、后台栏全部让位，
+        // 只在弹窗底部保留 `Esc to cancel · Tab to amend` 一行由弹窗自身绘制。
+        let approval_active = matches!(
+            app.session_mgr.current().agent.interaction_prompt,
+            Some(crate::app::InteractionPrompt::Approval(_))
+        );
+        if approval_active {
+            // 欢迎卡（logo + 提示行）是消息区顶部固定块，没有被裁切后自动滚走的余地：
+            // 面板高度必须给它留出完整行数，否则首行边框会被吃掉。
+            let reserved = u16::try_from(welcome_rows(app, terminal.width)).unwrap_or(0);
+            let panel = active_panel_height(app, terminal.height, terminal.width)
+                .min(terminal.height.saturating_sub(reserved));
+            return Self {
+                attachment: 0,
+                panel,
+                queued: 0,
+                input: 0,
+                status: 0,
+                background: 0,
+            };
+        }
         Self {
             attachment: if app
                 .session_mgr

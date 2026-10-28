@@ -291,10 +291,10 @@ login-confirm-delete = :Confirm delete
 
 hitl-single-title =  ⚠ Tool Approval (1 item)
 hitl-batch-title =  ⚠ Batch Tool Approval
-hitl-choice-once = [Allow once]
-hitl-choice-session = [Allow for this session]
-hitl-choice-reject = [Reject]
-hitl-key-hint = ↑↓ choose · Tab switch tool · Enter confirm · Esc reject all
+hitl-choice-once = Yes
+hitl-choice-session = Yes, and don't ask again this session
+hitl-choice-reject = No
+hitl-key-hint = Esc to cancel · Tab to amend
 hitl-run-command = Run command
 hitl-edit-file = Edit file
 hitl-read-file = Read file
@@ -715,3 +715,20 @@ agent-center-read-ended = Session read task ended; reopen the center
 subagent-tool-uses = { $count } tool uses
 bg-drawer-hint-short = ↑/↓ to select · ctrl+x ctrl+k to stop all agents
 bg-drawer-hint-full = Enter to view · x to stop · ctrl+x ctrl+k to stop all agents
+
+# ── 审批弹窗标题（对齐参考实现工具名） ──
+hitl-title-bash = Bash command
+hitl-title-edit = Edit file
+hitl-title-write = Write file
+hitl-title-read = Read file
+hitl-title-search = Search
+hitl-title-skill = Skill
+hitl-question-default = Do you want to proceed?
+hitl-question-edit = Do you want to make this edit to { $file }?
+hitl-question-write = Do you want to write to { $file }?
+hitl-title-skill-named = Use skill "{ $name }"?
+hitl-skill-caveat = CC Code may use instructions, code, or files from this Skill.
+hitl-notice-sensitive = CC Code requested permissions to edit { $path } which is a sensitive file.
+hitl-notice-rule = Permission rule { $tool } requires confirmation for this command.
+hitl-notice-permissions-hint = /permissions to update rules
+hitl-title-mcp = Call { $tool }

@@ -16,10 +16,83 @@ use crate::{
 };
 
 pub(super) struct ApprovalContent {
+    /// 顶部标题：工具名（对齐参考实现的 `Bash command` / `Edit file`）。
+    pub title: String,
+    /// 副标题（对齐参考实现：Edit/Write 显示文件路径，Skill 显示警告语，Bash 无）。
+    pub subtitle: Option<String>,
+    /// 描述行（对齐参考实现：工具带 `description` 时显示在标题下方、虚线之上）。
+    pub description: Option<String>,
+    /// 提问句（对齐参考实现的 `Do you want to proceed?`）。
+    pub question: String,
+    /// 审批原因说明（对齐参考实现的 decisionReason 区）。空表示不渲染。
+    pub notice: Vec<String>,
     pub sections: Vec<Vec<Line<'static>>>,
     pub summary: Vec<Line<'static>>,
     pub choices: Vec<Line<'static>>,
     pub hints: Vec<Line<'static>>,
+}
+
+/// 工具名 → 参考实现的标题文案。
+fn tool_title(item: &BatchItem, lc: &LcRegistry) -> String {
+    match item.tool_name.as_str() {
+        "Bash" => lc.tr("hitl-title-bash"),
+        "Edit" => lc.tr("hitl-title-edit"),
+        "Write" => lc.tr("hitl-title-write"),
+        "Read" => lc.tr("hitl-title-read"),
+        "Grep" | "Glob" => lc.tr("hitl-title-search"),
+        "Skill" => {
+            // 对齐参考实现：`Use skill "<name>"?`
+            let name = item
+                .input
+                .get("skill")
+                .or_else(|| item.input.get("name"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default();
+            if name.is_empty() {
+                lc.tr("hitl-title-skill")
+            } else {
+                lc.tr_args("hitl-title-skill-named", &[("name".into(), name.into())])
+            }
+        }
+        // MCP 工具名形如 `mcp__server__tool`，标题用 `Call <tool>`
+        other if other.starts_with("mcp__") => {
+            let short = other.rsplit("__").next().unwrap_or(other);
+            lc.tr_args("hitl-title-mcp", &[("tool".into(), short.into())])
+        }
+        other => other.to_string(),
+    }
+}
+
+/// 工具名 → 副标题（文件路径）。Bash/Skill 等无副标题。
+fn tool_subtitle(item: &BatchItem) -> Option<String> {
+    item.input
+        .get("file_path")
+        .or_else(|| item.input.get("notebook_path"))
+        .and_then(serde_json::Value::as_str)
+        .map(sanitize_display_text)
+}
+
+/// 工具名 → 提问句。
+fn tool_question(item: &BatchItem, lc: &LcRegistry) -> String {
+    let file = item
+        .input
+        .get("file_path")
+        .or_else(|| item.input.get("path"))
+        .and_then(serde_json::Value::as_str)
+        .and_then(|path| std::path::Path::new(path).file_name())
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    match item.tool_name.as_str() {
+        "Edit" if !file.is_empty() => lc.tr_args(
+            "hitl-question-edit",
+            &[("file".into(), file.to_string().into())],
+        ),
+        "Write" if !file.is_empty() => lc.tr_args(
+            "hitl-question-write",
+            &[("file".into(), file.to_string().into())],
+        ),
+        _ => lc.tr("hitl-question-default"),
+    }
 }
 
 pub(super) fn build_content(app: &App, width: usize) -> Option<ApprovalContent> {
@@ -29,27 +102,54 @@ pub(super) fn build_content(app: &App, width: usize) -> Option<ApprovalContent> 
         return None;
     };
     let lc = &app.services.lc;
+    let project_cwd = app.services.cwd.clone();
     let cursor = prompt.cursor.min(prompt.items.len().saturating_sub(1));
     let sections = prompt
         .items
         .iter()
         .enumerate()
         .map(|(index, item)| {
-            let choice = prompt
-                .choices
-                .get(index)
-                .copied()
-                .unwrap_or(ApprovalChoice::Once);
-            let mut rows = vec![tool_header(
-                item,
-                index,
-                index == cursor,
-                (prompt.items.len() > 1).then_some(choice),
-                &app.services.cwd,
-                width,
-                lc,
-            )];
-            rows.extend(input_rows(item, width, lc, index == cursor));
+            let mut rows = Vec::new();
+            // 批量场景：非当前项只输出一行摘要（`<序号> <工具> <路径>`），
+            // 让用户知道后面还有哪些待审；当前项展开完整内容。
+            if prompt.items.len() > 1 && index != cursor {
+                let target = item
+                    .input
+                    .get("file_path")
+                    .or_else(|| item.input.get("path"))
+                    .or_else(|| item.input.get("command"))
+                    .and_then(serde_json::Value::as_str)
+                    .map(sanitize_display_text)
+                    .unwrap_or_default();
+                let mut head = format!(
+                    "{} {}",
+                    sanitize_display_text(&item.tool_name),
+                    truncate_to_display_width(&target, width.saturating_sub(12))
+                );
+                // 附带非路径的简单参数（如 replace_all: true），便于批量时辨认
+                if let Some(map) = item.input.as_object() {
+                    for (key, value) in map {
+                        if matches!(
+                            key.as_str(),
+                            "file_path" | "path" | "command" | "old_string" | "new_string"
+                        ) {
+                            continue;
+                        }
+                        let rendered = value
+                            .as_str()
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| value.to_string());
+                        head.push_str(&format!(" · {key}: {rendered}"));
+                    }
+                }
+                rows.push(Line::styled(
+                    head,
+                    Style::default().fg(theme::cur().inactive),
+                ));
+                return rows;
+            }
+            // 当前项：标题行已由 popup 层统一绘制，这里只输出工具参数内容。
+            rows.extend(input_rows(item, width, index == cursor, &project_cwd));
             rows
         })
         .collect();
@@ -92,8 +192,12 @@ pub(super) fn build_content(app: &App, width: usize) -> Option<ApprovalContent> 
         };
         rows.into_iter()
             .map(|row| {
+                // 缩进 1 格，与标题/提问句/选项对齐
                 Line::styled(
-                    truncate_to_display_width(&row, width),
+                    format!(
+                        " {}",
+                        truncate_to_display_width(&row, width.saturating_sub(1))
+                    ),
                     Style::default().fg(theme::cur().inactive),
                 )
             })
@@ -105,7 +209,9 @@ pub(super) fn build_content(app: &App, width: usize) -> Option<ApprovalContent> 
         .items
         .get(cursor)
         .map(|item| {
-            choice_rows(
+            // 高危操作（offers_standing=false）不提供「本次会话不再询问」档，
+            // 对齐参考实现 只留 Yes / No 两项。
+            let rows = choice_rows(
                 item,
                 prompt
                     .choices
@@ -114,14 +220,66 @@ pub(super) fn build_content(app: &App, width: usize) -> Option<ApprovalContent> 
                     .unwrap_or(ApprovalChoice::Once),
                 width,
                 lc,
-            )
+            );
+            if prompt.offers_standing {
+                rows
+            } else {
+                // 命中高危：只留 同意 / 拒绝，并重新编号为 1. 2.
+                let session_label = lc.tr("hitl-choice-session");
+                rows.into_iter()
+                    .filter(|line| {
+                        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+                        !text.contains(&session_label)
+                    })
+                    .enumerate()
+                    .map(|(index, line)| renumber_choice(line, index + 1))
+                    .collect()
+            }
         })
         .unwrap_or_default();
     let hints = wrap_words(&lc.tr("hitl-key-hint"), width)
         .into_iter()
         .map(|row| Line::styled(row, Style::default().fg(theme::cur().inactive)))
         .collect();
+    let title = prompt
+        .items
+        .get(cursor)
+        .map(|item| tool_title(item, lc))
+        .unwrap_or_else(|| lc.tr("hitl-single-title"));
+    let question = prompt
+        .items
+        .get(cursor)
+        .map(|item| tool_question(item, lc))
+        .unwrap_or_else(|| lc.tr("hitl-question-default"));
+    // Skill 场景：副标题用「可能使用此技能中的说明/代码/文件」警告语（对齐 CC）。
+    let subtitle = prompt.items.get(cursor).and_then(|item| {
+        if item.tool_name == "Skill" {
+            Some(lc.tr("hitl-skill-caveat"))
+        } else {
+            tool_subtitle(item)
+        }
+    });
+    // 审批原因区（对齐 CC 的 decisionReason）：每行一条，末尾附 /permissions 提示。
+    let notice = prompt.notice.clone();
+    // 描述行：`description` 属于「这一步要做什么」的说明，参考实现放在标题下方、
+    // 虚线之上，且不带 `description:` 前缀，也不重复出现在参数区。
+    let description = prompt
+        .items
+        .get(cursor)
+        .and_then(|item| item.input.get("description"))
+        .and_then(serde_json::Value::as_str)
+        .map(|text| {
+            sanitize_display_text_preserving_newlines(text)
+                .trim()
+                .to_string()
+        })
+        .filter(|text| !text.is_empty());
     Some(ApprovalContent {
+        title,
+        subtitle,
+        description,
+        question,
+        notice,
         sections,
         summary,
         choices,
@@ -137,157 +295,87 @@ fn choice_key(choice: ApprovalChoice) -> &'static str {
     }
 }
 
-fn description_key(item: &BatchItem, choice: ApprovalChoice) -> &'static str {
-    match choice {
-        ApprovalChoice::Once => "hitl-description-once",
-        ApprovalChoice::Reject => "hitl-description-reject",
-        ApprovalChoice::Session if item.tool_name == "Bash" => "hitl-description-session-command",
-        ApprovalChoice::Session
-            if matches!(item.tool_name.as_str(), "Read" | "Write" | "Edit")
-                && (item
-                    .input
-                    .get("file_path")
-                    .and_then(serde_json::Value::as_str)
-                    .is_some()
-                    || item
-                        .input
-                        .get("path")
-                        .and_then(serde_json::Value::as_str)
-                        .is_some()) =>
-        {
-            "hitl-description-session-file"
-        }
-        ApprovalChoice::Session => "hitl-description-session-tool",
-    }
+/// 把选项行的序号改写为 `index`（用于过滤掉某项后重新编号）。
+fn renumber_choice(line: Line<'static>, index: usize) -> Line<'static> {
+    let want = format!("{index}. ");
+    let spans = line
+        .spans
+        .into_iter()
+        .map(|mut span| {
+            let text = span.content.to_string();
+            // 序号形如 `1. ` / `2. `，只替换形如 `<digit>. ` 的片段
+            if let Some(pos) = text.find(". ") {
+                let head = &text[..pos];
+                if !head.is_empty() && head.chars().all(|c| c.is_ascii_digit()) {
+                    span.content = format!("{want}{}", &text[pos + 2..]).into();
+                }
+            }
+            span
+        })
+        .collect::<Vec<_>>();
+    Line::from(spans)
 }
 
+/// 选项列表：对齐参考实现的 `❯ 1. Yes` / `  2. No` 形式。
+///
+/// - 焦点项前缀 `❯ ` + 序号，用 thinking 紫
+/// - 非焦点项前缀 2 空格 + 序号，用 body 灰
+/// - 序号单独用更暗的灰色（与参考实现一致）
 fn choice_rows(
-    item: &BatchItem,
+    _item: &BatchItem,
     selected: ApprovalChoice,
     width: usize,
     lc: &LcRegistry,
 ) -> Vec<Line<'static>> {
     let labels = ApprovalChoice::ALL.map(|choice| lc.tr(choice_key(choice)));
-    let descriptions = ApprovalChoice::ALL.map(|choice| lc.tr(description_key(item, choice)));
-    let label_width = labels.iter().map(|label| label.width()).max().unwrap_or(0);
-    let description_width = descriptions
-        .iter()
-        .map(|text| text.width())
-        .max()
-        .unwrap_or(0);
-    let wide = label_width + description_width + 8 <= width;
     let mut rows = Vec::new();
     for (index, choice) in ApprovalChoice::ALL.into_iter().enumerate() {
         let is_selected = choice == selected;
-        let marker = if is_selected {
-            format!("{} ● ", theme::SYMBOL_CURSOR)
-        } else {
-            "  ○ ".to_string()
-        };
-        let style = if is_selected {
-            Style::default()
-                .fg(if choice == ApprovalChoice::Reject {
-                    theme::cur().error
-                } else {
-                    theme::cur().thinking
-                })
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(theme::cur().inactive)
-        };
-        let label = format!("{marker}{}", labels[index]);
-        let mut spans = vec![Span::styled(
-            truncate_to_display_width(&label, width),
-            style,
-        )];
-        if wide {
-            spans.push(Span::raw(
-                " ".repeat(label_width.saturating_sub(labels[index].width()) + 4),
+        let number = format!("{}. ", index + 1);
+        let label_text = labels[index].to_string();
+
+        let mut spans: Vec<Span<'static>> = Vec::with_capacity(4);
+        // 外层统一缩进 1 格，与标题/命令/提问句对齐；
+        // 焦点项在缩进后放 `❯ `，非焦点项用 2 空格占住同样的宽度。
+        spans.push(Span::raw(" "));
+        if is_selected {
+            spans.push(Span::styled(
+                "❯ ",
+                Style::default().fg(theme::cur().thinking),
             ));
             spans.push(Span::styled(
-                descriptions[index].clone(),
+                number,
                 Style::default().fg(theme::cur().inactive),
             ));
+            spans.push(Span::styled(
+                label_text,
+                Style::default()
+                    .fg(theme::cur().thinking)
+                    .add_modifier(Modifier::BOLD),
+            ));
+        } else {
+            spans.push(Span::raw("  "));
+            spans.push(Span::styled(
+                number,
+                Style::default().fg(theme::cur().inactive),
+            ));
+            spans.push(Span::styled(
+                label_text,
+                Style::default().fg(theme::cur().text_soft),
+            ));
         }
+        let _ = width;
         rows.push(Line::from(spans));
-    }
-    if !wide {
-        rows.extend(
-            wrap_words(&descriptions[selected.index()], width)
-                .into_iter()
-                .map(|text| Line::styled(text, Style::default().fg(theme::cur().inactive))),
-        );
     }
     rows
 }
 
-fn tool_header(
+fn input_rows(
     item: &BatchItem,
-    index: usize,
-    active: bool,
-    choice: Option<ApprovalChoice>,
-    cwd: &str,
     width: usize,
-    lc: &LcRegistry,
-) -> Line<'static> {
-    let action = lc.tr(match item.tool_name.as_str() {
-        "Bash" => "hitl-run-command",
-        "Edit" => "hitl-edit-file",
-        "Read" => "hitl-read-file",
-        "Write" => "hitl-write-file",
-        "Glob" | "Grep" | "WebSearch" => "hitl-search",
-        _ => "hitl-call-tool",
-    });
-    let prefix = if choice.is_some() {
-        format!(
-            "{} {} ",
-            if active { theme::SYMBOL_CURSOR } else { " " },
-            index + 1
-        )
-    } else {
-        String::new()
-    };
-    let heading = format!(
-        "{prefix}{} {action} {} {}",
-        sanitize_display_text(&item.tool_name),
-        lc.tr("hitl-working-directory"),
-        sanitize_display_text(cwd)
-    );
-    let selection = choice.map(|value| {
-        lc.tr_args(
-            "hitl-selected-choice",
-            &[("choice".into(), lc.tr(choice_key(value)).into())],
-        )
-    });
-    let reserved = selection.as_ref().map(|text| text.width() + 2).unwrap_or(0);
-    let mut spans = vec![Span::styled(
-        truncate_to_display_width(&heading, width.saturating_sub(reserved)),
-        Style::default()
-            .fg(if active {
-                theme::cur().thinking
-            } else {
-                theme::cur().text_soft
-            })
-            .add_modifier(if active {
-                Modifier::BOLD
-            } else {
-                Modifier::empty()
-            }),
-    )];
-    if let (Some(choice), Some(selection)) = (choice, selection) {
-        spans.push(Span::styled(
-            truncate_to_display_width(&format!("  {selection}"), width),
-            Style::default().fg(match choice {
-                ApprovalChoice::Once => theme::cur().success,
-                ApprovalChoice::Session => theme::cur().thinking,
-                ApprovalChoice::Reject => theme::cur().error,
-            }),
-        ));
-    }
-    Line::from(spans)
-}
-
-fn input_rows(item: &BatchItem, width: usize, lc: &LcRegistry, active: bool) -> Vec<Line<'static>> {
+    active: bool,
+    project_cwd: &str,
+) -> Vec<Line<'static>> {
     let mut rows = Vec::new();
     let Some(map) = item.input.as_object() else {
         push_text(
@@ -298,20 +386,65 @@ fn input_rows(item: &BatchItem, width: usize, lc: &LcRegistry, active: bool) -> 
         );
         return rows;
     };
+    // Skill 场景：只渲染 description 正文（不带 `description:` 前缀，也不显示技能名），
+    // 并对每行加 `│ ` gutter，对齐参考实现的引用块样式。
+    if item.tool_name == "Skill" {
+        if let Some(desc) = map.get("description").and_then(serde_json::Value::as_str) {
+            let desc = sanitize_display_text_preserving_newlines(desc);
+            for row in wrap_text(&desc, width.saturating_sub(3).max(20)) {
+                rows.push(Line::from(vec![
+                    Span::styled("│ ", Style::default().fg(theme::cur().inactive)),
+                    Span::styled(row, Style::default().fg(theme::cur().text_soft)),
+                ]));
+            }
+        }
+        if rows.is_empty() {
+            push_text(&mut rows, "{}", width, theme::cur().text_soft);
+        }
+        return rows;
+    }
     let command = (item.tool_name == "Bash")
         .then(|| map.get("command").and_then(serde_json::Value::as_str))
         .flatten();
     if let Some(command) = command {
-        push_text(&mut rows, command, width, theme::cur().text_soft);
+        let command = sanitize_display_text_preserving_newlines(command);
+        // body 行统一缩进 1 格，故可用宽度先减 1
+        let plain = wrap_text(&command, width.saturating_sub(1).max(20));
+        if plain.len() > 1 {
+            // 长命令换行时画 `│ ` 引文块（对齐参考实现的 needsGutter），
+            // 每行再让出 gutter 的 2 列，保证不会被渲染层二次软换行。
+            let guttered = width.saturating_sub(3).max(20);
+            rows.extend(wrap_text(&command, guttered).into_iter().map(|row| {
+                Line::from(vec![
+                    Span::styled("│ ", Style::default().fg(theme::cur().inactive)),
+                    Span::styled(row, Style::default().fg(theme::cur().text_soft)),
+                ])
+            }));
+        } else {
+            rows.extend(
+                plain
+                    .into_iter()
+                    .map(|row| Line::styled(row, Style::default().fg(theme::cur().text_soft))),
+            );
+        }
     }
-    let path = ["file_path", "path"].into_iter().find_map(|key| {
-        map.get(key)
-            .and_then(serde_json::Value::as_str)
-            .map(|path| (key, path))
-    });
-    if let Some((_, path)) = path {
-        push_text(&mut rows, path, width, theme::cur().text_soft);
-    }
+    // 只有「操作单个文件」的工具，其路径才提升为弹窗副标题、内容区不再重复：
+    // Edit / Write / Read / NotebookEdit。Grep 的 `path` 是搜索范围，属普通参数。
+    let path_is_subtitle = matches!(
+        item.tool_name.as_str(),
+        "Edit" | "Write" | "Read" | "NotebookEdit"
+    );
+    let path = path_is_subtitle
+        .then(|| {
+            ["file_path", "notebook_path", "path"]
+                .into_iter()
+                .find_map(|key| {
+                    map.get(key)
+                        .and_then(serde_json::Value::as_str)
+                        .map(|path| (key, path))
+                })
+        })
+        .flatten();
     let edit = if item.tool_name == "Edit" {
         map.get("old_string")
             .and_then(serde_json::Value::as_str)
@@ -319,20 +452,80 @@ fn input_rows(item: &BatchItem, width: usize, lc: &LcRegistry, active: bool) -> 
     } else {
         None
     };
+    // Edit 场景：路径已由审批弹窗副标题显示，diff 自己也带文件头，这里不再重复打印。
+    // 文件路径由审批弹窗副标题统一显示，内容区不再重复。
+    let _ = path;
     if active {
         if let Some((old, new)) = edit {
-            push_text(
+            // 对齐参考实现：不打印「修改对比」说明行，直接渲染带行号 +
+            // 上下文 + 语法高亮的 diff（复用 cc-widgets::diff，与消息区同一实现）。
+            push_rich_diff(
                 &mut rows,
-                &lc.tr("hitl-diff-title"),
+                path.map(|(_, p)| p).unwrap_or_default(),
+                old,
+                new,
                 width,
-                theme::cur().inactive,
+                project_cwd,
             );
-            push_diff(&mut rows, old, new, width);
         }
     }
-    for (key, value) in map {
+    // Write 的 content：文件已存在时按 diff 渲染（用户要看改了什么），
+    // 新文件才走「新建文件代码预览」——带行号 gutter + 语法高亮、无 diff 底色。
+    if item.tool_name == "Write" {
+        if let Some(content) = map.get("content").and_then(serde_json::Value::as_str) {
+            let content = sanitize_display_text_preserving_newlines(content);
+            let file_path = map
+                .get("file_path")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default();
+            match cached_file_content(file_path, project_cwd).filter(|old| !old.trim().is_empty()) {
+                // 覆盖已有文件：给整文件 diff，让用户看到新增/删除的行
+                Some(old) => rows.extend(render_diff_rows(
+                    file_path,
+                    sanitize_display_text_preserving_newlines(&old),
+                    content,
+                    false,
+                    width,
+                )),
+                // 新建：create 预览（行号 + 语法高亮，无 diff 底色）
+                None => rows.extend(cc_widgets::diff::render_new_file_code(
+                    file_path,
+                    &content,
+                    width.saturating_sub(1).max(20),
+                    &theme::widgets_theme(),
+                    usize::MAX,
+                )),
+            }
+        }
+    }
+    // 其余参数：按语义优先级排序（pattern/query 最前，owner/repo 次之），
+    // 而不是 JSON 字典序，避免 `glob` 排在 `pattern` 前面这种反直觉顺序。
+    const PRIORITY: &[&str] = &[
+        "pattern",
+        "query",
+        "url",
+        "command",
+        "path",
+        "owner",
+        "repo",
+        "title",
+        "old_string",
+        "new_string",
+        "offset",
+        "limit",
+    ];
+    let mut rest: Vec<(&String, &serde_json::Value)> = map.iter().collect();
+    rest.sort_by_key(|(key, _)| {
+        PRIORITY
+            .iter()
+            .position(|p| p == key)
+            .unwrap_or(PRIORITY.len())
+    });
+    for (key, value) in rest {
         if (key == "command" && command.is_some())
+            || key == "description"
             || path.is_some_and(|(path_key, _)| key == path_key)
+            || (key == "content" && item.tool_name == "Write")
             || ((key == "old_string" || key == "new_string") && edit.is_some())
         {
             continue;
@@ -348,9 +541,8 @@ fn input_rows(item: &BatchItem, width: usize, lc: &LcRegistry, active: bool) -> 
             theme::cur().text_soft,
         );
     }
-    if rows.is_empty() {
-        push_text(&mut rows, "{}", width, theme::cur().text_soft);
-    }
+    // 内容为空时不再输出 `{}` 占位：审批弹窗的内容区已有上下虚线包裹，
+    // 留空比显示无意义的 `{}` 更接近参考实现。
     rows
 }
 
@@ -361,55 +553,182 @@ fn push_text(
     color: ratatui::style::Color,
 ) {
     rows.extend(
-        wrap_text(&sanitize_display_text_preserving_newlines(text), width)
-            .into_iter()
-            .map(|text| Line::styled(text, Style::default().fg(color))),
+        wrap_text(
+            &sanitize_display_text_preserving_newlines(text),
+            width.saturating_sub(1).max(20),
+        )
+        .into_iter()
+        .map(|text| Line::styled(text, Style::default().fg(color))),
     );
 }
 
-fn push_diff(rows: &mut Vec<Line<'static>>, old: &str, new: &str, width: usize) {
-    let old = sanitize_display_text_preserving_newlines(old);
-    let new = sanitize_display_text_preserving_newlines(new);
-    let old: Vec<_> = old.split('\n').collect();
-    let new: Vec<_> = new.split('\n').collect();
-    let prefix = old
+/// 富 diff：复用 `cc_widgets::diff`，得到带行号 gutter、上下文行与语法高亮的行。
+///
+/// 与消息区的 diff 渲染共用同一套实现（`cc_widgets::diff::render_diff`），
+/// 对齐参考实现的 `color-diff-napi` 输出形态。
+///
+/// 审批只拿到 `old_string` / `new_string` 片段，直接 diff 片段只有被改的那几行、
+/// 看不到上下文。参考实现会先读文件再算 diff，因此这里同样优先用磁盘上的真实
+/// 文件内容构造「全文 → 替换后全文」，让 diff 自然带出前后上下文行。
+///
+/// `render_diff` 会在开头输出「文件路径行 + 增删摘要行」，但审批弹窗的标题区
+/// 已经显示了路径、参考实现也不打印摘要，因此这里跳过前两行。
+fn push_rich_diff(
+    rows: &mut Vec<Line<'static>>,
+    file_path: &str,
+    old: &str,
+    new: &str,
+    width: usize,
+    project_cwd: &str,
+) {
+    let (old_content, new_content) = full_file_pair(file_path, project_cwd, old, new);
+    rows.extend(render_diff_rows(
+        file_path,
+        old_content,
+        new_content,
+        old.is_empty(),
+        width,
+    ));
+}
+
+/// 渲染一整份 diff 并去掉「文件路径行 + 增删摘要行」。
+fn render_diff_rows(
+    file_path: &str,
+    old_content: String,
+    new_content: String,
+    is_new_file: bool,
+    width: usize,
+) -> Vec<Line<'static>> {
+    let input = cc_widgets::diff::DiffInput {
+        file_path: file_path.to_string(),
+        old_content,
+        new_content,
+        is_new_file,
+        is_deleted_file: false,
+        is_binary: false,
+    };
+    let theme = theme::widgets_theme();
+    let rendered = cc_widgets::diff::render_diff(&input, width.saturating_sub(2).max(20), &theme);
+    // 跳过「路径标题行」和「Added N lines, removed M lines」摘要行：
+    // 前者与审批弹窗副标题重复，后者 参考实现不显示。
+    let skip = rendered
         .iter()
-        .zip(&new)
-        .take_while(|(left, right)| left == right)
+        .take(2)
+        .take_while(|line| {
+            let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+            text.contains(file_path)
+                || text.trim_start().starts_with("Added ")
+                || text.trim_start().starts_with("Removed ")
+        })
         .count();
-    let suffix = old[prefix..]
-        .iter()
-        .rev()
-        .zip(new[prefix..].iter().rev())
-        .take_while(|(left, right)| left == right)
-        .count();
-    let context_before = old[..prefix]
-        .iter()
-        .map(|text| ("  ", *text, theme::cur().inactive));
-    let removed = old[prefix..old.len() - suffix]
-        .iter()
-        .map(|text| ("− ", *text, theme::cur().error));
-    let added = new[prefix..new.len() - suffix]
-        .iter()
-        .map(|text| ("+ ", *text, theme::cur().success));
-    let context_after = old[old.len() - suffix..]
-        .iter()
-        .map(|text| ("  ", *text, theme::cur().inactive));
-    for (marker, text, color) in context_before
-        .chain(removed)
-        .chain(added)
-        .chain(context_after)
-    {
-        for (index, part) in wrap_text(text, width.saturating_sub(2).max(1))
-            .into_iter()
-            .enumerate()
-        {
-            rows.push(Line::styled(
-                format!("{}{part}", if index == 0 { marker } else { "  " }),
-                Style::default().fg(color),
-            ));
+    rendered
+        .into_iter()
+        .skip(skip)
+        .map(replace_remove_marker)
+        .collect()
+}
+
+/// 把 `old_string` / `new_string` 片段还原成「替换前全文 / 替换后全文」。
+///
+/// 读不到文件（新建、路径不存在、超过大小上限、片段已不匹配磁盘内容）时回退为
+/// 片段本身，保证审批内容始终可渲染。
+fn full_file_pair(file_path: &str, project_cwd: &str, old: &str, new: &str) -> (String, String) {
+    let fallback = |old: &str, new: &str| {
+        (
+            sanitize_display_text_preserving_newlines(old),
+            sanitize_display_text_preserving_newlines(new),
+        )
+    };
+    if old.is_empty() || file_path.is_empty() {
+        return fallback(old, new);
+    }
+    let Some(content) = cached_file_content(file_path, project_cwd) else {
+        return fallback(old, new);
+    };
+    // 片段在磁盘内容里定位不到，说明入参已与当前文件不一致（例如同批次前一步
+    // 刚改过），此时按全文 diff 会渲染成整文件删改，退回片段 diff 更可信。
+    if !content.contains(old) {
+        return fallback(old, new);
+    }
+    let replaced = content.replacen(old, new, 1);
+    (
+        sanitize_display_text_preserving_newlines(&content),
+        sanitize_display_text_preserving_newlines(&replaced),
+    )
+}
+
+/// 缓存的文件快照：mtime + 长度用于失效判定。
+struct FileSnapshot {
+    mtime: u64,
+    len: u64,
+    text: String,
+}
+
+/// 审批渲染期读取文件内容：按 (mtime, len) 缓存，超过 512 KB 不读。
+///
+/// `build_content` 每帧都会被调用，不能每次真读盘；审批弹窗停留期间用户也可能
+/// 改动同一文件，所以用 mtime 作为失效条件。
+fn cached_file_content(file_path: &str, project_cwd: &str) -> Option<String> {
+    use std::sync::{LazyLock, Mutex};
+
+    const MAX_BYTES: u64 = 512 * 1024;
+    static CACHE: LazyLock<Mutex<std::collections::HashMap<String, FileSnapshot>>> =
+        LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+    let path = std::path::Path::new(file_path);
+    let resolved = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::path::Path::new(project_cwd).join(path)
+    };
+    let meta = std::fs::metadata(&resolved).ok()?;
+    if !meta.is_file() || meta.len() > MAX_BYTES {
+        return None;
+    }
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|delta| delta.as_secs())
+        .unwrap_or(0);
+    let key = resolved.to_string_lossy().to_string();
+    if let Ok(cache) = CACHE.lock() {
+        if let Some(snapshot) = cache.get(&key) {
+            if snapshot.mtime == modified && snapshot.len == meta.len() {
+                return Some(snapshot.text.clone());
+            }
         }
     }
+    let text = std::fs::read_to_string(&resolved).ok()?;
+    if let Ok(mut cache) = CACHE.lock() {
+        if cache.len() > 32 {
+            cache.clear();
+        }
+        cache.insert(
+            key,
+            FileSnapshot {
+                mtime: modified,
+                len: meta.len(),
+                text: text.clone(),
+            },
+        );
+    }
+    Some(text)
+}
+
+/// 把 diff 行里的 ASCII 删除标记 `- ` 换成 U+2212 `−`（对齐参考实现的减号）。
+fn replace_remove_marker(line: Line<'static>) -> Line<'static> {
+    let spans = line
+        .spans
+        .into_iter()
+        .map(|mut span| {
+            if span.content.contains("- ") {
+                span.content = span.content.replace("- ", "− ").into();
+            }
+            span
+        })
+        .collect::<Vec<_>>();
+    Line::from(spans)
 }
 
 /// 在字素边界按显示列宽折行，保留原换行、缩进与连续长参数。
