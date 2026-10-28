@@ -1357,6 +1357,7 @@ fn draw_prepared_app(
     }
     // Frame buffer 仅在 draw closure 内可访问，因此 snapshot 在 closure 内克隆、结束后写回 app。
     let mut snapshot_opt: Option<cc_tui::app::text_selection::ScreenSnapshot> = None;
+    let hyperlink_frame = terminal.backend().hyperlink_frame();
     terminal.draw(|f| {
         // 每帧重置 OSC 8 登记表，并按终端能力锁定本帧是否注入。
         hyperlink::begin_frame(ui::osc8::enabled());
@@ -1369,6 +1370,7 @@ fn draw_prepared_app(
         if screen_sel.is_active() {
             apply_screen_selection_highlight(f.buffer_mut(), &screen_sel);
         }
+        hyperlink_frame.prepare(f.buffer_mut());
         // 仅在可能需要提取文本时保存 Buffer 快照（平时零开销）。
         // MouseDown→Redraw→draw_app 之间至少一帧，MouseUp 时 snapshot 必为最新。
         let need_snapshot = app.session_mgr.current().ui.screen_selection.is_active()

@@ -27,6 +27,8 @@ pub struct WidthSafeBackend<B, P> {
     probe: P,
     symbols: HashMap<String, Option<String>>,
     clear_owned_lines_only: bool,
+    hyperlinks: super::hyperlink::Frame,
+    pending_hyperlinks: Option<super::hyperlink::Frame>,
 }
 
 impl<B, P: WidthProbe> WidthSafeBackend<B, P> {
@@ -36,6 +38,25 @@ impl<B, P: WidthProbe> WidthSafeBackend<B, P> {
             probe,
             symbols: HashMap::new(),
             clear_owned_lines_only: false,
+            hyperlinks: super::hyperlink::Frame::default(),
+            pending_hyperlinks: None,
+        }
+    }
+
+    /// draw 借用终端前取得准备器，在闭包末尾处理最终 buffer。
+    pub fn hyperlink_frame(&self) -> super::hyperlink::Frame {
+        let mut frame = self.hyperlinks.clone();
+        if let Some(pending) = &self.pending_hyperlinks {
+            frame.invalidate(pending);
+        }
+        frame
+    }
+
+    fn clear_hyperlinks(&mut self) {
+        let previous = self.hyperlinks.clone();
+        self.hyperlinks.invalidate(&previous);
+        if let Some(pending) = self.pending_hyperlinks.take() {
+            self.hyperlinks.invalidate(&pending);
         }
     }
 
@@ -197,21 +218,51 @@ impl<B: Backend, P: WidthProbe> Backend for WidthSafeBackend<B, P> {
     where
         I: Iterator<Item = (u16, u16, &'a Cell)>,
     {
-        let adapted: Vec<_> = content
+        if let Some(pending) = self.pending_hyperlinks.take() {
+            self.hyperlinks.invalidate(&pending);
+        }
+        let prepared = super::hyperlink::take_prepared_frame(&self.hyperlinks);
+        let frame = prepared
+            .as_ref()
+            .map(|prepared| prepared.frame.clone())
+            .unwrap_or_else(|| self.hyperlinks.clone());
+        let mut cells: Vec<_> = content
+            .map(|(x, y, cell)| (x, y, Cow::Borrowed(cell)))
+            .collect();
+        if let Some(prepared) = prepared.filter(|prepared| !prepared.redraws.is_empty()) {
+            cells.extend(
+                prepared
+                    .redraws
+                    .into_iter()
+                    .map(|(x, y, cell)| (x, y, Cow::Owned(cell))),
+            );
+            // ratatui 差分和链接属性补画可能命中同一格；保持行列顺序且只写一次。
+            cells.sort_by_key(|(x, y, _)| (*y, *x));
+            cells.dedup_by_key(|(x, y, _)| (*y, *x));
+        }
+        let adapted: Vec<_> = cells
+            .iter()
             .map(|(x, y, cell)| {
-                let adapted = self.output_cell(cell);
+                let adapted = self.output_cell(cell.as_ref());
                 // OSC 8 只能在这里包裹：`Buffer::diff` 会用 `symbol.width()` 决定
                 // 跳过后续多少 cell，把转义序列（其载荷是可见字符）写进 buffer
                 // 会让链接后面的整段文字不落笔（见 `hyperlink` 模块文档）。
-                let adapted = match super::hyperlink::decorate(x, y, adapted.as_ref()) {
+                let adapted = match frame.decorate(*x, *y, adapted.as_ref()) {
                     Some(decorated) => Cow::Owned(decorated),
                     None => adapted,
                 };
-                (x, y, adapted)
+                (*x, *y, adapted)
             })
             .collect();
-        self.inner
+        if let Err(error) = self
+            .inner
             .draw(adapted.iter().map(|(x, y, cell)| (*x, *y, cell.as_ref())))
+        {
+            self.hyperlinks.invalidate(&frame);
+            return Err(error);
+        }
+        self.pending_hyperlinks = Some(frame);
+        Ok(())
     }
 
     fn append_lines(&mut self, n: u16) -> Result<(), Self::Error> {
@@ -235,6 +286,7 @@ impl<B: Backend, P: WidthProbe> Backend for WidthSafeBackend<B, P> {
     }
 
     fn clear(&mut self) -> Result<(), Self::Error> {
+        self.clear_hyperlinks();
         self.inner.clear()
     }
 
@@ -244,6 +296,7 @@ impl<B: Backend, P: WidthProbe> Backend for WidthSafeBackend<B, P> {
         } else {
             clear_type
         };
+        self.clear_hyperlinks();
         self.inner.clear_region(clear_type)
     }
 
@@ -256,7 +309,16 @@ impl<B: Backend, P: WidthProbe> Backend for WidthSafeBackend<B, P> {
     }
 
     fn flush(&mut self) -> Result<(), Self::Error> {
-        self.inner.flush()
+        if let Err(error) = self.inner.flush() {
+            if let Some(pending) = &self.pending_hyperlinks {
+                self.hyperlinks.invalidate(pending);
+            }
+            return Err(error);
+        }
+        if let Some(frame) = self.pending_hyperlinks.take() {
+            self.hyperlinks = frame;
+        }
+        Ok(())
     }
 }
 
@@ -273,3 +335,7 @@ impl<B: io::Write, P> io::Write for WidthSafeBackend<B, P> {
 #[cfg(test)]
 #[path = "compatible_test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "hyperlink_frame_test.rs"]
+mod hyperlink_frame_tests;

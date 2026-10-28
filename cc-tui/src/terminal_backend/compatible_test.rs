@@ -553,19 +553,25 @@ fn test_hyperlink_decoration_stays_out_of_buffer() {
     )
     .expect("创建固定视口");
     let mut buffer_symbol = String::new();
+    let hyperlink_frame = terminal.backend().hyperlink_frame();
     terminal
         .draw(|f| {
             crate::terminal_backend::hyperlink::begin_frame(true);
-            crate::terminal_backend::hyperlink::register(0, 0, "https://a.example", true);
+            crate::terminal_backend::hyperlink::register(
+                0,
+                0,
+                "https://a.example",
+                true,
+                (0, 0, 1),
+            );
             f.render_widget(Paragraph::new("ab"), f.area());
+            hyperlink_frame.prepare(f.buffer_mut());
             buffer_symbol = f.buffer_mut()[(0, 0)].symbol().to_string();
         })
         .expect("绘制");
     let drawn = terminal.backend().inner.buffer();
     assert!(
-        drawn[(0, 0)]
-            .symbol()
-            .starts_with("\x1b]8;;https://a.example\x07"),
+        drawn[(0, 0)].symbol().starts_with("\x1b]8;id=cc-code-"),
         "输出侧必须包裹 OSC 8: {:?}",
         drawn[(0, 0)].symbol()
     );
