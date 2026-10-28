@@ -399,25 +399,42 @@ pub async fn execute_rg_glob(
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    // Glob 返回绝对路径（与 Rust 引擎对齐：collect_files 返回绝对路径）
-    let mut results: Vec<String> = stdout
+    let cwd_path = Path::new(cwd);
+    let mut abs_results: Vec<PathBuf> = stdout
         .lines()
         .map(|line| {
             let p = Path::new(line);
             if p.is_absolute() {
-                line.to_string()
+                p.to_path_buf()
             } else {
-                Path::new(cwd).join(line).display().to_string()
+                cwd_path.join(p)
             }
         })
         .collect();
 
-    // 按 mtime 排序（与 Rust 引擎对齐）
-    results.sort_by(|a, b| {
+    // 按 mtime 降序排序（与 Rust 引擎及 CC 对齐）
+    abs_results.sort_by(|a, b| {
         let ta = std::fs::metadata(a).and_then(|m| m.modified()).ok();
         let tb = std::fs::metadata(b).and_then(|m| m.modified()).ok();
         tb.cmp(&ta)
     });
+
+    // 转换为相对于 cwd 的格式（对齐 CC 上游 files.map(toRelativePath)）
+    let results: Vec<String> = abs_results
+        .into_iter()
+        .map(|p| {
+            if let Ok(rel) = p.strip_prefix(cwd_path) {
+                let s = rel.to_string_lossy().replace('\\', "/");
+                if s.is_empty() {
+                    ".".to_string()
+                } else {
+                    s
+                }
+            } else {
+                p.to_string_lossy().replace('\\', "/")
+            }
+        })
+        .collect();
 
     // 截断
     if results.len() > max_results {
@@ -425,7 +442,7 @@ pub async fn execute_rg_glob(
         let truncated = &results[..max_results];
         let persist_hint = super::super::output_persist::persist_truncated_output(&full);
         return Some(format!(
-            "{}\n\n[Output truncated: {} files total, showing first {}]{}",
+            "{}\n\n(Results are truncated. Consider using a more specific path or pattern. Output truncated: {} files total, showing first {}){}",
             truncated.join("\n"),
             results.len(),
             max_results,
@@ -434,7 +451,7 @@ pub async fn execute_rg_glob(
     }
 
     if results.is_empty() {
-        Some("No files found.".to_string())
+        Some("No files found".to_string())
     } else {
         Some(results.join("\n"))
     }

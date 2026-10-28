@@ -1132,3 +1132,29 @@ async fn test_grep_skips_worktrees_dir() {
         ".worktrees 目录下的文件不应出现在结果中: {result}"
     );
 }
+
+#[tokio::test]
+async fn test_grep_context_alias() {
+    let dir = tempfile::tempdir().unwrap();
+    let lines = ["line1\n", "needle\n", "line3\n"];
+    std::fs::write(dir.path().join("test.txt"), lines.join("")).unwrap();
+    let tool = GrepTool::new(dir.path().to_str().unwrap());
+    let result = tool
+        .invoke(serde_json::json!({
+            "pattern": "needle",
+            "context": 1,
+            "output_mode": "content",
+            "path": "./"
+        }))
+        .await
+        .unwrap();
+    assert!(
+        result.contains("line1"),
+        "context 别名应包含前一行: {result}"
+    );
+    assert!(result.contains("needle"), "应包含匹配行: {result}");
+    assert!(
+        result.contains("line3"),
+        "context 别名应包含后一行: {result}"
+    );
+}

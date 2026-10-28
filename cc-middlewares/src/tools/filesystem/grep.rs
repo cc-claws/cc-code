@@ -27,15 +27,18 @@ impl GrepTool {
     }
 }
 
-const GREP_DESCRIPTION: &str = r#"Search local file contents using ripgrep's regex engine. Use fixed_strings=true for literal text.
+const GREP_DESCRIPTION: &str = r#"A powerful search tool built on ripgrep. Prefer this over `grep` or `rg` via Bash, because results integrate with the permission UI and clickable file links.
 
 Usage:
 - ALWAYS use Grep for content search. NEVER invoke `grep` or `rg` as a Bash command; Grep is optimized for correct permissions, ignore rules, and output limits.
-- Provide pattern. path defaults to the working directory; glob and type restrict the files searched.
+- Supports full regex syntax (e.g. "log.*Error", "function\s+\w+").
+- Pattern syntax: Uses ripgrep (not grep) — escape literal braces (use `interface\{\}` to find `interface{}` in Go code). Use fixed_strings=true for literal text.
+- Filter with `glob` parameter (e.g. "*.js", "**/*.tsx") or `type` parameter (e.g. "js", "py", "rust").
 - output_mode defaults to "files_with_matches" (paths only). "content" returns matching lines, "count" returns per-file counts, and "files_without_matches" returns unmatched paths.
 - In content mode, line numbers are enabled by default; -C adds surrounding context and -A/-B override each side. Lines over 500 bytes are omitted.
-- head_limit defaults to 250 output lines; offset skips output lines before that limit. Narrow the query or paginate when needed.
-- Use the schema's case, word, multiline, inversion, and depth options as needed. Escape regex metacharacters unless using fixed_strings.
+- Multiline matching: By default patterns match within single lines only. For cross-line patterns like `struct \{[\s\S]*?field`, use `multiline: true`.
+- head_limit defaults to 250 output lines; offset skips output lines before that limit. Narrow the query or paginate when needed. Pass 0 for unlimited (use sparingly — large result sets waste context).
+- For open-ended searches requiring multiple rounds, use the Agent tool instead.
 - Searches time out after 15 seconds. Prefer a specific path and pattern, then broaden if the evidence requires it."#;
 
 /// Default 模式下超过此字节长度的行不输出（对齐 CC `--max-columns 500`）
@@ -183,13 +186,13 @@ fn execute_search(
                     }
                 }
 
-                // 显示路径：相对于 cwd 的路径
+                // 显示路径：相对于 cwd 的统一正斜杠路径
                 let display_path = entry
                     .path()
                     .strip_prefix(cwd.as_str())
                     .unwrap_or(entry.path())
                     .to_string_lossy()
-                    .to_string();
+                    .replace('\\', "/");
 
                 let mut searcher_builder = SearcherBuilder::new();
                 searcher_builder
@@ -457,15 +460,19 @@ impl BaseTool for GrepTool {
                 },
                 "-C": {
                     "type": "number",
-                    "description": "Number of context lines to show before and after each match"
+                    "description": "Number of context lines to show before and after each match (rg -C). Requires output_mode: \"content\", ignored otherwise."
+                },
+                "context": {
+                    "type": "number",
+                    "description": "Alias for -C: number of context lines to show before and after each match (rg -C). Requires output_mode: \"content\", ignored otherwise."
                 },
                 "-A": {
                     "type": "number",
-                    "description": "Number of context lines to show after each match (takes priority over -C)"
+                    "description": "Number of lines to show after each match (rg -A). Requires output_mode: \"content\", ignored otherwise (takes priority over -C)."
                 },
                 "-B": {
                     "type": "number",
-                    "description": "Number of context lines to show before each match (takes priority over -C)"
+                    "description": "Number of lines to show before each match (rg -B). Requires output_mode: \"content\", ignored otherwise (takes priority over -C)."
                 },
                 "-n": {
                     "type": "boolean",
@@ -532,7 +539,11 @@ impl BaseTool for GrepTool {
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
             case_insensitive: input.get("-i").and_then(|v| v.as_bool()).unwrap_or(false),
-            context: input.get("-C").and_then(|v| v.as_u64()).map(|n| n as usize),
+            context: input
+                .get("-C")
+                .or_else(|| input.get("context"))
+                .and_then(|v| v.as_u64())
+                .map(|n| n as usize),
             before_context: input.get("-B").and_then(|v| v.as_u64()).map(|n| n as usize),
             after_context: input.get("-A").and_then(|v| v.as_u64()).map(|n| n as usize),
             line_number: input.get("-n").and_then(|v| v.as_bool()).unwrap_or(true),
