@@ -590,3 +590,16 @@ fn test_hyperlink_decoration_stays_out_of_buffer() {
         "buffer 里必须保持纯文本，序列不得参与宽度判定"
     );
 }
+
+/// 压缩动画的 emoji 必须落到语义相近的 ASCII，不能掉进兜底的 `?`。
+#[test]
+fn test_ascii_fallback_covers_compact_animation_glyphs() {
+    assert_eq!(super::ascii_fallback("🏃"), Some("R"));
+    assert_eq!(super::ascii_fallback("🚶"), Some("W"));
+    assert_eq!(super::ascii_fallback("🛸"), Some("o"));
+    assert_eq!(super::ascii_fallback("∙"), Some("."));
+    assert_eq!(super::ascii_fallback("˙"), Some("."));
+    // 双宽 emoji 降级后必须补齐到原列宽，否则跑道会逐帧错位。
+    assert_eq!(super::fallback_symbol("🏃", 2), "R ");
+    assert_eq!(super::fallback_symbol("🛸", 2), "o ");
+}

@@ -250,3 +250,90 @@ fn test_spinner_extra_count_clamps_with_many_todos() {
         "超过 5 个 todo 时行数应封顶在 11 行"
     );
 }
+
+/// 压缩跑道：固定 12 格，同一时刻只有一个小人；先跑，跑久了改走。
+#[test]
+fn test_compact_runner_line_advances_along_fixed_track() {
+    fn render(offset_ms: u64) -> (String, usize) {
+        let started = std::time::Instant::now() - std::time::Duration::from_millis(offset_ms);
+        let line = compact_runner_line(started);
+        let text: String = line.spans.iter().map(|sp| sp.content.as_ref()).collect();
+        let glyph = if text.contains('🚶') {
+            '🚶'
+        } else {
+            '🏃'
+        };
+        let pos = line
+            .spans
+            .iter()
+            .position(|sp| sp.content.contains(glyph))
+            .expect("应存在小人");
+        (text, pos)
+    }
+
+    let (early, early_pos) = render(0);
+    let (later, later_pos) = render(450);
+    let (tired, _) = render(25_000);
+
+    assert_eq!(
+        early.matches('🏃').count(),
+        1,
+        "同一时刻只有一个小人: {early}"
+    );
+    assert_eq!(
+        later.matches('🏃').count(),
+        1,
+        "同一时刻只有一个小人: {later}"
+    );
+    assert_eq!(early.matches('·').count(), 11, "跑道固定 12 格: {early}");
+    assert_eq!(later_pos, (early_pos + 3) % 12, "跑：每 150ms 前进一格");
+
+    // 与飞碟一致的双向节奏：跑到头后折返，而不是瞬跳回起点。
+    let (_, turn_pos) = render(2350); // 帧 15：终点停留，仍在最右
+    let (_, back_pos) = render(2750); // 帧 18：已折返
+    assert_eq!(turn_pos, 11, "抵达右端后停留");
+    assert!(back_pos < turn_pos, "到头后应折返: {back_pos} vs {turn_pos}");
+    assert_eq!(
+        tired.matches('🚶').count(),
+        1,
+        "跑满 20 秒应改走路: {tired}"
+    );
+    assert_eq!(tired.matches('🏃').count(), 0, "走路时不再跑: {tired}");
+}
+
+/// 飞碟跑道：14 格、40ms/帧，前进 → 终点停留 → 后退 → 起点停留（对齐 MiMo）。
+#[test]
+fn test_compact_ufo_line_follows_reference_cycle() {
+    fn render(offset_ms: u64) -> (String, usize) {
+        let started = std::time::Instant::now() - std::time::Duration::from_millis(offset_ms);
+        let line = compact_ufo_line(started);
+        let text: String = line.spans.iter().map(|sp| sp.content.as_ref()).collect();
+        let pos = line
+            .spans
+            .iter()
+            .position(|sp| sp.content.contains('🛸'))
+            .expect("应存在飞碟");
+        (text, pos)
+    }
+
+    // 帧 13（520ms）：前进到最右；帧 15（600ms）：终点停留仍在最右
+    let (_, end_pos) = render(530);
+    let (_, hold_end_pos) = render(600);
+    // 帧 22（880ms）：已开始后退；帧 37（1480ms）：起点停留
+    let (_, back_pos) = render(900);
+    let (start_text, start_pos) = render(1500);
+
+    assert_eq!(end_pos, 13, "前进到第 14 格");
+    assert_eq!(hold_end_pos, 13, "终点停留期间位置不变");
+    assert_eq!(back_pos, 12, "停留结束后开始后退");
+    assert_eq!(start_pos, 0, "回到起点");
+    assert_eq!(start_text.matches('🛸').count(), 1, "同一时刻只有一个飞碟");
+
+    // 尾迹 5 格（trailSteps = 6 → dd ∈ 1..=5）
+    let (end_text, _) = render(530);
+    let trail = end_text
+        .chars()
+        .filter(|c| matches!(c, '·' | '∙' | '˙'))
+        .count();
+    assert_eq!(trail, 5, "终点处尾迹应为 5 格: {end_text}");
+}

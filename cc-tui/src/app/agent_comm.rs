@@ -92,6 +92,32 @@ impl SystemNotice {
 pub type BgTaskResult = cc_agent::agent::events::BackgroundTaskResult;
 
 /// Agent 通信状态：事件接收、交互弹窗、取消/计时
+/// 压缩进行中的动画风格。
+///
+/// 每次压缩开始时随机选一种并锁死，避免逐帧切换造成闪变。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompactMotion {
+    /// 小人沿固定跑道跑；跑满 20 秒「累了」改走。
+    Runner,
+    /// 飞碟沿跑道飞行，身后拖出 `· ∙ ˙` 尾迹，到头折返。
+    Ufo,
+}
+
+impl CompactMotion {
+    /// 抛硬币选一种。用纳秒低位做随机，避免为一次二选一引入随机数依赖。
+    pub fn random() -> Self {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        if nanos.is_multiple_of(2) {
+            Self::Runner
+        } else {
+            Self::Ufo
+        }
+    }
+}
+
 pub struct AgentComm {
     /// ACP notification receiver (new path, replaces agent_rx)
     pub acp_notification_rx: Option<mpsc::UnboundedReceiver<AcpNotification>>,
@@ -161,6 +187,11 @@ pub struct AgentComm {
     /// 标记当前 compact 是手动触发的（/compact 命令），而非 auto-compact
     /// handle_compact_completed 据此决定是否调用 set_loading(false)
     pub compact_manual: bool,
+    /// 压缩开始的时刻（`Some` 表示压缩进行中）。用于渲染 spinner 下方的
+    /// 压缩动画；压缩结束（完成/失败/取消）时清空，动画行随之消失。
+    pub compact_started_at: Option<std::time::Instant>,
+    /// 本次压缩使用哪种动画风格（开始随机选定，全程不变，避免每帧闪变）。
+    pub compact_motion: CompactMotion,
     /// 上次显示缓存率警告的时间（用于限制显示频率）
     pub last_cache_warning_at: Option<std::time::Instant>,
     /// 当前正在执行的工具（ToolStart 设置，ToolEnd/Done/Interrupted 清除）
@@ -210,6 +241,8 @@ impl Default for AgentComm {
             pending_acp_request_id: None,
             cancel_sent_at: None,
             compact_manual: false,
+            compact_started_at: None,
+            compact_motion: CompactMotion::Runner,
             last_cache_warning_at: None,
             active_tool: None,
             running_tools: Vec::new(),

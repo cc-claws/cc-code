@@ -828,6 +828,124 @@ pub(super) fn visible_tail(app: &App) -> Vec<Line<'static>> {
     supplementary_lines(app, &spinner_line)
 }
 
+/// 压缩进行中的「小人跑道」：固定 12 格，小人每 150ms 前进一格并回卷。
+///
+/// 占的是 tip 那一行（不增加布局高度），压缩结束即消失。进度是假的，
+/// 这里只表达「还在跑」，所以不用进度条。
+fn compact_runner_line(started_at: std::time::Instant) -> Line<'static> {
+    const TRACK: usize = 12;
+    /// 跑：每 150ms 一格。
+    const RUN_STEP_MS: u128 = 150;
+    /// 走：步子明显放慢，避免长时间压缩时一直「狂奔」显得假。
+    const WALK_STEP_MS: u128 = 420;
+    /// 跑到这个时长就「累了」改走路。
+    const TIRED_AFTER_SECS: u64 = 20;
+    /// 折返的两段停留（帧数），节奏与飞碟一致但更短，适合人的步频。
+    const HOLD_END: usize = 4;
+    const HOLD_START: usize = 4;
+
+    let elapsed = started_at.elapsed();
+    let tired = elapsed.as_secs() >= TIRED_AFTER_SECS;
+    let (glyph, step_ms, glyph_color) = if tired {
+        ("🚶", WALK_STEP_MS, theme::cur().inactive)
+    } else {
+        ("🏃", RUN_STEP_MS, theme::cur().thinking)
+    };
+    // 与飞碟同一套双向节奏：跑到头 → 终点停留 → 折返 → 起点停留。
+    let frame = (elapsed.as_millis() / step_ms) as usize;
+    let cycle = TRACK + HOLD_END + (TRACK - 1) + HOLD_START;
+    let phase = frame % cycle;
+    let (pos, forward) = if phase < TRACK {
+        (phase, true)
+    } else if phase < TRACK + HOLD_END {
+        (TRACK - 1, true)
+    } else if phase < TRACK + HOLD_END + (TRACK - 1) {
+        (TRACK - 2 - (phase - TRACK - HOLD_END), false)
+    } else {
+        (0, false)
+    };
+
+    let mut spans = Vec::with_capacity(TRACK);
+    for cell in 0..TRACK {
+        if cell == pos {
+            spans.push(Span::styled(glyph, Style::default().fg(glyph_color)));
+        } else if (forward && cell < pos) || (!forward && cell > pos) {
+            // 已经经过的格子留下足迹；折返时足迹落在身后那一侧。
+            spans.push(Span::styled(
+                "• ",
+                Style::default().fg(theme::cur().inactive),
+            ));
+        } else {
+            spans.push(Span::styled("· ", Style::default().fg(theme::cur().subtle)));
+        }
+    }
+    Line::from(spans)
+}
+
+/// 压缩进行中的「飞碟跑道」。
+///
+/// 逐行移植 MiMo-Code `packages/cli/src/cli/cmd/tui/ui/spinner.ts` 的
+/// `getScannerState` + `createFrames(style: "plane")`；参数取自
+/// `component/prompt/index.tsx`：width 14 / holdStart 8 / holdEnd 8 / interval 40ms。
+///
+/// 帧序：前进 14 格 → 终点停留 8 帧 → 后退 13 格 → 起点停留 8 帧（共 43 帧 ≈ 1.72s）。
+/// 尾迹覆盖 `dd ∈ 1..=5`（`createColors` 默认 trailSteps = 6），字符按
+/// `["·","∙","˙"][(frame + dd) % 3]` 轮换。
+fn compact_ufo_line(started_at: std::time::Instant) -> Line<'static> {
+    const TRACK: usize = 14;
+    const STEP_MS: u128 = 40;
+    const HOLD_START: usize = 8;
+    const HOLD_END: usize = 8;
+    /// `trailSteps = 6`：尾迹占 dd ∈ 1..=5。
+    const TRAIL_LEN: usize = 6;
+    const TRAIL_CHARS: [&str; 3] = ["· ", "∙ ", "˙ "];
+
+    let forward_frames = TRACK;
+    let backward_frames = TRACK - 1;
+    let total_frames = forward_frames + HOLD_END + backward_frames + HOLD_START;
+    let frame = (started_at.elapsed().as_millis() / STEP_MS) as usize % total_frames;
+
+    // getScannerState（direction = bidirectional）
+    let (active, moving_forward) = if frame < forward_frames {
+        (frame, true)
+    } else if frame < forward_frames + HOLD_END {
+        (TRACK - 1, true)
+    } else if frame < forward_frames + HOLD_END + backward_frames {
+        (TRACK - 2 - (frame - forward_frames - HOLD_END), false)
+    } else {
+        (0, false)
+    };
+
+    let mut spans = Vec::with_capacity(TRACK);
+    for cell in 0..TRACK {
+        let dd = if moving_forward {
+            active as isize - cell as isize
+        } else {
+            cell as isize - active as isize
+        };
+        if dd == 0 {
+            spans.push(Span::styled("🛸", Style::default().fg(theme::cur().cyan)));
+            continue;
+        }
+        // 每格固定 2 列，与 🛸 的显示宽度对齐。
+        if dd > 0 && (dd as usize) < TRAIL_LEN {
+            // 参考实现按 alpha 渐隐；终端没有 alpha，用两级灰近似（近格更亮）。
+            let color = if dd == 1 {
+                theme::cur().inactive
+            } else {
+                theme::cur().subtle
+            };
+            spans.push(Span::styled(
+                TRAIL_CHARS[(frame + dd as usize) % TRAIL_CHARS.len()],
+                Style::default().fg(color),
+            ));
+        } else {
+            spans.push(Span::styled("  ", Style::default().fg(theme::cur().subtle)));
+        }
+    }
+    Line::from(spans)
+}
+
 fn supplementary_lines(app: &App, spinner_line: &Option<Line<'static>>) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     if let Some(line) = spinner_line {
@@ -839,7 +957,13 @@ fn supplementary_lines(app: &App, spinner_line: &Option<Line<'static>>) -> Vec<L
             // tip 由调度器在轮次边界挑选/发布（见 App::set_loading），渲染只读当前已发布的
             // 一条；本轮运行 >30min 时被 /clear 时间覆盖 tip 顶替（对齐 CC，见 issue #511）
             let turn_elapsed = app.session_mgr.current().viewport_spinner().elapsed_ms();
-            if let Some((label, text)) = app.spinner_tip_display(turn_elapsed) {
+            // 压缩进行中：这一行让位给「小人跑道」动画（不额外占行、不改布局高度）。
+            if let Some(started_at) = app.session_mgr.current().agent.compact_started_at {
+                lines.push(match app.session_mgr.current().agent.compact_motion {
+                    crate::app::CompactMotion::Runner => compact_runner_line(started_at),
+                    crate::app::CompactMotion::Ufo => compact_ufo_line(started_at),
+                });
+            } else if let Some((label, text)) = app.spinner_tip_display(turn_elapsed) {
                 lines.push(Line::from(vec![
                     Span::styled(
                         format!("{}{label}: ", BranchPrefix::PREFIX),

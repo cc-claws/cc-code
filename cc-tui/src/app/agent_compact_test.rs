@@ -181,3 +181,32 @@ async fn test_trim_view_history_noop_within_limit() {
         "未超限不应裁剪"
     );
 }
+
+/// 压缩进行中不再往消息流插「正在进行」提示，改由 spinner 承担；
+/// 完成后 spinner 文案必须还原成普通动词。
+#[tokio::test]
+async fn test_compact_started_uses_spinner_instead_of_view_message() {
+    // Arrange
+    let (mut app, _handle) = App::new_headless(80, 24).await;
+    let before = app.session_mgr.current().messages.view_messages.len();
+    let expected = app.services.lc.tr("app-compact-started");
+    // Act
+    app.handle_compact_started(false);
+    // Assert
+    assert_eq!(
+        app.session_mgr.current().messages.view_messages.len(),
+        before,
+        "压缩开始不应写入消息流"
+    );
+    assert_eq!(
+        app.session_mgr.current().spinner_state.verb(),
+        expected,
+        "spinner 应显示压缩文案"
+    );
+    app.handle_compact_completed("summary".to_string(), vec![], vec![], 0, vec![]);
+    assert_ne!(
+        app.session_mgr.current().spinner_state.verb(),
+        expected,
+        "压缩完成后 spinner 不应停留在压缩文案"
+    );
+}
