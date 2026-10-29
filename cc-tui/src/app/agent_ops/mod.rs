@@ -503,9 +503,10 @@ impl App {
                     } else {
                         format!("{ran} {event} hooks ran · {duration_ms}ms")
                     };
-                    self.push_detail_system_note(
+                    self.push_hook_system_note(
                         text,
                         crate::ui::message_view::NoteTone::Neutral,
+                        true,
                     );
                 } else {
                     for failure in &failures {
@@ -514,9 +515,10 @@ impl App {
                         } else {
                             ("failed", crate::ui::message_view::NoteTone::Error)
                         };
-                        self.push_toned_system_note(
+                        self.push_hook_system_note(
                             format!("{event} hook {verb}: {}", failure.reason),
                             tone,
+                            false,
                         );
                     }
                 }

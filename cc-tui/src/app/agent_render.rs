@@ -120,16 +120,17 @@ impl App {
         self.request_rebuild();
     }
 
-    /// 添加仅详细模式（Ctrl+O）可见的系统通知。
-    pub fn push_detail_system_note(
+    /// 添加 hook 结果行（非工具事件）：行首 `⎿`、整行语义色。
+    pub fn push_hook_system_note(
         &mut self,
         content: String,
         tone: crate::ui::message_view::NoteTone,
+        detail_only: bool,
     ) {
         self.session_mgr
             .current_mut()
             .messages
-            .push_detail_system_note(content, tone);
+            .push_hook_system_note(content, tone, detail_only);
         self.request_rebuild();
     }
 

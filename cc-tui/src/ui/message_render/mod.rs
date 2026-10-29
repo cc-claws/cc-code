@@ -48,10 +48,16 @@ fn hook_row_color(tone: NoteTone) -> Color {
 
 /// 渲染一行 hook 结果：`  ⎿  <text>`，`⎿` 与正文同色（跟随 tone）。
 ///
+/// 文本先经 `sanitize_display_text`：hook 的 reason 来自 stderr，可能带换行、
+/// 制表符与 ANSI 转义——直接塞进单个 Span 时 `\n` 宽度为 0，不会当换行，
+/// 会导致行内容错位，甚至把终端转义序列泄漏到屏幕上。
 /// 超宽时按内容宽度折行，续行用悬挂缩进，保证行宽不越视口。
 fn push_hook_line(lines: &mut Vec<Line<'static>>, text: &str, color: Color, width: usize) {
     let content_width = BranchPrefix::content_width(width);
-    let body = Line::from(Span::styled(text.to_string(), Style::default().fg(color)));
+    let body = Line::from(Span::styled(
+        sanitize_display_text(text),
+        Style::default().fg(color),
+    ));
     for (i, wrapped) in wrap_line_spans(body, content_width).into_iter().enumerate() {
         let prefix = if i == 0 {
             BranchPrefix::PREFIX
@@ -2110,6 +2116,9 @@ pub fn render_view_model_with_flags(
                 }
                 // 实时、历史重建和子 Agent 展开都共用此渲染入口。
                 // 不改 content，因此模型仍能使用完整的任务 ID 和输出路径。
+                // 转后台同样可能带阻断/失败行（PRD「与 Bash 执行结果的组合」），
+                // 必须在提前返回前追加，否则这些行会整段丢失。
+                append_hook_rows(&mut lines, hook_rows, detail_mode, width);
                 return (lines, link_hits);
             }
             if tool_name == "Bash"
@@ -2140,6 +2149,8 @@ pub fn render_view_model_with_flags(
                             ),
                         ]));
                     }
+                    // 运行中带实时输出的分支同样提前返回：hook 行必须挂在输出之后。
+                    append_hook_rows(&mut lines, hook_rows, detail_mode, width);
                     return (lines, link_hits);
                 }
             }
@@ -2690,6 +2701,7 @@ pub fn render_view_model_with_flags(
             tone,
             body_tone,
             detail_only,
+            branch_prefix,
             ..
         } => {
             // 仅详细模式可见的提示（如 hook 执行汇总）：普通模式整行不渲染。
@@ -2701,6 +2713,22 @@ pub fn render_view_model_with_flags(
             } else {
                 content.as_str()
             };
+            // hook 结果行：行首 `⎿` 与工具结果同列，整行按语义色，无 `●`/`·`/`⚠` 前缀。
+            // 成功汇总用 `Neutral` → inactive（PRD 快照 C4/C13）。
+            if *branch_prefix {
+                let color = match body_tone {
+                    Some(NoteTone::Neutral) | None => theme::cur().inactive,
+                    Some(tone) => note_tone_color(*tone),
+                };
+                let mut lines = Vec::new();
+                for line in active_content
+                    .lines()
+                    .filter(|line| !line.trim().is_empty())
+                {
+                    push_hook_line(&mut lines, line, color, width);
+                }
+                return (lines, link_hits);
+            }
             // 后台任务通知：`●` + 状态色，对齐参考实现的
             // `UserAgentNotificationMessage`——`<Text color={color}>●</Text> {summary}`，
             // **只有圆点着色**，正文用默认前景色。普通系统提示（tone 为 None）
