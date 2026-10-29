@@ -1398,6 +1398,34 @@ fn render_shell_command(
     lines
 }
 
+/// 系统提示的语义色 → 当前主题色。
+///
+/// 渲染期解析而非构造期固化，`/theme` 切换后已有 VM 也能立刻换色。
+fn note_tone_color(tone: crate::ui::message_view::NoteTone) -> ratatui::style::Color {
+    use crate::ui::message_view::NoteTone;
+    match tone {
+        NoteTone::Success => theme::cur().success,
+        NoteTone::Error => theme::cur().error,
+        NoteTone::Warning => theme::cur().warning,
+        // stall 通知在参考实现里没有 status，落到默认前景色。
+        NoteTone::Neutral => theme::cur().text,
+    }
+}
+
+/// 语义提示的行首符号。
+///
+/// 警告/错误/成功各用自己的符号，用户不必读正文就能分辨严重程度；
+/// 中性语义没有专门符号，沿用普通系统提示的 `·`（它本身不表达状态）。
+fn note_tone_prefix(tone: Option<crate::ui::message_view::NoteTone>) -> &'static str {
+    use crate::ui::message_view::NoteTone;
+    match tone {
+        Some(NoteTone::Warning) => "⚠ ",
+        Some(NoteTone::Error) => "✗ ",
+        Some(NoteTone::Success) => "✓ ",
+        Some(NoteTone::Neutral) | None => "· ",
+    }
+}
+
 /// 将单个 ViewModel 渲染为 Vec<Line>
 pub fn render_view_model(
     vm: &MessageViewModel,
@@ -2538,6 +2566,7 @@ pub fn render_view_model_with_flags(
             content,
             detail_content,
             tone,
+            body_tone,
             ..
         } => {
             let active_content = if detail_mode && detail_content.is_some() {
@@ -2550,14 +2579,7 @@ pub fn render_view_model_with_flags(
             // **只有圆点着色**，正文用默认前景色。普通系统提示（tone 为 None）
             // 仍走下方的缩进/灰色分支。
             if let Some(tone) = tone {
-                use crate::ui::message_view::NoteTone;
-                let dot_color = match tone {
-                    NoteTone::Success => theme::cur().success,
-                    NoteTone::Error => theme::cur().error,
-                    NoteTone::Warning => theme::cur().warning,
-                    // stall 通知在参考实现里没有 status，落到默认前景色。
-                    NoteTone::Neutral => theme::cur().text,
-                };
+                let dot_color = note_tone_color(*tone);
                 let mut lines = Vec::new();
                 for line in active_content.lines() {
                     if line.trim().is_empty() {
@@ -2713,21 +2735,38 @@ pub fn render_view_model_with_flags(
                         width.saturating_sub(2).max(20),
                     );
                 } else {
-                    let is_error =
-                        line.contains("❌") || line.contains("失败") || line.contains("错误");
-                    let is_warn = line.contains("⚠") || line.contains("已中断");
-                    let text_color = if is_error {
-                        theme::cur().error
-                    } else if is_warn {
-                        theme::cur().warning
-                    } else {
-                        theme::cur().inactive
+                    // 显式语义色优先：调用方（如「hooks 未加载」提示）已经知道这是
+                    // 警告，不应再靠正文关键词猜颜色。
+                    let text_color = match body_tone {
+                        Some(tone) => note_tone_color(*tone),
+                        None => {
+                            let is_error = line.contains("❌")
+                                || line.contains("失败")
+                                || line.contains("错误");
+                            let is_warn = line.contains("⚠") || line.contains("已中断");
+                            if is_error {
+                                theme::cur().error
+                            } else if is_warn {
+                                theme::cur().warning
+                            } else {
+                                theme::cur().inactive
+                            }
+                        }
+                    };
+                    // 首行给语义符号，续行按符号宽度缩进；普通系统提示仍是 `· `。
+                    let (prefix, prefix_style) = match *body_tone {
+                        Some(_) if lines.is_empty() => (
+                            note_tone_prefix(*body_tone),
+                            Style::default().fg(text_color),
+                        ),
+                        Some(_) => ("  ", Style::default().fg(text_color)),
+                        None => ("· ", Style::default().fg(theme::cur().subtle)),
                     };
                     push_prefixed_text(
                         &mut lines,
                         line,
-                        "· ",
-                        Style::default().fg(theme::cur().subtle),
+                        prefix,
+                        prefix_style,
                         Style::default().fg(text_color),
                         width.saturating_sub(4).max(20),
                     );

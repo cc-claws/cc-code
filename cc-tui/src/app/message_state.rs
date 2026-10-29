@@ -8,7 +8,7 @@ use parking_lot::RwLock;
 use tokio::sync::{mpsc, Notify};
 
 use crate::ui::{
-    message_view::MessageViewModel,
+    message_view::{MessageViewModel, NoteTone},
     render_thread::{RenderCache, RenderEvent, ViewportAnchor},
 };
 
@@ -163,6 +163,14 @@ impl MessageState {
     pub fn push_system_note(&mut self, content: String) {
         let anchor = self.view_messages.len();
         let vm = MessageViewModel::system(content);
+        self.ephemeral_notes.push((anchor, vm.clone()));
+        self.view_messages.push(vm);
+    }
+
+    /// 添加正文带语义色的系统通知（如需要用户立刻注意到的警告）。
+    pub fn push_toned_system_note(&mut self, content: String, tone: NoteTone) {
+        let anchor = self.view_messages.len();
+        let vm = MessageViewModel::system_toned(content, tone);
         self.ephemeral_notes.push((anchor, vm.clone()));
         self.view_messages.push(vm);
     }

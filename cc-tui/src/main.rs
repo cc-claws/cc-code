@@ -1006,7 +1006,8 @@ async fn run_app(
             app.acp_client = Some(acp_client);
 
             if let Some(notice) = untrusted_notice {
-                app.push_system_note(notice);
+                // 警告语义由调用方给定，不靠正文关键词猜色。
+                app.push_toned_system_note(notice, crate::ui::message_view::NoteTone::Warning);
             }
         }
     }
