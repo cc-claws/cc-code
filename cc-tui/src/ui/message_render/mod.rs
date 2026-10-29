@@ -483,6 +483,39 @@ pub(crate) fn wrap_line_spans(line: Line<'static>, max_width: usize) -> Vec<Line
         .collect()
 }
 
+/// 详细模式下渲染思考正文：markdown 解析 + DIM 压暗 + 折行，末尾补一行空行。
+///
+/// 正文为空（模型只回了耗时、没有可读思考）时不能只画一个孤零零的 `⎿`，
+/// 按 Bash 空输出 `(No output)` 的同款口径补 `(No content)`。
+fn push_thinking_body(lines: &mut Vec<Line<'static>>, text: &str, width: usize) {
+    let prefix_style = Style::default().fg(theme::cur().inactive);
+    if text.trim().is_empty() {
+        lines.push(Line::from(vec![
+            Span::styled(BranchPrefix::PREFIX, prefix_style),
+            Span::styled("(No content)", prefix_style),
+        ]));
+        lines.push(Line::from(""));
+        return;
+    }
+    let content_width = BranchPrefix::content_width(width);
+    let parsed = super::markdown::parse_markdown(text, content_width);
+    for (i, line) in dim_markdown_lines(parsed).into_iter().enumerate() {
+        // 折行：长段落按 content_width 切成多行，每行加分支前缀
+        // 后不会超过 width，避免 Paragraph::wrap 二次折行使续行缺少缩进
+        for (j, wline) in wrap_line_spans(line, content_width).into_iter().enumerate() {
+            let prefix = if i == 0 && j == 0 {
+                BranchPrefix::PREFIX
+            } else {
+                BranchPrefix::HANG
+            };
+            let mut spans = vec![Span::styled(prefix, prefix_style)];
+            spans.extend(wline.spans);
+            lines.push(Line::from(spans));
+        }
+    }
+    lines.push(Line::from(""));
+}
+
 /// 把逻辑行上的链接命中区映射到折行后的输出段，累加前缀宽度后推入 out
 fn push_link_hits_for_wrapped(
     out: &mut Vec<cc_widgets::markdown::LinkHit>,
@@ -1818,37 +1851,8 @@ pub fn render_view_model_with_flags(
                         )]));
                         // 普通模式：只留这一行摘要，**不渲染任何思考正文**。
                         // 详细模式：显示完整 reasoning，走 markdown 解析 + DIM overlay
-                        let content = if detail_mode {
-                            Some(text.as_str())
-                        } else {
-                            None
-                        };
-                        if let Some(content_text) = content {
-                            let content_width = BranchPrefix::content_width(width);
-                            let parsed =
-                                super::markdown::parse_markdown(content_text, content_width);
-                            let dimmed = dim_markdown_lines(parsed);
-                            for (i, line) in dimmed.into_iter().enumerate() {
-                                // 折行：长段落按 content_width 切成多行，每行加分支前缀
-                                // 后不会超过 width，避免 Paragraph::wrap 二次折行使续行
-                                // 缺少缩进
-                                for (j, wline) in
-                                    wrap_line_spans(line, content_width).into_iter().enumerate()
-                                {
-                                    let prefix = if i == 0 && j == 0 {
-                                        BranchPrefix::PREFIX
-                                    } else {
-                                        BranchPrefix::HANG
-                                    };
-                                    let mut spans = vec![Span::styled(
-                                        prefix,
-                                        Style::default().fg(theme::cur().inactive),
-                                    )];
-                                    spans.extend(wline.spans);
-                                    lines.push(Line::from(spans));
-                                }
-                            }
-                            lines.push(Line::from(""));
+                        if detail_mode {
+                            push_thinking_body(&mut lines, text, width);
                         } else {
                             // 无 tail 预览时，摘要行后加空行分隔
                             lines.push(Line::from(""));
@@ -3010,26 +3014,8 @@ pub fn render_view_model_with_flags(
                 )));
                 // 详细模式：思考正文与 AssistantBubble 保持同一条渲染管线
                 // （markdown 解析 + DIM 压暗 + 折行），避免组内/组外观感不一致。
-                if detail_mode && !t.text.is_empty() {
-                    let content_width = BranchPrefix::content_width(width);
-                    let parsed = super::markdown::parse_markdown(&t.text, content_width);
-                    let dimmed = dim_markdown_lines(parsed);
-                    for (i, line) in dimmed.into_iter().enumerate() {
-                        for (j, wline) in wrap_line_spans(line, content_width).into_iter().enumerate() {
-                            let prefix = if i == 0 && j == 0 {
-                                BranchPrefix::PREFIX
-                            } else {
-                                BranchPrefix::HANG
-                            };
-                            let mut spans = vec![Span::styled(
-                                prefix,
-                                Style::default().fg(theme::cur().inactive),
-                            )];
-                            spans.extend(wline.spans);
-                            lines.push(Line::from(spans));
-                        }
-                    }
-                    lines.push(Line::from(""));
+                if detail_mode {
+                    push_thinking_body(&mut lines, &t.text, width);
                 }
             }
 

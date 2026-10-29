@@ -4049,6 +4049,107 @@ fn test_group_thinking_hides_body_in_normal_mode() {
     assert!(detail.contains("n13"), "详细模式应展示组内思考正文: {detail}");
 }
 
+// ─── 空思考正文（与 Bash 空输出 `(No output)` 同款兜底）────────────────────
+
+/// 断言没有任何一行只剩分支前缀 `⎿`（空正文没有占位时的症状）。
+fn assert_no_lone_branch_prefix(lines: &[Line<'static>], rendered: &str) {
+    for line in lines {
+        let text: String = line
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect();
+        assert_ne!(text.trim(), "⎿", "出现孤立分支前缀: {rendered}");
+    }
+}
+
+#[test]
+fn test_detail_mode_empty_reasoning_shows_placeholder() {
+    let mut vm = MessageViewModel::assistant();
+    if let MessageViewModel::AssistantBubble { blocks, .. } = &mut vm {
+        blocks.push(ContentBlockView::Reasoning {
+            char_count: 0,
+            duration_ms: Some(1000),
+            action_summary: None,
+            text: String::new(),
+            active: false,
+            active_since: None,
+            hint: None,
+        });
+    }
+    // Act：详细模式
+    let lines = render_view_model(&vm, None, 80, true, 0);
+    let rendered = rendered_text(&lines);
+    // Assert：耗时摘要保留，正文位给出占位，而不是孤立的 `⎿`
+    assert!(
+        rendered.contains("Thought for 1s"),
+        "应保留耗时摘要行: {rendered}"
+    );
+    assert!(
+        rendered.contains("(No content)"),
+        "空思考正文应有占位说明: {rendered}"
+    );
+    assert_no_lone_branch_prefix(&lines, &rendered);
+}
+
+#[test]
+fn test_detail_mode_whitespace_reasoning_shows_placeholder() {
+    let mut vm = MessageViewModel::assistant();
+    if let MessageViewModel::AssistantBubble { blocks, .. } = &mut vm {
+        blocks.push(ContentBlockView::Reasoning {
+            char_count: 3,
+            duration_ms: Some(2000),
+            action_summary: None,
+            text: " \n ".to_string(),
+            active: false,
+            active_since: None,
+            hint: None,
+        });
+    }
+    // Act
+    let lines = render_view_model(&vm, None, 80, true, 0);
+    let rendered = rendered_text(&lines);
+    // Assert：纯空白与空串同口径
+    assert!(
+        rendered.contains("(No content)"),
+        "纯空白思考正文应按空正文处理: {rendered}"
+    );
+    assert_no_lone_branch_prefix(&lines, &rendered);
+}
+
+#[test]
+fn test_detail_mode_empty_group_thinking_shows_placeholder() {
+    use crate::ui::message_view::{GroupThinking, ToolCategory};
+    let vm = MessageViewModel::ToolCallGroup {
+        category: ToolCategory::Read,
+        tools: Vec::new(),
+        thinking: Some(GroupThinking {
+            text: String::new(),
+            duration_ms: Some(1000),
+            action_summary: None,
+            hint: None,
+            active: false,
+            active_since: None,
+        }),
+        collapsed: false,
+        standalone_action: None,
+        content_hash: 0,
+    };
+    // Act
+    let lines = render_view_model(&vm, None, 80, true, 0);
+    let rendered = rendered_text(&lines);
+    // Assert：组内思考走同一条渲染管线，空正文同样有占位
+    assert!(
+        rendered.contains("Thought for 1s"),
+        "应保留耗时摘要行: {rendered}"
+    );
+    assert!(
+        rendered.contains("(No content)"),
+        "组内空思考正文应有占位说明: {rendered}"
+    );
+    assert_no_lone_branch_prefix(&lines, &rendered);
+}
+
 // ─── hook 执行行（spec/global/domains/hooks-display.md）────────────────────
 
 /// 构造挂 hook 行的工具块（默认 Bash：一条输出 + 若干 hook 行）。
