@@ -253,13 +253,8 @@ pub enum MessageViewModel {
         body_tone: Option<NoteTone>,
         /// 仅在详细模式（Ctrl+O）渲染；普通模式整行不显示。
         ///
-        /// 用于 hook 执行汇总这类「成功时无需打扰用户」的信息。
+        /// 用于「成功时无需打扰用户」的信息。
         detail_only: bool,
-        /// 行首改用分支折角 `⎿`（`BranchPrefix::PREFIX`），整行按 `body_tone` 着色。
-        ///
-        /// 用于 hook 阻断/失败/汇总行：与工具结果行同列，不使用 `●` / `·` / `⚠` 前缀
-        /// （规格见 spec/global/domains/hooks-display.md「渲染规格」）。
-        branch_prefix: bool,
     },
     /// 缓存率过低警告（黄色纯文本，无前缀符号）
     CacheWarning {
@@ -428,7 +423,6 @@ impl PartialEq for MessageViewModel {
                     tone: a_tone,
                     body_tone: a_body_tone,
                     detail_only: a_detail_only,
-                    branch_prefix: a_branch_prefix,
                     ..
                 },
                 MessageViewModel::SystemNote {
@@ -437,7 +431,6 @@ impl PartialEq for MessageViewModel {
                     tone: b_tone,
                     body_tone: b_body_tone,
                     detail_only: b_detail_only,
-                    branch_prefix: b_branch_prefix,
                     ..
                 },
             ) => {
@@ -446,7 +439,6 @@ impl PartialEq for MessageViewModel {
                     && a_tone == b_tone
                     && a_body_tone == b_body_tone
                     && a_detail_only == b_detail_only
-                    && a_branch_prefix == b_branch_prefix
             }
             (
                 MessageViewModel::CacheWarning { content: a, .. },
@@ -621,7 +613,6 @@ impl Hash for MessageViewModel {
                 tone,
                 body_tone,
                 detail_only,
-                branch_prefix,
                 ..
             } => {
                 3u8.hash(state);
@@ -630,7 +621,6 @@ impl Hash for MessageViewModel {
                 tone.hash(state);
                 body_tone.hash(state);
                 detail_only.hash(state);
-                branch_prefix.hash(state);
                 content.hash(state);
                 detail_content.hash(state);
             }
@@ -869,7 +859,6 @@ impl MessageViewModel {
                         tone: Some(display.tone),
                         body_tone: None,
                         detail_only: false,
-                        branch_prefix: false,
                     };
                     vm.recompute_hash();
                     return vm;
@@ -1153,7 +1142,6 @@ impl MessageViewModel {
                     tone: None,
                     body_tone: None,
                     detail_only: false,
-                    branch_prefix: false,
                 };
                 vm.recompute_hash();
                 vm
@@ -1274,7 +1262,6 @@ impl MessageViewModel {
                 tone: Some(display.tone),
                 body_tone: None,
                 detail_only: false,
-                branch_prefix: false,
             };
             vm.recompute_hash();
             return vm;
@@ -1304,7 +1291,6 @@ impl MessageViewModel {
                 tone: Some(display.tone),
                 body_tone: None,
                 detail_only: false,
-                branch_prefix: false,
             };
             vm.recompute_hash();
             return vm;
@@ -1466,7 +1452,6 @@ impl MessageViewModel {
             tone,
             body_tone: None,
             detail_only: false,
-            branch_prefix: false,
         };
         vm.recompute_hash();
         vm
@@ -1486,7 +1471,6 @@ impl MessageViewModel {
             tone,
             body_tone: None,
             detail_only: false,
-            branch_prefix: false,
         };
         vm.recompute_hash();
         vm
@@ -1502,26 +1486,6 @@ impl MessageViewModel {
             tone: None,
             body_tone: Some(tone),
             detail_only: false,
-            branch_prefix: false,
-        };
-        vm.recompute_hash();
-        vm
-    }
-
-    /// 创建 hook 结果行（阻断 / 失败 / 汇总 / 异步完成）。
-    ///
-    /// 与工具结果行同列：行首 `⎿`（`BranchPrefix::PREFIX`），整行按 `tone` 着色，
-    /// 不使用 `●` / `·` / `⚠` 前缀（规格见 spec/global/domains/hooks-display.md）。
-    /// `detail_only` 为真时只有详细模式渲染（成功汇总、异步完成）。
-    pub fn system_hook_line(text: String, tone: NoteTone, detail_only: bool) -> Self {
-        let mut vm = MessageViewModel::SystemNote {
-            content: text,
-            content_hash: 0,
-            detail_content: None,
-            tone: None,
-            body_tone: Some(tone),
-            detail_only,
-            branch_prefix: true,
         };
         vm.recompute_hash();
         vm

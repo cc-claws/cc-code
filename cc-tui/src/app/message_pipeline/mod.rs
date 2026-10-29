@@ -317,22 +317,6 @@ impl HookExec {
     }
 }
 
-/// 非工具事件（`UserPromptSubmit` / `Stop` 等）的 hook 汇总累加状态。
-struct HookNoteAccum {
-    ran: usize,
-    duration_ms: u64,
-    /// 上一次写进视图的文案：累加更新时按它就地替换，避免再推一条。
-    text: String,
-}
-
-/// [`MessagePipeline::merge_hook_note`] 的结果。
-pub(crate) struct HookNoteUpdate {
-    /// 上一次写进视图的文案；`Some` 表示本次是累加更新，应就地替换而非新增。
-    pub previous: Option<String>,
-    /// 本次应显示的文案
-    pub text: String,
-}
-
 // ─── MessagePipeline ─────────────────────────────────────────────────────────
 
 /// 统一消息渲染管线。
@@ -377,12 +361,6 @@ pub struct MessagePipeline {
     /// 存原始结构而非渲染行：同事件的多次上报（global+project 各一个 hook）要在
     /// 这里合并成一条，才不会被渲染成多行。
     hook_results: HashMap<String, Vec<HookExec>>,
-    /// 非工具事件的 hook 汇总累加状态，按事件名索引。
-    ///
-    /// 行本身是 `ephemeral_notes` 里的 SystemNote（由 agent_ops 写入视图），这里只
-    /// 记录已累加的计数、耗时与上次文案，供同事件下一次上报时就地更新。
-    /// 轮次结束（[`Self::done`] / [`Self::interrupt`]）清空，避免跨轮错并。
-    hook_notes: HashMap<String, HookNoteAccum>,
     /// 真实 spawn 注册可能先于 ToolStart；按调用身份保存，禁止命令文本匹配。
     shell_runtimes: HashMap<(Option<String>, String), shell_runtime::ShellRuntime>,
     /// ToolEnd 后、StateSnapshot 前的工具结果（在 reconcile gap 期间显示）
@@ -433,7 +411,6 @@ impl MessagePipeline {
             current_ai_finalized: false,
             pending_tools: HashMap::new(),
             hook_results: HashMap::new(),
-            hook_notes: HashMap::new(),
             shell_runtimes: HashMap::new(),
             completed_tools: Vec::new(),
             subagent_stack: Vec::new(),
@@ -477,41 +454,6 @@ impl MessagePipeline {
             existing.failures.extend(exec.failures);
         } else {
             execs.push(exec);
-        }
-    }
-
-    /// 合并一条非工具事件的 hook 汇总。
-    ///
-    /// 同一事件可能由多个 `HookMiddleware` 实例分别上报；第二次起返回
-    /// `previous = Some(旧文案)`，调用方据此就地改写已有那行，计数与耗时累加。
-    pub(crate) fn merge_hook_note(
-        &mut self,
-        event: &str,
-        ran: usize,
-        duration_ms: u64,
-    ) -> HookNoteUpdate {
-        if let Some(accum) = self.hook_notes.get_mut(event) {
-            accum.ran += ran;
-            accum.duration_ms += duration_ms;
-            let text = format!("{} {event} hooks ran · {}ms", accum.ran, accum.duration_ms);
-            let previous = std::mem::replace(&mut accum.text, text.clone());
-            return HookNoteUpdate {
-                previous: Some(previous),
-                text,
-            };
-        }
-        let text = format!("{ran} {event} hooks ran · {duration_ms}ms");
-        self.hook_notes.insert(
-            event.to_string(),
-            HookNoteAccum {
-                ran,
-                duration_ms,
-                text: text.clone(),
-            },
-        );
-        HookNoteUpdate {
-            previous: None,
-            text,
         }
     }
 
@@ -1291,8 +1233,6 @@ impl MessagePipeline {
         self.force_flush_block();
         self.throttle_last_fire = None;
         self.active_batch = None;
-        // 轮次结束：非工具事件的 hook 汇总不再累加，下一轮同类事件另起一行
-        self.hook_notes.clear();
         self.drain_subagent_stack();
     }
 
@@ -1313,8 +1253,6 @@ impl MessagePipeline {
         self.force_flush_block();
         self.throttle_last_fire = None;
         self.active_batch = None;
-        // 中断同样视为轮次结束：避免下一轮的非工具 hook 汇总并进本轮
-        self.hook_notes.clear();
         self.drain_subagent_stack();
     }
 

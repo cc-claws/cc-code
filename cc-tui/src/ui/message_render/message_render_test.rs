@@ -2799,7 +2799,6 @@ fn test_compact_done_rendering_no_bullet_prefix() {
         tone: None,
         body_tone: None,
         detail_only: false,
-        branch_prefix: false,
     };
     let text_lines: Vec<String> = render_view_model(&vm, None, 80, false, 0)
         .iter()
@@ -2871,7 +2870,6 @@ fn test_all_paths_preserve_width_no_overflow() {
         tone: None,
         body_tone: None,
         detail_only: false,
-        branch_prefix: false,
     };
     assert!(
         max_line_width(&render_view_model(&vm, None, width, false, 0)) <= width,
@@ -3841,7 +3839,6 @@ fn test_system_note_with_tone_renders_dot_prefix_in_status_color() {
             tone: Some(tone),
             body_tone: None,
             detail_only: false,
-            branch_prefix: false,
         };
         // Act
         let lines = render_view_model(&vm, None, 80, false, 0);
@@ -3870,7 +3867,6 @@ fn test_system_note_without_tone_keeps_plain_style() {
         tone: None,
         body_tone: None,
         detail_only: false,
-        branch_prefix: false,
     };
     // Act
     let lines = render_view_model(&vm, None, 80, false, 0);
@@ -4294,104 +4290,6 @@ fn test_hook_rows_have_no_ascii_fallback_gap() {
         BranchPrefix::PREFIX,
         "折行首行仍用分支前缀"
     );
-}
-
-// ─── 非工具 hook 事件行（PRD 快照 C13 / C14）─────────────────────────────
-
-/// C13：非工具事件成功汇总——详细模式 `⎿` 前缀 + 整行 inactive，普通模式无行。
-#[test]
-fn test_hook_note_summary_uses_branch_prefix_in_detail_mode() {
-    use crate::ui::message_view::NoteTone;
-    // Arrange
-    let vm = MessageViewModel::system_hook_line(
-        "1 UserPromptSubmit hooks ran · 4ms".to_string(),
-        NoteTone::Neutral,
-        true,
-    );
-    // Act
-    let normal = render_view_model(&vm, None, 80, false, 0);
-    let detail = render_view_model(&vm, None, 80, true, 0);
-    // Assert
-    assert!(
-        normal.is_empty(),
-        "普通模式不应渲染 hook 汇总行: {normal:?}"
-    );
-    assert_eq!(detail.len(), 1, "详细模式应恰好一行: {detail:?}");
-    assert_eq!(
-        rendered_text(&detail),
-        format!(
-            "{}{}",
-            BranchPrefix::PREFIX,
-            "1 UserPromptSubmit hooks ran · 4ms"
-        ),
-        "行首必须是 `⎿` 且不带 ● / · 前缀"
-    );
-    for span in &detail[0].spans {
-        assert_eq!(
-            span.style.fg,
-            Some(crate::ui::theme::cur().inactive),
-            "汇总行整行应为 inactive: {:?}",
-            span.content
-        );
-    }
-}
-
-/// C14：非工具事件阻断——`⎿` 前缀 + 整行 warning，普通模式也要显示。
-#[test]
-fn test_hook_note_blocked_row_uses_branch_prefix_and_warning() {
-    use crate::ui::message_view::NoteTone;
-    // Arrange
-    let vm = MessageViewModel::system_hook_line(
-        "PreToolUse hook blocked: reason".to_string(),
-        NoteTone::Warning,
-        false,
-    );
-    // Act
-    let normal = render_view_model(&vm, None, 80, false, 0);
-    // Assert
-    assert_eq!(normal.len(), 1, "阻断行普通模式必须显示: {normal:?}");
-    assert_eq!(
-        rendered_text(&normal),
-        format!("{}PreToolUse hook blocked: reason", BranchPrefix::PREFIX),
-        "行首必须是 `⎿` 且不带 ● / ⚠ 前缀"
-    );
-    for span in &normal[0].spans {
-        assert_eq!(
-            span.style.fg,
-            Some(crate::ui::theme::cur().warning),
-            "阻断行 ⎿ 与正文都应是 warning: {:?}",
-            span.content
-        );
-    }
-}
-
-/// C14：非工具事件失败——`⎿` 前缀 + 整行 error，普通模式也要显示。
-#[test]
-fn test_hook_note_failure_row_uses_branch_prefix_and_error() {
-    use crate::ui::message_view::NoteTone;
-    // Arrange
-    let vm = MessageViewModel::system_hook_line(
-        "Stop hook failed: exit 1".to_string(),
-        NoteTone::Error,
-        false,
-    );
-    // Act
-    let normal = render_view_model(&vm, None, 80, false, 0);
-    // Assert
-    assert_eq!(normal.len(), 1, "失败行普通模式必须显示: {normal:?}");
-    assert_eq!(
-        rendered_text(&normal),
-        format!("{}Stop hook failed: exit 1", BranchPrefix::PREFIX),
-        "行首必须是 `⎿` 且不带 ● / ✗ 前缀"
-    );
-    for span in &normal[0].spans {
-        assert_eq!(
-            span.style.fg,
-            Some(crate::ui::theme::cur().error),
-            "失败行 ⎿ 与正文都应是 error: {:?}",
-            span.content
-        );
-    }
 }
 
 /// 转后台（Ctrl+B）分支在臂末尾之前提前返回：hook 失败行必须仍挂在工具输出之后

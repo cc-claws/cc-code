@@ -120,20 +120,6 @@ impl App {
         self.request_rebuild();
     }
 
-    /// 添加 hook 结果行（非工具事件）：行首 `⎿`、整行语义色。
-    pub fn push_hook_system_note(
-        &mut self,
-        content: String,
-        tone: crate::ui::message_view::NoteTone,
-        detail_only: bool,
-    ) {
-        self.session_mgr
-            .current_mut()
-            .messages
-            .push_hook_system_note(content, tone, detail_only);
-        self.request_rebuild();
-    }
-
     /// 将 PipelineAction 映射到 view_messages 更新 + RenderEvent 发送
     pub(crate) fn apply_pipeline_action(&mut self, action: PipelineAction) {
         match action {

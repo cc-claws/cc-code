@@ -175,16 +175,6 @@ impl MessageState {
         self.view_messages.push(vm);
     }
 
-    /// 添加 hook 结果行（非工具事件）：行首 `⎿`、整行语义色。
-    ///
-    /// `detail_only` 为真时只有详细模式渲染（成功汇总、异步完成）。
-    pub fn push_hook_system_note(&mut self, content: String, tone: NoteTone, detail_only: bool) {
-        let anchor = self.view_messages.len();
-        let vm = MessageViewModel::system_hook_line(content, tone, detail_only);
-        self.ephemeral_notes.push((anchor, vm.clone()));
-        self.view_messages.push(vm);
-    }
-
     /// 添加带详细模式内容的系统通知并记录锚点位置。
     pub fn push_system_note_with_detail(&mut self, content: String, detail_content: String) {
         let anchor = self.view_messages.len();

@@ -2144,46 +2144,47 @@ fn test_rebuild_produces_tool_path_links_in_cache() {
     );
 }
 
-/// 回归：`detail_only` 的 SystemNote（hook 汇总行）必须进渲染缓存键。
+/// 回归：`detail_only` 的 SystemNote 必须进渲染缓存键。
 ///
 /// 普通模式下该消息渲染为 0 行；若缓存键不含 detail 标志，切到详细模式会命中
-/// 这份「空成品」，汇总行永远出不来；切回普通模式又会残留详细模式的行。
+/// 这份「空成品」，提示行永远出不来；切回普通模式又会残留详细模式的行。
 #[tokio::test]
 async fn test_detail_only_note_follows_toggle_detail_in_cache() {
-    use crate::ui::message_view::NoteTone;
-
     let (tx, cache, _notify) = spawn_render_thread(80);
-    let note = MessageViewModel::system_hook_line(
-        "1 UserPromptSubmit hooks ran · 4ms".to_string(),
-        NoteTone::Neutral,
-        true,
-    );
+    let note = MessageViewModel::SystemNote {
+        content: "detail only note".to_string(),
+        content_hash: 0,
+        detail_content: None,
+        tone: None,
+        body_tone: None,
+        detail_only: true,
+    };
 
     tx.send(RenderEvent::Rebuild(vec![note.clone()]))
         .await
         .unwrap();
     wait_render().await;
-    let hook_rows = || {
+    let note_rows = || {
         cache_line_texts(&cache.read())
             .iter()
-            .filter(|text| text.contains("hooks ran"))
+            .filter(|text| text.contains("detail only note"))
             .count()
     };
-    assert_eq!(hook_rows(), 0, "普通模式不得出现任何 hook 汇总行");
+    assert_eq!(note_rows(), 0, "普通模式不得出现该提示行");
 
     tx.send(RenderEvent::ToggleDetail(true)).await.unwrap();
     wait_render().await;
     assert_eq!(
-        hook_rows(),
+        note_rows(),
         1,
-        "切到详细模式后汇总行必须出现（缓存不得复用普通模式的空成品）"
+        "切到详细模式后提示行必须出现（缓存不得复用普通模式的空成品）"
     );
 
     tx.send(RenderEvent::ToggleDetail(false)).await.unwrap();
     wait_render().await;
     assert_eq!(
-        hook_rows(),
+        note_rows(),
         0,
-        "切回普通模式后汇总行必须消失（不得残留详细模式的行）"
+        "切回普通模式后提示行必须消失（不得残留详细模式的行）"
     );
 }

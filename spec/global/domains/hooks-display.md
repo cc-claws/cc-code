@@ -66,8 +66,9 @@ hook 却无法确认它是否执行、是否失败，只能去翻日志。
 
 - **工具相关事件**（`PreToolUse` / `PostToolUse` / `PostToolUseFailure`）：挂在触发它的
   `ToolBlock` 内部，紧随工具输出行之后，随工具块一起折叠与滚动。
-- **非工具事件**（`UserPromptSubmit` / `Stop` / `SessionStart` 等）：作为一条仅详细模式
-  渲染的系统通知（`MessageViewModel::SystemNote`，`ephemeral`，不进 agent history）。
+- **会话级事件**（`UserPromptSubmit` / `Stop` / `SessionStart` / `SessionEnd` /
+  `PreCompact` / `SubagentStart` …）：**不在 TUI 展示**。它们与工具块无关，也没有
+  稳定的展示时机（`SessionEnd` 尤其如此），结果只进日志。
 
 ## 数据契约
 
@@ -211,17 +212,10 @@ cc-middlewares → ExecutorEvent::HooksCompleted(HookRunSummary)
   ⎿  Async hook UserPromptSubmit completed            [inactive]
 ```
 
-### C11 事件超过 4 个（详细模式折叠）
+### C11（已废弃）
 
-```
-● Bash(cargo test)
-  ⎿  test result: ok. 12 passed; 0 failed
-  ⎿  1 PreToolUse hooks ran · 3ms                     [inactive]
-  ⎿  2 PostToolUse hooks ran · 34ms                   [inactive]
-  ⎿  1 Stop hooks ran · 8ms                           [inactive]
-  ⎿  1 SessionStart hooks ran · 5ms                   [inactive]
-  ⎿  … +1 events                                      [subtle]
-```
+TUI 只展示工具级事件，所有 hook 行都挂在各自的 `ToolBlock` 内，不存在「跨事件合并成
+一轮预算」的场景，本节不再适用。
 
 ### C12 四个 hook 失败（普通模式折叠）
 
@@ -234,17 +228,9 @@ cc-middlewares → ExecutorEvent::HooksCompleted(HookRunSummary)
   ⎿  … +1 more                                        [subtle]
 ```
 
-### C13 非工具事件（UserPromptSubmit）
+### C13 / C14（已废弃）
 
-**普通模式**：无行（挂在用户消息之后，仅详细模式出现）
-
-**详细模式**
-
-```
-> 帮我看下这个报错                                   [用户消息]
-
-  ⎿  1 UserPromptSubmit hooks ran · 4ms               [inactive]
-```
+会话级事件不在 TUI 展示，故「非工具事件成功/失败」的渲染形态不存在。
 
 ### C15 ASCII 降级终端（`prefer_ascii_fallback = true`）
 
@@ -289,10 +275,10 @@ cc-middlewares → ExecutorEvent::HooksCompleted(HookRunSummary)
 | C8 | hook 输出非法 JSON | 打印 `{oops` | `Bash(ls)` | 1 行红 failed: invalid output | 同左 + 汇总 |
 | C9 | 异步 hook 成功 | `PostToolUse: async:true` | `Bash(ls)` | — | 1 行 `Async hook … completed` |
 | C10 | 异步 hook 失败 | `async:true`，退出码 1 | `Bash(ls)` | 1 行红 | 1 行红 + 1 行完成提示 |
-| C11 | 事件超过 4 个 | 5 种事件各 1 个 hook | 一轮对话 | — | 4 行 + `… +1 events` |
+| C11 | ~~事件超过 4 个~~ | — | — | — | 已废弃（仅工具事件，无跨事件折叠） |
 | C12 | 多个失败 | 4 个 hook 全部失败 | `Bash(ls)` | 3 行红 + `… +1 more` | 同左 + 汇总 |
-| C13 | 非工具事件成功 | `UserPromptSubmit: log.sh` | 发送任意消息 | — | 1 行汇总 |
-| C14 | 非工具事件失败 | `Stop: bad.sh` exit 1 | 一轮结束 | 1 行红 | 同左 |
+| C13 | ~~非工具事件成功~~ | — | — | — | 已废弃（会话级不展示） |
+| C14 | ~~非工具事件失败~~ | — | — | — | 已废弃（会话级不展示） |
 | C15 | ASCII 降级终端 | 同 C4 | `Bash(cargo test)` | — | 2 行，无 `?`、不错位 |
 | C16 | 详情模式来回切 | 同 C4 | `Ctrl+O` ×2 | 0 行 | 2 行 → 0 行 → 2 行 |
 | C17 | Bash 被阻断后重试 | `PreToolUse` 按规则阻断 | `Bash(rm -rf x)` → `Bash(ls)` | 阻断行只跟在被阻断的那次 | 同左 |

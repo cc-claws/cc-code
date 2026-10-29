@@ -2708,10 +2708,9 @@ pub fn render_view_model_with_flags(
             tone,
             body_tone,
             detail_only,
-            branch_prefix,
             ..
         } => {
-            // 仅详细模式可见的提示（如 hook 执行汇总）：普通模式整行不渲染。
+            // 仅详细模式可见的提示：普通模式整行不渲染。
             if *detail_only && !detail_mode {
                 return (Vec::new(), link_hits);
             }
@@ -2720,22 +2719,6 @@ pub fn render_view_model_with_flags(
             } else {
                 content.as_str()
             };
-            // hook 结果行：行首 `⎿` 与工具结果同列，整行按语义色，无 `●`/`·`/`⚠` 前缀。
-            // 成功汇总用 `Neutral` → inactive（PRD 快照 C4/C13）。
-            if *branch_prefix {
-                let color = match body_tone {
-                    Some(NoteTone::Neutral) | None => theme::cur().inactive,
-                    Some(tone) => note_tone_color(*tone),
-                };
-                let mut lines = Vec::new();
-                for line in active_content
-                    .lines()
-                    .filter(|line| !line.trim().is_empty())
-                {
-                    push_hook_line(&mut lines, line, color, width);
-                }
-                return (lines, link_hits);
-            }
             // 后台任务通知：`●` + 状态色，对齐参考实现的
             // `UserAgentNotificationMessage`——`<Text color={color}>●</Text> {summary}`，
             // **只有圆点着色**，正文用默认前景色。普通系统提示（tone 为 None）
