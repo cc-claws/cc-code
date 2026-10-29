@@ -129,22 +129,16 @@ impl HookMiddleware {
         is_async: bool,
         tool_call_id: Option<&str>,
     ) {
-        // 一条 hook 都没真正执行（或被 matcher/once 全跳过）时不产生 UI 噪音。
-        if ran == 0 && failures.is_empty() {
-            return;
-        }
         let guard = self.event_tx.lock();
-        let Some(tx) = guard.as_ref() else {
-            return;
-        };
-        let _ = tx.send(AgentEvent::HooksCompleted {
-            event: event.as_str().to_string(),
+        emit_hooks_summary(
+            guard.as_ref(),
+            event.as_str(),
             ran,
-            duration_ms: started.elapsed().as_millis() as u64,
-            failures: failures.to_vec(),
+            started,
+            failures,
             is_async,
-            tool_call_id: tool_call_id.map(str::to_string),
-        });
+            tool_call_id,
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -751,6 +745,9 @@ impl<S: State> Middleware<S> for HookMiddleware {
 ///
 /// The HookMiddleware instance is owned by the agent task and not accessible
 /// from these code paths, so we dispatch hooks directly.
+///
+/// 本入口不带事件通道，执行结果**不上报**（历史行为）。需要在 UI 上可见的旁路
+/// 调用点改用 [`fire_standalone_lifecycle_hooks_with_tx`]。
 #[allow(clippy::too_many_arguments)]
 pub async fn fire_standalone_lifecycle_hooks(
     registered_hooks: &[RegisteredHook],
@@ -761,6 +758,40 @@ pub async fn fire_standalone_lifecycle_hooks(
     current_model: &str,
     message_count: Option<usize>,
     source: Option<&str>,
+) {
+    fire_standalone_lifecycle_hooks_with_tx(
+        registered_hooks,
+        event,
+        cwd,
+        session_id,
+        transcript_path,
+        current_model,
+        message_count,
+        source,
+        // 未注入通道：静默执行（TUI 的 SessionEnd 等既有调用点走这里）
+        None,
+    )
+    .await;
+}
+
+/// 同 [`fire_standalone_lifecycle_hooks`]，但把执行结果汇总上报到事件通道。
+///
+/// 旁路调用点没有 `HookMiddleware` 实例，不能复用 `emit_hooks_completed`；这里用
+/// 传进来的 sender 发同一份 [`AgentEvent::HooksCompleted`]，口径与主链一致：
+/// 同步 hook 循环结束后上报一次（`is_async = false`），异步 hook 各自完成后单独
+/// 上报一次（`is_async = true`）。`tool_call_id` 恒为 `None`——生命周期事件不归属
+/// 任何工具调用，TUI 侧渲染成独立的 `⎿` 行。
+#[allow(clippy::too_many_arguments)]
+pub async fn fire_standalone_lifecycle_hooks_with_tx(
+    registered_hooks: &[RegisteredHook],
+    event: HookEvent,
+    cwd: &str,
+    session_id: &str,
+    transcript_path: &str,
+    current_model: &str,
+    message_count: Option<usize>,
+    source: Option<&str>,
+    event_tx: Option<tokio::sync::mpsc::UnboundedSender<AgentEvent>>,
 ) {
     // Filter hooks matching the event
     let matching: Vec<&RegisteredHook> = registered_hooks
@@ -824,6 +855,10 @@ pub async fn fire_standalone_lifecycle_hooks(
         _ => return,
     };
 
+    let started = std::time::Instant::now();
+    let mut ran = 0usize;
+    let mut failures: Vec<HookFailureInfo> = Vec::new();
+
     for registered in matching {
         if let Some(ref msg) = registered.hook.get_status_message() {
             tracing::info!(
@@ -835,48 +870,112 @@ pub async fn fire_standalone_lifecycle_hooks(
         }
 
         if registered.hook.is_async() {
-            // Fire-and-forget async hook
+            // Fire-and-forget async hook：完成后单独上报 is_async summary
             let hook = registered.hook.clone();
             let input = input.clone();
             let registered = registered.clone();
+            let event_name = event.as_str().to_string();
+            let event_tx = event_tx.clone();
             tokio::spawn(async move {
-                let _ = match &hook {
+                let started = std::time::Instant::now();
+                let action = match &hook {
                     HookType::Command { .. } => {
                         execute_command_hook(&hook, &input, &registered).await
                     }
                     HookType::Http { .. } => execute_http_hook(&hook, &input).await,
                     _ => HookAction::Allow,
                 };
+                let failures: Vec<HookFailureInfo> = hook_failure(&action).into_iter().collect();
+                emit_hooks_summary(
+                    event_tx.as_ref(),
+                    &event_name,
+                    usize::from(failures.is_empty()),
+                    started,
+                    &failures,
+                    true,
+                    None,
+                );
             });
             continue;
         }
 
-        let _action = match &registered.hook {
+        let action = match &registered.hook {
             HookType::Command { .. } => {
                 execute_command_hook(&registered.hook, &input, registered).await
             }
-            HookType::Prompt { .. } => {
-                // No LLM factory available in standalone context; skip
-                HookAction::Allow
-            }
             HookType::Http { .. } => execute_http_hook(&registered.hook, &input).await,
-            HookType::Agent { .. } => {
-                // No LLM factory available in standalone context; skip
-                HookAction::Allow
+            // Prompt/Agent 需要 LLM factory，standalone 上下文没有：视为未执行，
+            // 不计入 ran，避免 summary 谎报「跑了几条」。
+            HookType::Prompt { .. } | HookType::Agent { .. } => {
+                tracing::debug!(
+                    event = ?event,
+                    "standalone hook skipped: LLM factory unavailable"
+                );
+                continue;
             }
         };
+
+        // 旁路不做短路：Block/Error 只作为失败项上报，控制流由调用方决定。
+        ran += 1;
+        if let Some(failure) = hook_failure(&action) {
+            failures.push(failure);
+        }
     }
+
+    emit_hooks_summary(
+        event_tx.as_ref(),
+        event.as_str(),
+        ran,
+        started,
+        &failures,
+        false,
+        None,
+    );
 }
 
 #[cfg(test)]
 #[path = "middleware_test.rs"]
 mod tests;
 
+/// 把一次 hook 执行汇总成 [`AgentEvent::HooksCompleted`] 发到事件通道。
+///
+/// 主链（`HookMiddleware::emit_hooks_completed`）与旁路（standalone lifecycle、
+/// subagent lifecycle）共用这一份口径，避免两处统计漂移。
+///
+/// - `ran == 0 && failures.is_empty()`（一条 hook 都没真正执行，或被 matcher/once 全跳过）
+///   时不上报，避免 UI 噪音。
+/// - `event_tx` 为 `None` 表示没有 UI 订阅，完全静默。
+/// - `tool_call_id` 为 `None` 表示非工具事件。
+pub(crate) fn emit_hooks_summary(
+    event_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentEvent>>,
+    event: &str,
+    ran: usize,
+    started: std::time::Instant,
+    failures: &[HookFailureInfo],
+    is_async: bool,
+    tool_call_id: Option<&str>,
+) {
+    if ran == 0 && failures.is_empty() {
+        return;
+    }
+    let Some(tx) = event_tx else {
+        return;
+    };
+    let _ = tx.send(AgentEvent::HooksCompleted {
+        event: event.to_string(),
+        ran,
+        duration_ms: started.elapsed().as_millis() as u64,
+        failures: failures.to_vec(),
+        is_async,
+        tool_call_id: tool_call_id.map(str::to_string),
+    });
+}
+
 /// 把 hook 的阻断/失败语义转成 UI 可渲染的失败项。
 ///
 /// `block` 是策略性阻断（琥珀色），`error` 是 hook 自身出错（红色）——后者
 /// **不改变控制流**，只是把「你配的 hook 坏了」如实告诉用户。
-fn hook_failure(action: &HookAction) -> Option<HookFailureInfo> {
+pub(crate) fn hook_failure(action: &HookAction) -> Option<HookFailureInfo> {
     match action {
         HookAction::Block { reason } => Some(HookFailureInfo {
             kind: "block".to_string(),

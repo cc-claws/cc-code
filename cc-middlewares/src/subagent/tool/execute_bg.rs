@@ -283,6 +283,8 @@ impl super::SubAgentTool {
                 &spawn_cwd,
                 &spawn_name,
                 Some(&result.output),
+                // 与会话事件同一通道上报 hook 结果，避免旁路静默
+                sender.clone(),
             )
             .await;
         });
@@ -327,6 +329,7 @@ impl super::SubAgentTool {
             &cwd,
             &agent_name,
             None,
+            self.bg_event_sender.clone(),
         )
         .await;
         let _ = start_tx.send(());

@@ -59,6 +59,23 @@ fn make_subagent_tool(parent_tools: Vec<Arc<dyn BaseTool>>) -> SubAgentTool {
     )
 }
 
+/// 构造一条最小可用的 hook 注册项（只关心 event + hook 本体）。
+fn make_registered_hook(
+    event: HookEvent,
+    hook: crate::hooks::types::HookType,
+) -> RegisteredHook {
+    RegisteredHook {
+        hook,
+        event,
+        matcher: None,
+        plugin_name: "test-plugin".to_string(),
+        plugin_id: "test-plugin-id".to_string(),
+        plugin_root: std::path::PathBuf::from("/tmp/test-plugin"),
+        plugin_data_dir: std::path::PathBuf::from("/tmp/test-plugin-data"),
+        plugin_options: std::collections::HashMap::new(),
+    }
+}
+
 /// 生产**只有后台模式**：测试把「附加注册表 → 启动 → 等完成」合成一次调用。
 ///
 /// 用例继续断言执行语义（工具/权限/上下文继承），不必被后台管道细节淹没；
@@ -1756,4 +1773,116 @@ fn test_load_agent_def_traversal_id_ignores_extra_dirs() {
         .load_agent_def("../secret", dir.path().to_str().unwrap())
         .unwrap_err();
     assert!(err.contains("cannot find agent definition"), "{err}");
+}
+
+/// SubagentStart/Stop 的旁路 helper 同样要把执行结果上报（成功的 hook）。
+#[tokio::test]
+async fn test_subagent_lifecycle_hooks_report_success_summary() {
+    let hook: crate::hooks::types::HookType = serde_json::from_value(serde_json::json!({
+        "type": "command",
+        "command": "echo subagent-start-ok"
+    }))
+    .unwrap();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+
+    fire_subagent_lifecycle_hooks_static(
+        &[make_registered_hook(HookEvent::SubagentStart, hook)],
+        HookEvent::SubagentStart,
+        env!("CARGO_MANIFEST_DIR"),
+        "general-purpose",
+        None,
+        Some(tx),
+    )
+    .await;
+
+    match rx.try_recv().expect("SubagentStart hook 必须上报 summary") {
+        cc_agent::agent::events::AgentEvent::HooksCompleted {
+            event,
+            ran,
+            failures,
+            is_async,
+            tool_call_id,
+            ..
+        } => {
+            assert_eq!(event, "SubagentStart");
+            assert_eq!(ran, 1);
+            assert!(failures.is_empty(), "成功的 hook 不应产生失败项");
+            assert!(!is_async);
+            assert_eq!(tool_call_id, None, "子 Agent 生命周期事件不归属工具调用");
+        }
+        other => panic!("意外的 AgentEvent: {other:?}"),
+    }
+}
+
+/// SubagentStop 的阻断同样要作为 block 失败项上报。
+#[tokio::test]
+async fn test_subagent_lifecycle_hooks_report_block_failure() {
+    let hook: crate::hooks::types::HookType = serde_json::from_value(serde_json::json!({
+        "type": "command",
+        "command": "exit 2"
+    }))
+    .unwrap();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+
+    fire_subagent_lifecycle_hooks_static(
+        &[make_registered_hook(HookEvent::SubagentStop, hook)],
+        HookEvent::SubagentStop,
+        env!("CARGO_MANIFEST_DIR"),
+        "general-purpose",
+        Some("done"),
+        Some(tx),
+    )
+    .await;
+
+    match rx.try_recv().expect("阻断的 SubagentStop hook 也要上报") {
+        cc_agent::agent::events::AgentEvent::HooksCompleted {
+            event,
+            ran,
+            failures,
+            ..
+        } => {
+            assert_eq!(event, "SubagentStop");
+            assert_eq!(ran, 1);
+            assert_eq!(failures.len(), 1);
+            assert_eq!(failures[0].kind, "block");
+        }
+        other => panic!("意外的 AgentEvent: {other:?}"),
+    }
+}
+
+/// 后台子 Agent 的事件通道必须真正接上：SubagentStart hook 的成功结果
+/// 要落到 `with_bg_event_sender` 注入的通道里（旁路不丢）。
+#[tokio::test]
+async fn test_background_subagent_start_hook_reports_to_event_channel() {
+    let hook: crate::hooks::types::HookType = serde_json::from_value(serde_json::json!({
+        "type": "command",
+        "command": "echo background-start-ok"
+    }))
+    .unwrap();
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (result_tx, _result_rx) = tokio::sync::mpsc::unbounded_channel();
+    let tool = make_subagent_tool(vec![])
+        .with_background_registry(Arc::new(
+            crate::subagent::background::BackgroundTaskRegistry::new(result_tx),
+        ))
+        .with_bg_event_sender(event_tx)
+        .with_registered_hooks(vec![make_registered_hook(HookEvent::SubagentStart, hook)]);
+
+    let started = tool
+        .invoke(serde_json::json!({"subagent_type": "general-purpose", "prompt": "hello"}))
+        .await
+        .expect("应能启动后台任务");
+    assert!(started.starts_with("Background task"), "{started}");
+
+    let mut summaries = Vec::new();
+    while let Ok(event) = event_rx.try_recv() {
+        if let cc_agent::agent::events::AgentEvent::HooksCompleted { event, ran, .. } = event {
+            summaries.push((event, ran));
+        }
+    }
+    assert_eq!(
+        summaries,
+        vec![("SubagentStart".to_string(), 1)],
+        "后台路径的 SubagentStart hook 必须上报 summary"
+    );
 }

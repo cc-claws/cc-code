@@ -1155,3 +1155,130 @@ async fn test_async_hook_failure_reports_error_kind() {
         other => panic!("意外的 AgentEvent: {other:?}"),
     }
 }
+
+/// 旁路（PreCompact/PostCompact/SessionEnd）没有 `HookMiddleware` 实例，
+/// 必须把执行结果通过显式传入的通道上报，否则这些 hook 永远不可观察。
+#[tokio::test]
+async fn test_standalone_lifecycle_hooks_report_success_summary() {
+    let hook: HookType = serde_json::from_value(serde_json::json!({
+        "type": "command",
+        "command": "echo compact-ok"
+    }))
+    .unwrap();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    fire_standalone_lifecycle_hooks_with_tx(
+        &[make_registered(HookEvent::PreCompact, hook)],
+        HookEvent::PreCompact,
+        TEST_CWD,
+        "s",
+        "/t",
+        "opus",
+        Some(3),
+        None,
+        Some(tx),
+    )
+    .await;
+
+    match rx.try_recv().expect("旁路 hook 执行后必须上报 summary") {
+        AgentEvent::HooksCompleted {
+            event,
+            ran,
+            failures,
+            is_async,
+            tool_call_id,
+            ..
+        } => {
+            assert_eq!(event, "PreCompact");
+            assert_eq!(ran, 1);
+            assert!(failures.is_empty(), "成功的 hook 不应产生失败项");
+            assert!(!is_async);
+            assert_eq!(tool_call_id, None, "生命周期事件不归属任何工具调用");
+        }
+        other => panic!("意外的 AgentEvent: {other:?}"),
+    }
+    assert!(rx.try_recv().is_err(), "同步 hook 只上报一次 summary");
+}
+
+/// 旁路 hook 阻断同样要上报 block 失败项（SessionEnd 场景）。
+#[tokio::test]
+async fn test_standalone_lifecycle_hooks_report_block_failure() {
+    let hook: HookType = serde_json::from_value(serde_json::json!({
+        "type": "command",
+        "command": "exit 2"
+    }))
+    .unwrap();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    fire_standalone_lifecycle_hooks_with_tx(
+        &[make_registered(HookEvent::SessionEnd, hook)],
+        HookEvent::SessionEnd,
+        TEST_CWD,
+        "s",
+        "/t",
+        "opus",
+        None,
+        Some("clear"),
+        Some(tx),
+    )
+    .await;
+
+    match rx.try_recv().expect("阻断的旁路 hook 也要上报") {
+        AgentEvent::HooksCompleted {
+            event,
+            ran,
+            failures,
+            is_async,
+            ..
+        } => {
+            assert_eq!(event, "SessionEnd");
+            assert_eq!(ran, 1);
+            assert!(!is_async);
+            assert_eq!(failures.len(), 1);
+            assert_eq!(failures[0].kind, "block");
+        }
+        other => panic!("意外的 AgentEvent: {other:?}"),
+    }
+}
+
+/// 旁路的异步 hook 完成后单独上报一次 `is_async` summary。
+#[tokio::test]
+async fn test_standalone_async_hook_reports_async_summary() {
+    let hook: HookType = serde_json::from_value(serde_json::json!({
+        "type": "command",
+        "command": "echo post-compact-ok",
+        "async": true
+    }))
+    .unwrap();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    fire_standalone_lifecycle_hooks_with_tx(
+        &[make_registered(HookEvent::PostCompact, hook)],
+        HookEvent::PostCompact,
+        TEST_CWD,
+        "s",
+        "/t",
+        "opus",
+        Some(3),
+        None,
+        Some(tx),
+    )
+    .await;
+
+    let ev = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+        .await
+        .expect("异步旁路 hook 应在超时前完成")
+        .expect("应收到异步 summary");
+    match ev {
+        AgentEvent::HooksCompleted {
+            event,
+            ran,
+            is_async,
+            failures,
+            ..
+        } => {
+            assert_eq!(event, "PostCompact");
+            assert!(is_async);
+            assert_eq!(ran, 1);
+            assert!(failures.is_empty());
+        }
+        other => panic!("意外的 AgentEvent: {other:?}"),
+    }
+}
