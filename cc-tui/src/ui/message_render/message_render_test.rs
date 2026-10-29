@@ -3998,15 +3998,30 @@ fn test_group_thinking_hides_body_in_normal_mode() {
 
 // ─── hook 执行行（spec/global/domains/hooks-display.md）────────────────────
 
-/// 构造挂 hook 行的 Bash 工具块：一条输出 + 若干 hook 行。
+/// 构造挂 hook 行的工具块（默认 Bash：一条输出 + 若干 hook 行）。
 fn make_hook_tool_block(hook_rows: Vec<crate::ui::message_view::HookRow>) -> MessageViewModel {
+    make_named_hook_tool_block(
+        "Bash",
+        "cargo test",
+        "test result: ok. 12 passed; 0 failed",
+        hook_rows,
+    )
+}
+
+/// 构造指定工具名与输出的工具块，用于校验各条渲染路径都挂上了 hook 行。
+fn make_named_hook_tool_block(
+    tool_name: &str,
+    args_display: &str,
+    content: &str,
+    hook_rows: Vec<crate::ui::message_view::HookRow>,
+) -> MessageViewModel {
     use crate::app::MessageViewModel;
     let mut vm = MessageViewModel::ToolBlock {
-        tool_name: "Bash".to_string(),
+        tool_name: tool_name.to_string(),
         tool_call_id: "tc_hook".to_string(),
-        display_name: "Bash".to_string(),
-        args_display: Some("cargo test".to_string()),
-        content: "test result: ok. 12 passed; 0 failed".to_string(),
+        display_name: tool_name.to_string(),
+        args_display: Some(args_display.to_string()),
+        content: content.to_string(),
         is_error: false,
         collapsed: true,
         color: crate::ui::theme::cur().success,
@@ -4166,6 +4181,89 @@ fn test_hook_rows_capped_at_three_failures() {
     assert!(text.contains("exit 3"), "第 3 条应保留: {text}");
     assert!(!text.contains("exit 4"), "第 4 条应被折叠: {text}");
     assert!(text.contains("… +1 more"), "折叠文案应匹配 PRD: {text}");
+}
+
+/// 异步完成行不参与「汇总 4 行」限额：4 个同步事件 + 2 个异步完成，
+/// 详细模式应全部展示、且不出现 `… +N events`（PRD「每个异步 hook 完成各占一行」）。
+#[test]
+fn test_async_completed_rows_not_folded_by_summary_cap() {
+    use crate::ui::message_view::HookRow;
+    // Arrange
+    let mut rows: Vec<_> = (1..=4)
+        .map(|i| HookRow::summary(format!("{i} Event{i} hooks ran · 1ms")))
+        .collect();
+    rows.push(HookRow::async_completed("Async hook PostToolUse completed"));
+    rows.push(HookRow::async_completed(
+        "Async hook UserPromptSubmit completed",
+    ));
+    let baseline = render_view_model(&make_hook_tool_block(Vec::new()), Some(1), 80, true, 0);
+    // Act
+    let normal = render_view_model(&make_hook_tool_block(rows.clone()), Some(1), 80, false, 0);
+    let detail = render_view_model(&make_hook_tool_block(rows), Some(1), 80, true, 0);
+    // Assert
+    assert_eq!(
+        detail.len(),
+        baseline.len() + 6,
+        "4 行同步汇总 + 2 行异步完成应各占一行"
+    );
+    let detail_text = rendered_text(&detail);
+    assert!(
+        !detail_text.contains("… +"),
+        "异步完成行不应被折叠: {detail_text}"
+    );
+    assert!(
+        detail_text.contains("Async hook PostToolUse completed"),
+        "异步完成行必须渲染: {detail_text}"
+    );
+    assert!(
+        detail_text.contains("Async hook UserPromptSubmit completed"),
+        "每个异步 hook 各占一行: {detail_text}"
+    );
+    assert!(
+        !rendered_text(&normal).contains("Async hook"),
+        "普通模式仍不显示异步完成行: {:?}",
+        rendered_text(&normal)
+    );
+}
+
+/// 同步汇总行仍受 4 行上限：6 个同步 + 2 个异步完成 → 4 行 + `… +2 events` + 2 行异步。
+#[test]
+fn test_sync_summary_fold_excludes_async_completed_rows() {
+    use crate::ui::message_view::HookRow;
+    // Arrange
+    let mut rows: Vec<_> = (1..=6)
+        .map(|i| HookRow::summary(format!("{i} Event{i} hooks ran · 1ms")))
+        .collect();
+    rows.push(HookRow::async_completed("Async hook Stop completed"));
+    rows.push(HookRow::async_completed(
+        "Async hook SessionStart completed",
+    ));
+    let baseline = render_view_model(&make_hook_tool_block(Vec::new()), Some(1), 80, true, 0);
+    // Act
+    let lines = render_view_model(&make_hook_tool_block(rows), Some(1), 80, true, 0);
+    // Assert
+    assert_eq!(
+        lines.len(),
+        baseline.len() + 7,
+        "4 行同步汇总 + 1 行折叠提示 + 2 行异步完成"
+    );
+    let text = rendered_text(&lines);
+    assert!(
+        text.contains("… +2 events"),
+        "折叠计数只统计同步汇总行: {text}"
+    );
+    assert!(
+        !text.contains("6 Event6 hooks ran"),
+        "第 6 个同步事件应被折叠: {text}"
+    );
+    assert!(
+        text.contains("Async hook Stop completed"),
+        "异步完成行不受折叠影响: {text}"
+    );
+    assert!(
+        text.contains("Async hook SessionStart completed"),
+        "异步完成行不受折叠影响: {text}"
+    );
 }
 
 #[test]
@@ -4343,6 +4441,81 @@ fn test_hook_rows_rendered_for_backgrounded_bash() {
         !rendered_text(&normal).contains("hooks ran"),
         "普通模式不应出现汇总行: {:?}",
         rendered_text(&normal)
+    );
+}
+
+/// AskUserQuestion 专用渲染路径提前返回：hook 行必须接在问答内容之后，
+/// 否则这条路径上的阻断/失败提示整段丢失。
+#[test]
+fn test_hook_rows_rendered_for_ask_user_question() {
+    use crate::ui::message_view::{HookRow, NoteTone};
+    // Arrange
+    let rows = vec![
+        HookRow::failure("PreToolUse hook blocked: policy", NoteTone::Warning),
+        HookRow::summary("1 PreToolUse hooks ran · 8ms"),
+    ];
+    let vm = make_named_hook_tool_block(
+        "AskUserQuestion",
+        "",
+        "[问: 用哪个方案?]\n回答: 方案 A",
+        rows,
+    );
+    // Act
+    let normal = render_view_model(&vm, Some(1), 80, false, 0);
+    let detail = render_view_model(&vm, Some(1), 80, true, 0);
+    // Assert
+    let ask_line = normal
+        .iter()
+        .position(|line| line.spans.iter().any(|s| s.content.contains("User answered")))
+        .expect("AskUserQuestion 头行应渲染");
+    let answer_line = normal
+        .iter()
+        .position(|line| line.spans.iter().any(|s| s.content.contains("方案 A")))
+        .expect("问答内容应渲染");
+    let hook_pos = normal
+        .iter()
+        .position(|line| line.spans.iter().any(|s| s.content.contains("hook blocked")))
+        .expect("AskUserQuestion 路径不得吞掉 hook 行");
+    assert!(
+        hook_pos > ask_line && hook_pos > answer_line,
+        "hook 行应排在问答内容之后: {hook_pos} vs {ask_line}/{answer_line}"
+    );
+    assert!(
+        !rendered_text(&normal).contains("hooks ran"),
+        "普通模式不显示汇总行: {:?}",
+        rendered_text(&normal)
+    );
+    assert!(
+        rendered_text(&detail).contains("1 PreToolUse hooks ran · 8ms"),
+        "详细模式应保留汇总行: {:?}",
+        rendered_text(&detail)
+    );
+}
+
+/// 折叠 Skill 分支提前返回：hook 失败/阻断行必须接在 Skill 摘要之后。
+#[test]
+fn test_hook_rows_rendered_for_collapsed_skill() {
+    use crate::ui::message_view::{HookRow, NoteTone};
+    // Arrange
+    let rows = vec![HookRow::failure(
+        "PostToolUse hook failed: exit 1",
+        NoteTone::Error,
+    )];
+    let vm = make_named_hook_tool_block("Skill", "example-skill", r#"{"success":true}"#, rows);
+    // Act
+    let normal = render_view_model(&vm, Some(1), 80, false, 0);
+    // Assert
+    let skill_line = normal
+        .iter()
+        .position(|line| line.spans.iter().any(|s| s.content.contains("Skill")))
+        .expect("折叠 Skill 摘要行应渲染");
+    let hook_pos = normal
+        .iter()
+        .position(|line| line.spans.iter().any(|s| s.content.contains("hook failed")))
+        .expect("折叠 Skill 路径不得吞掉 hook 行");
+    assert!(
+        hook_pos > skill_line,
+        "hook 行应排在 Skill 摘要之后: {hook_pos} vs {skill_line}"
     );
 }
 

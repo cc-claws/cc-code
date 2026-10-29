@@ -23,6 +23,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use cc_agent::agent::events::HookFailureInfo;
 use cc_agent::messages::{BaseMessage, ToolCallRequest};
 
 use crate::app::{events::AgentEvent, tool_display};
@@ -249,6 +250,89 @@ struct BatchInfo {
     completed: usize,
 }
 
+// ─── hook 执行结果合并 ───────────────────────────────────────────────────────
+
+/// 一次 hook 执行结果（挂到工具块上的原始结构）。
+///
+/// 同一个工具调用、同一个事件可能由多个 `HookMiddleware` 实例分别上报
+/// （plugin / global / project / local 各配各的 hook，每个实例独立跑一次
+/// `run_hooks`）。归档时按 `(tool_call_id, event, is_async = false)` 合并，
+/// 让 PRD C4 的「2 PreToolUse hooks ran」只占一行。
+#[derive(Debug, Clone)]
+pub(crate) struct HookExec {
+    pub event: String,
+    pub ran: usize,
+    pub duration_ms: u64,
+    pub failures: Vec<HookFailureInfo>,
+    pub is_async: bool,
+}
+
+impl HookExec {
+    pub(crate) fn new(
+        event: impl Into<String>,
+        ran: usize,
+        duration_ms: u64,
+        failures: Vec<HookFailureInfo>,
+        is_async: bool,
+    ) -> Self {
+        Self {
+            event: event.into(),
+            ran,
+            duration_ms,
+            failures,
+            is_async,
+        }
+    }
+
+    /// 把一次执行结果转成渲染行：阻断/失败行在前，汇总行在后（PRD 快照 C5/C6）。
+    ///
+    /// 汇总行与异步完成行都是 `detail_only`，普通模式不渲染。
+    fn to_rows(&self) -> Vec<HookRow> {
+        use crate::ui::message_view::NoteTone;
+        let mut rows: Vec<HookRow> = self
+            .failures
+            .iter()
+            .map(|failure| {
+                let (verb, tone) = if failure.kind == "block" {
+                    ("blocked", NoteTone::Warning)
+                } else {
+                    ("failed", NoteTone::Error)
+                };
+                HookRow::failure(
+                    format!("{} hook {verb}: {}", self.event, failure.reason),
+                    tone,
+                )
+            })
+            .collect();
+        rows.push(if self.is_async {
+            // 每个异步 hook 完成各占一行，不参与 4 行折叠
+            HookRow::async_completed(format!("Async hook {} completed", self.event))
+        } else {
+            HookRow::summary(format!(
+                "{} {} hooks ran · {}ms",
+                self.ran, self.event, self.duration_ms
+            ))
+        });
+        rows
+    }
+}
+
+/// 非工具事件（`UserPromptSubmit` / `Stop` 等）的 hook 汇总累加状态。
+struct HookNoteAccum {
+    ran: usize,
+    duration_ms: u64,
+    /// 上一次写进视图的文案：累加更新时按它就地替换，避免再推一条。
+    text: String,
+}
+
+/// [`MessagePipeline::merge_hook_note`] 的结果。
+pub(crate) struct HookNoteUpdate {
+    /// 上一次写进视图的文案；`Some` 表示本次是累加更新，应就地替换而非新增。
+    pub previous: Option<String>,
+    /// 本次应显示的文案
+    pub text: String,
+}
+
 // ─── MessagePipeline ─────────────────────────────────────────────────────────
 
 /// 统一消息渲染管线。
@@ -284,12 +368,21 @@ pub struct MessagePipeline {
     current_ai_finalized: bool,
     /// 已开始但未结束的工具调用
     pending_tools: HashMap<String, PendingTool>,
-    /// 按 `tool_call_id` 归档的 hook 执行行（仅 UI 展示，不进 history）。
+    /// 按 `tool_call_id` 归档的 hook 执行结果（仅 UI 展示，不进 history）。
     ///
     /// PreToolUse 的汇总早于 ToolStart 到达，此时工具块还不存在，所以统一按 id
     /// 暂存在管线里，由 [`Self::build_tail_vms`] 生成 ToolBlock 时挂上——这样无论
     /// 事件先后、无论尾部被重建多少次，行都不会丢。
-    hook_rows: HashMap<String, Vec<HookRow>>,
+    ///
+    /// 存原始结构而非渲染行：同事件的多次上报（global+project 各一个 hook）要在
+    /// 这里合并成一条，才不会被渲染成多行。
+    hook_results: HashMap<String, Vec<HookExec>>,
+    /// 非工具事件的 hook 汇总累加状态，按事件名索引。
+    ///
+    /// 行本身是 `ephemeral_notes` 里的 SystemNote（由 agent_ops 写入视图），这里只
+    /// 记录已累加的计数、耗时与上次文案，供同事件下一次上报时就地更新。
+    /// 轮次结束（[`Self::done`] / [`Self::interrupt`]）清空，避免跨轮错并。
+    hook_notes: HashMap<String, HookNoteAccum>,
     /// 真实 spawn 注册可能先于 ToolStart；按调用身份保存，禁止命令文本匹配。
     shell_runtimes: HashMap<(Option<String>, String), shell_runtime::ShellRuntime>,
     /// ToolEnd 后、StateSnapshot 前的工具结果（在 reconcile gap 期间显示）
@@ -339,7 +432,8 @@ impl MessagePipeline {
             current_ai_tool_calls: Vec::new(),
             current_ai_finalized: false,
             pending_tools: HashMap::new(),
-            hook_rows: HashMap::new(),
+            hook_results: HashMap::new(),
+            hook_notes: HashMap::new(),
             shell_runtimes: HashMap::new(),
             completed_tools: Vec::new(),
             subagent_stack: Vec::new(),
@@ -360,23 +454,73 @@ impl MessagePipeline {
         &self.cwd
     }
 
-    /// 归档一次 hook 执行结果对应的渲染行（挂在触发它的工具块上）。
-    pub(crate) fn push_hook_rows(&mut self, tool_call_id: &str, rows: Vec<HookRow>) {
-        if rows.is_empty() {
+    /// 归档一次 hook 执行结果（挂在触发它的工具块上）。
+    ///
+    /// 合并键 `(tool_call_id, event, is_async)`：`tool_call_id` 由 map 键承担；
+    /// 同步执行按事件名合并（`ran` / `duration_ms` 相加、`failures` 拼接），
+    /// 异步完成各自独立成行。
+    pub(crate) fn push_hook_result(&mut self, tool_call_id: &str, exec: HookExec) {
+        let execs = self
+            .hook_results
+            .entry(tool_call_id.to_string())
+            .or_default();
+        if exec.is_async {
+            execs.push(exec);
             return;
         }
-        self.hook_rows
-            .entry(tool_call_id.to_string())
-            .or_default()
-            .extend(rows);
+        if let Some(existing) = execs
+            .iter_mut()
+            .find(|existing| !existing.is_async && existing.event == exec.event)
+        {
+            existing.ran += exec.ran;
+            existing.duration_ms += exec.duration_ms;
+            existing.failures.extend(exec.failures);
+        } else {
+            execs.push(exec);
+        }
     }
 
-    /// 把归档的 hook 行挂到对应 `ToolBlock`（含 SubAgent 内部的工具块）。
+    /// 合并一条非工具事件的 hook 汇总。
+    ///
+    /// 同一事件可能由多个 `HookMiddleware` 实例分别上报；第二次起返回
+    /// `previous = Some(旧文案)`，调用方据此就地改写已有那行，计数与耗时累加。
+    pub(crate) fn merge_hook_note(
+        &mut self,
+        event: &str,
+        ran: usize,
+        duration_ms: u64,
+    ) -> HookNoteUpdate {
+        if let Some(accum) = self.hook_notes.get_mut(event) {
+            accum.ran += ran;
+            accum.duration_ms += duration_ms;
+            let text = format!("{} {event} hooks ran · {}ms", accum.ran, accum.duration_ms);
+            let previous = std::mem::replace(&mut accum.text, text.clone());
+            return HookNoteUpdate {
+                previous: Some(previous),
+                text,
+            };
+        }
+        let text = format!("{ran} {event} hooks ran · {duration_ms}ms");
+        self.hook_notes.insert(
+            event.to_string(),
+            HookNoteAccum {
+                ran,
+                duration_ms,
+                text: text.clone(),
+            },
+        );
+        HookNoteUpdate {
+            previous: None,
+            text,
+        }
+    }
+
+    /// 把归档的 hook 结果挂到对应 `ToolBlock`（含 SubAgent 内部的工具块）。
     ///
     /// 找不到匹配工具块的 id 保持暂存：PreToolUse 的行先于 ToolStart 到达，
     /// 等工具块建出来再挂。
     fn apply_hook_rows(&self, vms: &mut [MessageViewModel]) {
-        if self.hook_rows.is_empty() {
+        if self.hook_results.is_empty() {
             return;
         }
         for vm in vms.iter_mut() {
@@ -387,11 +531,16 @@ impl MessagePipeline {
                 self.apply_hook_rows(recent_messages);
             }
             let rows = if let MessageViewModel::ToolBlock { tool_call_id, .. } = &*vm {
-                self.hook_rows.get(tool_call_id).cloned()
+                self.hook_results.get(tool_call_id).map(|execs| {
+                    execs
+                        .iter()
+                        .flat_map(|exec| exec.to_rows())
+                        .collect::<Vec<_>>()
+                })
             } else {
                 None
             };
-            if let Some(rows) = rows {
+            if let Some(rows) = rows.filter(|rows| !rows.is_empty()) {
                 vm.set_hook_rows(rows);
             }
         }
@@ -1142,6 +1291,8 @@ impl MessagePipeline {
         self.force_flush_block();
         self.throttle_last_fire = None;
         self.active_batch = None;
+        // 轮次结束：非工具事件的 hook 汇总不再累加，下一轮同类事件另起一行
+        self.hook_notes.clear();
         self.drain_subagent_stack();
     }
 
@@ -1162,6 +1313,8 @@ impl MessagePipeline {
         self.force_flush_block();
         self.throttle_last_fire = None;
         self.active_batch = None;
+        // 中断同样视为轮次结束：避免下一轮的非工具 hook 汇总并进本轮
+        self.hook_notes.clear();
         self.drain_subagent_stack();
     }
 

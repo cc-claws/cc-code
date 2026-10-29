@@ -6,7 +6,7 @@
 //!   subagent.rs  — token usage, subagent start
 //!   polling.rs   — poll_agent, poll_background_events, poll_cron_triggers
 
-use super::{agent_events_bg::BackgroundTaskResult, *};
+use super::{agent_events_bg::BackgroundTaskResult, message_pipeline::HookExec, *};
 mod acp_bridge;
 mod lifecycle;
 mod output_refresh;
@@ -488,27 +488,19 @@ impl App {
             } => {
                 if let Some(tool_call_id) = tool_call_id {
                     // 工具事件的 hook 行挂在触发它的 ToolBlock 上：随工具块一起折叠、
-                    // 滚动。管线负责在尾部重建时重新贴（见 MessagePipeline::push_hook_rows）。
-                    let rows = hook_rows_for(&event, ran, duration_ms, &failures, is_async);
+                    // 滚动。管线负责在尾部重建时重新贴（见 MessagePipeline::push_hook_result），
+                    // 并按 (tool_call_id, event, is_async) 合并多个 middleware 实例的上报。
                     self.session_mgr
                         .current_mut()
                         .messages
                         .pipeline
-                        .push_hook_rows(&tool_call_id, rows);
+                        .push_hook_result(
+                            &tool_call_id,
+                            HookExec::new(event, ran, duration_ms, failures, is_async),
+                        );
                     self.request_rebuild();
-                } else if failures.is_empty() {
-                    // 阻断/失败在普通模式也要显示；纯成功汇总只在详细模式出现。
-                    let text = if is_async {
-                        format!("Async hook {event} completed")
-                    } else {
-                        format!("{ran} {event} hooks ran · {duration_ms}ms")
-                    };
-                    self.push_hook_system_note(
-                        text,
-                        crate::ui::message_view::NoteTone::Neutral,
-                        true,
-                    );
-                } else {
+                } else if !failures.is_empty() {
+                    // 阻断/失败在普通模式也要显示；每个失败原因各占一行。
                     for failure in &failures {
                         let (verb, tone) = if failure.kind == "block" {
                             ("blocked", crate::ui::message_view::NoteTone::Warning)
@@ -521,6 +513,17 @@ impl App {
                             false,
                         );
                     }
+                } else if is_async {
+                    // 异步完成提示：每个异步 hook 各一行，不参与同事件合并。
+                    self.push_hook_system_note(
+                        format!("Async hook {event} completed"),
+                        crate::ui::message_view::NoteTone::Neutral,
+                        true,
+                    );
+                } else {
+                    // 纯成功汇总只在详细模式出现；同事件的多次上报（global+project
+                    // 各一个 hook）合并成一行，计数与耗时累加。
+                    self.merge_hook_system_note(&event, ran, duration_ms);
                 }
                 (true, false, false)
             }
@@ -646,36 +649,94 @@ impl App {
     // poll_agent/poll_background_events/poll_cron_triggers are in polling.rs
 }
 
-/// 把一次 hook 执行结果转成挂在工具块上的渲染行。
-///
-/// 顺序对齐 PRD 快照 C5/C6：阻断/失败行在前，汇总行在后。汇总行是 `detail_only`，
-/// 普通模式不渲染。
-fn hook_rows_for(
-    event: &str,
-    ran: usize,
-    duration_ms: u64,
-    failures: &[cc_agent::agent::events::HookFailureInfo],
-    is_async: bool,
-) -> Vec<crate::ui::message_view::HookRow> {
-    use crate::ui::message_view::{HookRow, NoteTone};
-    let mut rows = Vec::new();
-    for failure in failures {
-        let (verb, tone) = if failure.kind == "block" {
-            ("blocked", NoteTone::Warning)
-        } else {
-            ("failed", NoteTone::Error)
+impl App {
+    /// 写入 / 更新一条非工具事件的 hook 汇总行。
+    ///
+    /// 同一事件可能由多个 `HookMiddleware` 实例分别上报（plugin / global /
+    /// project / local 各配各的 hook）。首次到达时新增一行，之后到达时按
+    /// `MessagePipeline::merge_hook_note` 累加计数与耗时，并就地改写那一行的
+    /// 文案——同一事件在屏幕上始终只占一行。
+    fn merge_hook_system_note(&mut self, event: &str, ran: usize, duration_ms: u64) {
+        let update = self
+            .session_mgr
+            .current_mut()
+            .messages
+            .pipeline
+            .merge_hook_note(event, ran, duration_ms);
+        let messages = &mut self.session_mgr.current_mut().messages;
+        let replaced = match &update.previous {
+            Some(previous) => replace_hook_note_text(
+                &mut messages.view_messages,
+                &mut messages.ephemeral_notes,
+                previous,
+                &update.text,
+            ),
+            // 首次到达：与失败行同样走 `ephemeral_notes`，随重建按锚点归位
+            None => false,
         };
-        rows.push(HookRow::failure(
-            format!("{event} hook {verb}: {}", failure.reason),
-            tone,
-        ));
+        if !replaced {
+            messages.push_hook_system_note(
+                update.text,
+                crate::ui::message_view::NoteTone::Neutral,
+                true,
+            );
+        }
+        self.request_rebuild();
     }
-    rows.push(HookRow::summary(if is_async {
-        format!("Async hook {event} completed")
-    } else {
-        format!("{ran} {event} hooks ran · {duration_ms}ms")
-    }));
-    rows
+}
+
+/// 判断某个视图模型是不是文案为 `text` 的 hook 行（`⎿` 前缀 + 仅详细模式）。
+fn is_hook_note_with_text(vm: &MessageViewModel, text: &str) -> bool {
+    matches!(
+        vm,
+        MessageViewModel::SystemNote {
+            content,
+            branch_prefix: true,
+            detail_only: true,
+            ..
+        } if content == text
+    )
+}
+
+/// 把 hook 行的文案就地改写（不新增行、不改变行位置）。
+///
+/// `view_messages` 里是当前渲染的副本，`ephemeral_notes` 里是重建时的素材，
+/// 两处都要改——否则下一次 RebuildAll 会把旧文案重新写回屏幕。
+/// 返回是否找到并改写了旧行。
+fn replace_hook_note_text(
+    view_messages: &mut [MessageViewModel],
+    ephemeral_notes: &mut Vec<(usize, MessageViewModel)>,
+    previous: &str,
+    text: &str,
+) -> bool {
+    // 只改「最后一条」匹配行：跨轮可能出现文案完全相同的旧行（如每轮都是
+    // `1 UserPromptSubmit hooks ran · 4ms`），改全部会篡改历史行。
+    let Some(index) = view_messages
+        .iter()
+        .rposition(|vm| is_hook_note_with_text(vm, previous))
+    else {
+        // 旧行已不在视图里（锚点落进前缀被丢弃）：清掉残留素材，
+        // 交给调用方新增一行，避免下一次重建把它重新冒出来。
+        ephemeral_notes.retain(|(_, vm)| !is_hook_note_with_text(vm, previous));
+        return false;
+    };
+    set_hook_note_text(&mut view_messages[index], text);
+    if let Some((_, vm)) = ephemeral_notes
+        .iter_mut()
+        .rev()
+        .find(|(_, vm)| is_hook_note_with_text(vm, previous))
+    {
+        set_hook_note_text(vm, text);
+    }
+    true
+}
+
+/// 改写 SystemNote 的正文并重算哈希（不改哈希会让渲染缓存继续返回旧文案）。
+fn set_hook_note_text(vm: &mut MessageViewModel, text: &str) {
+    if let MessageViewModel::SystemNote { content, .. } = vm {
+        *content = text.to_owned();
+    }
+    vm.recompute_hash();
 }
 
 #[cfg(test)]

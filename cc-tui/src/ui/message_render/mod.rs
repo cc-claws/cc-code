@@ -73,8 +73,9 @@ fn push_hook_line(lines: &mut Vec<Line<'static>>, text: &str, color: Color, widt
 /// 追加该工具调用触发的 hook 行（规格见 spec/global/domains/hooks-display.md）。
 ///
 /// - 阻断/失败行两种模式都显示；汇总/异步完成行仅详细模式显示。
-/// - 折叠口径：汇总最多 4 行（其余折成 `… +N events`），失败最多 3 行
-///   （其余折成 `… +N more`）。行数不随 hook 数量线性增长。
+/// - 折叠口径：同步汇总最多 4 行（其余折成 `… +N events`），失败最多 3 行
+///   （其余折成 `… +N more`）。异步完成行不参与折叠，每个异步 hook 各占一行。
+///   行数不随 hook 数量线性增长。
 fn append_hook_rows(
     lines: &mut Vec<Line<'static>>,
     hook_rows: &[HookRow],
@@ -91,10 +92,13 @@ fn append_hook_rows(
             if !detail_mode {
                 continue;
             }
-            if summaries >= HOOK_SUMMARY_MAX_ROWS {
-                continue;
+            // 异步完成行逐条展示，只有同步汇总行参与 4 行限额。
+            if !row.async_completed {
+                if summaries >= HOOK_SUMMARY_MAX_ROWS {
+                    continue;
+                }
+                summaries += 1;
             }
-            summaries += 1;
         } else {
             if failures >= HOOK_FAILURE_MAX_ROWS {
                 continue;
@@ -120,7 +124,7 @@ fn append_hook_rows(
     let hidden_summaries = if detail_mode {
         hook_rows
             .iter()
-            .filter(|row| row.detail_only)
+            .filter(|row| row.detail_only && !row.async_completed)
             .count()
             .saturating_sub(HOOK_SUMMARY_MAX_ROWS)
     } else {
@@ -1869,20 +1873,23 @@ pub fn render_view_model_with_flags(
         } => {
             // AskUserQuestion 专用渲染路径
             if tool_name == "AskUserQuestion" {
-                return (render_ask_user_block(content, *is_error, width), link_hits);
+                // 与其余提前返回分支一致：hook 行挂在工具内容之后，否则整段丢失。
+                let mut lines = render_ask_user_block(content, *is_error, width);
+                append_hook_rows(&mut lines, hook_rows, detail_mode, width);
+                return (lines, link_hits);
             }
             if tool_name == "Skill" && *collapsed && !detail_mode {
-                return (
-                    skill::render_collapsed_skill(
-                        args_display.as_deref(),
-                        content,
-                        *is_error,
-                        *phase,
-                        width,
-                        tick,
-                    ),
-                    link_hits,
+                let mut lines = skill::render_collapsed_skill(
+                    args_display.as_deref(),
+                    content,
+                    *is_error,
+                    *phase,
+                    width,
+                    tick,
                 );
+                // 折叠 Skill 分支在臂末尾之前提前返回：hook 失败/阻断行仍要跟上。
+                append_hook_rows(&mut lines, hook_rows, detail_mode, width);
+                return (lines, link_hits);
             }
             let skill_instruction = if tool_name == "Skill" && !*is_error {
                 skill::instruction_for_display(content)

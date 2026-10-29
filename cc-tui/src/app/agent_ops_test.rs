@@ -327,3 +327,156 @@ fn test_system_note_clamped_to_end_when_tail_shorter() {
         "超过 tail 长度的 SystemNote 应 clamp 到末尾"
     );
 }
+
+/// 模拟 `MessageState::push_hook_system_note`：新增一行 `⎿` 前缀的 hook 行。
+fn push_hook_line(
+    view_messages: &mut Vec<crate::ui::message_view::MessageViewModel>,
+    ephemeral_notes: &mut Vec<(usize, crate::ui::message_view::MessageViewModel)>,
+    text: String,
+) {
+    use crate::ui::message_view::{MessageViewModel, NoteTone};
+    let anchor = view_messages.len();
+    let vm = MessageViewModel::system_hook_line(text, NoteTone::Neutral, true);
+    ephemeral_notes.push((anchor, vm.clone()));
+    view_messages.push(vm);
+}
+
+/// 逐个取出所有 hook 行（`⎿` 前缀 + 仅详细模式）的文案，供“只占一行”断言用。
+fn hook_note_texts(view_messages: &[crate::ui::message_view::MessageViewModel]) -> Vec<String> {
+    use crate::ui::message_view::MessageViewModel;
+    view_messages
+        .iter()
+        .filter_map(|vm| match vm {
+            MessageViewModel::SystemNote {
+                content,
+                branch_prefix: true,
+                detail_only: true,
+                ..
+            } => Some(content.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// 同一非工具事件的两次上报（global + project 各配一个 UserPromptSubmit hook）：
+/// 只保留一条 SystemNote，文案为累加后的计数与耗时。
+#[test]
+fn test_hook_note_merges_same_event_into_single_line() {
+    use super::message_pipeline::MessagePipeline;
+    use crate::ui::message_view::MessageViewModel;
+
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    let mut view_messages = vec![MessageViewModel::user("q1".to_string())];
+    let mut ephemeral_notes = Vec::new();
+
+    let first = pipeline.merge_hook_note("UserPromptSubmit", 1, 4);
+    assert!(first.previous.is_none(), "首次上报应新增一行");
+    push_hook_line(&mut view_messages, &mut ephemeral_notes, first.text);
+
+    let second = pipeline.merge_hook_note("UserPromptSubmit", 1, 6);
+    let previous = second.previous.as_deref().expect("第二次上报应就地更新");
+    assert!(super::replace_hook_note_text(
+        &mut view_messages,
+        &mut ephemeral_notes,
+        previous,
+        &second.text
+    ));
+
+    assert_eq!(
+        hook_note_texts(&view_messages),
+        vec!["2 UserPromptSubmit hooks ran · 10ms".to_string()],
+        "同一事件在屏幕上只能占一行，计数与耗时累加"
+    );
+    // ephemeral_notes 是重建素材：不同步更新的话，下一次 RebuildAll 会把旧文案写回
+    let note_hashes: Vec<_> = ephemeral_notes
+        .iter()
+        .map(|(_, vm)| format!("{vm:?}"))
+        .collect();
+    assert!(
+        note_hashes
+            .iter()
+            .any(|text| text.contains("2 UserPromptSubmit hooks ran · 10ms")),
+        "ephemeral 副本也要同步改写，实际: {note_hashes:?}"
+    );
+}
+
+/// 不同事件各占一行，互不吞并。
+#[test]
+fn test_hook_note_keeps_different_events_apart() {
+    use super::message_pipeline::MessagePipeline;
+    use crate::ui::message_view::MessageViewModel;
+
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    let mut view_messages = vec![MessageViewModel::user("q1".to_string())];
+    let mut ephemeral_notes = Vec::new();
+
+    for (event, ran, duration_ms) in [("UserPromptSubmit", 1, 4), ("Stop", 2, 8)] {
+        let update = pipeline.merge_hook_note(event, ran, duration_ms);
+        assert!(update.previous.is_none(), "不同事件不应互相合并");
+        push_hook_line(&mut view_messages, &mut ephemeral_notes, update.text);
+    }
+
+    assert_eq!(
+        hook_note_texts(&view_messages),
+        vec![
+            "1 UserPromptSubmit hooks ran · 4ms".to_string(),
+            "2 Stop hooks ran · 8ms".to_string()
+        ]
+    );
+}
+
+/// 历史行与本轮旧行文案相同时，只改最后一条：跨轮历史不能被篡改。
+#[test]
+fn test_replace_hook_note_only_updates_last_matching_line() {
+    use crate::ui::message_view::{MessageViewModel, NoteTone};
+
+    let mut view_messages = vec![
+        MessageViewModel::user("q1".to_string()),
+        MessageViewModel::system_hook_line(
+            "1 Stop hooks ran · 4ms".to_string(),
+            NoteTone::Neutral,
+            true,
+        ),
+        MessageViewModel::user("q2".to_string()),
+        MessageViewModel::system_hook_line(
+            "1 Stop hooks ran · 4ms".to_string(),
+            NoteTone::Neutral,
+            true,
+        ),
+    ];
+    let mut ephemeral_notes = vec![(1, view_messages[1].clone()), (3, view_messages[3].clone())];
+
+    assert!(super::replace_hook_note_text(
+        &mut view_messages,
+        &mut ephemeral_notes,
+        "1 Stop hooks ran · 4ms",
+        "2 Stop hooks ran · 10ms"
+    ));
+
+    assert_eq!(
+        hook_note_texts(&view_messages),
+        vec![
+            "1 Stop hooks ran · 4ms".to_string(),
+            "2 Stop hooks ran · 10ms".to_string()
+        ],
+        "只更新最后一条，上一轮的同类行保持原样"
+    );
+}
+
+/// 轮次结束后累加状态清空：下一轮相同事件重新起一行，不会并进上一轮。
+#[test]
+fn test_hook_note_resets_after_turn_done() {
+    use super::message_pipeline::MessagePipeline;
+
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    let first = pipeline.merge_hook_note("UserPromptSubmit", 1, 4);
+    assert!(first.previous.is_none());
+    let _ = pipeline.handle_event(super::AgentEvent::Done);
+
+    let next_round = pipeline.merge_hook_note("UserPromptSubmit", 1, 6);
+    assert!(
+        next_round.previous.is_none(),
+        "新一轮的同类事件必须另起一行，不能改写上一轮的总结行"
+    );
+    assert_eq!(next_round.text, "1 UserPromptSubmit hooks ran · 6ms");
+}

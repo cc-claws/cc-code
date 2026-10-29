@@ -76,15 +76,32 @@ pub struct HookRow {
     pub tone: NoteTone,
     /// 仅详细模式显示（汇总行、异步完成行）
     pub detail_only: bool,
+    /// 异步 hook 的完成提示行（`Async hook <Event> completed`）。
+    ///
+    /// 渲染折叠时只有同步汇总行受 4 行上限约束（其余折成 `… +N events`）；
+    /// 每个异步 hook 完成各占一行，不参与折叠。
+    pub async_completed: bool,
 }
 
 impl HookRow {
-    /// 汇总行 / 异步完成行：仅详细模式可见。
+    /// 同步汇总行（`N <Event> hooks ran · Xms`）：仅详细模式可见，受 4 行上限约束。
     pub fn summary(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
             tone: NoteTone::Neutral,
             detail_only: true,
+            async_completed: false,
+        }
+    }
+
+    /// 异步 hook 完成行（`Async hook <Event> completed`）：仅详细模式可见，
+    /// 不参与汇总行折叠，每个异步 hook 各占一行。
+    pub fn async_completed(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            tone: NoteTone::Neutral,
+            detail_only: true,
+            async_completed: true,
         }
     }
 
@@ -94,6 +111,7 @@ impl HookRow {
             text: text.into(),
             tone,
             detail_only: false,
+            async_completed: false,
         }
     }
 }
