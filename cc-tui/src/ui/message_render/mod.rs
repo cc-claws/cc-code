@@ -1318,16 +1318,27 @@ fn render_shell_command(
         output_lines.push((line.to_string(), true));
     }
 
-    if output_lines.is_empty() {
-        let text = if exit_code.is_none() {
-            "running..."
+    // 与 Bash 工具同一口径：前 2 秒只显示裸 `Running…`，满 2 秒后才把已运行时间
+    // 拼进状态行。`!` 命令没有 timeout 参数，故不传时长上限。
+    let past_threshold =
+        started_at.is_some_and(|t| t.elapsed() >= std::time::Duration::from_secs(2));
+    let running_text = |started: std::time::Instant| {
+        if past_threshold {
+            shell_running_text(started, None)
         } else {
-            "(No output)"
+            SHELL_RUNNING_TEXT_PREFIX.to_string()
+        }
+    };
+
+    if output_lines.is_empty() {
+        let text = match (exit_code, started_at) {
+            (None, Some(started)) => running_text(started),
+            _ => "(No output)".to_string(),
         };
         shell_output_lines(
             &mut lines,
             BranchPrefix::PREFIX,
-            text,
+            &text,
             Style::default().fg(theme::cur().text_soft),
             theme::cur().inactive,
             width,
@@ -1366,26 +1377,26 @@ fn render_shell_command(
         );
     }
 
-    // 2 秒阈值提示：前台 running 超 2 秒显示已运行时间 + "(Ctrl+B to run in background)"（对齐效果图场景 1）
-    if !moved_to_background
-        && exit_code.is_none()
-        && started_at.is_some_and(|t| t.elapsed() >= std::time::Duration::from_secs(2))
-    {
-        let elapsed = started_at.unwrap().elapsed();
-        let secs = elapsed.as_secs();
-        let elapsed_str = if secs >= 60 {
-            format!("({}m {:02}s)", secs / 60, secs % 60)
-        } else {
-            format!("({}s)", secs)
-        };
-        shell_output_lines(
-            &mut lines,
-            BranchPrefix::HANG,
-            &elapsed_str,
-            Style::default().fg(theme::cur().inactive),
-            theme::cur().subtle,
-            width,
-        );
+    // 2 秒阈值提示：耗时已并入状态行，这里只补后台化提示；命令已有输出（没有
+    // 状态行）时仍单独给出已运行时间，避免丢掉「跑了多久」。
+    let status_line_shown = output_lines.is_empty();
+    if !moved_to_background && exit_code.is_none() && past_threshold {
+        if !status_line_shown {
+            let secs = started_at.map(|t| t.elapsed().as_secs()).unwrap_or(0);
+            let elapsed_str = if secs >= 60 {
+                format!("({}m {:02}s)", secs / 60, secs % 60)
+            } else {
+                format!("({}s)", secs)
+            };
+            shell_output_lines(
+                &mut lines,
+                BranchPrefix::HANG,
+                &elapsed_str,
+                Style::default().fg(theme::cur().inactive),
+                theme::cur().subtle,
+                width,
+            );
+        }
         shell_output_lines(
             &mut lines,
             BranchPrefix::HANG,

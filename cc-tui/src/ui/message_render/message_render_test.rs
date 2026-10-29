@@ -133,6 +133,66 @@ fn test_system_note_error_detection() {
     );
 }
 
+/// `!` 直接执行的命令与 Bash 工具同口径：运行态用 `Running…`，满 2 秒把耗时
+/// 拼进状态行，后台化提示单独一行。
+#[test]
+fn test_shell_command_running_uses_bash_running_label() {
+    // Arrange
+    let vm = MessageViewModel::ShellCommand {
+        id: "shell-running".to_string(),
+        command: "git status".to_string(),
+        cwd: ".".to_string(),
+        stdin: Vec::new(),
+        stdout: String::new(),
+        stderr: String::new(),
+        exit_code: None,
+        collapsed: true,
+        content_hash: 0,
+        started_at: Some(std::time::Instant::now() - std::time::Duration::from_secs(3)),
+        moved_to_background: false,
+    };
+    // Act
+    let text = rendered_text(&render_view_model(&vm, None, 80, false, 0));
+    // Assert
+    assert!(
+        text.contains("Running… ("),
+        "运行态应带大写 Running… 和耗时: {text}"
+    );
+    assert!(
+        !text.contains("running..."),
+        "不应再出现小写占位文案: {text}"
+    );
+    assert!(
+        text.contains("(ctrl+b to run in background)"),
+        "应保留后台化提示: {text}"
+    );
+}
+
+/// 未满 2 秒只显示裸 `Running…`，不显示耗时与后台化提示（与 Bash 工具一致）。
+#[test]
+fn test_shell_command_running_before_threshold_has_no_elapsed() {
+    // Arrange
+    let vm = MessageViewModel::ShellCommand {
+        id: "shell-fresh".to_string(),
+        command: "git status".to_string(),
+        cwd: ".".to_string(),
+        stdin: Vec::new(),
+        stdout: String::new(),
+        stderr: String::new(),
+        exit_code: None,
+        collapsed: true,
+        content_hash: 0,
+        started_at: Some(std::time::Instant::now()),
+        moved_to_background: false,
+    };
+    // Act
+    let text = rendered_text(&render_view_model(&vm, None, 80, false, 0));
+    // Assert
+    assert!(text.contains("Running…"), "应显示运行状态: {text}");
+    assert!(!text.contains("Running… ("), "2 秒内不应显示耗时: {text}");
+    assert!(!text.contains("ctrl+b"), "2 秒内不应显示后台化提示: {text}");
+}
+
 #[test]
 fn test_shell_command_render_header_and_truncation() {
     let stdout = (0..60)
