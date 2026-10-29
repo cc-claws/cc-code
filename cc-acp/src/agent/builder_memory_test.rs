@@ -110,6 +110,7 @@ fn make_agent_config(
         compact_budget: None,
         compact_model: None,
         compact_event_tx: None,
+        hook_event_tx: None,
         thread_store: None,
         parent_thread_id: None,
         register_runtime: None,
