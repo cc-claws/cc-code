@@ -197,6 +197,10 @@ pub enum MessageViewModel {
         /// 正文（含折行续行）颜色。存语义 tone 而非 `Color`，`/theme` 切换后
         /// 渲染时再解析成主题色，不会把旧调色板钉死在 VM 里。
         body_tone: Option<NoteTone>,
+        /// 仅在详细模式（Ctrl+O）渲染；普通模式整行不显示。
+        ///
+        /// 用于 hook 执行汇总这类「成功时无需打扰用户」的信息。
+        detail_only: bool,
     },
     /// 缓存率过低警告（黄色纯文本，无前缀符号）
     CacheWarning {
@@ -361,6 +365,7 @@ impl PartialEq for MessageViewModel {
                     detail_content: a_det,
                     tone: a_tone,
                     body_tone: a_body_tone,
+                    detail_only: a_detail_only,
                     ..
                 },
                 MessageViewModel::SystemNote {
@@ -368,9 +373,16 @@ impl PartialEq for MessageViewModel {
                     detail_content: b_det,
                     tone: b_tone,
                     body_tone: b_body_tone,
+                    detail_only: b_detail_only,
                     ..
                 },
-            ) => a == b && a_det == b_det && a_tone == b_tone && a_body_tone == b_body_tone,
+            ) => {
+                a == b
+                    && a_det == b_det
+                    && a_tone == b_tone
+                    && a_body_tone == b_body_tone
+                    && a_detail_only == b_detail_only
+            }
             (
                 MessageViewModel::CacheWarning { content: a, .. },
                 MessageViewModel::CacheWarning { content: b, .. },
@@ -540,6 +552,7 @@ impl Hash for MessageViewModel {
                 detail_content,
                 tone,
                 body_tone,
+                detail_only,
                 ..
             } => {
                 3u8.hash(state);
@@ -547,6 +560,7 @@ impl Hash for MessageViewModel {
                 // 换状态后要靠它触发重建）。
                 tone.hash(state);
                 body_tone.hash(state);
+                detail_only.hash(state);
                 content.hash(state);
                 detail_content.hash(state);
             }
@@ -784,6 +798,7 @@ impl MessageViewModel {
                         detail_content: None,
                         tone: Some(display.tone),
                         body_tone: None,
+                        detail_only: false,
                     };
                     vm.recompute_hash();
                     return vm;
@@ -1065,6 +1080,7 @@ impl MessageViewModel {
                     detail_content: None,
                     tone: None,
                     body_tone: None,
+                    detail_only: false,
                 };
                 vm.recompute_hash();
                 vm
@@ -1172,6 +1188,7 @@ impl MessageViewModel {
                 detail_content: None,
                 tone: Some(display.tone),
                 body_tone: None,
+                detail_only: false,
             };
             vm.recompute_hash();
             return vm;
@@ -1200,6 +1217,7 @@ impl MessageViewModel {
                 detail_content: None,
                 tone: Some(display.tone),
                 body_tone: None,
+                detail_only: false,
             };
             vm.recompute_hash();
             return vm;
@@ -1359,6 +1377,7 @@ impl MessageViewModel {
             detail_content: None,
             tone,
             body_tone: None,
+            detail_only: false,
         };
         vm.recompute_hash();
         vm
@@ -1377,6 +1396,7 @@ impl MessageViewModel {
             detail_content: Some(detail_content),
             tone,
             body_tone: None,
+            detail_only: false,
         };
         vm.recompute_hash();
         vm
@@ -1391,6 +1411,23 @@ impl MessageViewModel {
             detail_content: None,
             tone: None,
             body_tone: Some(tone),
+            detail_only: false,
+        };
+        vm.recompute_hash();
+        vm
+    }
+
+    /// 创建**仅详细模式可见**的系统提示（如 hook 执行汇总）。
+    ///
+    /// 普通模式下整行不渲染：这类信息成功时无需打扰用户。
+    pub fn system_detail_only(content: String, tone: NoteTone) -> Self {
+        let mut vm = MessageViewModel::SystemNote {
+            content,
+            content_hash: 0,
+            detail_content: None,
+            tone: None,
+            body_tone: Some(tone),
+            detail_only: true,
         };
         vm.recompute_hash();
         vm

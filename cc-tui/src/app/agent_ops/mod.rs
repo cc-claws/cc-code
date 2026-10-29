@@ -478,6 +478,40 @@ impl App {
             } => self.handle_compact_completed(summary, files, skills, micro_cleared, messages),
             AgentEvent::CompactStarted { manual } => self.handle_compact_started(manual),
             AgentEvent::CompactError(msg) => self.handle_compact_error(msg),
+            AgentEvent::HooksCompleted {
+                event,
+                ran,
+                duration_ms,
+                failures,
+                is_async,
+                ..
+            } => {
+                // 阻断/失败在普通模式也要显示；纯成功汇总只在详细模式出现。
+                if failures.is_empty() {
+                    let text = if is_async {
+                        format!("Async hook {event} completed")
+                    } else {
+                        format!("{ran} {event} hooks ran · {duration_ms}ms")
+                    };
+                    self.push_detail_system_note(
+                        text,
+                        crate::ui::message_view::NoteTone::Neutral,
+                    );
+                } else {
+                    for failure in &failures {
+                        let (verb, tone) = if failure.kind == "block" {
+                            ("blocked", crate::ui::message_view::NoteTone::Warning)
+                        } else {
+                            ("failed", crate::ui::message_view::NoteTone::Error)
+                        };
+                        self.push_toned_system_note(
+                            format!("{event} hook {verb}: {}", failure.reason),
+                            tone,
+                        );
+                    }
+                }
+                (true, false, false)
+            }
             AgentEvent::RewindCompleted { summary, messages } => {
                 self.handle_rewind_completed(summary, messages)
             }

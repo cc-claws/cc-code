@@ -2768,6 +2768,7 @@ fn test_compact_done_rendering_no_bullet_prefix() {
         detail_content: None,
         tone: None,
         body_tone: None,
+        detail_only: false,
     };
     let text_lines: Vec<String> = render_view_model(&vm, None, 80, false, 0)
         .iter()
@@ -2838,6 +2839,7 @@ fn test_all_paths_preserve_width_no_overflow() {
         detail_content: None,
         tone: None,
         body_tone: None,
+        detail_only: false,
     };
     assert!(
         max_line_width(&render_view_model(&vm, None, width, false, 0)) <= width,
@@ -3800,6 +3802,7 @@ fn test_system_note_with_tone_renders_dot_prefix_in_status_color() {
             detail_content: None,
             tone: Some(tone),
             body_tone: None,
+            detail_only: false,
         };
         // Act
         let lines = render_view_model(&vm, None, 80, false, 0);
@@ -3827,6 +3830,7 @@ fn test_system_note_without_tone_keeps_plain_style() {
         detail_content: None,
         tone: None,
         body_tone: None,
+        detail_only: false,
     };
     // Act
     let lines = render_view_model(&vm, None, 80, false, 0);

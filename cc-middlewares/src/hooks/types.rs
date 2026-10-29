@@ -26,6 +26,29 @@ pub enum HookEvent {
     Unknown(String),
 }
 
+impl HookEvent {
+    /// 事件名（与 settings.json 中的键一致，用于展示与日志）
+    pub fn as_str(&self) -> &str {
+        match self {
+            HookEvent::PreToolUse => "PreToolUse",
+            HookEvent::PostToolUse => "PostToolUse",
+            HookEvent::PostToolUseFailure => "PostToolUseFailure",
+            HookEvent::PermissionRequest => "PermissionRequest",
+            HookEvent::UserPromptSubmit => "UserPromptSubmit",
+            HookEvent::SessionStart => "SessionStart",
+            HookEvent::SessionEnd => "SessionEnd",
+            HookEvent::Stop => "Stop",
+            HookEvent::StopFailure => "StopFailure",
+            HookEvent::SubagentStart => "SubagentStart",
+            HookEvent::SubagentStop => "SubagentStop",
+            HookEvent::PreCompact => "PreCompact",
+            HookEvent::PostCompact => "PostCompact",
+            HookEvent::Notification => "Notification",
+            HookEvent::Unknown(name) => name.as_str(),
+        }
+    }
+}
+
 impl Serialize for HookEvent {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where

@@ -175,6 +175,14 @@ impl MessageState {
         self.view_messages.push(vm);
     }
 
+    /// 添加仅详细模式可见的系统通知（如 hook 执行汇总）。
+    pub fn push_detail_system_note(&mut self, content: String, tone: NoteTone) {
+        let anchor = self.view_messages.len();
+        let vm = MessageViewModel::system_detail_only(content, tone);
+        self.ephemeral_notes.push((anchor, vm.clone()));
+        self.view_messages.push(vm);
+    }
+
     /// 添加带详细模式内容的系统通知并记录锚点位置。
     pub fn push_system_note_with_detail(&mut self, content: String, detail_content: String) {
         let anchor = self.view_messages.len();

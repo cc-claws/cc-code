@@ -391,6 +391,8 @@ impl MessagePipeline {
             // 后台 shell 事件不影响消息 pipeline（完成/通知由 agent_ops 单独处理），忽略
             AgentEvent::BackgroundShellCompleted { .. }
             | AgentEvent::BackgroundShellStalled { .. } => vec![PipelineAction::None],
+            // hook 执行结果由 agent_ops 直接转成系统通知，pipeline 不参与
+            AgentEvent::HooksCompleted { .. } => vec![PipelineAction::None],
             AgentEvent::AssistantChunk {
                 chunk,
                 source_agent_id,

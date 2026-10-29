@@ -2587,8 +2587,13 @@ pub fn render_view_model_with_flags(
             detail_content,
             tone,
             body_tone,
+            detail_only,
             ..
         } => {
+            // 仅详细模式可见的提示（如 hook 执行汇总）：普通模式整行不渲染。
+            if *detail_only && !detail_mode {
+                return (Vec::new(), link_hits);
+            }
             let active_content = if detail_mode && detail_content.is_some() {
                 detail_content.as_deref().unwrap()
             } else {

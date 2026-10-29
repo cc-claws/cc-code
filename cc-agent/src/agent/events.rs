@@ -34,6 +34,15 @@ impl BackgroundTaskResult {
     }
 }
 
+/// hook 阻断或执行失败的描述（UI 展示用）。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct HookFailureInfo {
+    /// `block` = 按策略阻断；`error` = 脚本崩溃 / 超时 / 输出非法
+    pub kind: String,
+    /// 给用户看的原因（hook 输出的 reason、超时说明或错误摘要）
+    pub reason: String,
+}
+
 /// Compact 保留的文件信息摘要
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CompactFileInfo {
@@ -229,6 +238,24 @@ pub enum AgentEvent {
         summary: String,
         /// 回退后的新消息列表（目标消息之前，不含目标本身）
         messages: Vec<crate::messages::BaseMessage>,
+    },
+    /// 一批 hook 执行完成（同步事件一次、异步 hook 各自一次）
+    ///
+    /// 只用于 UI 展示，不进入 agent history：TUI 在详细模式下渲染为
+    /// `N <Event> hooks ran · Xms`，阻断/失败在普通模式也显示。
+    HooksCompleted {
+        /// 触发的事件名（PreToolUse / PostToolUse / Stop ...）
+        event: String,
+        /// 真正执行成功的 hook 数（被 matcher / once 跳过的不计）
+        ran: usize,
+        /// 该事件所有同步 hook 的总耗时
+        duration_ms: u64,
+        /// 阻断与执行失败清单
+        failures: Vec<HookFailureInfo>,
+        /// true 表示这是异步 hook 完成后的单独上报
+        is_async: bool,
+        /// 归属的工具调用；非工具事件为 None
+        tool_call_id: Option<String>,
     },
     /// 上下文压缩失败
     CompactError { message: String },
