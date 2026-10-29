@@ -93,6 +93,12 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 ### v0.6.x 新增功能
 
+**审批弹窗补描述行与文件级 diff 预览（v0.6.206）：** 工具入参带 `description` 时，弹窗在标题下方单独显示说明行；`Write`/`Edit` 审批改为文件级全文 diff 预览（新建文件走带行号与语法高亮的代码预览），文件读不到、超限或片段定位不到时回退片段 diff。弹窗布局与配色对齐参考实现：顶部满宽实线、内容区上下虚线、编号选项、底部固定快捷键提示，diff 主题随 `/theme` 切换生效。详见 [CHANGELOG](./CHANGELOG.md)。
+
+**Grep / Glob 对齐参考实现最新规范（v0.6.202）：** `Grep` 描述强调与权限审查 UI、可点击文件链接（`file_path:line_number`）集成，补 ripgrep 语法转义与跨行模式说明，参数新增 `context` 别名（等价 `-C`）并支持解析；`Glob` 明确按修改时间倒序、返回 cwd 相对路径，禁止传 `"undefined"` / `"null"` 字面量，无匹配统一返回 `No files found`、截断改用标准提示文案。ripgrep 引擎与纯 Rust 引擎两条路径都做了路径相对化，系统提示词同步强化 Grep/Glob 优先，不再在 Shell 里裸调 `grep`/`rg`/`find`。详见 [CHANGELOG](./CHANGELOG.md)。
+
+**项目 hooks 与用户/插件 agent 定义（v0.6.199）：** 项目 `.claude/settings.json` 的 hooks 现在真正加载（此前只读全局 hooks、项目 hooks 静默失效），用 `cc-code trust-project`（或 `CC_CODE_TRUST_PROJECT_HOOKS=1`）显式信任后执行。Agent 定义除项目级外，也在用户级（`~/.claude/agents/`）和插件中查找，顺序为项目 > 用户 > 插件 > 内置。详见 [CHANGELOG](./CHANGELOG.md)。
+
 **滚动与输入响应优化（v0.6.201）：** 后台准备布局时继续处理输入；稳定滚动复用已确认宽度，用户交互、流式输出与后台更新采用统一绘制节奏。全屏切换、窗口缩放和选区复制保持必要的帧顺序。详见 [CHANGELOG](./CHANGELOG.md)。
 
 **只读 Bash 并入工具折叠组（v0.6.197）：** 文件查询类 Bash（`ls`、`cat`、`grep`、`rg`、`find`、`head`、`awk` 等）现在与 `Read` / `Grep` / `Glob` 并入同一个只读组，折叠摘要显示 `ran N shell commands`，与 `read`、`searched` 并列。判定改为**前端命令词法**——模型不再传 `file_inspect`（已从工具 schema 删除），`2>/dev/null` / `2>&1` 与引号内的分隔符、`>` 不再被误判成写盘。思考行收敛为一行摘要：运行中 `∴ Thinking for Ns…`、冻结后 `  Thought for Ns`，正文走 `Ctrl+O`。自动 compact 不再清空消息区，卡住检测也不再误伤连续编辑。详见 [CHANGELOG](./CHANGELOG.md)。
@@ -113,6 +119,11 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **审批弹窗描述行与文件级 diff** | v0.6.206 | 工具入参带 `description` 时在弹窗标题下单独显示说明行；`Write`/`Edit` 审批改为文件级全文 diff 预览（新建文件走带行号与语法高亮的代码预览），文件读不到或片段定位不到时回退片段 diff（#785）。 |
+| **信任清单改为 JSONL** | v0.6.205 | 项目信任清单改为 `~/.cc-code/trusted_projects.jsonl`（一行一条，坏行只跳过该行，旧纯文本清单自动迁移并留 `.legacy.bak`）；HOME 未设置时不再静默跳过项目/插件 hooks，Windows 上信任不再无故失效，TUI 启动时对未信任的项目 hooks 显式提示（#783）。 |
+| **Grep / Glob 规范对齐** | v0.6.202 | `Grep` 新增 `context` 别名（等价 `-C`），补 ripgrep 转义与跨行模式说明并与可点击文件链接集成；`Glob` 按修改时间倒序返回 cwd 相对路径、无匹配统一返回 `No files found`；两条引擎都做路径相对化，系统提示词强化 Grep/Glob 优先（#773）。 |
+| **项目 hooks 加载** | v0.6.199 | 项目 `.claude/settings.json` 的 hooks 现在与全局 hooks 一并加载（此前从来没人读）；仍须用 `cc-code trust-project` 或 `CC_CODE_TRUST_PROJECT_HOOKS=1` 显式信任后才执行。 |
+| **用户级与插件级 agent 定义** | v0.6.199 | Agent 定义除项目目录外，也在用户级（`~/.claude/agents/`）和插件中查找；顺序为项目 > 用户 > 插件 > 内置（#759）。 |
 | **后台通知保留输入草稿** | v0.6.203 | 后台 shell 通知不再清空未发送的草稿或消费其粘贴内容和图片；光标与附件保持可编辑和发送（#777）。 |
 | **Markdown 链接颜色统一** | v0.6.203 | Markdown 链接保留下划线，使用现有终端超链接蓝色，不再使用主题成功色（#775）。 |
 | **滚动与输入响应优化** | v0.6.201 | 后台布局准备不再阻塞输入处理，稳定滚动复用已确认宽度；交互与流式更新采用统一绘制节奏，全屏、窗口缩放和选区复制边界保持原有顺序（#768）。 |

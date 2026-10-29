@@ -30,7 +30,8 @@
 - **FilesystemMiddleware:** 提供 `Read`、`Write`、`Edit`、`Glob`、`Grep` 五个工具；只读工具无需 HITL
 - **TerminalMiddleware:** 提供 `Bash` 工具，120 秒超时，跨平台（Windows: `cmd /C`，其他: `bash -c`）；Windows 下 `cmd /C` 失败且 stderr 匹配"命令未识别"时自动 fallback 到 Git Bash（`bash -c`），多语言 stderr 匹配（English/中文/法语/德语）+ 兜底模式，`MSYS_NO_PATHCONV=1` 防路径转换，剩余超时继承
 - **HitlMiddleware:** `before_tool` 拦截敏感操作（bash/write/edit/delete/rm），四种决策：Approve / Edit / Reject / Respond；oneshot channel 异步等待用户决策
-- **SubAgentMiddleware:** 提供 `Agent` 工具，读取 `.claude/agents/{id}.md`，工具集过滤（tools 白名单 + disallowedTools 黑名单），防递归（始终排除 `Agent` 自身），返回格式含工具调用摘要
+- **项目 hooks 与信任（v0.6.199，#765；v0.6.205，#783）:** 项目 `.claude/settings.json` 的 hooks 与全局 hooks 一并加载，但须显式信任后才执行（`cc-code trust-project` 或 `CC_CODE_TRUST_PROJECT_HOOKS=1`）；信任清单为 `~/.cc-code/trusted_projects.jsonl`（一行一条，坏行只跳过该行，旧纯文本清单自动迁移并留 `.legacy.bak`）；home 解析统一走系统 home 目录，HOME 未设置时不再静默跳过项目/插件 hooks，未信任时 TUI 启动显式提示
+- **SubAgentMiddleware:** 提供 `Agent` 工具，读取 `.claude/agents/{id}.md`，工具集过滤（tools 白名单 + disallowedTools 黑名单），防递归（始终排除 `Agent` 自身），返回格式含工具调用摘要；定义查找顺序为项目级 > 用户级（`~/.claude/agents/`）> 插件 > 内置（v0.6.199，#759）
 - **SkillsMiddleware / SkillTool:** 冻结名称与限额描述列表；一级 `Skill` 工具返回完整指令、参数展开和 camelCase 元数据。Slash 直接追加 Human 元指令，`context: fork` 同步等待隔离子代理；会话独立激活记录支持 compact 恢复，详见 [技能机制](./domains/skill-trigger.md)
 - **AgentsMdMiddleware:** `before_agent` 自动读取项目指引文件，prepend System prompt（单条 System 消息，会话内冻结）。加载模型对齐 dsh：**同目录候选全部加载并合并**（`AGENTS.md` / `CLAUDE.md` / `.claude/AGENTS.md`，基础层 → `.local` 覆盖层；trim 后内容相同去重），**跨目录从项目根（含 `.git`）逐级向下到 cwd 拼接**；每段带 provenance 头 `## <相对路径>`；单文件超 1 MiB 头 70%+尾 20% 截断（CJK 安全），渲染总量超 256 KiB 停止追加并标注；`@import` 对所有候选生效（深度 3 + 环检测；默认限**所属项目根内**，越界保留占位符；用户自有全局文件不受限）。**用户全局层为有序候选回退**：`~/.cc-code/AGENTS.md` → `~/.cc-code/CLAUDE.md` → `~/.claude/CLAUDE.md` → `~/.claude/AGENTS.md`，取首个存在且非空者；空文件不遮蔽后续候选。全局加载统一复用 `load_user_global_instruction`，与 Jev 安全门的 `read_global_content()` 为同一数据源（#402、#403）。
 - **TodoMiddleware:** `after_tool` 解析 `TodoWrite` 结果，推送 Todo 状态到渲染 channel
@@ -69,7 +70,7 @@
 - **候选浮层运行中交互（对齐参考实现的候选浮层行为）:** Agent 运行中候选存在时 `↑↓`/`Tab` 可导航浮层；`Enter` 仅已选中候选时补全（不提交），未选中走排队；`Esc` 分层关闭（先浮层后中断，`hint_dismissed_for` 抑制位文本不变不再弹、编辑后恢复）；`↓` 优先级浮层导航 > 后台 shell 聚焦 > @ 提及 > 滚动
 - **Steer 前台命令宽限期:** 点「立即补充」时若有单条前台命令在跑，2 秒宽限（`STEER_FOREGROUND_GRACE`）后自动转后台并提示；多条并行不自动选择，重复 steer 不重置计时器
 - **状态栏权限模式符号:** 权限模式标签前固定显示 `⏵⏵` 前缀（对齐参考实现的权限模式符号）
-- **HITL 弹窗:** `ApprovalNeeded` 事件触发审批弹窗，展示工具名称和参数，支持 Approve / Edit / Reject / Respond
+- **HITL 弹窗:** `ApprovalNeeded` 事件触发审批弹窗，展示工具名称和参数，支持 Approve / Edit / Reject / Respond；v0.6.206 起工具入参带 description 时标题下单独显示说明行，Write/Edit 改为文件级全文 diff 预览（新建文件走带行号与语法高亮的代码预览），超限、读不到文件或片段定位不到时回退片段 diff（#785）
 - **AskUser 弹窗:** `AskUserBatch` 事件触发问答弹窗，支持批量问题，单选/多选
 - **YOLO 模式:** `-y` 参数启动，自动 Approve 所有 HITL 请求（不影响 ask_user）
 - **剪贴板图片粘贴:** `Ctrl+V` 读取 PNG 图片，Base64 编码为 Image ContentBlock，支持多张图片
