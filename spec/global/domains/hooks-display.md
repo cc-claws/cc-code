@@ -51,6 +51,7 @@ hook 却无法确认它是否执行、是否失败，只能去翻日志。
 | 行类型 | 模板 | 颜色 |
 |---|---|---|
 | 同步汇总 | `⎿  {n} {event} hooks ran · {ms}ms` | `theme::cur().inactive` |
+| 异步开始（占位） | `⎿  Async hook {event} running…` | `theme::cur().inactive` |
 | 异步完成 | `⎿  Async hook {event} completed` | `theme::cur().inactive` |
 | 阻断 | `⎿  {event} hook blocked: {reason}` | `theme::cur().warning` |
 | 失败 | `⎿  {event} hook failed: {reason}` | `theme::cur().error` |
@@ -61,6 +62,12 @@ hook 却无法确认它是否执行、是否失败，只能去翻日志。
 
 - 分支前缀复用 `BranchPrefix::PREFIX`（`  ⎿  `，5 列），与工具结果行同列。
 - 阻断/失败行的 `⎿` 本身也随状态色（`BranchPrefix::span(is_error)`）。
+
+- **异步占位行的来龙去脉**：异步 hook 完成时，工具块可能早已进入历史前缀，结果行
+  就贴不上了。因此异步 hook 在 `tokio::spawn` **之前**先上报 `HooksStarted`，TUI 立刻
+  写一条 `Async hook {event} running…` 占位；完成事件到达时按 `(tool_call_id, event)`
+  原地替换为 `completed` 或失败行。轮次结束（`MessagePipeline::done()` /
+  `interrupt()`）时仍为 Running 的占位被丢弃，不留僵尸 `running…`。
 
 ## 挂载位置
 

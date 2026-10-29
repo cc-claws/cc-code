@@ -70,6 +70,13 @@ pub(crate) fn map_executor_event(event: ExecutorEvent, _cwd: &str) -> Option<Age
             messages,
         },
         ExecutorEvent::CompactError { message } => AgentEvent::CompactError(message),
+        ExecutorEvent::HooksStarted {
+            event,
+            tool_call_id,
+        } => AgentEvent::HooksStarted {
+            event,
+            tool_call_id,
+        },
         ExecutorEvent::HooksCompleted {
             event,
             ran,

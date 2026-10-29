@@ -21,6 +21,21 @@ fn make_llm_factory() -> Arc<dyn Fn() -> Box<dyn ReactLLM + Send + Sync> + Send 
     Arc::new(|| unimplemented!("no LLM needed in unit tests"))
 }
 
+/// 取下一个 `HooksCompleted`：异步 hook 会先报 `HooksStarted`，中间事件跳过。
+async fn recv_hooks_completed(
+    rx: &mut tokio::sync::mpsc::UnboundedReceiver<AgentEvent>,
+) -> AgentEvent {
+    loop {
+        let event = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+            .await
+            .expect("hook 应在超时前完成")
+            .expect("应收到 hook 事件");
+        if matches!(event, AgentEvent::HooksCompleted { .. }) {
+            return event;
+        }
+    }
+}
+
 fn make_middleware(hooks: Vec<RegisteredHook>) -> HookMiddleware {
     HookMiddleware::new(
         hooks,
@@ -950,6 +965,57 @@ async fn test_fire_event_block_reports_failure() {
     }
 }
 
+/// 异步 hook 在 spawn 之前先上报 `HooksStarted`，TUI 才能挂上 `running…` 占位行。
+#[tokio::test]
+async fn test_async_hook_emits_started_before_completed() {
+    let hook: HookType = serde_json::from_value(serde_json::json!({
+        "type": "command",
+        "command": "echo async-ok",
+        "async": true
+    }))
+    .unwrap();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mw = make_middleware(vec![make_registered(HookEvent::PostToolUse, hook)]).with_event_tx(tx);
+    let input = HookInput::tool_result(
+        "s",
+        "/t",
+        TEST_CWD,
+        "yolo",
+        "Bash",
+        &serde_json::json!({"command": "ls"}),
+        &serde_json::json!("ok"),
+        false,
+    );
+
+    let _ = mw
+        .fire_event(
+            HookEvent::PostToolUse,
+            &input,
+            Some("Bash"),
+            Some(&serde_json::json!({"command": "ls"})),
+            Some("c_start"),
+        )
+        .await;
+
+    match rx.recv().await.expect("应上报 hook 开始事件") {
+        AgentEvent::HooksStarted {
+            event,
+            tool_call_id,
+        } => {
+            assert_eq!(event, "PostToolUse");
+            assert_eq!(tool_call_id.as_deref(), Some("c_start"));
+        }
+        other => panic!("首个事件必须是 HooksStarted: {other:?}"),
+    }
+    assert!(
+        matches!(
+            recv_hooks_completed(&mut rx).await,
+            AgentEvent::HooksCompleted { is_async: true, .. }
+        ),
+        "开始事件之后仍要有异步完成汇总"
+    );
+}
+
 /// 异步 hook 完成后单独上报 is_async summary。
 #[tokio::test]
 async fn test_async_hook_emits_completed_summary() {
@@ -982,10 +1048,7 @@ async fn test_async_hook_emits_completed_summary() {
         )
         .await;
 
-    let ev = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
-        .await
-        .expect("异步 hook 应在超时前完成")
-        .expect("应收到异步 summary");
+    let ev = recv_hooks_completed(&mut rx).await;
     match ev {
         AgentEvent::HooksCompleted {
             event,
@@ -1033,10 +1096,7 @@ async fn test_async_hook_block_reports_block_kind() {
             Some("c5"),
         )
         .await;
-    let ev = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
-        .await
-        .expect("异步 hook 应在超时前完成")
-        .expect("应收到异步 summary");
+    let ev = recv_hooks_completed(&mut rx).await;
     match ev {
         AgentEvent::HooksCompleted {
             is_async, failures, ..
@@ -1134,10 +1194,7 @@ async fn test_async_hook_failure_reports_error_kind() {
         )
         .await;
 
-    let ev = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
-        .await
-        .expect("异步 hook 应在超时前完成")
-        .expect("应收到异步 summary");
+    let ev = recv_hooks_completed(&mut rx).await;
     match ev {
         AgentEvent::HooksCompleted {
             event,

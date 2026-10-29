@@ -3043,3 +3043,93 @@ fn test_async_hook_completions_stay_separate_rows() {
         .iter()
         .all(|row| row.text == "Async hook PostToolUse completed"));
 }
+
+/// 取当前尾部工具块上已挂的 hook 行（不新建工具块）。
+fn tail_hook_rows(
+    pipeline: &MessagePipeline,
+    tool_call_id: &str,
+) -> Vec<crate::ui::message_view::HookRow> {
+    pipeline
+        .build_tail_vms()
+        .iter()
+        .find_map(|vm| match vm {
+            MessageViewModel::ToolBlock {
+                tool_call_id: id,
+                hook_rows,
+                ..
+            } if id == tool_call_id => Some(hook_rows.clone()),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
+/// 异步 hook 开始时先挂一条 Running 占位行。
+#[test]
+fn test_async_hook_started_shows_running_row() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.start_hook_result("tc_running", "PostToolUse");
+
+    let rows = tool_hook_rows(&mut pipeline, "tc_running");
+    assert_eq!(rows.len(), 1, "开始事件应写入一条占位行");
+    assert_eq!(rows[0].text, "Async hook PostToolUse running…");
+    assert!(rows[0].detail_only, "占位行只在详细模式出现");
+    assert!(rows[0].async_completed, "占位行不参与汇总行折叠");
+}
+
+/// 完成事件就地替换同事件的占位行：位置不变、行数不增。
+#[test]
+fn test_async_hook_completed_replaces_running_row_in_place() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.start_hook_result("tc_replace", "PostToolUse");
+    let _ = tool_hook_rows(&mut pipeline, "tc_replace");
+    let before = tail_hook_rows(&pipeline, "tc_replace");
+    assert_eq!(before.len(), 1, "替换前应只有占位行");
+
+    let replaced = pipeline.finish_hook_result(
+        "tc_replace",
+        HookExec::new("PostToolUse", 1, 9, Vec::new(), true),
+    );
+
+    assert!(replaced, "命中占位时应就地替换");
+    let after = tail_hook_rows(&pipeline, "tc_replace");
+    assert_eq!(after.len(), before.len(), "替换不得增加行数");
+    assert_eq!(after[0].text, "Async hook PostToolUse completed");
+}
+
+/// 没有占位时（跨轮到达的完成事件）退回追加一行，保持旧行为。
+#[test]
+fn test_async_hook_completed_without_start_appends_row() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    let replaced = pipeline.finish_hook_result(
+        "tc_nostart",
+        HookExec::new("PostToolUse", 1, 6, Vec::new(), true),
+    );
+
+    assert!(!replaced, "没有占位时不应报告命中");
+    let rows = tool_hook_rows(&mut pipeline, "tc_nostart");
+    assert_eq!(rows.len(), 1, "完成事件独立追加一行");
+    assert_eq!(rows[0].text, "Async hook PostToolUse completed");
+}
+
+/// 轮次结束时仍为 Running 的占位必须清掉，已完成的异步行保留。
+#[test]
+fn test_pipeline_done_drops_stale_running_hooks() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.start_hook_result("tc_stale", "PostToolUse");
+    pipeline.push_hook_result(
+        "tc_done",
+        HookExec::new("PostToolUse", 1, 6, Vec::new(), true),
+    );
+
+    pipeline.done();
+
+    assert!(
+        !pipeline.hook_results.contains_key("tc_stale"),
+        "done() 必须移除僵尸占位，避免永远显示 running…"
+    );
+    assert_eq!(
+        pipeline.hook_results.get("tc_done").map(Vec::len),
+        Some(1),
+        "已完成行随工具块保留，不得被 done() 清掉"
+    );
+}

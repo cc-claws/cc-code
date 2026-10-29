@@ -239,6 +239,17 @@ pub enum AgentEvent {
         /// 回退后的新消息列表（目标消息之前，不含目标本身）
         messages: Vec<crate::messages::BaseMessage>,
     },
+    /// 异步 hook 开始执行（仅 `async: true` 上报）
+    ///
+    /// 异步 hook 是 fire-and-forget，完成时若工具块早已进入历史前缀，结果行就贴不上。
+    /// 先发这条让 UI 立刻写入占位行，完成时再原地替换。
+    /// 同步 hook 瞬时完成，不报开始事件。
+    HooksStarted {
+        /// 触发的事件名（PreToolUse / PostToolUse ...）
+        event: String,
+        /// 归属的工具调用；非工具事件为 None
+        tool_call_id: Option<String>,
+    },
     /// 一批 hook 执行完成（同步事件一次、异步 hook 各自一次）
     ///
     /// 只用于 UI 展示，不进入 agent history：TUI 在详细模式下渲染为

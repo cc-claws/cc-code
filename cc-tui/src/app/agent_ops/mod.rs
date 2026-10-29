@@ -478,6 +478,22 @@ impl App {
             } => self.handle_compact_completed(summary, files, skills, micro_cleared, messages),
             AgentEvent::CompactStarted { manual } => self.handle_compact_started(manual),
             AgentEvent::CompactError(msg) => self.handle_compact_error(msg),
+            AgentEvent::HooksStarted {
+                event,
+                tool_call_id,
+            } => {
+                // 异步 hook 的占位行：先挂上 `Async hook {event} running…`，
+                // 完成事件到达时由 finish_hook_result 原地替换。
+                if let Some(tool_call_id) = tool_call_id {
+                    self.session_mgr
+                        .current_mut()
+                        .messages
+                        .pipeline
+                        .start_hook_result(&tool_call_id, event);
+                    self.request_rebuild();
+                }
+                (true, false, false)
+            }
             AgentEvent::HooksCompleted {
                 event,
                 ran,
@@ -490,11 +506,12 @@ impl App {
                     // 工具事件的 hook 行挂在触发它的 ToolBlock 上：随工具块一起折叠、
                     // 滚动。管线负责在尾部重建时重新贴（见 MessagePipeline::push_hook_result），
                     // 并按 (tool_call_id, event, is_async) 合并多个 middleware 实例的上报。
+                    // 异步完成优先替换同事件的 Running 占位，占位已清理时追加。
                     self.session_mgr
                         .current_mut()
                         .messages
                         .pipeline
-                        .push_hook_result(
+                        .finish_hook_result(
                             &tool_call_id,
                             HookExec::new(event, ran, duration_ms, failures, is_async),
                         );

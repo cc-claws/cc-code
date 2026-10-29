@@ -258,6 +258,14 @@ impl HookMiddleware {
                 let event_name = event.as_str().to_string();
                 let event_tx = Arc::clone(&self.event_tx);
                 let tool_call_id = tool_call_id.map(str::to_string);
+                // 先报开始：TUI 立刻挂一条 Running 占位。完成事件可能晚于工具块
+                // 进入历史前缀，届时已无位置可贴（见 hooks-display.md）。
+                if let Some(tx) = event_tx.lock().as_ref() {
+                    let _ = tx.send(AgentEvent::HooksStarted {
+                        event: event_name.clone(),
+                        tool_call_id: tool_call_id.clone(),
+                    });
+                }
                 tokio::spawn(async move {
                     let started = std::time::Instant::now();
                     let action = match &hook {
