@@ -394,6 +394,56 @@ fn test_trust_project_writes_jsonl_and_is_idempotent() {
     assert_eq!(content.lines().count(), 1, "重复信任不应追加新行");
 }
 
+/// 记录末尾的换行必须与记录本身在**同一次** `write` 里落盘。
+///
+/// `File` 不带缓冲，`writeln!` 会展开成 `write(记录)` + `write("\n")` 两次系统
+/// 调用；两次之间进程退出（Ctrl-C / 崩溃 / 断电）就只剩没有换行的半行，下一条
+/// 记录会直接粘上来，一行里塞两个 JSON，两条记录双双失效。
+#[test]
+fn test_append_trust_line_writes_payload_and_newline_in_single_call() {
+    let mut writer = MockWriteCounter::default();
+    append_trust_line(&mut writer, r#"{"path":"/proj/a"}"#).unwrap();
+    assert_eq!(
+        writer.calls.len(),
+        1,
+        "换行必须与记录一次写出，不能拆成两次"
+    );
+    assert_eq!(writer.calls[0], "{\"path\":\"/proj/a\"}\n");
+}
+
+/// 连续追加多条记录，每一行都应是能独立解析的 JSON（粘行回归）。
+#[test]
+fn test_trust_project_appends_one_parseable_line_per_record() {
+    let home = tempdir().unwrap();
+    let first = tempdir().unwrap();
+    let second = tempdir().unwrap();
+
+    trust_project_in(home.path(), first.path().to_str().unwrap()).unwrap();
+    trust_project_in(home.path(), second.path().to_str().unwrap()).unwrap();
+
+    let content = std::fs::read_to_string(home.path().join(TRUST_FILE_NAME)).unwrap();
+    assert!(content.ends_with('\n'), "文件应以换行结尾");
+    let records = parse_trusted_projects_jsonl(&content);
+    assert_eq!(records.len(), 2, "两条记录都应能解析，不允许粘成一行");
+}
+
+/// 记录每次 `write` 调用的计数写端，用于断言落盘调用次数。
+#[derive(Default)]
+struct MockWriteCounter {
+    calls: Vec<String>,
+}
+
+impl std::io::Write for MockWriteCounter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.calls.push(String::from_utf8_lossy(buf).to_string());
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 #[test]
 fn test_is_project_trusted_in_reads_jsonl() {
     let home = tempdir().unwrap();
