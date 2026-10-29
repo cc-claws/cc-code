@@ -321,6 +321,10 @@
             rewind_entry.2.iter().any(|a| a == "undo"),
             "rewind 应含 undo 别名"
         );
+        // ps 命令：无别名
+        assert!(names.contains(&"ps"), "default_registry 应包含 ps");
+        let ps_entry = list.iter().find(|(n, _, _)| *n == "ps").unwrap();
+        assert_eq!(ps_entry.2, Vec::<String>::new(), "ps 命令不设别名");
     }
 
     // ── find：纯判定，必须与 dispatch 的匹配优先级一致 ──
@@ -408,5 +412,45 @@
             deferrable,
             vec!["commit", "init", "recap", "review", "streaming"],
             "运行中可延后执行的命令白名单发生变化，请确认新命令的 execute 是否只做 submit_message"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_ps_command_executes_while_busy_and_opens_panel() {
+        use crate::app::panel_manager::PanelKind;
+        let mut app = headless_app().await;
+        // 模拟 Agent 处于运行中状态
+        app.session_mgr.current_mut().ui.loading = true;
+        app.session_mgr
+            .current_mut()
+            .ui
+            .textarea
+            .insert_str("/ps");
+
+        // Act: 运行中执行 /ps 命令
+        app.handle_busy_input("/ps".to_string());
+
+        // Assert: 立即打开后台任务面板，不进排队队列，不被拒绝
+        assert!(
+            app.global_panels.is_active(PanelKind::BackgroundTasks),
+            "运行中执行 /ps 必须立即打开 BackgroundTasksPanel"
+        );
+        assert!(
+            app.session_mgr
+                .current()
+                .ui
+                .textarea
+                .lines()
+                .join("")
+                .is_empty(),
+            "执行完成后输入框应已被清空"
+        );
+        assert!(
+            app.session_mgr
+                .current()
+                .messages
+                .pending_messages
+                .is_empty(),
+            "/ps 不得被排队延后"
         );
     }

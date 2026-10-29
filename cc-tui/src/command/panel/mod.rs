@@ -7,6 +7,7 @@ pub mod mcp;
 pub mod memory;
 pub mod model;
 pub mod plugin;
+pub mod ps;
 pub mod theme;
 
 pub use agents::{AgentItem, AgentsCommand};
@@ -17,4 +18,5 @@ pub use mcp::McpCommand;
 pub use memory::MemoryCommand;
 pub use model::ModelCommand;
 pub use plugin::PluginCommand;
+pub use ps::PsCommand;
 pub use theme::ThemeCommand;

@@ -25,7 +25,11 @@ pub enum NameKind {
 pub enum InputResolution {
     /// 本地 TUI 命令，需要 `&mut App` 立即执行。
     /// `deferrable` 表示运行中可否入队延后（见 `Command::blocked_while_busy`）。
-    LocalCommand { deferrable: bool },
+    /// `immediate_while_busy` 表示运行中能否立即执行（见 `Command::execute_while_busy`）。
+    LocalCommand {
+        deferrable: bool,
+        immediate_while_busy: bool,
+    },
     /// ACP 侧命令：可入队延后，最终由 ACP 的命令路径执行。
     AgentCommand,
     /// Skill 或普通消息：作为 prompt 交给 agent。
@@ -35,10 +39,21 @@ pub enum InputResolution {
 }
 
 impl InputResolution {
+    /// 运行中能否立即执行。
+    pub fn is_immediate_while_busy(&self) -> bool {
+        matches!(
+            self,
+            InputResolution::LocalCommand {
+                immediate_while_busy: true,
+                ..
+            }
+        )
+    }
+
     /// 运行中能否安全入队、留到本轮结束后再执行。
     pub fn is_deferrable(&self) -> bool {
         match self {
-            InputResolution::LocalCommand { deferrable } => *deferrable,
+            InputResolution::LocalCommand { deferrable, .. } => *deferrable,
             InputResolution::AgentCommand | InputResolution::Prompt => true,
             InputResolution::Unknown { .. } => false,
         }
@@ -128,11 +143,15 @@ impl CommandSystem {
             NameKind::Skill => InputResolution::Prompt,
             NameKind::Agent => InputResolution::AgentCommand,
             NameKind::Local => {
-                let deferrable = self
+                let (deferrable, immediate_while_busy) = self
                     .command_registry
                     .find(name)
-                    .is_some_and(|cmd| !cmd.blocked_while_busy());
-                InputResolution::LocalCommand { deferrable }
+                    .map(|cmd| (!cmd.blocked_while_busy(), cmd.execute_while_busy()))
+                    .unwrap_or((false, false));
+                InputResolution::LocalCommand {
+                    deferrable,
+                    immediate_while_busy,
+                }
             }
             NameKind::Unknown => InputResolution::Unknown {
                 matches: self.command_registry.prefix_names(name),

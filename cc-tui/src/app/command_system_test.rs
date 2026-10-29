@@ -41,10 +41,31 @@
         let resolution = cs.resolve("/theme dark");
         assert_eq!(
             resolution,
-            InputResolution::LocalCommand { deferrable: false }
+            InputResolution::LocalCommand {
+                deferrable: false,
+                immediate_while_busy: false,
+            }
         );
         assert!(resolution.is_command());
         assert!(!resolution.is_deferrable());
+        assert!(!resolution.is_immediate_while_busy());
+    }
+
+    #[test]
+    fn test_resolve_immediate_while_busy_command() {
+        let cs = make_system(&[], &[]);
+        // /ps 是纯只读面板命令，运行中允许立即打开，不进队列也不拒绝
+        let resolution = cs.resolve("/ps");
+        assert_eq!(
+            resolution,
+            InputResolution::LocalCommand {
+                deferrable: false,
+                immediate_while_busy: true,
+            }
+        );
+        assert!(resolution.is_command());
+        assert!(!resolution.is_deferrable());
+        assert!(resolution.is_immediate_while_busy());
     }
 
     #[test]
@@ -55,10 +76,14 @@
             let resolution = cs.resolve(text);
             assert_eq!(
                 resolution,
-                InputResolution::LocalCommand { deferrable: true },
+                InputResolution::LocalCommand {
+                    deferrable: true,
+                    immediate_while_busy: false,
+                },
                 "{text} 应判定为可延后的本地命令"
             );
             assert!(resolution.is_deferrable(), "{text} 应可入队延后");
+            assert!(!resolution.is_immediate_while_busy());
         }
     }
 
@@ -85,12 +110,18 @@
         let cs = make_system(&[], &[]);
         assert_eq!(
             cs.resolve("/undo"),
-            InputResolution::LocalCommand { deferrable: false },
+            InputResolution::LocalCommand {
+                deferrable: false,
+                immediate_while_busy: false,
+            },
             "别名应命中本地命令"
         );
         assert_eq!(
             cs.resolve("/strea"),
-            InputResolution::LocalCommand { deferrable: true },
+            InputResolution::LocalCommand {
+                deferrable: true,
+                immediate_while_busy: false,
+            },
             "唯一前缀应命中本地命令"
         );
     }
@@ -122,6 +153,9 @@
         // 带参数不应影响命令名匹配
         assert_eq!(
             cs.resolve("/theme some arg with spaces"),
-            InputResolution::LocalCommand { deferrable: false }
+            InputResolution::LocalCommand {
+                deferrable: false,
+                immediate_while_busy: false,
+            }
         );
     }
