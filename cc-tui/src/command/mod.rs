@@ -22,6 +22,7 @@ pub fn default_registry() -> CommandRegistry {
     r.register(Box::new(panel::mcp::McpCommand));
     r.register(Box::new(panel::hooks::HooksCommand));
     r.register(Box::new(panel::cron::CronCommand));
+    r.register(Box::new(panel::ps::PsCommand));
     r.register(Box::new(panel::agents::AgentsCommand));
     r.register(Box::new(panel::agent_center::AgentCenterCommand));
     r.register(Box::new(panel::memory::MemoryCommand));
@@ -67,6 +68,13 @@ pub trait Command: Send + Sync {
     /// 新增命令时若其 `execute` 仅调用 `App::submit_message`，应显式返回 `false`。
     fn blocked_while_busy(&self) -> bool {
         true
+    }
+    /// 该命令在 Agent 运行（`loading`）期间是否允许立即执行。
+    ///
+    /// 默认 `false`。纯只读状态查看类命令（如 `/ps` 查看后台任务与命令历史）
+    /// 完全不影响 Agent 执行流程与上下文状态，可返回 `true` 允许在忙碌期间立即弹出。
+    fn execute_while_busy(&self) -> bool {
+        false
     }
     /// 执行命令，args 是命令名之后的参数字符串（已 trim）
     fn execute(&self, app: &mut App, args: &str);

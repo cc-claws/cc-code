@@ -44,6 +44,12 @@ impl App {
             return;
         }
         let resolution = self.session_mgr.current().commands.resolve(&text);
+        if resolution.is_immediate_while_busy() {
+            self.session_mgr.current_mut().ui.textarea = crate::app::build_textarea(false);
+            self.route_slash_input(text);
+            self.render_rebuild();
+            return;
+        }
         if resolution.is_deferrable() {
             self.queue_user_message(text);
             return;
