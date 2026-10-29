@@ -484,10 +484,20 @@ impl App {
                 duration_ms,
                 failures,
                 is_async,
-                ..
+                tool_call_id,
             } => {
-                // 阻断/失败在普通模式也要显示；纯成功汇总只在详细模式出现。
-                if failures.is_empty() {
+                if let Some(tool_call_id) = tool_call_id {
+                    // 工具事件的 hook 行挂在触发它的 ToolBlock 上：随工具块一起折叠、
+                    // 滚动。管线负责在尾部重建时重新贴（见 MessagePipeline::push_hook_rows）。
+                    let rows = hook_rows_for(&event, ran, duration_ms, &failures, is_async);
+                    self.session_mgr
+                        .current_mut()
+                        .messages
+                        .pipeline
+                        .push_hook_rows(&tool_call_id, rows);
+                    self.request_rebuild();
+                } else if failures.is_empty() {
+                    // 阻断/失败在普通模式也要显示；纯成功汇总只在详细模式出现。
                     let text = if is_async {
                         format!("Async hook {event} completed")
                     } else {
@@ -632,6 +642,38 @@ impl App {
     }
 
     // poll_agent/poll_background_events/poll_cron_triggers are in polling.rs
+}
+
+/// 把一次 hook 执行结果转成挂在工具块上的渲染行。
+///
+/// 顺序对齐 PRD 快照 C5/C6：阻断/失败行在前，汇总行在后。汇总行是 `detail_only`，
+/// 普通模式不渲染。
+fn hook_rows_for(
+    event: &str,
+    ran: usize,
+    duration_ms: u64,
+    failures: &[cc_agent::agent::events::HookFailureInfo],
+    is_async: bool,
+) -> Vec<crate::ui::message_view::HookRow> {
+    use crate::ui::message_view::{HookRow, NoteTone};
+    let mut rows = Vec::new();
+    for failure in failures {
+        let (verb, tone) = if failure.kind == "block" {
+            ("blocked", NoteTone::Warning)
+        } else {
+            ("failed", NoteTone::Error)
+        };
+        rows.push(HookRow::failure(
+            format!("{event} hook {verb}: {}", failure.reason),
+            tone,
+        ));
+    }
+    rows.push(HookRow::summary(if is_async {
+        format!("Async hook {event} completed")
+    } else {
+        format!("{ran} {event} hooks ran · {duration_ms}ms")
+    }));
+    rows
 }
 
 #[cfg(test)]

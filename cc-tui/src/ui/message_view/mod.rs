@@ -67,6 +67,37 @@ impl ToolOutputPreview {
     }
 }
 
+/// 某次工具调用触发的 hook 执行结果，挂在 `ToolBlock` 上按需渲染。
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct HookRow {
+    /// 已完成渲染文案（如 `2 PostToolUse hooks ran · 34ms`）
+    pub text: String,
+    /// 语义色
+    pub tone: NoteTone,
+    /// 仅详细模式显示（汇总行、异步完成行）
+    pub detail_only: bool,
+}
+
+impl HookRow {
+    /// 汇总行 / 异步完成行：仅详细模式可见。
+    pub fn summary(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            tone: NoteTone::Neutral,
+            detail_only: true,
+        }
+    }
+
+    /// 阻断 / 失败行：两种模式都显示。
+    pub fn failure(text: impl Into<String>, tone: NoteTone) -> Self {
+        Self {
+            text: text.into(),
+            tone,
+            detail_only: false,
+        }
+    }
+}
+
 /// 系统提示行的强调色语义（渲染时映射到当前主题的 success / error / warning）。
 ///
 /// 目前只有后台任务通知使用：状态决定颜色，与参考实现
@@ -161,6 +192,11 @@ pub enum MessageViewModel {
         shell_backgrounded: bool,
         /// Bash 是否由模型声明为纯文件查看命令。
         file_inspect: bool,
+        /// 该工具调用触发的 hook 执行结果（仅 UI 展示，不进 history）。
+        ///
+        /// 渲染规则见 spec/global/domains/hooks-display.md：汇总/异步完成行
+        /// 仅详细模式可见，阻断/失败行两种模式都显示。
+        hook_rows: Vec<HookRow>,
         /// 预计算的语义 hash（构造/变更时更新，rebuild 直接读取避免重算）
         content_hash: u64,
     },
@@ -293,6 +329,7 @@ impl PartialEq for MessageViewModel {
                     phase: a_phase,
                     live_output: a_output,
                     source_agent_id: a_source,
+                    hook_rows: a_hook_rows,
                     ..
                 },
                 MessageViewModel::ToolBlock {
@@ -309,6 +346,7 @@ impl PartialEq for MessageViewModel {
                     phase: b_phase,
                     live_output: b_output,
                     source_agent_id: b_source,
+                    hook_rows: b_hook_rows,
                     ..
                 },
             ) => {
@@ -325,6 +363,7 @@ impl PartialEq for MessageViewModel {
                     && a_phase == b_phase
                     && a_output == b_output
                     && a_source == b_source
+                    && a_hook_rows == b_hook_rows
             }
             (
                 MessageViewModel::ShellCommand {
@@ -505,6 +544,7 @@ impl Hash for MessageViewModel {
                 phase,
                 live_output,
                 source_agent_id,
+                hook_rows,
                 ..
             } => {
                 2u8.hash(state);
@@ -523,6 +563,8 @@ impl Hash for MessageViewModel {
                 phase.hash(state);
                 live_output.hash(state);
                 source_agent_id.hash(state);
+                // hook 行直接进入工具块输出，必须参与 hash，否则追加后渲染缓存命中旧行
+                hook_rows.hash(state);
             }
             MessageViewModel::ShellCommand {
                 id,
@@ -1068,6 +1110,7 @@ impl MessageViewModel {
                     timeout_ms: input.get("timeout").and_then(serde_json::Value::as_u64),
                     shell_backgrounded: false,
                     file_inspect,
+                    hook_rows: Vec::new(),
                     content_hash: 0,
                 };
                 vm.recompute_hash();
@@ -1134,6 +1177,18 @@ impl MessageViewModel {
                 self.recompute_hash();
             }
             _ => {}
+        }
+    }
+
+    /// 安装该工具调用触发的 hook 执行行（仅 UI 展示，不进 history）。
+    ///
+    /// 内容确实变化时才重算 hash，避免同一 id 的重复安装打乱渲染缓存。
+    pub(crate) fn set_hook_rows(&mut self, rows: Vec<HookRow>) {
+        if let MessageViewModel::ToolBlock { hook_rows, .. } = self {
+            if *hook_rows != rows {
+                *hook_rows = rows;
+                self.recompute_hash();
+            }
         }
     }
 
@@ -1320,6 +1375,7 @@ impl MessageViewModel {
             timeout_ms: None,
             shell_backgrounded: false,
             file_inspect: false,
+            hook_rows: Vec::new(),
             content_hash: 0,
         };
         vm.recompute_hash();

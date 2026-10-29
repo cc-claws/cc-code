@@ -478,6 +478,7 @@ fn test_tool_block_error_visible_when_collapsed() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -518,6 +519,7 @@ fn test_tool_block_header_and_output_strip_terminal_control_sequences() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -556,6 +558,7 @@ fn test_running_bash_toolblock_after_threshold_shows_control_b_hint() {
         started_at: Some(std::time::Instant::now() - std::time::Duration::from_secs(39)),
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Running,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -617,6 +620,7 @@ fn test_running_bash_toolblock_before_threshold_hides_control_b_hint() {
         started_at: Some(std::time::Instant::now()),
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Running,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -687,6 +691,7 @@ fn test_backgrounded_bash_renders_timeout_with_minute_and_second() {
         file_inspect: false,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Running,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -727,6 +732,7 @@ fn test_backgrounded_bash_shows_manage_status_and_timeout_not_ctrl_b_hint() {
         started_at: Some(std::time::Instant::now()),
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Running,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -781,6 +787,7 @@ fn test_backgrounded_bash_result_marker_keeps_running_status_until_exit() {
             phase: crate::ui::message_view::ToolPhase::Running,
             live_output: None,
             source_agent_id: None,
+            hook_rows: Vec::new(),
         };
     let lines = render_view_model(&vm, Some(1), 100, false, 0);
     let text = rendered_text(&lines);
@@ -817,6 +824,7 @@ fn test_tool_block_read_collapsed_shows_summary() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -858,6 +866,7 @@ fn test_tool_block_detail_mode_includes_diff_lines() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -917,6 +926,7 @@ fn test_tool_block_inline_diff_switch_controls_normal_page_only() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -968,6 +978,7 @@ fn test_edit_diff_replaces_tool_result_line() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -1017,6 +1028,7 @@ fn test_write_create_keeps_tool_result_line() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -1057,6 +1069,7 @@ fn test_inline_diff_switch_does_not_expand_other_blocks() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -1106,6 +1119,7 @@ fn test_tool_block_detail_mode_diff_respects_terminal_width() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -1160,6 +1174,7 @@ fn test_tool_block_detail_mode_shows_full_long_output() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -1218,6 +1233,7 @@ fn test_bash_non_detail_mode_shows_first_three_lines() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -1267,6 +1283,7 @@ fn test_bash_tool_block_promotes_exit_code_and_indents_body() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -1759,6 +1776,7 @@ fn test_bash_toolblock_nonzero_exit_shows_failed() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -1792,6 +1810,7 @@ fn test_bash_toolblock_zero_exit_stays_green() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -1825,6 +1844,7 @@ fn test_bash_toolblock_error_keeps_name_neutral_color() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -1862,6 +1882,7 @@ fn test_non_bash_toolblock_error_keeps_name_neutral_color() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -1952,6 +1973,7 @@ fn test_bash_nonzero_exit_result_lines_use_error_color() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -1989,6 +2011,7 @@ fn test_bash_zero_exit_result_lines_use_soft_color() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -2026,6 +2049,7 @@ fn test_non_bash_tool_exit_code() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -2169,6 +2193,7 @@ fn test_tool_block_header_long_args_single_line_and_truncated() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -2247,6 +2272,7 @@ fn test_tool_block_header_detail_mode_long_token_no_space_keeps_header() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -2291,6 +2317,7 @@ fn test_tool_block_header_detail_mode_wraps_full_command_aligned() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -2361,6 +2388,7 @@ fn test_tool_block_header_detail_mode_short_command_stays_single_line() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -2407,6 +2435,7 @@ fn test_tool_block_header_cjk_truncation_width_aligned() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -2701,6 +2730,7 @@ fn test_tool_block_long_json_wraps_with_hanging_indent() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -2863,6 +2893,7 @@ fn test_all_paths_preserve_width_no_overflow() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -2958,6 +2989,7 @@ fn test_wrapped_indented_line_keeps_leading_indent() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -3386,6 +3418,7 @@ fn test_tool_result_url_keeps_body_style() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -3478,6 +3511,7 @@ fn test_bash_output_collapse_hint_matches_unified_style() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -3518,6 +3552,7 @@ fn test_bash_output_collapse_hint_matches_unified_style_single_line() {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     };
@@ -3566,6 +3601,7 @@ fn make_file_tool_block(tool: &str, args: &str) -> MessageViewModel {
         timeout_ms: None,
         shell_backgrounded: false,
         file_inspect: false,
+        hook_rows: Vec::new(),
         content_hash: 0,
     }
 }
@@ -3954,4 +3990,206 @@ fn test_group_thinking_hides_body_in_normal_mode() {
     // Act：详细模式
     let detail = rendered_text(&render_view_model(&vm, None, 80, true, 0));
     assert!(detail.contains("n13"), "详细模式应展示组内思考正文: {detail}");
+}
+
+// ─── hook 执行行（spec/global/domains/hooks-display.md）────────────────────
+
+/// 构造挂 hook 行的 Bash 工具块：一条输出 + 若干 hook 行。
+fn make_hook_tool_block(hook_rows: Vec<crate::ui::message_view::HookRow>) -> MessageViewModel {
+    use crate::app::MessageViewModel;
+    let mut vm = MessageViewModel::ToolBlock {
+        tool_name: "Bash".to_string(),
+        tool_call_id: "tc_hook".to_string(),
+        display_name: "Bash".to_string(),
+        args_display: Some("cargo test".to_string()),
+        content: "test result: ok. 12 passed; 0 failed".to_string(),
+        is_error: false,
+        collapsed: true,
+        color: crate::ui::theme::cur().success,
+        diff_input: None,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        live_output: None,
+        source_agent_id: None,
+        started_at: None,
+        timeout_ms: None,
+        shell_backgrounded: false,
+        file_inspect: false,
+        hook_rows,
+        content_hash: 0,
+    };
+    vm.recompute_hash();
+    vm
+}
+
+/// 取出渲染结果里唯一承载 `needle` 的那一行。
+fn hook_line<'a>(lines: &'a [Line<'static>], needle: &str) -> &'a Line<'static> {
+    lines
+        .iter()
+        .find(|line| line.spans.iter().any(|span| span.content.contains(needle)))
+        .unwrap_or_else(|| panic!("应渲染出含 {needle:?} 的 hook 行"))
+}
+
+#[test]
+fn test_hook_summary_hidden_in_normal_mode() {
+    use crate::ui::message_view::HookRow;
+    let baseline = render_view_model(&make_hook_tool_block(Vec::new()), Some(1), 80, false, 0);
+    let with_hook = render_view_model(
+        &make_hook_tool_block(vec![HookRow::summary("2 PostToolUse hooks ran · 34ms")]),
+        Some(1),
+        80,
+        false,
+        0,
+    );
+    assert_eq!(
+        with_hook.len(),
+        baseline.len(),
+        "普通模式下汇总行不应占用任何行"
+    );
+    assert!(
+        !rendered_text(&with_hook).contains("hooks ran"),
+        "普通模式不应出现汇总文案: {:?}",
+        rendered_text(&with_hook)
+    );
+}
+
+#[test]
+fn test_hook_summary_visible_in_detail_mode() {
+    use crate::ui::message_view::HookRow;
+    let baseline = render_view_model(&make_hook_tool_block(Vec::new()), Some(1), 80, true, 0);
+    let with_hook = render_view_model(
+        &make_hook_tool_block(vec![HookRow::summary("2 PostToolUse hooks ran · 34ms")]),
+        Some(1),
+        80,
+        true,
+        0,
+    );
+    assert_eq!(
+        with_hook.len(),
+        baseline.len() + 1,
+        "详细模式应恰好多出一行汇总"
+    );
+    assert!(
+        rendered_text(&with_hook).contains("2 PostToolUse hooks ran · 34ms"),
+        "汇总文案应与 PRD 快照一致: {:?}",
+        rendered_text(&with_hook)
+    );
+}
+
+#[test]
+fn test_hook_block_row_uses_warning_color() {
+    use crate::ui::message_view::{HookRow, NoteTone};
+    let rows = vec![HookRow::failure(
+        "PreToolUse hook blocked: matched \"rm -rf\" rule",
+        NoteTone::Warning,
+    )];
+    let lines = render_view_model(&make_hook_tool_block(rows), Some(1), 80, false, 0);
+    let line = hook_line(&lines, "hook blocked");
+    assert_eq!(
+        line.spans[0].content,
+        BranchPrefix::PREFIX,
+        "应复用分支前缀"
+    );
+    for span in &line.spans {
+        assert_eq!(
+            span.style.fg,
+            Some(crate::ui::theme::cur().warning),
+            "阻断行的 ⎿ 与正文都应是 warning: {:?}",
+            span.content
+        );
+    }
+}
+
+#[test]
+fn test_hook_failure_row_uses_error_color() {
+    use crate::ui::message_view::{HookRow, NoteTone};
+    let rows = vec![HookRow::failure(
+        "PostToolUse hook failed: exit 1",
+        NoteTone::Error,
+    )];
+    let lines = render_view_model(&make_hook_tool_block(rows), Some(1), 80, false, 0);
+    let line = hook_line(&lines, "hook failed");
+    for span in &line.spans {
+        assert_eq!(
+            span.style.fg,
+            Some(crate::ui::theme::cur().error),
+            "失败行的 ⎿ 与正文都应是 error: {:?}",
+            span.content
+        );
+    }
+}
+
+#[test]
+fn test_hook_rows_capped_at_four_events() {
+    use crate::ui::message_view::HookRow;
+    let rows: Vec<_> = (1..=5)
+        .map(|i| HookRow::summary(format!("{i} Event{i} hooks ran · 1ms")))
+        .collect();
+    let baseline = render_view_model(&make_hook_tool_block(Vec::new()), Some(1), 80, true, 0);
+    let lines = render_view_model(&make_hook_tool_block(rows), Some(1), 80, true, 0);
+    assert_eq!(
+        lines.len(),
+        baseline.len() + 5,
+        "5 个事件应折叠成 4 行 + 1 行折叠提示"
+    );
+    let text = rendered_text(&lines);
+    assert!(text.contains("4 Event4 hooks ran"), "第 4 条应保留: {text}");
+    assert!(
+        !text.contains("5 Event5 hooks ran"),
+        "第 5 条应被折叠: {text}"
+    );
+    assert!(text.contains("… +1 events"), "折叠文案应匹配 PRD: {text}");
+}
+
+#[test]
+fn test_hook_rows_capped_at_three_failures() {
+    use crate::ui::message_view::{HookRow, NoteTone};
+    let rows: Vec<_> = (1..=4)
+        .map(|i| {
+            HookRow::failure(
+                format!("PostToolUse hook failed: exit {i}"),
+                NoteTone::Error,
+            )
+        })
+        .collect();
+    let baseline = render_view_model(&make_hook_tool_block(Vec::new()), Some(1), 80, false, 0);
+    let lines = render_view_model(&make_hook_tool_block(rows), Some(1), 80, false, 0);
+    assert_eq!(
+        lines.len(),
+        baseline.len() + 4,
+        "4 个失败应折叠成 3 行 + 1 行折叠提示"
+    );
+    let text = rendered_text(&lines);
+    assert!(text.contains("exit 3"), "第 3 条应保留: {text}");
+    assert!(!text.contains("exit 4"), "第 4 条应被折叠: {text}");
+    assert!(text.contains("… +1 more"), "折叠文案应匹配 PRD: {text}");
+}
+
+#[test]
+fn test_hook_rows_have_no_ascii_fallback_gap() {
+    use crate::ui::message_view::{HookRow, NoteTone};
+    let rows = vec![
+        HookRow::failure(
+            "PostToolUse hook failed: exit 1 with a long stderr tail that keeps going",
+            NoteTone::Error,
+        ),
+        HookRow::summary("2 PostToolUse hooks ran · 34ms"),
+    ];
+    let width = 40;
+    let lines = render_view_model(&make_hook_tool_block(rows), Some(1), width, true, 0);
+    let text = rendered_text(&lines);
+    assert!(!text.contains('?'), "不应出现降级占位符: {text:?}");
+    for line in &lines {
+        let line_text = rendered_text(std::slice::from_ref(line));
+        let display_width = UnicodeWidthStr::width(line_text.as_str());
+        assert!(
+            display_width <= width,
+            "行宽 {display_width} 超过视口 {width}: {line_text:?}"
+        );
+    }
+    let wrapped = hook_line(&lines, "hook failed");
+    assert_eq!(
+        wrapped.spans[0].content,
+        BranchPrefix::PREFIX,
+        "折行首行仍用分支前缀"
+    );
 }

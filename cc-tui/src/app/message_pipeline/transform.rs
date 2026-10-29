@@ -318,6 +318,7 @@ impl MessagePipeline {
             timeout_ms: input.get("timeout").and_then(serde_json::Value::as_u64),
             shell_backgrounded: false,
             file_inspect: crate::ui::message_view::is_file_inspect(name, input),
+            hook_rows: Vec::new(),
             content_hash: 0,
         };
         vm.recompute_hash();

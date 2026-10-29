@@ -243,6 +243,7 @@ impl MessagePipeline {
                     timeout_ms: ct.input.get("timeout").and_then(serde_json::Value::as_u64),
                     shell_backgrounded: false,
                     file_inspect: crate::ui::message_view::is_file_inspect(&ct.name, &ct.input),
+                    hook_rows: Vec::new(),
                     content_hash: 0,
                 };
                 vm.recompute_hash();
@@ -309,6 +310,9 @@ impl MessagePipeline {
         }
 
         self.apply_shell_runtime(&mut tail_vms);
+        // hook 执行行必须在聚合前挂好：带 hook 行的只读工具块不参与聚合（否则行会随
+        // 块一起被折进 ToolCallGroup），且尾部每次重建都要重新贴一次。
+        self.apply_hook_rows(&mut tail_vms);
         aggregate_tool_groups(&mut tail_vms);
         // Re-run after appending streaming/pending tools so a completed tool group
         // can be merged into the reasoning bubble currently being streamed.

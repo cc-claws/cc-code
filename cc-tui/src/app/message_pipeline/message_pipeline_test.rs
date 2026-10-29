@@ -2849,3 +2849,86 @@ fn test_interrupt_freezes_active_thinking() {
         "中断后不应再有活跃思考（否则会继续走秒闪烁）"
     );
 }
+
+/// PreToolUse 的 hook 行早于 ToolStart 到达：先暂存，工具块建出来后再挂上。
+#[test]
+fn test_hook_rows_pending_before_tool_start_are_attached_after() {
+    use crate::ui::message_view::HookRow;
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.push_hook_rows(
+        "tc_pre",
+        vec![HookRow::summary("1 PreToolUse hooks ran · 8ms")],
+    );
+    assert!(
+        pipeline
+            .build_tail_vms()
+            .iter()
+            .all(|vm| !matches!(vm, MessageViewModel::ToolBlock { .. })),
+        "工具块未建立时不应凭空造出工具块"
+    );
+
+    let _ = pipeline.handle_event(AgentEvent::ToolStart {
+        tool_call_id: "tc_pre".into(),
+        name: "Bash".into(),
+        display: "Bash".into(),
+        args: "sleep 10".into(),
+        input: json!({"command": "sleep 10"}),
+        source_agent_id: None,
+    });
+
+    for _ in 0..2 {
+        let tail = pipeline.build_tail_vms();
+        let rows = tail
+            .iter()
+            .find_map(|vm| match vm {
+                MessageViewModel::ToolBlock {
+                    tool_call_id,
+                    hook_rows,
+                    ..
+                } if tool_call_id == "tc_pre" => Some(hook_rows.clone()),
+                _ => None,
+            })
+            .expect("ToolStart 之后应生成工具块");
+        assert_eq!(rows.len(), 1, "暂存的 hook 行必须被挂上");
+        assert_eq!(rows[0].text, "1 PreToolUse hooks ran · 8ms");
+    }
+}
+
+/// 只读工具带 hook 行时不进聚合组：组不承载 hook 行，进组会把阻断/失败行吞掉。
+#[test]
+fn test_hook_rows_keep_readonly_tool_out_of_group() {
+    use crate::ui::message_view::{HookRow, NoteTone};
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    let _ = pipeline.handle_event(AgentEvent::ToolStart {
+        tool_call_id: "tc_read".into(),
+        name: "Read".into(),
+        display: "Read".into(),
+        args: "Cargo.toml".into(),
+        input: json!({"file_path": "Cargo.toml"}),
+        source_agent_id: None,
+    });
+    let tail = pipeline.build_tail_vms();
+    assert!(
+        !tail
+            .iter()
+            .any(|vm| matches!(vm, MessageViewModel::ToolBlock { .. })),
+        "对照：无 hook 行的只读工具应被聚合成组"
+    );
+
+    pipeline.push_hook_rows(
+        "tc_read",
+        vec![HookRow::failure(
+            "PreToolUse hook blocked: policy",
+            NoteTone::Warning,
+        )],
+    );
+    let tail = pipeline.build_tail_vms();
+    assert!(
+        tail.iter().any(|vm| matches!(
+            vm,
+            MessageViewModel::ToolBlock { tool_call_id, hook_rows, .. }
+                if tool_call_id == "tc_read" && hook_rows.len() == 1
+        )),
+        "带 hook 行的只读工具块必须留在单条里"
+    );
+}

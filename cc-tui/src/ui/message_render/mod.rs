@@ -21,8 +21,8 @@ pub(crate) use streaming_bash::shell_output_status_text;
 use super::{
     branch_prefix::BranchPrefix,
     message_view::{
-        AgentSummary, BackgroundTaskStarted, ContentBlockView, MessageViewModel, ToolCategory,
-        ToolEntry,
+        AgentSummary, BackgroundTaskStarted, ContentBlockView, HookRow, MessageViewModel, NoteTone,
+        ToolCategory, ToolEntry,
     },
     theme,
 };
@@ -30,6 +30,105 @@ use crate::app::tool_display::sanitize_display_text;
 
 pub(crate) const CONTROL_B_BACKGROUND_HINT: &str = "(ctrl+b to run in background)";
 const BACKGROUND_RUNNING_STATUS: &str = "Running in the background (↓ to manage)";
+
+/// hook 汇总行（`N <Event> hooks ran · Xms` / `Async hook <Event> completed`）的折叠上限。
+const HOOK_SUMMARY_MAX_ROWS: usize = 4;
+/// hook 阻断/失败行的折叠上限。
+const HOOK_FAILURE_MAX_ROWS: usize = 3;
+
+/// hook 行语义色：成功汇总用 inactive，阻断用 warning，失败用 error。
+fn hook_row_color(tone: NoteTone) -> Color {
+    match tone {
+        NoteTone::Warning => theme::cur().warning,
+        NoteTone::Error => theme::cur().error,
+        NoteTone::Success => theme::cur().success,
+        NoteTone::Neutral => theme::cur().inactive,
+    }
+}
+
+/// 渲染一行 hook 结果：`  ⎿  <text>`，`⎿` 与正文同色（跟随 tone）。
+///
+/// 超宽时按内容宽度折行，续行用悬挂缩进，保证行宽不越视口。
+fn push_hook_line(lines: &mut Vec<Line<'static>>, text: &str, color: Color, width: usize) {
+    let content_width = BranchPrefix::content_width(width);
+    let body = Line::from(Span::styled(text.to_string(), Style::default().fg(color)));
+    for (i, wrapped) in wrap_line_spans(body, content_width).into_iter().enumerate() {
+        let prefix = if i == 0 {
+            BranchPrefix::PREFIX
+        } else {
+            BranchPrefix::HANG
+        };
+        let mut spans = vec![Span::styled(prefix, Style::default().fg(color))];
+        spans.extend(wrapped.spans);
+        lines.push(Line::from(spans));
+    }
+}
+
+/// 追加该工具调用触发的 hook 行（规格见 spec/global/domains/hooks-display.md）。
+///
+/// - 阻断/失败行两种模式都显示；汇总/异步完成行仅详细模式显示。
+/// - 折叠口径：汇总最多 4 行（其余折成 `… +N events`），失败最多 3 行
+///   （其余折成 `… +N more`）。行数不随 hook 数量线性增长。
+fn append_hook_rows(
+    lines: &mut Vec<Line<'static>>,
+    hook_rows: &[HookRow],
+    detail_mode: bool,
+    width: usize,
+) {
+    if hook_rows.is_empty() {
+        return;
+    }
+    let mut failures = 0usize;
+    let mut summaries = 0usize;
+    for row in hook_rows {
+        if row.detail_only {
+            if !detail_mode {
+                continue;
+            }
+            if summaries >= HOOK_SUMMARY_MAX_ROWS {
+                continue;
+            }
+            summaries += 1;
+        } else {
+            if failures >= HOOK_FAILURE_MAX_ROWS {
+                continue;
+            }
+            failures += 1;
+        }
+        push_hook_line(lines, &row.text, hook_row_color(row.tone), width);
+    }
+
+    let hidden_failures = hook_rows
+        .iter()
+        .filter(|row| !row.detail_only)
+        .count()
+        .saturating_sub(HOOK_FAILURE_MAX_ROWS);
+    if hidden_failures > 0 {
+        push_hook_line(
+            lines,
+            &format!("… +{hidden_failures} more"),
+            theme::cur().subtle,
+            width,
+        );
+    }
+    let hidden_summaries = if detail_mode {
+        hook_rows
+            .iter()
+            .filter(|row| row.detail_only)
+            .count()
+            .saturating_sub(HOOK_SUMMARY_MAX_ROWS)
+    } else {
+        0
+    };
+    if hidden_summaries > 0 {
+        push_hook_line(
+            lines,
+            &format!("… +{hidden_summaries} events"),
+            theme::cur().subtle,
+            width,
+        );
+    }
+}
 
 /// 把秒数格式化为人类可读时长，供 Bash 运行状态行「已运行」与「超时期限」共用。
 ///
@@ -1759,6 +1858,7 @@ pub fn render_view_model_with_flags(
             phase,
             source_agent_id,
             live_output,
+            hook_rows,
             ..
         } => {
             // AskUserQuestion 专用渲染路径
@@ -2359,6 +2459,8 @@ pub fn render_view_model_with_flags(
                     }
                 }
             }
+            // hook 行在工具输出/diff 之后，随工具块一起折叠与滚动。
+            append_hook_rows(&mut lines, hook_rows, detail_mode, width);
             (lines, link_hits)
         }
         MessageViewModel::ShellCommand {

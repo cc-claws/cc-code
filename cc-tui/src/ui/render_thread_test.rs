@@ -1217,6 +1217,7 @@ fn write_tool_block_vm() -> MessageViewModel {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     }
@@ -2057,6 +2058,7 @@ fn test_read_tool_header_link_survives_wrap_map_roundtrip() {
         timeout_ms: None,
         shell_backgrounded: false,
         file_inspect: false,
+        hook_rows: Vec::new(),
         content_hash: 0,
     };
     let (lines, links) = render_view_model_with_links(&vm, Some(1), 80, false, 0);
@@ -2126,6 +2128,7 @@ fn test_rebuild_produces_tool_path_links_in_cache() {
         timeout_ms: None,
         shell_backgrounded: false,
         file_inspect: false,
+        hook_rows: Vec::new(),
         content_hash: 0,
     };
     task.rebuild(vec![vm]);

@@ -26,7 +26,7 @@ use std::{
 use cc_agent::messages::{BaseMessage, ToolCallRequest};
 
 use crate::app::{events::AgentEvent, tool_display};
-use crate::ui::message_view::{instance_hash, parse_bg_hash};
+use crate::ui::message_view::{instance_hash, parse_bg_hash, HookRow};
 use crate::ui::message_view::{MessageViewModel, ToolOutputPreview, ToolPhase};
 
 mod reconcile;
@@ -284,6 +284,12 @@ pub struct MessagePipeline {
     current_ai_finalized: bool,
     /// 已开始但未结束的工具调用
     pending_tools: HashMap<String, PendingTool>,
+    /// 按 `tool_call_id` 归档的 hook 执行行（仅 UI 展示，不进 history）。
+    ///
+    /// PreToolUse 的汇总早于 ToolStart 到达，此时工具块还不存在，所以统一按 id
+    /// 暂存在管线里，由 [`Self::build_tail_vms`] 生成 ToolBlock 时挂上——这样无论
+    /// 事件先后、无论尾部被重建多少次，行都不会丢。
+    hook_rows: HashMap<String, Vec<HookRow>>,
     /// 真实 spawn 注册可能先于 ToolStart；按调用身份保存，禁止命令文本匹配。
     shell_runtimes: HashMap<(Option<String>, String), shell_runtime::ShellRuntime>,
     /// ToolEnd 后、StateSnapshot 前的工具结果（在 reconcile gap 期间显示）
@@ -333,6 +339,7 @@ impl MessagePipeline {
             current_ai_tool_calls: Vec::new(),
             current_ai_finalized: false,
             pending_tools: HashMap::new(),
+            hook_rows: HashMap::new(),
             shell_runtimes: HashMap::new(),
             completed_tools: Vec::new(),
             subagent_stack: Vec::new(),
@@ -351,6 +358,43 @@ impl MessagePipeline {
 
     pub fn cwd(&self) -> &str {
         &self.cwd
+    }
+
+    /// 归档一次 hook 执行结果对应的渲染行（挂在触发它的工具块上）。
+    pub(crate) fn push_hook_rows(&mut self, tool_call_id: &str, rows: Vec<HookRow>) {
+        if rows.is_empty() {
+            return;
+        }
+        self.hook_rows
+            .entry(tool_call_id.to_string())
+            .or_default()
+            .extend(rows);
+    }
+
+    /// 把归档的 hook 行挂到对应 `ToolBlock`（含 SubAgent 内部的工具块）。
+    ///
+    /// 找不到匹配工具块的 id 保持暂存：PreToolUse 的行先于 ToolStart 到达，
+    /// 等工具块建出来再挂。
+    fn apply_hook_rows(&self, vms: &mut [MessageViewModel]) {
+        if self.hook_rows.is_empty() {
+            return;
+        }
+        for vm in vms.iter_mut() {
+            if let MessageViewModel::SubAgentGroup {
+                recent_messages, ..
+            } = vm
+            {
+                self.apply_hook_rows(recent_messages);
+            }
+            let rows = if let MessageViewModel::ToolBlock { tool_call_id, .. } = &*vm {
+                self.hook_rows.get(tool_call_id).cloned()
+            } else {
+                None
+            };
+            if let Some(rows) = rows {
+                vm.set_hook_rows(rows);
+            }
+        }
     }
 
     /// 获取当前流式渲染模式
