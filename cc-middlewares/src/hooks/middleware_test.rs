@@ -959,7 +959,7 @@ async fn test_fire_event_block_reports_failure() {
         AgentEvent::HooksCompleted { failures, ran, .. } => {
             assert_eq!(ran, 1);
             assert_eq!(failures.len(), 1);
-            assert_eq!(failures[0].kind, "block");
+            assert_eq!(failures[0].kind, HookFailureKind::Block);
         }
         other => panic!("意外的 AgentEvent: {other:?}"),
     }
@@ -1066,7 +1066,7 @@ async fn test_async_hook_emits_completed_summary() {
     }
 }
 
-/// 异步 hook 被阻断（exit 2）时上报 `kind = "block"`。
+/// 异步 hook 被阻断（exit 2）时上报 `HookFailureKind::Block`。
 #[tokio::test]
 async fn test_async_hook_block_reports_block_kind() {
     let hook: HookType = serde_json::from_value(serde_json::json!({
@@ -1103,13 +1103,13 @@ async fn test_async_hook_block_reports_block_kind() {
         } => {
             assert!(is_async);
             assert_eq!(failures.len(), 1, "阻断的异步 hook 必须上报失败项");
-            assert_eq!(failures[0].kind, "block");
+            assert_eq!(failures[0].kind, HookFailureKind::Block);
         }
         other => panic!("意外的 AgentEvent: {other:?}"),
     }
 }
 
-/// 同步 hook 崩溃（exit 1）上报 `kind = "error"`，且不阻断工具调用（PRD C6）。
+/// 同步 hook 崩溃（exit 1）上报 `HookFailureKind::Error`，且不阻断工具调用（PRD C6）。
 #[tokio::test]
 async fn test_hook_exit_one_reports_error_kind() {
     let hook: HookType = serde_json::from_value(serde_json::json!({
@@ -1146,7 +1146,7 @@ async fn test_hook_exit_one_reports_error_kind() {
             assert!(!is_async);
             assert_eq!(tool_call_id.as_deref(), Some("c6"));
             assert_eq!(failures.len(), 1, "exit 1 必须上报一条失败项");
-            assert_eq!(failures[0].kind, "error");
+            assert_eq!(failures[0].kind, HookFailureKind::Error);
             assert!(
                 failures[0].reason.contains("code 1"),
                 "原因需带退出码，实际为 {:?}",
@@ -1162,7 +1162,7 @@ async fn test_hook_exit_one_reports_error_kind() {
     assert_eq!(passed.input["command"], "ls");
 }
 
-/// 异步 hook 失败（exit 1）同样上报 `kind = "error"`，不能只在成功时才发完成提示（PRD C10）。
+/// 异步 hook 失败（exit 1）同样上报 `HookFailureKind::Error`，不能只在成功时才发完成提示（PRD C10）。
 #[tokio::test]
 async fn test_async_hook_failure_reports_error_kind() {
     let hook: HookType = serde_json::from_value(serde_json::json!({
@@ -1207,7 +1207,7 @@ async fn test_async_hook_failure_reports_error_kind() {
             assert!(is_async, "失败的异步 hook 也要独立上报");
             assert_eq!(tool_call_id.as_deref(), Some("c4"));
             assert_eq!(failures.len(), 1, "失败的异步 hook 必须上报失败项");
-            assert_eq!(failures[0].kind, "error");
+            assert_eq!(failures[0].kind, HookFailureKind::Error);
         }
         other => panic!("意外的 AgentEvent: {other:?}"),
     }
@@ -1290,7 +1290,7 @@ async fn test_standalone_lifecycle_hooks_report_block_failure() {
             assert_eq!(ran, 1);
             assert!(!is_async);
             assert_eq!(failures.len(), 1);
-            assert_eq!(failures[0].kind, "block");
+            assert_eq!(failures[0].kind, HookFailureKind::Block);
         }
         other => panic!("意外的 AgentEvent: {other:?}"),
     }

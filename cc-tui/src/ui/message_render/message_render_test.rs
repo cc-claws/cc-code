@@ -2798,7 +2798,6 @@ fn test_compact_done_rendering_no_bullet_prefix() {
         detail_content: None,
         tone: None,
         body_tone: None,
-        detail_only: false,
     };
     let text_lines: Vec<String> = render_view_model(&vm, None, 80, false, 0)
         .iter()
@@ -2869,7 +2868,6 @@ fn test_all_paths_preserve_width_no_overflow() {
         detail_content: None,
         tone: None,
         body_tone: None,
-        detail_only: false,
     };
     assert!(
         max_line_width(&render_view_model(&vm, None, width, false, 0)) <= width,
@@ -3838,7 +3836,6 @@ fn test_system_note_with_tone_renders_dot_prefix_in_status_color() {
             detail_content: None,
             tone: Some(tone),
             body_tone: None,
-            detail_only: false,
         };
         // Act
         let lines = render_view_model(&vm, None, 80, false, 0);
@@ -3866,7 +3863,6 @@ fn test_system_note_without_tone_keeps_plain_style() {
         detail_content: None,
         tone: None,
         body_tone: None,
-        detail_only: false,
     };
     // Act
     let lines = render_view_model(&vm, None, 80, false, 0);
@@ -4182,14 +4178,14 @@ fn test_hook_rows_capped_at_three_failures() {
 /// 异步完成行不参与「汇总 4 行」限额：4 个同步事件 + 2 个异步完成，
 /// 详细模式应全部展示、且不出现 `… +N events`（PRD「每个异步 hook 完成各占一行」）。
 #[test]
-fn test_async_completed_rows_not_folded_by_summary_cap() {
+fn test_async_rows_not_folded_by_summary_cap() {
     use crate::ui::message_view::HookRow;
     // Arrange
     let mut rows: Vec<_> = (1..=4)
         .map(|i| HookRow::summary(format!("{i} Event{i} hooks ran · 1ms")))
         .collect();
-    rows.push(HookRow::async_completed("Async hook PostToolUse completed"));
-    rows.push(HookRow::async_completed(
+    rows.push(HookRow::async_row_completed("Async hook PostToolUse completed"));
+    rows.push(HookRow::async_row_completed(
         "Async hook UserPromptSubmit completed",
     ));
     let baseline = render_view_model(&make_hook_tool_block(Vec::new()), Some(1), 80, true, 0);
@@ -4224,14 +4220,14 @@ fn test_async_completed_rows_not_folded_by_summary_cap() {
 
 /// 同步汇总行仍受 4 行上限：6 个同步 + 2 个异步完成 → 4 行 + `… +2 events` + 2 行异步。
 #[test]
-fn test_sync_summary_fold_excludes_async_completed_rows() {
+fn test_sync_summary_fold_excludes_async_rows() {
     use crate::ui::message_view::HookRow;
     // Arrange
     let mut rows: Vec<_> = (1..=6)
         .map(|i| HookRow::summary(format!("{i} Event{i} hooks ran · 1ms")))
         .collect();
-    rows.push(HookRow::async_completed("Async hook Stop completed"));
-    rows.push(HookRow::async_completed(
+    rows.push(HookRow::async_row_completed("Async hook Stop completed"));
+    rows.push(HookRow::async_row_completed(
         "Async hook SessionStart completed",
     ));
     let baseline = render_view_model(&make_hook_tool_block(Vec::new()), Some(1), 80, true, 0);

@@ -2,6 +2,7 @@ use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use crate::hooks::{
     output_parser::{parse_command_hook_output, parse_http_hook_response},
+    reason::{hook_error_reason, single_line_reason},
     ssrf_guard::check_url,
     types::{HookAction, HookInput, HookType, RegisteredHook},
     variables::resolve_hook_variables,
@@ -15,23 +16,6 @@ use cc_agent::{
     encoding::decode_output_bytes,
     messages::BaseMessage,
 };
-
-/// 拼一段给用户看的 hook 错误原因：`<prefix>: <stderr 前 200 字符>`。
-///
-/// reason 最终落在 TUI 的单行 hook 结果行里，而 stderr 可能带换行、制表符与
-/// ANSI 转义：先剥离转义，再把所有空白折叠成单个空格，保证「一行一条原因」
-/// 且不会把终端控制序列带进渲染层。
-fn hook_error_reason(prefix: &str, detail: &str) -> String {
-    use crate::tools::output_filter::strip_ansi;
-
-    let cleaned = strip_ansi(detail);
-    let flattened = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
-    if flattened.is_empty() {
-        return prefix.to_string();
-    }
-    let short: String = flattened.chars().take(200).collect();
-    format!("{prefix}: {short}")
-}
 
 /// Execute a command hook (shell script).
 ///
@@ -352,11 +336,7 @@ pub async fn execute_http_hook(hook: &HookType, input: &HookInput) -> HookAction
                 tracing::warn!(
                     "HTTP hook returned non-success status {}: {}",
                     status,
-                    if body.len() > 200 {
-                        format!("{}...", &body[..body.floor_char_boundary(200)])
-                    } else {
-                        body.clone()
-                    }
+                    single_line_reason(&body)
                 );
                 // 非 2xx = 端点自身出错（服务不可用 / 路径写错 / 鉴权失败）。
                 // 不阻断调用，但要把状态码暴露给用户，否则「hook 没生效」无从排查。

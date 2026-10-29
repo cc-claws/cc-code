@@ -34,11 +34,20 @@ impl BackgroundTaskResult {
     }
 }
 
+/// hook 失败类别：决定 UI 用的动词与颜色。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HookFailureKind {
+    /// 按策略阻断（exit 2 / decision=block / preventContinuation）
+    Block,
+    /// 脚本崩溃 / 超时 / 输出非法：不阻断调用，只如实上报
+    Error,
+}
+
 /// hook 阻断或执行失败的描述（UI 展示用）。
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct HookFailureInfo {
-    /// `block` = 按策略阻断；`error` = 脚本崩溃 / 超时 / 输出非法
-    pub kind: String,
+    pub kind: HookFailureKind,
     /// 给用户看的原因（hook 输出的 reason、超时说明或错误摘要）
     pub reason: String,
 }
@@ -257,7 +266,10 @@ pub enum AgentEvent {
     HooksCompleted {
         /// 触发的事件名（PreToolUse / PostToolUse / Stop ...）
         event: String,
-        /// 真正执行成功的 hook 数（被 matcher / once 跳过的不计）
+        /// 真正执行过的 hook 数（被 matcher / once / 无 LLM factory 跳过的不计）。
+        ///
+        /// 两条路径口径不同：同步路径执行过就 +1（block / error 也计入，失败另外
+        /// 收进 `failures`）；异步路径每次上报只有一条 hook，成功计 1、失败计 0。
         ran: usize,
         /// 该事件所有同步 hook 的总耗时
         duration_ms: u64,

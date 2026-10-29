@@ -241,13 +241,7 @@ fn detail_sensitive(vm: &MessageViewModel) -> bool {
             .any(|b| matches!(b, super::message_view::ContentBlockView::Reasoning { .. })),
         MessageViewModel::ToolBlock { .. } => true,
         MessageViewModel::ShellCommand { .. } => true,
-        // `detail_only`（如 hook 汇总行）在普通模式下整行不渲染，同样对 detail 敏感：
-        // 漏判会让普通模式推入的 0 行成品被缓存，切到详细模式后永远出不来。
-        MessageViewModel::SystemNote {
-            detail_content,
-            detail_only,
-            ..
-        } => detail_content.is_some() || *detail_only,
+        MessageViewModel::SystemNote { detail_content, .. } => detail_content.is_some(),
         MessageViewModel::CacheWarning { .. } => false,
         MessageViewModel::ToolCallGroup { .. } => true,
         MessageViewModel::SubAgentGroup { .. } => true,

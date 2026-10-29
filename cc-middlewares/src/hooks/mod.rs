@@ -4,6 +4,7 @@ pub mod loader;
 pub mod matcher;
 pub mod middleware;
 pub mod output_parser;
+pub(crate) mod reason;
 pub mod ssrf_guard;
 pub mod types;
 pub mod variables;

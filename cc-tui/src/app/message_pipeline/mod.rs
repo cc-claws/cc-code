@@ -23,7 +23,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use cc_agent::agent::events::HookFailureInfo;
+use cc_agent::agent::events::{HookFailureInfo, HookFailureKind};
 use cc_agent::messages::{BaseMessage, ToolCallRequest};
 
 use crate::app::{events::AgentEvent, tool_display};
@@ -316,7 +316,7 @@ impl HookExec {
     fn to_rows(&self) -> Vec<HookRow> {
         use crate::ui::message_view::NoteTone;
         if self.phase == HookPhase::Running {
-            return vec![HookRow::async_running(format!(
+            return vec![HookRow::async_row_running(format!(
                 "Async hook {} running…",
                 self.event
             ))];
@@ -325,10 +325,9 @@ impl HookExec {
             .failures
             .iter()
             .map(|failure| {
-                let (verb, tone) = if failure.kind == "block" {
-                    ("blocked", NoteTone::Warning)
-                } else {
-                    ("failed", NoteTone::Error)
+                let (verb, tone) = match failure.kind {
+                    HookFailureKind::Block => ("blocked", NoteTone::Warning),
+                    HookFailureKind::Error => ("failed", NoteTone::Error),
                 };
                 HookRow::failure(
                     format!("{} hook {verb}: {}", self.event, failure.reason),
@@ -338,7 +337,7 @@ impl HookExec {
             .collect();
         rows.push(if self.is_async {
             // 每个异步 hook 完成各占一行，不参与 4 行折叠
-            HookRow::async_completed(format!("Async hook {} completed", self.event))
+            HookRow::async_row_completed(format!("Async hook {} completed", self.event))
         } else {
             HookRow::summary(format!(
                 "{} {} hooks ran · {}ms",

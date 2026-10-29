@@ -61,7 +61,9 @@ hook 却无法确认它是否执行、是否失败，只能去翻日志。
   代价是色盲、黑白截图与 ASCII 降级终端只剩文案可辨——这是刻意的取舍。
 
 - 分支前缀复用 `BranchPrefix::PREFIX`（`  ⎿  `，5 列），与工具结果行同列。
-- 阻断/失败行的 `⎿` 本身也随状态色（`BranchPrefix::span(is_error)`）。
+- 阻断/失败行的 `⎿` 与正文同色：`push_hook_line` 自建 Span
+  （`Span::styled(BranchPrefix::PREFIX, fg(color))`，续行的 `BranchPrefix::HANG` 同色），
+  不走 `BranchPrefix::span(is_error)`——那个构造器只能表达 inactive / error 两种颜色。
 
 - **异步占位行的来龙去脉**：异步 hook 完成时，工具块可能早已进入历史前缀，结果行
   就贴不上了。因此异步 hook 在 `tokio::spawn` **之前**先上报 `HooksStarted`，TUI 立刻
@@ -86,13 +88,17 @@ hook 却无法确认它是否执行、是否失败，只能去翻日志。
 ```
 HookRunSummary {
     event: HookEvent,        // PreToolUse / PostToolUse / ...
-    ran: usize,              // 成功执行的 hook 数
+    ran: usize,              // 执行过的 hook 数，两条路径口径不同（见下）
     duration_ms: u64,        // 该事件所有同步 hook 的总耗时
     failures: Vec<HookFailure>,  // 失败/阻断清单（普通模式渲染用）
     is_async: bool,          // 异步完成通知
 }
 HookFailure { kind: Block|Error, reason: String }
 ```
+
+- `ran` 的口径：**同步路径**每执行一条就 +1，阻断 / 执行失败同样计入（失败另收进
+  `failures`，互不抵消）；**异步路径**每次上报只对应一条 hook，成功计 1、失败计 0。
+  被 matcher / `once` / 无 LLM factory 跳过的一律不计。
 
 - 耗时由中间件在调用前后计时，不需要改 `executor`（现在只返回 `HookAction`）。
 - 异步 hook 现在 `tokio::spawn` 后丢弃结果，需要保留句柄或在 spawn 内部完成后
@@ -117,7 +123,7 @@ cc-middlewares → ExecutorEvent::HooksCompleted(HookRunSummary)
 **P0（本次）**：事件计数 + 总耗时汇总、异步完成提示、阻断/失败提示。
 
 失败行依赖 `HookAction::Error { reason }`（P0 一并补上）：非预期退出码、超时、被信号
-终止、无法启动都归为「hook 失败但**不阻断**调用」，由中间件转成 `kind = "error"` 的
+终止、无法启动都归为「hook 失败但**不阻断**调用」，由中间件转成 `HookFailureKind::Error` 的
 失败项。阻断（exit 2 / decision=block）仍走 `Block { reason }`。
 
 **P1（后续）**：每条 hook 的命令名、逐条耗时与 stderr 明细，并在 `/hooks` 面板展示
@@ -239,9 +245,9 @@ TUI 只展示工具级事件，所有 hook 行都挂在各自的 `ToolBlock` 内
 
 会话级事件不在 TUI 展示，故「非工具事件成功/失败」的渲染形态不存在。
 
-### C15 ASCII 降级终端（`prefer_ascii_fallback = true`）
+### C15 ASCII 降级终端
 
-详细模式，`⎿` 本身降级为 `+`（兼容层既有映射），列宽与 C4 一致：
+详细模式，列宽与 C4 一致：
 
 ```
 + Bash(cargo test)
@@ -249,6 +255,10 @@ TUI 只展示工具级事件，所有 hook 行都挂在各自的 `ToolBlock` 内
   + 2 PreToolUse hooks ran · 12ms
   + 2 PostToolUse hooks ran · 34ms
 ```
+
+渲染层不感知 ASCII 降级：hook 行照常输出 `⎿`，是否变成 `+` 由 `terminal_backend`
+的宽度探针决定（`fallback_symbol` 判到 `⎿` 列宽与预期不符时替换为 `+`；
+`ascii_fallback` 定向表不含 `⎿`）。上面的快照即降级生效后的样子。
 
 断言要点：不含 `?`，每行显示宽度 ≤ 视口宽度，续行不抖动。
 
@@ -338,4 +348,5 @@ hook 行的显示**不依赖工具本身成功与否**，独立叠加：
 - **汇总行只在详细模式**：与参考实现一致，普通模式保持简洁。
 - **SessionEnd 不展示**：会话结束（TUI 退出或 `/clear` 切换）没有稳定的渲染时机，
   退出路径推完事件进程即结束，`/clear` 路径也紧接视图重建；其 hook 结果只进日志。
-  其余会话级事件（`UserPromptSubmit` / `Stop` / `SessionStart` / `PreCompact`）照常展示。
+  其余会话级事件（`UserPromptSubmit` / `Stop` / `SessionStart` / `PreCompact`）同样
+  不在 TUI 展示，原因见「挂载位置」——它们与工具块无关，也没有稳定展示时机。

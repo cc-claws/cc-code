@@ -2920,7 +2920,7 @@ fn test_hook_rows_keep_readonly_tool_out_of_group() {
             1,
             3,
             vec![cc_agent::agent::events::HookFailureInfo {
-                kind: "block".into(),
+                kind: cc_agent::agent::events::HookFailureKind::Block,
                 reason: "policy".into(),
             }],
             false,
@@ -2987,7 +2987,7 @@ fn test_hook_result_merges_same_event_for_same_tool_call() {
 /// 合并时 failures 也拼接：第二个 middleware 实例的失败不覆盖第一个。
 #[test]
 fn test_hook_result_merge_concats_failures() {
-    use cc_agent::agent::events::HookFailureInfo;
+    use cc_agent::agent::events::{HookFailureInfo, HookFailureKind};
     let mut pipeline = MessagePipeline::new("/tmp".to_string());
     pipeline.push_hook_result(
         "tc_fail",
@@ -2996,7 +2996,7 @@ fn test_hook_result_merge_concats_failures() {
             2,
             4,
             vec![HookFailureInfo {
-                kind: "error".into(),
+                kind: HookFailureKind::Error,
                 reason: "exit 1".into(),
             }],
             false,
@@ -3009,7 +3009,7 @@ fn test_hook_result_merge_concats_failures() {
             1,
             6,
             vec![HookFailureInfo {
-                kind: "block".into(),
+                kind: HookFailureKind::Block,
                 reason: "denied".into(),
             }],
             false,
@@ -3038,7 +3038,7 @@ fn test_async_hook_completions_stay_separate_rows() {
 
     let rows = tool_hook_rows(&mut pipeline, "tc_async");
     assert_eq!(rows.len(), 2, "每个异步 hook 各占一行");
-    assert!(rows.iter().all(|row| row.async_completed));
+    assert!(rows.iter().all(|row| row.async_row));
     assert!(rows
         .iter()
         .all(|row| row.text == "Async hook PostToolUse completed"));
@@ -3073,7 +3073,7 @@ fn test_async_hook_started_shows_running_row() {
     assert_eq!(rows.len(), 1, "开始事件应写入一条占位行");
     assert_eq!(rows[0].text, "Async hook PostToolUse running…");
     assert!(rows[0].detail_only, "占位行只在详细模式出现");
-    assert!(rows[0].async_completed, "占位行不参与汇总行折叠");
+    assert!(rows[0].async_row, "占位行不参与汇总行折叠");
 }
 
 /// 完成事件就地替换同事件的占位行：位置不变、行数不增。

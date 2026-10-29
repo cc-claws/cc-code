@@ -81,7 +81,7 @@ pub struct HookRow {
     ///
     /// 渲染折叠时只有同步汇总行受 4 行上限约束（其余折成 `… +N events`）；
     /// 每个异步 hook 各占一行，不参与折叠。
-    pub async_completed: bool,
+    pub async_row: bool,
 }
 
 impl HookRow {
@@ -91,29 +91,29 @@ impl HookRow {
             text: text.into(),
             tone: NoteTone::Neutral,
             detail_only: true,
-            async_completed: false,
+            async_row: false,
         }
     }
 
     /// 异步 hook 完成行（`Async hook <Event> completed`）：仅详细模式可见，
     /// 不参与汇总行折叠，每个异步 hook 各占一行。
-    pub fn async_completed(text: impl Into<String>) -> Self {
+    pub fn async_row_completed(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
             tone: NoteTone::Neutral,
             detail_only: true,
-            async_completed: true,
+            async_row: true,
         }
     }
 
     /// 异步 hook 开始占位行（`Async hook <Event> running…`）：仅详细模式可见，
     /// 与完成行同属「异步逐条行」，不参与汇总行折叠。
-    pub fn async_running(text: impl Into<String>) -> Self {
+    pub fn async_row_running(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
             tone: NoteTone::Neutral,
             detail_only: true,
-            async_completed: true,
+            async_row: true,
         }
     }
 
@@ -123,7 +123,7 @@ impl HookRow {
             text: text.into(),
             tone,
             detail_only: false,
-            async_completed: false,
+            async_row: false,
         }
     }
 }
@@ -263,10 +263,6 @@ pub enum MessageViewModel {
         /// 正文（含折行续行）颜色。存语义 tone 而非 `Color`，`/theme` 切换后
         /// 渲染时再解析成主题色，不会把旧调色板钉死在 VM 里。
         body_tone: Option<NoteTone>,
-        /// 仅在详细模式（Ctrl+O）渲染；普通模式整行不显示。
-        ///
-        /// 用于「成功时无需打扰用户」的信息。
-        detail_only: bool,
     },
     /// 缓存率过低警告（黄色纯文本，无前缀符号）
     CacheWarning {
@@ -434,7 +430,6 @@ impl PartialEq for MessageViewModel {
                     detail_content: a_det,
                     tone: a_tone,
                     body_tone: a_body_tone,
-                    detail_only: a_detail_only,
                     ..
                 },
                 MessageViewModel::SystemNote {
@@ -442,16 +437,9 @@ impl PartialEq for MessageViewModel {
                     detail_content: b_det,
                     tone: b_tone,
                     body_tone: b_body_tone,
-                    detail_only: b_detail_only,
                     ..
                 },
-            ) => {
-                a == b
-                    && a_det == b_det
-                    && a_tone == b_tone
-                    && a_body_tone == b_body_tone
-                    && a_detail_only == b_detail_only
-            }
+            ) => a == b && a_det == b_det && a_tone == b_tone && a_body_tone == b_body_tone,
             (
                 MessageViewModel::CacheWarning { content: a, .. },
                 MessageViewModel::CacheWarning { content: b, .. },
@@ -624,7 +612,6 @@ impl Hash for MessageViewModel {
                 detail_content,
                 tone,
                 body_tone,
-                detail_only,
                 ..
             } => {
                 3u8.hash(state);
@@ -632,7 +619,6 @@ impl Hash for MessageViewModel {
                 // 换状态后要靠它触发重建）。
                 tone.hash(state);
                 body_tone.hash(state);
-                detail_only.hash(state);
                 content.hash(state);
                 detail_content.hash(state);
             }
@@ -870,7 +856,6 @@ impl MessageViewModel {
                         detail_content: None,
                         tone: Some(display.tone),
                         body_tone: None,
-                        detail_only: false,
                     };
                     vm.recompute_hash();
                     return vm;
@@ -1153,7 +1138,6 @@ impl MessageViewModel {
                     detail_content: None,
                     tone: None,
                     body_tone: None,
-                    detail_only: false,
                 };
                 vm.recompute_hash();
                 vm
@@ -1273,7 +1257,6 @@ impl MessageViewModel {
                 detail_content: None,
                 tone: Some(display.tone),
                 body_tone: None,
-                detail_only: false,
             };
             vm.recompute_hash();
             return vm;
@@ -1302,7 +1285,6 @@ impl MessageViewModel {
                 detail_content: None,
                 tone: Some(display.tone),
                 body_tone: None,
-                detail_only: false,
             };
             vm.recompute_hash();
             return vm;
@@ -1463,7 +1445,6 @@ impl MessageViewModel {
             detail_content: None,
             tone,
             body_tone: None,
-            detail_only: false,
         };
         vm.recompute_hash();
         vm
@@ -1482,7 +1463,6 @@ impl MessageViewModel {
             detail_content: Some(detail_content),
             tone,
             body_tone: None,
-            detail_only: false,
         };
         vm.recompute_hash();
         vm
@@ -1497,7 +1477,6 @@ impl MessageViewModel {
             detail_content: None,
             tone: None,
             body_tone: Some(tone),
-            detail_only: false,
         };
         vm.recompute_hash();
         vm

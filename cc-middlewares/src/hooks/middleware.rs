@@ -8,7 +8,7 @@ use parking_lot::{Mutex, RwLock};
 
 use cc_agent::{
     agent::{
-        events::{AgentEvent, HookFailureInfo},
+        events::{AgentEvent, HookFailureInfo, HookFailureKind},
         react::{AgentOutput, ReactLLM, ToolCall, ToolResult},
         state::State,
     },
@@ -989,20 +989,20 @@ pub(crate) fn emit_hooks_summary(
 
 /// 把 hook 的阻断/失败语义转成 UI 可渲染的失败项。
 ///
-/// `block` 是策略性阻断（琥珀色），`error` 是 hook 自身出错（红色）——后者
+/// `Block` 是策略性阻断（琥珀色），`Error` 是 hook 自身出错（红色）——后者
 /// **不改变控制流**，只是把「你配的 hook 坏了」如实告诉用户。
 pub(crate) fn hook_failure(action: &HookAction) -> Option<HookFailureInfo> {
     match action {
         HookAction::Block { reason } => Some(HookFailureInfo {
-            kind: "block".to_string(),
+            kind: HookFailureKind::Block,
             reason: reason.clone(),
         }),
         HookAction::Error { reason } => Some(HookFailureInfo {
-            kind: "error".to_string(),
+            kind: HookFailureKind::Error,
             reason: reason.clone(),
         }),
         HookAction::PreventContinuation { stop_reason } => Some(HookFailureInfo {
-            kind: "block".to_string(),
+            kind: HookFailureKind::Block,
             reason: stop_reason
                 .clone()
                 .unwrap_or_else(|| "prevented continuation".to_string()),

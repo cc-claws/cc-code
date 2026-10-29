@@ -37,6 +37,11 @@ const HOOK_SUMMARY_MAX_ROWS: usize = 4;
 const HOOK_FAILURE_MAX_ROWS: usize = 3;
 
 /// hook 行语义色：成功汇总用 inactive，阻断用 warning，失败用 error。
+///
+/// `Success` 当前没有被 `HookRow` 的构造器产出（汇总/异步行是 `Neutral`，
+/// 阻断/失败是 `Warning`/`Error`），但 `HookRow::failure()` 接受任意 `NoteTone`，
+/// 类型上仍可达；`NoteTone` 又是全 UI 共享枚举，此处保留穷举映射而不是 `_` 兜底，
+/// 以免将来新增 tone 时被静默吞成 inactive。
 fn hook_row_color(tone: NoteTone) -> Color {
     match tone {
         NoteTone::Warning => theme::cur().warning,
@@ -92,8 +97,8 @@ fn append_hook_rows(
             if !detail_mode {
                 continue;
             }
-            // 异步完成行逐条展示，只有同步汇总行参与 4 行限额。
-            if !row.async_completed {
+            // 异步逐条行不参与汇总行折叠，只有同步汇总行受 4 行限额。
+            if !row.async_row {
                 if summaries >= HOOK_SUMMARY_MAX_ROWS {
                     continue;
                 }
@@ -124,7 +129,7 @@ fn append_hook_rows(
     let hidden_summaries = if detail_mode {
         hook_rows
             .iter()
-            .filter(|row| row.detail_only && !row.async_completed)
+            .filter(|row| row.detail_only && !row.async_row)
             .count()
             .saturating_sub(HOOK_SUMMARY_MAX_ROWS)
     } else {
@@ -2707,13 +2712,8 @@ pub fn render_view_model_with_flags(
             detail_content,
             tone,
             body_tone,
-            detail_only,
             ..
         } => {
-            // 仅详细模式可见的提示：普通模式整行不渲染。
-            if *detail_only && !detail_mode {
-                return (Vec::new(), link_hits);
-            }
             let active_content = if detail_mode && detail_content.is_some() {
                 detail_content.as_deref().unwrap()
             } else {

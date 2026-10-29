@@ -1,103 +1,79 @@
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::PathBuf};
 
-/// 生命周期事件
+/// 用一份变体列表同时生成 `HookEvent`、`as_str()` 与 serde 双向转换。
 ///
-/// 对齐 CC hooks.json 中的 key 名（PascalCase）。
-/// `Unknown` 变体用于兼容 settings.local.json 中尚未实现的事件。
-#[derive(Debug, Clone, Hash, Eq, PartialEq)]
-pub enum HookEvent {
-    PreToolUse,
-    PostToolUse,
-    PostToolUseFailure,
-    PermissionRequest,
-    UserPromptSubmit,
-    SessionStart,
-    SessionEnd,
-    Stop,
-    StopFailure,
-    SubagentStart,
-    SubagentStop,
-    PreCompact,
-    PostCompact,
+/// 字符串映射只写一次：新增事件时下面的 `define_hook_events!` 调用处加一行即可，
+/// 不会出现「枚举加了变体、`Serialize` 忘了同步」这类分叉。
+macro_rules! define_hook_events {
+    ($(
+        $(#[$meta:meta])*
+        $variant:ident => $name:literal,
+    )*) => {
+        /// 生命周期事件
+        ///
+        /// 对齐 CC hooks.json 中的 key 名（PascalCase）。
+        /// `Unknown` 变体用于兼容 settings.local.json 中尚未实现的事件。
+        #[derive(Debug, Clone, Hash, Eq, PartialEq)]
+        pub enum HookEvent {
+            $(
+                $(#[$meta])*
+                $variant,
+            )*
+            /// settings.local.json 中尚未实现的事件（如 Setup 等）
+            Unknown(String),
+        }
+
+        impl HookEvent {
+            /// 事件名（与 settings.json 中的键一致，用于展示与日志）
+            pub fn as_str(&self) -> &str {
+                match self {
+                    $(HookEvent::$variant => $name,)*
+                    HookEvent::Unknown(name) => name.as_str(),
+                }
+            }
+        }
+
+        impl Serialize for HookEvent {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                serializer.serialize_str(self.as_str())
+            }
+        }
+
+        impl<'de> Deserialize<'de> for HookEvent {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                let s = String::deserialize(deserializer)?;
+                Ok(match s.as_str() {
+                    $($name => HookEvent::$variant,)*
+                    other => HookEvent::Unknown(other.to_string()),
+                })
+            }
+        }
+    };
+}
+
+define_hook_events! {
+    PreToolUse => "PreToolUse",
+    PostToolUse => "PostToolUse",
+    PostToolUseFailure => "PostToolUseFailure",
+    PermissionRequest => "PermissionRequest",
+    UserPromptSubmit => "UserPromptSubmit",
+    SessionStart => "SessionStart",
+    SessionEnd => "SessionEnd",
+    Stop => "Stop",
+    StopFailure => "StopFailure",
+    SubagentStart => "SubagentStart",
+    SubagentStop => "SubagentStop",
+    PreCompact => "PreCompact",
+    PostCompact => "PostCompact",
     /// Agent 等待用户输入时触发（PermissionRequest / Stop 后）
-    Notification,
-    /// settings.local.json 中尚未实现的事件（如 Setup 等）
-    Unknown(String),
-}
-
-impl HookEvent {
-    /// 事件名（与 settings.json 中的键一致，用于展示与日志）
-    pub fn as_str(&self) -> &str {
-        match self {
-            HookEvent::PreToolUse => "PreToolUse",
-            HookEvent::PostToolUse => "PostToolUse",
-            HookEvent::PostToolUseFailure => "PostToolUseFailure",
-            HookEvent::PermissionRequest => "PermissionRequest",
-            HookEvent::UserPromptSubmit => "UserPromptSubmit",
-            HookEvent::SessionStart => "SessionStart",
-            HookEvent::SessionEnd => "SessionEnd",
-            HookEvent::Stop => "Stop",
-            HookEvent::StopFailure => "StopFailure",
-            HookEvent::SubagentStart => "SubagentStart",
-            HookEvent::SubagentStop => "SubagentStop",
-            HookEvent::PreCompact => "PreCompact",
-            HookEvent::PostCompact => "PostCompact",
-            HookEvent::Notification => "Notification",
-            HookEvent::Unknown(name) => name.as_str(),
-        }
-    }
-}
-
-impl Serialize for HookEvent {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            HookEvent::PreToolUse => serializer.serialize_str("PreToolUse"),
-            HookEvent::PostToolUse => serializer.serialize_str("PostToolUse"),
-            HookEvent::PostToolUseFailure => serializer.serialize_str("PostToolUseFailure"),
-            HookEvent::PermissionRequest => serializer.serialize_str("PermissionRequest"),
-            HookEvent::UserPromptSubmit => serializer.serialize_str("UserPromptSubmit"),
-            HookEvent::SessionStart => serializer.serialize_str("SessionStart"),
-            HookEvent::SessionEnd => serializer.serialize_str("SessionEnd"),
-            HookEvent::Stop => serializer.serialize_str("Stop"),
-            HookEvent::StopFailure => serializer.serialize_str("StopFailure"),
-            HookEvent::SubagentStart => serializer.serialize_str("SubagentStart"),
-            HookEvent::SubagentStop => serializer.serialize_str("SubagentStop"),
-            HookEvent::PreCompact => serializer.serialize_str("PreCompact"),
-            HookEvent::PostCompact => serializer.serialize_str("PostCompact"),
-            HookEvent::Notification => serializer.serialize_str("Notification"),
-            HookEvent::Unknown(s) => serializer.serialize_str(s),
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for HookEvent {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Ok(match s.as_str() {
-            "PreToolUse" => HookEvent::PreToolUse,
-            "PostToolUse" => HookEvent::PostToolUse,
-            "PostToolUseFailure" => HookEvent::PostToolUseFailure,
-            "PermissionRequest" => HookEvent::PermissionRequest,
-            "UserPromptSubmit" => HookEvent::UserPromptSubmit,
-            "SessionStart" => HookEvent::SessionStart,
-            "SessionEnd" => HookEvent::SessionEnd,
-            "Stop" => HookEvent::Stop,
-            "StopFailure" => HookEvent::StopFailure,
-            "SubagentStart" => HookEvent::SubagentStart,
-            "SubagentStop" => HookEvent::SubagentStop,
-            "PreCompact" => HookEvent::PreCompact,
-            "PostCompact" => HookEvent::PostCompact,
-            "Notification" => HookEvent::Notification,
-            other => HookEvent::Unknown(other.to_string()),
-        })
-    }
+    Notification => "Notification",
 }
 
 /// 4 种 hook 执行类型，对齐 CC schemas/hooks.ts

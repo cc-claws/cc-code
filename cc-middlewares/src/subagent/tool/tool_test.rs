@@ -1844,7 +1844,10 @@ async fn test_subagent_lifecycle_hooks_report_block_failure() {
             assert_eq!(event, "SubagentStop");
             assert_eq!(ran, 1);
             assert_eq!(failures.len(), 1);
-            assert_eq!(failures[0].kind, "block");
+            assert_eq!(
+                failures[0].kind,
+                cc_agent::agent::events::HookFailureKind::Block
+            );
         }
         other => panic!("意外的 AgentEvent: {other:?}"),
     }
