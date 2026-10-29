@@ -633,13 +633,74 @@ fn test_running_bash_toolblock_before_threshold_hides_control_b_hint() {
 }
 
 #[test]
-fn test_humanize_secs_formats_minute_granularity_beyond_one_minute() {
-    assert_eq!(humanize_secs(5), "5s");
-    assert_eq!(humanize_secs(39), "39s");
-    assert_eq!(humanize_secs(60), "1m");
-    assert_eq!(humanize_secs(90), "1m 30s");
-    assert_eq!(humanize_secs(560), "9m 20s");
-    assert_eq!(humanize_secs(600), "10m");
+fn test_format_timeout_secs_formats_minute_granularity_beyond_one_minute() {
+    assert_eq!(format_timeout_secs(5), "5s");
+    assert_eq!(format_timeout_secs(39), "39s");
+    assert_eq!(format_timeout_secs(60), "1m");
+    assert_eq!(format_timeout_secs(90), "1m 30s");
+    assert_eq!(format_timeout_secs(560), "9m 20s");
+    assert_eq!(format_timeout_secs(600), "10m");
+    assert_eq!(format_timeout_secs(3600), "1h");
+    assert_eq!(format_timeout_secs(3660), "1h 1m");
+    assert_eq!(format_timeout_secs(3665), "1h 1m 5s");
+}
+
+#[test]
+fn test_format_elapsed_secs_pads_seconds_at_minute_boundary() {
+    assert_eq!(format_elapsed_secs(5), "5s");
+    assert_eq!(format_elapsed_secs(39), "39s");
+    assert_eq!(format_elapsed_secs(59), "59s");
+    assert_eq!(
+        format_elapsed_secs(60),
+        "1m 00s",
+        "1分钟整必须带 00s，保持走秒定宽不跳变"
+    );
+    assert_eq!(format_elapsed_secs(90), "1m 30s");
+    assert_eq!(
+        format_elapsed_secs(300),
+        "5m 00s",
+        "5分钟整必须带 00s，避免从 4m 59s 跳到 5m 产生宽度抖动"
+    );
+    assert_eq!(format_elapsed_secs(342), "5m 42s");
+    assert_eq!(format_elapsed_secs(3600), "1h 00m 00s");
+    assert_eq!(format_elapsed_secs(3665), "1h 01m 05s");
+}
+
+#[test]
+fn test_shell_timeout_label_formats_clean_labels() {
+    assert_eq!(
+        shell_timeout_label(Some(600_000)).as_deref(),
+        Some("timeout 10m")
+    );
+    assert_eq!(
+        shell_timeout_label(Some(560_000)).as_deref(),
+        Some("timeout 9m 20s")
+    );
+    assert_eq!(
+        shell_timeout_label(Some(15_000)).as_deref(),
+        Some("timeout 15s")
+    );
+    assert_eq!(
+        shell_timeout_label(Some(1_500)).as_deref(),
+        Some("timeout 1500ms")
+    );
+    assert_eq!(shell_timeout_label(None), None);
+    assert_eq!(shell_timeout_label(Some(0)), None);
+}
+
+#[test]
+fn test_shell_elapsed_text_matches_running_elapsed_format() {
+    use std::time::{Duration, Instant};
+    let now = Instant::now();
+    assert_eq!(shell_elapsed_text(now - Duration::from_secs(22)), "(22s)");
+    assert_eq!(
+        shell_elapsed_text(now - Duration::from_secs(300)),
+        "(5m 00s)"
+    );
+    assert_eq!(
+        shell_elapsed_text(now - Duration::from_secs(342)),
+        "(5m 42s)"
+    );
 }
 
 #[test]

@@ -1,6 +1,8 @@
 pub mod animation;
 pub mod verb;
 
+pub use animation::{format_elapsed, format_elapsed_secs};
+
 use std::time::Instant;
 
 use ratatui::{

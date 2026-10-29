@@ -114,11 +114,114 @@ fn test_sanitize_path_segment_empty_path_falls_back_to_root() {
 #[test]
 fn test_task_output_path_contains_full_hierarchy() {
     // Act
-    let path = task_output_path("abc123", Path::new("/work/app"), "sess-1");
-    let s = path.to_string_lossy().to_string();
+    let id = "01a18645-2f37-7b10-a6b1-a30b66c4e020";
+    let path = task_output_path(id, Path::new("/work/app"), "sess-1");
     // Assert
-    assert!(s.contains("peri-"), "路径应包含 peri- 前缀: {}", s);
-    assert!(s.contains("abc123.output"), "路径应包含任务 id: {}", s);
-    assert!(s.contains("sess-1"), "路径应包含 session id: {}", s);
-    assert!(s.contains("tasks"), "路径应包含 tasks 段: {}", s);
+    assert_eq!(path.file_name().unwrap(), "fef1adc2.output");
+    assert_eq!(path.parent().unwrap().file_name().unwrap(), "tasks");
+    assert_eq!(
+        path.ancestors().nth(2).unwrap().file_name().unwrap(),
+        "sess-1"
+    );
+    assert_eq!(
+        path.ancestors().nth(4).unwrap().file_name().unwrap(),
+        format!("cc-code-{}", user_tag()).as_str()
+    );
+}
+
+#[tokio::test]
+async fn test_reserve_task_output_hash_collision_concurrently_keeps_output_separate() {
+    // Arrange
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("tasks");
+    let left_id = "01a18645-2f37-7b10-a6b1-0000000036d3";
+    let right_id = "01a18645-2f37-7b10-a6b1-000000008291";
+    assert_eq!(short_task_hash(left_id, 0), "e2413b7c");
+    assert_eq!(short_task_hash(left_id, 0), short_task_hash(right_id, 0));
+    let barrier = std::sync::Barrier::new(2);
+    // Act
+    let (left_path, right_path) = std::thread::scope(|scope| {
+        let left = scope.spawn(|| {
+            barrier.wait();
+            reserve_output_in_dir(left_id, &dir)
+        });
+        let right = scope.spawn(|| {
+            barrier.wait();
+            reserve_output_in_dir(right_id, &dir)
+        });
+        (left.join().unwrap(), right.join().unwrap())
+    });
+    let (left_tx, left_rx) = mpsc::channel(1);
+    let (right_tx, right_rx) = mpsc::channel(1);
+    let left_writer = DiskOutput::spawn_writer(left_path.clone(), left_rx);
+    let right_writer = DiskOutput::spawn_writer(right_path.clone(), right_rx);
+    left_tx.send(b"left".to_vec()).await.unwrap();
+    right_tx.send(b"right".to_vec()).await.unwrap();
+    drop((left_tx, right_tx));
+    left_writer.await.unwrap();
+    right_writer.await.unwrap();
+    // Assert
+    assert_ne!(left_path, right_path, "hash 碰撞后必须使用不同文件");
+    assert_eq!(left_path.file_stem().unwrap().len(), 8);
+    assert_eq!(right_path.file_stem().unwrap().len(), 8);
+    assert_eq!(
+        DiskOutput::read_tail(&left_path, 64).await.unwrap(),
+        b"left"
+    );
+    assert_eq!(
+        DiskOutput::read_tail(&right_path, 64).await.unwrap(),
+        b"right"
+    );
+}
+
+#[test]
+fn test_reserve_task_output_preserves_existing_file() {
+    // Arrange
+    let tmp = tempfile::tempdir().unwrap();
+    let id = "01a18645-2f37-7b10-a6b1-a30b66c4e020";
+    let occupied = make_path(tmp.path(), &short_task_hash(id, 0));
+    std::fs::write(&occupied, b"previous output").unwrap();
+    // Act
+    let reserved = reserve_output_in_dir(id, tmp.path());
+    // Assert
+    assert_ne!(reserved, occupied);
+    assert_eq!(reserved.file_stem().unwrap().len(), 8);
+    assert_eq!(std::fs::read(occupied).unwrap(), b"previous output");
+    assert!(reserved.is_file());
+}
+
+#[test]
+fn test_reserve_task_output_uses_full_id_when_directory_creation_fails() {
+    // Arrange
+    let tmp = tempfile::tempdir().unwrap();
+    let blocked = tmp.path().join("not-a-directory");
+    std::fs::write(&blocked, b"occupied").unwrap();
+    let id = "01a18645-2f37-7b10-a6b1-a30b66c4e020";
+    // Act
+    let reserved = reserve_output_in_dir(id, &blocked);
+    // Assert
+    assert_eq!(reserved, make_path(&blocked, id));
+    assert_eq!(std::fs::read(blocked).unwrap(), b"occupied");
+}
+
+#[test]
+fn test_reserve_task_output_uses_unique_full_id_after_repeated_hash_collisions() {
+    // Arrange
+    let tmp = tempfile::tempdir().unwrap();
+    let id = "01a18645-2f37-7b10-a6b1-a30b66c4e020";
+    for attempt in 0..32 {
+        std::fs::write(
+            make_path(tmp.path(), &short_task_hash(id, attempt)),
+            b"occupied",
+        )
+        .unwrap();
+    }
+    let occupied_full = make_path(tmp.path(), id);
+    std::fs::write(&occupied_full, b"previous output").unwrap();
+    // Act
+    let reserved = reserve_output_in_dir(id, tmp.path());
+    // Assert
+    assert_eq!(reserved, make_path(tmp.path(), &format!("{id}-1")));
+    assert_eq!(std::fs::read(occupied_full).unwrap(), b"previous output");
+    assert!(reserved.is_file());
 }

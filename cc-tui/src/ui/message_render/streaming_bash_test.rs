@@ -152,6 +152,19 @@ fn test_finished_bash_ignores_retained_preview() {
 }
 
 #[test]
+fn test_shell_output_status_text_formats_five_minutes_with_padded_zeroes() {
+    let preview = ToolOutputPreview::new("output".into(), 1, 1024, 300_000);
+    assert_eq!(
+        shell_output_status_text(
+            Instant::now() - Duration::from_secs(300),
+            Some(600_000),
+            &preview
+        ),
+        "(5m 00s · timeout 10m · 1.0 KB)"
+    );
+}
+
+#[test]
 fn test_live_output_all_fields_change_view_equality_and_hash() {
     let original = make_bash("tail", 1);
     for field in 0..4 {

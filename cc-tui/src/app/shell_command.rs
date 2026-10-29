@@ -426,7 +426,8 @@ impl App {
         let id = record_id;
         let cwd_path = std::path::PathBuf::from(&runtime.cwd);
         let session_id = self.session_mgr.current().metadata.session_id.to_string();
-        let output_path = cc_agent::task_output::task_output_path(&id, &cwd_path, &session_id);
+        let output_path =
+            cc_agent::task_output::reserve_task_output_path(&id, &cwd_path, &session_id);
         let command = runtime.command;
         // spawn DiskOutput writer 消费 output_rx 写磁盘（进程继续运行，输出转存）
         if let Some(rx) = output_rx {
@@ -870,7 +871,8 @@ impl App {
         let execution = crate::shell_exec::execute_shell_command_streaming(&command, &cwd, None);
         let cwd_path = std::path::PathBuf::from(&cwd);
         let session_id = self.session_mgr.current().metadata.session_id.to_string();
-        let output_path = cc_agent::task_output::task_output_path(&id, &cwd_path, &session_id);
+        let output_path =
+            cc_agent::task_output::reserve_task_output_path(&id, &cwd_path, &session_id);
         // output_rx 直接写磁盘（不经前台）
         cc_agent::task_output::DiskOutput::spawn_writer(output_path.clone(), execution.output_rx);
         let watchdog = super::background_shell::spawn_stall_watchdog(

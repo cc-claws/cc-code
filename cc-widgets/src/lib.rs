@@ -26,7 +26,7 @@ pub use file_tree::{FileNode, FileTreeState, FlatNode, ToggleResult};
 pub use form::{FormField, FormState};
 pub use input_field::InputState;
 pub use scrollable::{unified_vertical_scrollbar, ScrollState, ScrollableArea, ScrollbarMetrics};
-pub use spinner::{SpinnerMode, SpinnerState, SpinnerWidget};
+pub use spinner::{format_elapsed, format_elapsed_secs, SpinnerMode, SpinnerState, SpinnerWidget};
 pub use tab_bar::{TabBar, TabState, TabStyle};
 pub use theme::{CustomTheme, DarkTheme, Theme};
 pub use tool_call::{ToolCallState, ToolCallStatus, ToolCallWidget};

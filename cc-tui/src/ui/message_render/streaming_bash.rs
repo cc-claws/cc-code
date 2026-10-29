@@ -52,14 +52,12 @@ pub(crate) fn shell_output_status_text(
     timeout_ms: Option<u64>,
     output: &ToolOutputPreview,
 ) -> String {
-    let elapsed = humanize_secs(started_at.elapsed().as_secs().max(output.elapsed_ms / 1000));
-    let timeout = shell_timeout_text(timeout_ms)
-        .map(|text| format!(" · {}", text.trim_start_matches('(').trim_end_matches(')')))
-        .unwrap_or_default();
-    format!(
-        "({elapsed}{timeout} · {})",
-        format_output_bytes(output.total_bytes)
-    )
+    let elapsed = format_elapsed_secs(started_at.elapsed().as_secs().max(output.elapsed_ms / 1000));
+    let bytes = format_output_bytes(output.total_bytes);
+    match shell_timeout_label(timeout_ms) {
+        Some(timeout) => format!("({elapsed} · {timeout} · {bytes})"),
+        None => format!("({elapsed} · {bytes})"),
+    }
 }
 
 fn format_output_bytes(bytes: usize) -> String {
