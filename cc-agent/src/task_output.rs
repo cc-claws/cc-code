@@ -4,16 +4,18 @@
 //! 的每个 chunk 追加写入文件，支持末尾读取（tail）和增量读取（delta），
 //! 供 BackgroundTasksPanel 详情视图渲染。
 //!
-//! 输出路径：`{temp_dir}/peri-{user}/{sanitize(cwd)}/{session_id}/tasks/{id}.output`
+//! 输出路径：`{temp_dir}/cc-code-{user}/{sanitize(cwd)}/{session_id}/tasks/{hash}.output`
 //!
 //! 设计说明：文档原方案是 DiskOutput 内部维护 queue + 批量 drain。此处采用
 //! append 直写 + 独立 writer task 的简化方案：mpsc channel 本身已是队列，
 //! 每个 chunk 一次 append 写入，正确性更易保证，且后台 shell 输出频率不高，
 //! 性能足够。如后续出现高频小写入场景可再加内部缓冲。
 
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -24,21 +26,92 @@ pub const MAX_OUTPUT_BYTES: u64 = 5 * 1024 * 1024 * 1024;
 /// 单次读取（tail/delta）的最大字节数（8 MB），避免一次性读入过大内容
 pub const MAX_READ_BYTES: u64 = 8 * 1024 * 1024;
 
-/// 计算后台任务磁盘输出文件的完整路径。
+/// 计算后台任务磁盘输出文件的首选路径，不创建文件。
 ///
-/// 目录层级：`{temp_dir}/peri-{user}/{sanitize(cwd)}/{session_id}/tasks/{id}.output`
+/// 目录层级：`{temp_dir}/cc-code-{user}/{sanitize(cwd)}/{session_id}/tasks/{hash}.output`
 /// - `user`：当前系统用户标识（`USER`/`USERNAME`），用于多用户隔离
 /// - `sanitize(cwd)`：把工作目录路径转成安全的单层目录名
 /// - `session_id`：会话隔离
+/// - `hash`：完整任务 ID 的 SHA-256 前 8 位；写入前必须使用
+///   [`reserve_task_output_path`] 预占路径并处理碰撞。
 pub fn task_output_path(id: &str, cwd: &Path, session_id: &str) -> PathBuf {
-    let user = user_tag();
-    let cwd_seg = sanitize_path_segment(cwd);
+    task_output_dir(cwd, session_id).join(format!("{}.output", short_task_hash(id, 0)))
+}
+
+fn task_output_dir(cwd: &Path, session_id: &str) -> PathBuf {
     std::env::temp_dir()
-        .join(format!("peri-{}", user))
-        .join(cwd_seg)
+        .join(format!("cc-code-{}", user_tag()))
+        .join(sanitize_path_segment(cwd))
         .join(session_id)
         .join("tasks")
-        .join(format!("{}.output", id))
+}
+
+fn short_task_hash(id: &str, attempt: u32) -> String {
+    let mut digest = Sha256::new();
+    digest.update(id.as_bytes());
+    if attempt > 0 {
+        digest.update([0]);
+        digest.update(attempt.to_be_bytes());
+    }
+    let hash = digest.finalize();
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}",
+        hash[0], hash[1], hash[2], hash[3]
+    )
+}
+
+/// 原子预占输出路径；短 hash 撞名时重新计算，避免不同任务追加到同一文件。
+///
+/// 预占发生 I/O 错误时回退到完整任务 ID 路径，让原有写入器继续重试。
+pub fn reserve_task_output_path(id: &str, cwd: &Path, session_id: &str) -> PathBuf {
+    reserve_output_in_dir(id, &task_output_dir(cwd, session_id))
+}
+
+fn reserve_output_in_dir(id: &str, dir: &Path) -> PathBuf {
+    let fallback = dir.join(format!("{}.output", id));
+    if let Err(error) = std::fs::create_dir_all(dir) {
+        tracing::warn!(error = %error, path = %dir.display(), "预占任务输出目录失败，回退完整任务 ID");
+        return fallback;
+    }
+
+    // 32 次碰撞后使用完整 ID，避免目录异常时无限循环。
+    for attempt in 0..32 {
+        let path = dir.join(format!("{}.output", short_task_hash(id, attempt)));
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(_) => return path,
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                tracing::warn!(error = %error, path = %path.display(), "预占任务输出文件失败，回退完整任务 ID");
+                return fallback;
+            }
+        }
+    }
+
+    tracing::warn!(path = %dir.display(), "任务输出短 hash 多次碰撞，回退完整任务 ID");
+    for attempt in 0u64.. {
+        let path = if attempt == 0 {
+            fallback.clone()
+        } else {
+            dir.join(format!("{}-{}.output", id, attempt))
+        };
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(_) => return path,
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                tracing::warn!(error = %error, path = %path.display(), "预占完整任务 ID 路径失败，交由写入器重试");
+                return path;
+            }
+        }
+    }
+    unreachable!("完整任务 ID 路径重试次数耗尽")
 }
 
 /// 把任意路径转成安全的单层目录名：替换文件系统非法字符为 `_`，限制长度。

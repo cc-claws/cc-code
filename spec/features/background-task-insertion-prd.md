@@ -56,7 +56,7 @@ Bash 后台化的典型用途是"**起一条慢命令，然后继续干别的**"
 
 要素（行号已核对）：
 
-- 输出文件路径规则 `{temp_dir}/peri-{user}/{sanitize(cwd)}/{session_id}/tasks/{id}.output`（`cc-agent/src/task_output.rs:33-41`）
+- 输出文件路径规则 `{temp_dir}/cc-code-{user}/{sanitize(cwd)}/{session_id}/tasks/{hash}.output`；通常为 8 位 hash，碰撞时重新预占（`cc-agent/src/task_output.rs`）
 - 路径在任务登记时生成（`cc-tui/src/app/agent_shell_executor.rs:221-226`）
 - 结束信号由 executor 在进程退出后落定：`exit_signal_clone.finish(outcome)`（`cc-tui/src/app/agent_shell_executor.rs:284`）
 - TUI 每帧读取：`poll_agent_shells()`（`cc-tui/src/app/shell_command.rs:576-605`）

@@ -140,6 +140,16 @@ async fn test_executor_direct_background_does_not_stream_and_preserves_result() 
     .await
     .expect("应启动后台Bash");
     let registration = registrations.recv().await.expect("后台仍需登记");
+    assert_eq!(registration.task_id, handle.task_id, "任务 ID 必须保持完整");
+    assert_eq!(
+        registration.output_path, handle.output_path,
+        "登记与句柄必须使用同一输出路径"
+    );
+    assert_eq!(
+        handle.output_path.file_stem().unwrap().len(),
+        8,
+        "输出文件名应为 8 位 hash"
+    );
     let result = tokio::time::timeout(Duration::from_secs(5), handle.result_rx)
         .await
         .expect("进程应完成")
