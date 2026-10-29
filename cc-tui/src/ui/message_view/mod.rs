@@ -67,6 +67,36 @@ impl ToolOutputPreview {
     }
 }
 
+/// hook 行的类别：同时决定「哪种模式可见」与「按哪条上限折叠」。
+///
+/// 可见性不能只按「是不是失败行」划分——阻断意味着工具真的没跑，普通模式必须提示；
+/// 而 hook 自身失败只是配置问题（典型：全局 hooks 指向一个不存在的脚本），
+/// 放进普通模式会在每次工具调用时刷屏，只留详细模式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HookRowKind {
+    /// 同步汇总 `N <Event> hooks ran · Xms`：仅详细模式，受 4 行上限约束
+    Summary,
+    /// 异步 hook 开始占位行 `Async hook <Event> running…`：仅详细模式。
+    /// 折叠时只有同步汇总行受 4 行上限约束，占位行不参与折叠。
+    Async,
+    /// 阻断行（策略生效）：普通模式可见，受 3 行上限约束
+    Block,
+    /// hook 自身失败（崩溃 / 超时 / 非法输出）：仅详细模式，受 3 行上限约束
+    Failure,
+}
+
+impl HookRowKind {
+    /// 普通模式是否可见：只有阻断必须提示。
+    pub fn visible_in_normal_mode(self) -> bool {
+        matches!(self, Self::Block)
+    }
+
+    /// 是否属于「失败类」行（阻断 + 自身失败），共用 3 行折叠上限。
+    pub fn is_failure(self) -> bool {
+        matches!(self, Self::Block | Self::Failure)
+    }
+}
+
 /// 某次工具调用触发的 hook 执行结果，挂在 `ToolBlock` 上按需渲染。
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HookRow {
@@ -74,14 +104,8 @@ pub struct HookRow {
     pub text: String,
     /// 语义色
     pub tone: NoteTone,
-    /// 仅详细模式显示（汇总行、异步完成行）
-    pub detail_only: bool,
-    /// 异步 hook 的逐条行（开始占位 `Async hook <Event> running…`、
-    /// 完成提示 `Async hook <Event> completed`）。
-    ///
-    /// 渲染折叠时只有同步汇总行受 4 行上限约束（其余折成 `… +N events`）；
-    /// 每个异步 hook 各占一行，不参与折叠。
-    pub async_row: bool,
+    /// 行类别：决定可见模式与折叠口径
+    pub kind: HookRowKind,
 }
 
 impl HookRow {
@@ -90,41 +114,47 @@ impl HookRow {
         Self {
             text: text.into(),
             tone: NoteTone::Neutral,
-            detail_only: true,
-            async_row: false,
-        }
-    }
-
-    /// 异步 hook 完成行（`Async hook <Event> completed`）：仅详细模式可见，
-    /// 不参与汇总行折叠，每个异步 hook 各占一行。
-    pub fn async_row_completed(text: impl Into<String>) -> Self {
-        Self {
-            text: text.into(),
-            tone: NoteTone::Neutral,
-            detail_only: true,
-            async_row: true,
+            kind: HookRowKind::Summary,
         }
     }
 
     /// 异步 hook 开始占位行（`Async hook <Event> running…`）：仅详细模式可见，
-    /// 与完成行同属「异步逐条行」，不参与汇总行折叠。
+    /// 不参与汇总行折叠。完成结果不挂在工具块上（走会话级尾行），
+    /// 因此这是 `Async` 类别唯一的工具级行。
     pub fn async_row_running(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
             tone: NoteTone::Neutral,
-            detail_only: true,
-            async_row: true,
+            kind: HookRowKind::Async,
         }
     }
 
-    /// 阻断 / 失败行：两种模式都显示。
-    pub fn failure(text: impl Into<String>, tone: NoteTone) -> Self {
+    /// 阻断行：工具真的没跑，普通模式必须可见。
+    pub fn blocked(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
-            tone,
-            detail_only: false,
-            async_row: false,
+            tone: NoteTone::Warning,
+            kind: HookRowKind::Block,
         }
+    }
+
+    /// hook 自身失败行：配置问题而非工具有问题，仅详细模式可见。
+    pub fn failed(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            tone: NoteTone::Error,
+            kind: HookRowKind::Failure,
+        }
+    }
+
+    /// 是否只在详细模式（Ctrl+O）可见。
+    pub fn detail_only(&self) -> bool {
+        !self.kind.visible_in_normal_mode()
+    }
+
+    /// 是否为异步逐条行（不参与汇总行折叠）。
+    pub fn async_row(&self) -> bool {
+        self.kind == HookRowKind::Async
     }
 }
 
@@ -263,6 +293,16 @@ pub enum MessageViewModel {
         /// 正文（含折行续行）颜色。存语义 tone 而非 `Color`，`/theme` 切换后
         /// 渲染时再解析成主题色，不会把旧调色板钉死在 VM 里。
         body_tone: Option<NoteTone>,
+        /// 仅在详细模式（Ctrl+O）渲染；普通模式整行不显示。
+        ///
+        /// 用于「成功时无需打扰用户」的信息（hook 成功汇总 / 异步完成），
+        /// 以及不必进普通模式的 hook 自身失败行。
+        detail_only: bool,
+        /// 行首改用分支折角 `⎿`（`BranchPrefix::PREFIX`），整行按 `body_tone` 着色。
+        ///
+        /// 用于会话级 hook 行：与工具结果行同列，不使用 `●` / `·` / `⚠` 前缀
+        /// （规格见 spec/global/domains/hooks-display.md「渲染规格」）。
+        branch_prefix: bool,
     },
     /// 缓存率过低警告（黄色纯文本，无前缀符号）
     CacheWarning {
@@ -430,6 +470,8 @@ impl PartialEq for MessageViewModel {
                     detail_content: a_det,
                     tone: a_tone,
                     body_tone: a_body_tone,
+                    detail_only: a_detail_only,
+                    branch_prefix: a_branch,
                     ..
                 },
                 MessageViewModel::SystemNote {
@@ -437,9 +479,18 @@ impl PartialEq for MessageViewModel {
                     detail_content: b_det,
                     tone: b_tone,
                     body_tone: b_body_tone,
+                    detail_only: b_detail_only,
+                    branch_prefix: b_branch,
                     ..
                 },
-            ) => a == b && a_det == b_det && a_tone == b_tone && a_body_tone == b_body_tone,
+            ) => {
+                a == b
+                    && a_det == b_det
+                    && a_tone == b_tone
+                    && a_body_tone == b_body_tone
+                    && a_detail_only == b_detail_only
+                    && a_branch == b_branch
+            }
             (
                 MessageViewModel::CacheWarning { content: a, .. },
                 MessageViewModel::CacheWarning { content: b, .. },
@@ -612,6 +663,8 @@ impl Hash for MessageViewModel {
                 detail_content,
                 tone,
                 body_tone,
+                detail_only,
+                branch_prefix,
                 ..
             } => {
                 3u8.hash(state);
@@ -619,6 +672,10 @@ impl Hash for MessageViewModel {
                 // 换状态后要靠它触发重建）。
                 tone.hash(state);
                 body_tone.hash(state);
+                // 可见性与行首形态都影响渲染结果，参与 hash 才能在
+                // 「就地改写」后让渲染缓存失效。
+                detail_only.hash(state);
+                branch_prefix.hash(state);
                 content.hash(state);
                 detail_content.hash(state);
             }
@@ -856,6 +913,8 @@ impl MessageViewModel {
                         detail_content: None,
                         tone: Some(display.tone),
                         body_tone: None,
+                        detail_only: false,
+                        branch_prefix: false,
                     };
                     vm.recompute_hash();
                     return vm;
@@ -1138,6 +1197,8 @@ impl MessageViewModel {
                     detail_content: None,
                     tone: None,
                     body_tone: None,
+                    detail_only: false,
+                    branch_prefix: false,
                 };
                 vm.recompute_hash();
                 vm
@@ -1257,6 +1318,8 @@ impl MessageViewModel {
                 detail_content: None,
                 tone: Some(display.tone),
                 body_tone: None,
+                detail_only: false,
+                branch_prefix: false,
             };
             vm.recompute_hash();
             return vm;
@@ -1285,6 +1348,8 @@ impl MessageViewModel {
                 detail_content: None,
                 tone: Some(display.tone),
                 body_tone: None,
+                detail_only: false,
+                branch_prefix: false,
             };
             vm.recompute_hash();
             return vm;
@@ -1445,6 +1510,8 @@ impl MessageViewModel {
             detail_content: None,
             tone,
             body_tone: None,
+            detail_only: false,
+            branch_prefix: false,
         };
         vm.recompute_hash();
         vm
@@ -1463,6 +1530,8 @@ impl MessageViewModel {
             detail_content: Some(detail_content),
             tone,
             body_tone: None,
+            detail_only: false,
+            branch_prefix: false,
         };
         vm.recompute_hash();
         vm
@@ -1477,6 +1546,28 @@ impl MessageViewModel {
             detail_content: None,
             tone: None,
             body_tone: Some(tone),
+            detail_only: false,
+            branch_prefix: false,
+        };
+        vm.recompute_hash();
+        vm
+    }
+
+    /// 创建会话级 hook 结果行（不挂工具块）。
+    ///
+    /// 与工具结果行同列：行首 `⎿`（`BranchPrefix::PREFIX`），整行按 `tone` 着色，
+    /// 不使用 `●` / `·` / `⚠` 前缀（规格见 spec/global/domains/hooks-display.md）。
+    /// `detail_only` 为真时只有详细模式（Ctrl+O）渲染：成功汇总与异步完成不打扰
+    /// 用户，hook 自身失败属配置问题；阻断行（工具真的没跑）两种模式都要可见。
+    pub fn system_hook_line(text: String, tone: NoteTone, detail_only: bool) -> Self {
+        let mut vm = MessageViewModel::SystemNote {
+            content: text,
+            content_hash: 0,
+            detail_content: None,
+            tone: None,
+            body_tone: Some(tone),
+            detail_only,
+            branch_prefix: true,
         };
         vm.recompute_hash();
         vm

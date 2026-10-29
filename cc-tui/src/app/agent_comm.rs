@@ -202,6 +202,11 @@ pub struct AgentComm {
     pub session_tool_stats: HashMap<String, u32>,
     /// 状态栏「最近工具」条目（最新在最前，容量 [`RECENT_TOOLS_MAX_VISIBLE`]）
     pub recent_tools: std::collections::VecDeque<RecentToolEntry>,
+    /// 本次会话已展示过的 hook 失败键（`event` + `kind` + `reason`）。
+    ///
+    /// 全局 hooks 配错时（典型：脚本路径不存在），每次工具调用都会重放同一段
+    /// 错误，逐条渲染等于把界面刷满。同一个失败只报一次。
+    pub seen_hook_failures: std::collections::HashSet<String>,
 }
 
 impl Default for AgentComm {
@@ -248,6 +253,7 @@ impl Default for AgentComm {
             running_tools: Vec::new(),
             session_tool_stats: HashMap::new(),
             recent_tools: std::collections::VecDeque::new(),
+            seen_hook_failures: std::collections::HashSet::new(),
         }
     }
 }
@@ -327,6 +333,28 @@ impl AgentComm {
     /// 是否存在需要展示的最近工具条目（状态栏第二行是否要展开）
     pub fn has_visible_recent_tools(&self, now: std::time::Instant) -> bool {
         self.visible_recent_tools(now).next().is_some()
+    }
+
+    /// 过滤掉本次会话已经展示过的 hook 失败，其余记入去重集合后返回。
+    ///
+    /// 键为 `event` + `kind` + `reason`：同一个 hook 反复以相同原因失败只报一次，
+    /// 换了错误内容（reason 不同）仍各显示一次。详细模式不做 `×N` 计数。
+    pub fn dedup_hook_failures(
+        &mut self,
+        event: &str,
+        failures: Vec<cc_agent::agent::events::HookFailureInfo>,
+    ) -> Vec<cc_agent::agent::events::HookFailureInfo> {
+        let seen = &mut self.seen_hook_failures;
+        failures
+            .into_iter()
+            .filter(|failure| {
+                // \u{1f}（unit separator）不会出现在 event/kind/reason 里，避免拼接串撞键
+                seen.insert(format!(
+                    "{event}\u{1f}{:?}\u{1f}{}",
+                    failure.kind, failure.reason
+                ))
+            })
+            .collect()
     }
 }
 

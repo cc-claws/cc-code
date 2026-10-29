@@ -170,6 +170,13 @@ impl App {
             .agent
             .session_tool_stats
             .clear();
+        // hook 失败去重集合按会话重置：/clear 后换了话题，同一条错误应重新提示一次，
+        // 不能被上一轮的去重记录静默掉。
+        self.session_mgr
+            .current_mut()
+            .agent
+            .seen_hook_failures
+            .clear();
         self.session_mgr.current_mut().messages.last_submitted_text = None;
         self.session_mgr.current_mut().spinner_state.reset();
     }

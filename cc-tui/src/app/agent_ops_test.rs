@@ -1,3 +1,5 @@
+use crate::app::{AgentEvent, App};
+
 // ─── build_rebuild_all 事件处理测试 ──────────────────────────────────────
 
 /// 场景1: build_rebuild_all 产生正确的 RebuildAll action
@@ -325,5 +327,236 @@ fn test_system_note_clamped_to_end_when_tail_shorter() {
     assert!(
         matches!(&view_messages[2], MessageViewModel::SystemNote { content, .. } if content == "late note"),
         "超过 tail 长度的 SystemNote 应 clamp 到末尾"
+    );
+}
+
+/// 取指定工具块上已挂的 hook 行。
+fn hook_rows_of(app: &App, tool_call_id: &str) -> Vec<crate::ui::message_view::HookRow> {
+    app.session_mgr
+        .current()
+        .messages
+        .pipeline
+        .build_tail_vms()
+        .iter()
+        .find_map(|vm| match vm {
+            crate::ui::message_view::MessageViewModel::ToolBlock {
+                tool_call_id: id,
+                hook_rows,
+                ..
+            } if id == tool_call_id => Some(hook_rows.clone()),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
+/// 建一个 Bash 工具块。
+fn start_bash_tool(app: &mut App, tool_call_id: &str) {
+    app.handle_agent_event(AgentEvent::ToolStart {
+        tool_call_id: tool_call_id.to_string(),
+        name: "Bash".into(),
+        display: "Bash".into(),
+        args: "ls".into(),
+        input: serde_json::json!({"command": "ls"}),
+        source_agent_id: None,
+    });
+}
+
+/// 取视图里所有会话级 hook 行（`⎿` 前缀）的文案。
+fn hook_note_texts(app: &App) -> Vec<String> {
+    app.session_mgr
+        .current()
+        .messages
+        .view_messages
+        .iter()
+        .filter_map(|vm| match vm {
+            crate::ui::message_view::MessageViewModel::SystemNote {
+                content,
+                branch_prefix: true,
+                ..
+            } => Some(content.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// 单个 hook 失败（`Error`）事件：同一 `(event, kind, reason)` 反复发生只渲染一条行。
+#[tokio::test]
+async fn test_repeated_hook_failure_renders_single_row() {
+    use cc_agent::agent::events::{HookFailureInfo, HookFailureKind};
+
+    // Arrange
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+    start_bash_tool(&mut app, "tc_hook");
+    let failure = || AgentEvent::HooksCompleted {
+        event: "PreToolUse".into(),
+        ran: 1,
+        duration_ms: 5,
+        failures: vec![HookFailureInfo {
+            kind: HookFailureKind::Error,
+            reason: "hook exited with code 1: Error: Cannot find module 'clawd-hook.js'".into(),
+        }],
+        is_async: false,
+        tool_call_id: Some("tc_hook".into()),
+    };
+    // Act
+    app.handle_agent_event(failure());
+    let after_first = hook_rows_of(&app, "tc_hook");
+    app.handle_agent_event(failure());
+    app.handle_agent_event(failure());
+    let after_third = hook_rows_of(&app, "tc_hook");
+    // Assert
+    let failures = |rows: &[crate::ui::message_view::HookRow]| {
+        rows.iter()
+            .filter(|row| row.text.contains("hook failed"))
+            .count()
+    };
+    assert_eq!(failures(&after_first), 1, "首次失败应产生一行");
+    assert_eq!(failures(&after_third), 1, "重复失败不应再新增行");
+}
+
+/// 同一事件换了错误内容仍各显示一次（去重键含 reason）。
+#[tokio::test]
+async fn test_changed_hook_failure_reason_renders_new_row() {
+    use cc_agent::agent::events::{HookFailureInfo, HookFailureKind};
+
+    // Arrange
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+    start_bash_tool(&mut app, "tc_hook");
+    app.handle_agent_event(AgentEvent::HooksCompleted {
+        event: "PreToolUse".into(),
+        ran: 1,
+        duration_ms: 5,
+        failures: vec![HookFailureInfo {
+            kind: HookFailureKind::Error,
+            reason: "first failure".into(),
+        }],
+        is_async: false,
+        tool_call_id: Some("tc_hook".into()),
+    });
+    // Act
+    app.handle_agent_event(AgentEvent::HooksCompleted {
+        event: "PreToolUse".into(),
+        ran: 1,
+        duration_ms: 9,
+        failures: vec![HookFailureInfo {
+            kind: HookFailureKind::Error,
+            reason: "second failure".into(),
+        }],
+        is_async: false,
+        tool_call_id: Some("tc_hook".into()),
+    });
+    // Assert
+    let rows = hook_rows_of(&app, "tc_hook");
+    assert_eq!(
+        rows.iter()
+            .filter(|row| row.text.contains("hook failed"))
+            .count(),
+        2,
+        "错误内容不同应各占一行: {rows:?}"
+    );
+}
+
+/// 会话级同步 hook：同一事件两次上报只占一行，计数与耗时累加。
+#[tokio::test]
+async fn test_session_hook_events_merge_into_single_row() {
+    // Arrange
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+    let submit = || AgentEvent::HooksCompleted {
+        event: "UserPromptSubmit".into(),
+        ran: 1,
+        duration_ms: 4,
+        failures: Vec::new(),
+        is_async: false,
+        tool_call_id: None,
+    };
+    // Act
+    app.handle_agent_event(submit());
+    app.handle_agent_event(submit());
+    // Assert
+    let texts = hook_note_texts(&app);
+    assert_eq!(texts.len(), 1, "同一事件应只占一行: {texts:?}");
+    assert_eq!(texts[0], "2 UserPromptSubmit hooks ran · 8ms");
+}
+
+/// 不同事件的异步完成在合并窗口内并成一行（参考实现形态）。
+#[tokio::test]
+async fn test_async_hook_completions_merge_into_single_row() {
+    // Arrange
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+    // Act
+    for event in ["UserPromptSubmit", "PreToolUse"] {
+        app.handle_agent_event(AgentEvent::HooksCompleted {
+            event: event.into(),
+            ran: 1,
+            duration_ms: 5,
+            failures: Vec::new(),
+            is_async: true,
+            tool_call_id: None,
+        });
+    }
+    // Assert
+    let texts = hook_note_texts(&app);
+    assert_eq!(texts.len(), 1, "窗口内应并成一行: {texts:?}");
+    assert_eq!(
+        texts[0],
+        "Async hook UserPromptSubmit completed, Async hook PreToolUse completed"
+    );
+}
+
+/// 会话级 hook 失败行：阻断普通模式可见，自身失败仅详细模式。
+#[tokio::test]
+async fn test_session_hook_failure_visibility() {
+    use crate::ui::message_view::MessageViewModel;
+    use cc_agent::agent::events::{HookFailureInfo, HookFailureKind};
+
+    // Arrange
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+    // Act
+    app.handle_agent_event(AgentEvent::HooksCompleted {
+        event: "Stop".into(),
+        ran: 0,
+        duration_ms: 3,
+        failures: vec![
+            HookFailureInfo {
+                kind: HookFailureKind::Block,
+                reason: "denied".into(),
+            },
+            HookFailureInfo {
+                kind: HookFailureKind::Error,
+                reason: "boom".into(),
+            },
+        ],
+        is_async: false,
+        tool_call_id: None,
+    });
+    // Assert
+    let notes: Vec<(String, bool)> = app
+        .session_mgr
+        .current()
+        .messages
+        .view_messages
+        .iter()
+        .filter_map(|vm| match vm {
+            MessageViewModel::SystemNote {
+                content,
+                detail_only,
+                branch_prefix: true,
+                ..
+            } => Some((content.clone(), *detail_only)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(notes.len(), 2, "两条失败行: {notes:?}");
+    assert!(
+        notes
+            .iter()
+            .any(|(text, detail_only)| text.contains("blocked") && !*detail_only),
+        "阻断行普通模式必须可见: {notes:?}"
+    );
+    assert!(
+        notes
+            .iter()
+            .any(|(text, detail_only)| text.contains("failed") && *detail_only),
+        "hook 自身失败行只在详细模式出现: {notes:?}"
     );
 }

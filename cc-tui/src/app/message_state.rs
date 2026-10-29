@@ -182,4 +182,15 @@ impl MessageState {
         self.ephemeral_notes.push((anchor, vm.clone()));
         self.view_messages.push(vm);
     }
+
+    /// 添加会话级 hook 结果行（`⎿` 前缀、整行按 `tone` 着色）并记录锚点位置。
+    ///
+    /// `detail_only` 为真时只有详细模式可见：成功汇总、异步完成、hook 自身失败
+    /// 都不该在普通模式刷屏；阻断行（工具真的没跑）两种模式都要可见。
+    pub fn push_hook_system_note(&mut self, content: String, tone: NoteTone, detail_only: bool) {
+        let anchor = self.view_messages.len();
+        let vm = MessageViewModel::system_hook_line(content, tone, detail_only);
+        self.ephemeral_notes.push((anchor, vm.clone()));
+        self.view_messages.push(vm);
+    }
 }

@@ -241,7 +241,11 @@ fn detail_sensitive(vm: &MessageViewModel) -> bool {
             .any(|b| matches!(b, super::message_view::ContentBlockView::Reasoning { .. })),
         MessageViewModel::ToolBlock { .. } => true,
         MessageViewModel::ShellCommand { .. } => true,
-        MessageViewModel::SystemNote { detail_content, .. } => detail_content.is_some(),
+        MessageViewModel::SystemNote {
+            detail_content,
+            detail_only,
+            ..
+        } => detail_content.is_some() || *detail_only,
         MessageViewModel::CacheWarning { .. } => false,
         MessageViewModel::ToolCallGroup { .. } => true,
         MessageViewModel::SubAgentGroup { .. } => true,

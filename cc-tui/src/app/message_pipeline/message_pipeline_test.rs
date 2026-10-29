@@ -2854,10 +2854,7 @@ fn test_interrupt_freezes_active_thinking() {
 #[test]
 fn test_hook_rows_pending_before_tool_start_are_attached_after() {
     let mut pipeline = MessagePipeline::new("/tmp".to_string());
-    pipeline.push_hook_result(
-        "tc_pre",
-        HookExec::new("PreToolUse", 1, 8, Vec::new(), false),
-    );
+    pipeline.push_hook_result("tc_pre", HookExec::new("PreToolUse", 1, 8, Vec::new()));
     assert!(
         pipeline
             .build_tail_vms()
@@ -2889,7 +2886,7 @@ fn test_hook_rows_pending_before_tool_start_are_attached_after() {
             })
             .expect("ToolStart 之后应生成工具块");
         assert_eq!(rows.len(), 1, "暂存的 hook 行必须被挂上");
-        assert_eq!(rows[0].text, "1 PreToolUse hooks ran · 8ms");
+        assert_eq!(rows[0].text, "1 PreToolUse hook ran · 8ms");
     }
 }
 
@@ -2923,7 +2920,6 @@ fn test_hook_rows_keep_readonly_tool_out_of_group() {
                 kind: cc_agent::agent::events::HookFailureKind::Block,
                 reason: "policy".into(),
             }],
-            false,
         ),
     );
     let tail = pipeline.build_tail_vms();
@@ -2969,19 +2965,13 @@ fn tool_hook_rows(
 #[test]
 fn test_hook_result_merges_same_event_for_same_tool_call() {
     let mut pipeline = MessagePipeline::new("/tmp".to_string());
-    pipeline.push_hook_result(
-        "tc_merge",
-        HookExec::new("PreToolUse", 1, 5, Vec::new(), false),
-    );
-    pipeline.push_hook_result(
-        "tc_merge",
-        HookExec::new("PreToolUse", 1, 7, Vec::new(), false),
-    );
+    pipeline.push_hook_result("tc_merge", HookExec::new("PreToolUse", 1, 5, Vec::new()));
+    pipeline.push_hook_result("tc_merge", HookExec::new("PreToolUse", 1, 7, Vec::new()));
 
     let rows = tool_hook_rows(&mut pipeline, "tc_merge");
     assert_eq!(rows.len(), 1, "同一事件的两次上报必须合并成一行");
     assert_eq!(rows[0].text, "2 PreToolUse hooks ran · 12ms");
-    assert!(rows[0].detail_only, "汇总行只在详细模式出现");
+    assert!(rows[0].detail_only(), "汇总行只在详细模式出现");
 }
 
 /// 合并时 failures 也拼接：第二个 middleware 实例的失败不覆盖第一个。
@@ -2999,7 +2989,6 @@ fn test_hook_result_merge_concats_failures() {
                 kind: HookFailureKind::Error,
                 reason: "exit 1".into(),
             }],
-            false,
         ),
     );
     pipeline.push_hook_result(
@@ -3012,7 +3001,6 @@ fn test_hook_result_merge_concats_failures() {
                 kind: HookFailureKind::Block,
                 reason: "denied".into(),
             }],
-            false,
         ),
     );
 
@@ -3021,27 +3009,92 @@ fn test_hook_result_merge_concats_failures() {
     assert_eq!(rows[0].text, "PostToolUse hook failed: exit 1");
     assert_eq!(rows[1].text, "PostToolUse hook blocked: denied");
     assert_eq!(rows[2].text, "3 PostToolUse hooks ran · 10ms");
+    assert!(rows[0].detail_only(), "hook 自身失败行只在详细模式出现");
+    assert!(!rows[1].detail_only(), "阻断行普通模式必须可见");
+    assert!(rows[2].detail_only(), "汇总行只在详细模式出现");
 }
 
-/// 异步完成行不参与合并：每个异步 hook 各占一行。
+/// 会话级同步汇总：同一事件多次上报合并成一行，计数与耗时累加；单条用单数。
 #[test]
-fn test_async_hook_completions_stay_separate_rows() {
+fn test_session_hook_note_merges_same_event() {
     let mut pipeline = MessagePipeline::new("/tmp".to_string());
-    pipeline.push_hook_result(
-        "tc_async",
-        HookExec::new("PostToolUse", 1, 6, Vec::new(), true),
-    );
-    pipeline.push_hook_result(
-        "tc_async",
-        HookExec::new("PostToolUse", 1, 9, Vec::new(), true),
-    );
+    let now = std::time::Instant::now();
 
-    let rows = tool_hook_rows(&mut pipeline, "tc_async");
-    assert_eq!(rows.len(), 2, "每个异步 hook 各占一行");
-    assert!(rows.iter().all(|row| row.async_row));
-    assert!(rows
-        .iter()
-        .all(|row| row.text == "Async hook PostToolUse completed"));
+    let first = pipeline.record_sync_hook("UserPromptSubmit", 1, 4, now);
+    assert_eq!(first.previous, None, "首次上报应新增一行");
+    assert_eq!(first.text, "1 UserPromptSubmit hook ran · 4ms");
+
+    let second = pipeline.record_sync_hook("UserPromptSubmit", 1, 4, now);
+    assert_eq!(
+        second.previous.as_deref(),
+        Some("1 UserPromptSubmit hook ran · 4ms"),
+        "同事件应就地改写而不是新增一行"
+    );
+    assert_eq!(second.text, "2 UserPromptSubmit hooks ran · 8ms");
+}
+
+/// 不同事件的同步汇总各自成行。
+#[test]
+fn test_session_hook_note_keeps_events_on_separate_rows() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    let now = std::time::Instant::now();
+    let _ = pipeline.record_sync_hook("UserPromptSubmit", 1, 4, now);
+
+    let second = pipeline.record_sync_hook("Stop", 2, 8, now);
+
+    assert_eq!(second.previous, None, "不同事件应另起一行");
+    assert_eq!(second.text, "2 Stop hooks ran · 8ms");
+}
+
+/// 不同事件的异步完成在合并窗口内到达：并成一行、用 `, ` 分隔。
+#[test]
+fn test_async_hook_completions_merge_across_events_within_window() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    let now = std::time::Instant::now();
+
+    let first = pipeline.record_async_hook("UserPromptSubmit", now);
+    assert_eq!(first.previous, None, "首次完成应新增一行");
+    assert_eq!(first.text, "1 async UserPromptSubmit hook completed");
+
+    let second = pipeline.record_async_hook("PreToolUse", now);
+    assert_eq!(
+        second.previous.as_deref(),
+        Some("1 async UserPromptSubmit hook completed"),
+        "窗口内应就地改写同一行"
+    );
+    assert_eq!(
+        second.text,
+        "Async hook UserPromptSubmit completed, Async hook PreToolUse completed"
+    );
+}
+
+/// 超出合并窗口：另起一行，不并进上一行。
+#[test]
+fn test_async_hook_completions_outside_window_start_new_row() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    let now = std::time::Instant::now();
+    let _ = pipeline.record_async_hook("PreToolUse", now);
+
+    let later = pipeline.record_async_hook("Stop", now + std::time::Duration::from_secs(2));
+
+    assert_eq!(later.previous, None, "超出窗口应另起一行");
+    assert_eq!(later.text, "1 async Stop hook completed");
+}
+
+/// 同一事件的异步完成无条件累加计数，不受合并窗口限制。
+#[test]
+fn test_async_hook_same_event_accumulates_count() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    let now = std::time::Instant::now();
+    let _ = pipeline.record_async_hook("SessionStart", now);
+
+    let later = pipeline.record_async_hook("SessionStart", now + std::time::Duration::from_secs(5));
+
+    assert_eq!(
+        later.previous.as_deref(),
+        Some("1 async SessionStart hook completed")
+    );
+    assert_eq!(later.text, "2 async SessionStart hooks completed");
 }
 
 /// 取当前尾部工具块上已挂的 hook 行（不新建工具块）。
@@ -3072,54 +3125,45 @@ fn test_async_hook_started_shows_running_row() {
     let rows = tool_hook_rows(&mut pipeline, "tc_running");
     assert_eq!(rows.len(), 1, "开始事件应写入一条占位行");
     assert_eq!(rows[0].text, "Async hook PostToolUse running…");
-    assert!(rows[0].detail_only, "占位行只在详细模式出现");
-    assert!(rows[0].async_row, "占位行不参与汇总行折叠");
+    assert!(rows[0].detail_only(), "占位行只在详细模式出现");
+    assert!(rows[0].async_row(), "占位行不参与汇总行折叠");
 }
 
-/// 完成事件就地替换同事件的占位行：位置不变、行数不增。
+/// 异步 hook 完成时清掉工具块上的 Running 占位（结果行走会话级尾行）。
 #[test]
-fn test_async_hook_completed_replaces_running_row_in_place() {
+fn test_async_hook_completed_clears_running_row() {
     let mut pipeline = MessagePipeline::new("/tmp".to_string());
-    pipeline.start_hook_result("tc_replace", "PostToolUse");
-    let _ = tool_hook_rows(&mut pipeline, "tc_replace");
-    let before = tail_hook_rows(&pipeline, "tc_replace");
-    assert_eq!(before.len(), 1, "替换前应只有占位行");
+    pipeline.start_hook_result("tc_clear", "PostToolUse");
+    let before = tool_hook_rows(&mut pipeline, "tc_clear");
+    assert_eq!(before.len(), 1, "开始事件应写入一条占位行");
 
-    let replaced = pipeline.finish_hook_result(
-        "tc_replace",
-        HookExec::new("PostToolUse", 1, 9, Vec::new(), true),
+    pipeline.clear_running_hook("tc_clear", "PostToolUse");
+
+    assert!(
+        tail_hook_rows(&pipeline, "tc_clear").is_empty(),
+        "完成事件必须清掉占位，避免永远显示 running…"
     );
-
-    assert!(replaced, "命中占位时应就地替换");
-    let after = tail_hook_rows(&pipeline, "tc_replace");
-    assert_eq!(after.len(), before.len(), "替换不得增加行数");
-    assert_eq!(after[0].text, "Async hook PostToolUse completed");
 }
 
-/// 没有占位时（跨轮到达的完成事件）退回追加一行，保持旧行为。
+/// 轮次结束清空会话级合并状态：下一轮同类事件另起一行。
 #[test]
-fn test_async_hook_completed_without_start_appends_row() {
+fn test_pipeline_done_resets_session_hook_notes() {
     let mut pipeline = MessagePipeline::new("/tmp".to_string());
-    let replaced = pipeline.finish_hook_result(
-        "tc_nostart",
-        HookExec::new("PostToolUse", 1, 6, Vec::new(), true),
-    );
+    let now = std::time::Instant::now();
+    let _ = pipeline.record_async_hook("Stop", now);
 
-    assert!(!replaced, "没有占位时不应报告命中");
-    let rows = tool_hook_rows(&mut pipeline, "tc_nostart");
-    assert_eq!(rows.len(), 1, "完成事件独立追加一行");
-    assert_eq!(rows[0].text, "Async hook PostToolUse completed");
+    pipeline.done();
+
+    let next = pipeline.record_async_hook("PreToolUse", now);
+    assert_eq!(next.previous, None, "跨轮不应并进上一轮的行");
 }
 
-/// 轮次结束时仍为 Running 的占位必须清掉，已完成的异步行保留。
+/// 轮次结束时仍为 Running 的占位必须清掉，已完成的工具级行保留。
 #[test]
 fn test_pipeline_done_drops_stale_running_hooks() {
     let mut pipeline = MessagePipeline::new("/tmp".to_string());
     pipeline.start_hook_result("tc_stale", "PostToolUse");
-    pipeline.push_hook_result(
-        "tc_done",
-        HookExec::new("PostToolUse", 1, 6, Vec::new(), true),
-    );
+    pipeline.push_hook_result("tc_done", HookExec::new("PostToolUse", 1, 6, Vec::new()));
 
     pipeline.done();
 

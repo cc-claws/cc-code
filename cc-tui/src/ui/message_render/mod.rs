@@ -39,8 +39,8 @@ const HOOK_FAILURE_MAX_ROWS: usize = 3;
 /// hook 行语义色：成功汇总用 inactive，阻断用 warning，失败用 error。
 ///
 /// `Success` 当前没有被 `HookRow` 的构造器产出（汇总/异步行是 `Neutral`，
-/// 阻断/失败是 `Warning`/`Error`），但 `HookRow::failure()` 接受任意 `NoteTone`，
-/// 类型上仍可达；`NoteTone` 又是全 UI 共享枚举，此处保留穷举映射而不是 `_` 兜底，
+/// 阻断行是 `Warning`，自身失败行是 `Error`），但 `HookRow.tone` 类型上仍可达；
+/// `NoteTone` 又是全 UI 共享枚举，此处保留穷举映射而不是 `_` 兜底，
 /// 以免将来新增 tone 时被静默吞成 inactive。
 fn hook_row_color(tone: NoteTone) -> Color {
     match tone {
@@ -77,7 +77,7 @@ fn push_hook_line(lines: &mut Vec<Line<'static>>, text: &str, color: Color, widt
 
 /// 追加该工具调用触发的 hook 行（规格见 spec/global/domains/hooks-display.md）。
 ///
-/// - 阻断/失败行两种模式都显示；汇总/异步完成行仅详细模式显示。
+/// - 阻断行两种模式都显示；hook 自身失败、汇总、异步完成行仅详细模式显示。
 /// - 折叠口径：同步汇总最多 4 行（其余折成 `… +N events`），失败最多 3 行
 ///   （其余折成 `… +N more`）。异步完成行不参与折叠，每个异步 hook 各占一行。
 ///   行数不随 hook 数量线性增长。
@@ -93,31 +93,30 @@ fn append_hook_rows(
     let mut failures = 0usize;
     let mut summaries = 0usize;
     for row in hook_rows {
-        if row.detail_only {
-            if !detail_mode {
-                continue;
-            }
-            // 异步逐条行不参与汇总行折叠，只有同步汇总行受 4 行限额。
-            if !row.async_row {
-                if summaries >= HOOK_SUMMARY_MAX_ROWS {
-                    continue;
-                }
-                summaries += 1;
-            }
-        } else {
+        if row.detail_only() && !detail_mode {
+            continue;
+        }
+        // 失败类行（阻断 / 自身失败）走 3 行上限，各自按类别独立折叠；
+        // 异步逐条行不参与任何上限。
+        if row.kind.is_failure() {
             if failures >= HOOK_FAILURE_MAX_ROWS {
                 continue;
             }
             failures += 1;
+        } else if !row.async_row() {
+            if summaries >= HOOK_SUMMARY_MAX_ROWS {
+                continue;
+            }
+            summaries += 1;
         }
         push_hook_line(lines, &row.text, hook_row_color(row.tone), width);
     }
 
-    let hidden_failures = hook_rows
+    let visible_failures = hook_rows
         .iter()
-        .filter(|row| !row.detail_only)
-        .count()
-        .saturating_sub(HOOK_FAILURE_MAX_ROWS);
+        .filter(|row| row.kind.is_failure() && (!row.detail_only() || detail_mode))
+        .count();
+    let hidden_failures = visible_failures.saturating_sub(HOOK_FAILURE_MAX_ROWS);
     if hidden_failures > 0 {
         push_hook_line(
             lines,
@@ -129,7 +128,7 @@ fn append_hook_rows(
     let hidden_summaries = if detail_mode {
         hook_rows
             .iter()
-            .filter(|row| row.detail_only && !row.async_row)
+            .filter(|row| !row.kind.is_failure() && !row.async_row())
             .count()
             .saturating_sub(HOOK_SUMMARY_MAX_ROWS)
     } else {
@@ -2716,13 +2715,36 @@ pub fn render_view_model_with_flags(
             detail_content,
             tone,
             body_tone,
+            detail_only,
+            branch_prefix,
             ..
         } => {
+            // 仅详细模式可见的提示（hook 成功汇总 / 异步完成 / hook 自身失败）：
+            // 普通模式整行不渲染。
+            if *detail_only && !detail_mode {
+                return (Vec::new(), link_hits);
+            }
             let active_content = if detail_mode && detail_content.is_some() {
                 detail_content.as_deref().unwrap()
             } else {
                 content.as_str()
             };
+            // 会话级 hook 结果行：行首 `⎿` 与工具结果同列，整行按语义色，无
+            // `●`/`·`/`⚠` 前缀（规格见 spec/global/domains/hooks-display.md）。
+            if *branch_prefix {
+                let color = match body_tone {
+                    Some(NoteTone::Neutral) | None => theme::cur().inactive,
+                    Some(tone) => note_tone_color(*tone),
+                };
+                let mut lines = Vec::new();
+                for line in active_content
+                    .lines()
+                    .filter(|line| !line.trim().is_empty())
+                {
+                    push_hook_line(&mut lines, line, color, width);
+                }
+                return (lines, link_hits);
+            }
             // 后台任务通知：`●` + 状态色，对齐参考实现的
             // `UserAgentNotificationMessage`——`<Text color={color}>●</Text> {summary}`，
             // **只有圆点着色**，正文用默认前景色。普通系统提示（tone 为 None）
