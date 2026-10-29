@@ -67,9 +67,14 @@ impl App {
 
         // 显示 loading 状态（spinner + 禁用输入）
         self.set_loading(true);
-        // 压缩期间不往消息流里插「正在进行」提示：参考实现把这段进度挂在 spinner
-        // 上，历史里只留一条完成通知。这里把 spinner 文案临时切到「正在压缩上下文…」，
-        // 完成/失败时由 restore_spinner_after_compact() 还原随机动词。
+        // 压缩期间不往消息流里插「正在进行」提示，改为在 spinner 下方画「小人跑道」
+        // 动画（见 message_area::compact_runner_line）；结束/失败时清空。
+        {
+            let agent = &mut self.session_mgr.current_mut().agent;
+            agent.compact_started_at = Some(std::time::Instant::now());
+            // 每次压缩随机挑一种动画（小人/飞碟），全程保持不变。
+            agent.compact_motion = super::agent_comm::CompactMotion::random();
+        }
         let label = self.services.lc.tr("app-compact-started");
         self.session_mgr
             .current_mut()
@@ -84,10 +89,9 @@ impl App {
     /// [`Self::handle_compact_started`]），这里重新选一个本轮动词，
     /// 避免压缩结束后整轮都停在那句话上。
     fn restore_spinner_after_compact(&mut self) {
-        self.session_mgr
-            .current_mut()
-            .spinner_state
-            .pick_round_verb();
+        let session = self.session_mgr.current_mut();
+        session.agent.compact_started_at = None;
+        session.spinner_state.pick_round_verb();
     }
 
     pub(crate) fn handle_compact_completed(

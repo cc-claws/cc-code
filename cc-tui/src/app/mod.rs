@@ -151,7 +151,7 @@ use crate::ui::render_thread::RenderEvent;
 
 // Re-export sub-structs
 pub use agent_comm::{
-    ActiveToolInfo, AgentComm, RecentToolEntry, RetryStatus, TOOL_MIN_VISIBLE_MS,
+    ActiveToolInfo, AgentComm, CompactMotion, RecentToolEntry, RetryStatus, TOOL_MIN_VISIBLE_MS,
 };
 pub use cron_state::{CronPanel, CronState};
 pub use langfuse_state::LangfuseState;
@@ -688,10 +688,17 @@ impl App {
     }
 
     /// 本帧 spinner 区是否会渲染 tip 行（供布局高度计算，与渲染口径一致）
+    ///
+    /// 压缩进行中该行被「小人跑道」动画占用，行数不变，所以同样返回 true。
     pub fn spinner_tip_visible(&self, turn_elapsed_ms: u64) -> bool {
-        self.tips_enabled()
-            && (self.spinner_tip_state.current().is_some()
-                || turn_elapsed_ms > crate::ui::tips::CLEAR_TIP_THRESHOLD_MS)
+        self.session_mgr
+            .current()
+            .agent
+            .compact_started_at
+            .is_some()
+            || self.tips_enabled()
+                && (self.spinner_tip_state.current().is_some()
+                    || turn_elapsed_ms > crate::ui::tips::CLEAR_TIP_THRESHOLD_MS)
     }
 
     /// 重建输入框（pending_messages 现在由 UI 层直接渲染，不再使用 textarea title）
