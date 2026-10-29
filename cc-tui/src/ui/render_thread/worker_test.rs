@@ -508,3 +508,54 @@ async fn test_worker_tick_not_starved_by_viewport_flood() {
         "tick 不应被事件洪泛饿死；first={first:?} second={second:?}"
     );
 }
+
+/// `!` 命令的 `Running… (Xs)` 秒数同样要随 tick 推进。
+///
+/// 此前刷新名单只认 ToolBlock，静默命令（如 `! sleep 60`）的状态行会一直停在
+/// 首帧文本，秒数永远不动。
+#[tokio::test]
+async fn test_worker_tick_advances_shell_command_running_text() {
+    fn running_text(cache: &Arc<RwLock<RenderCache>>) -> String {
+        cache
+            .read()
+            .lines
+            .iter()
+            .map(|line| line.to_string())
+            .find(|text| text.contains("Running…"))
+            .unwrap_or_else(|| "<no running line>".to_owned())
+    }
+
+    let (tx, cache, notify) = spawn_render_thread(80);
+    let mut vm = MessageViewModel::ShellCommand {
+        id: "shell-running".to_string(),
+        command: "sleep 60".to_string(),
+        cwd: ".".to_string(),
+        stdin: Vec::new(),
+        stdout: String::new(),
+        stderr: String::new(),
+        exit_code: None,
+        collapsed: true,
+        content_hash: 0,
+        started_at: Some(std::time::Instant::now() - Duration::from_secs(3)),
+        moved_to_background: false,
+    };
+    vm.recompute_hash();
+    tx.send(RenderEvent::Rebuild(vec![vm.clone()]))
+        .await
+        .unwrap();
+    make_wait_for_version(&cache, &notify, 1).await;
+
+    tokio::time::sleep(Duration::from_millis(2600)).await;
+    let first = running_text(&cache);
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    let second = running_text(&cache);
+
+    assert!(
+        first.contains("Running… ("),
+        "超过 2 秒应带耗时；first={first:?}"
+    );
+    assert_ne!(
+        first, second,
+        "秒数应随 tick 推进；first={first:?} second={second:?}"
+    );
+}

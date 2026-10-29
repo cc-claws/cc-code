@@ -55,7 +55,7 @@ async fn test_execute_shell_command_streaming_receives_buffered_python_output_be
         "import time\nprint('ready', flush=True)\ntime.sleep(3)\n",
     )
     .unwrap();
-    let command = format!("python {}", script_path.display());
+    let command = format!("python \"{}\"", script_path.display());
     let mut execution = execute_shell_command_streaming(&command, ".", None);
     let seen = tokio::time::timeout(PROCESS_TEST_TIMEOUT, async {
         let mut bytes = Vec::new();
@@ -84,9 +84,9 @@ async fn test_execute_shell_command_streaming_receives_buffered_python_output_be
 #[tokio::test]
 async fn test_execute_shell_command_streaming_preserves_quoted_absolute_path() {
     let _guard = PROCESS_TEST_LOCK.lock().await;
-    // agent Bash 走 streaming executor，必须保留 Windows 命令里的内层引号。
+    // `!` 走 Bash 方言，读文件用 `cat`，Windows 绝对路径必须靠引号保住反斜杠。
     let cargo_toml = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
-    let command = format!("type \"{}\"", cargo_toml.display());
+    let command = format!("cat \"{}\"", cargo_toml.display());
     let execution = execute_shell_command_streaming(&command, ".", None);
     let output = tokio::time::timeout(PROCESS_TEST_TIMEOUT, execution.result)
         .await
@@ -177,5 +177,35 @@ async fn test_drain_pipe_task_normal_completion_is_immediate() {
     assert_eq!(
         String::from_utf8_lossy(&acc.lock().unwrap()),
         "immediate output"
+    );
+}
+
+/// `!` 命令必须走 Bash 方言，而不是平台默认（Windows = cmd）。
+///
+/// 回归：平台默认下输入 `! sleep 10` 只会得到「不是内部或外部命令」，
+/// 与 Bash 工具的 Unix 语义不一致。
+#[tokio::test]
+async fn test_streaming_shell_uses_bash_dialect() {
+    let _guard = PROCESS_TEST_LOCK.lock().await;
+    if cfg!(windows) && cc_middlewares::process::git_bash_path().is_none() {
+        // 与 Bash 工具同一前置条件：缺少 Git Bash 时不执行，避免环境相关失败。
+        return;
+    }
+    let execution =
+        execute_shell_command_streaming("echo ${BASH_VERSION:+bash-dialect}", ".", None);
+    let ShellExecution {
+        result, output_rx, ..
+    } = execution;
+    let drain = tokio::spawn(async move {
+        let mut rx = output_rx;
+        while rx.recv().await.is_some() {}
+    });
+    let output = result.await.expect("执行结果").expect("命令成功");
+    drain.await.expect("排空输出");
+    assert_eq!(output.exit_code, 0, "{output:?}");
+    assert!(
+        output.stdout.contains("bash-dialect"),
+        "应运行在 Bash 方言下，实际输出: {:?}",
+        output.stdout
     );
 }

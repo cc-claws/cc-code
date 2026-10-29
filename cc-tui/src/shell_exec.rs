@@ -173,29 +173,29 @@ pub struct ShellExecution {
 ///
 /// **注意**：调用方必须持续消费 `output_rx`，否则 channel 缓冲（256）写满后
 /// 会阻塞内部 reader task，导致进程 stdout/stderr 管道阻塞。
+///
+/// **方言**：`!` 命令恒走 Bash（与 Bash 工具、参考实现一致）。Windows 的
+/// `sleep` / `ls` / `grep` / `dir` / `type` 全部是 POSIX 语义，与参考实现的
+/// `!` 逐字对齐——那里 `type Cargo.toml` 报的也是 bash 内置命令错误。
+/// Git Bash 缺失时直接报错，不静默退回 CMD。
 pub fn execute_shell_command_streaming(
     command: &str,
     cwd: &str,
     stdin_rx: Option<mpsc::Receiver<String>>,
 ) -> ShellExecution {
-    execute_shell_command_streaming_with_shell(
-        command,
-        cwd,
-        stdin_rx,
-        ShellDialect::PlatformDefault,
-    )
-    .unwrap_or_else(|error| {
-        let (output_tx, output_rx) = mpsc::channel(1);
-        let (result_tx, result) = oneshot::channel();
-        drop(output_tx);
-        let _ = result_tx.send(Err(error));
-        ShellExecution {
-            result,
-            abort: ShellAbortHandle::noop(),
-            output_rx,
-            started_instant: Instant::now(),
-        }
-    })
+    execute_shell_command_streaming_with_shell(command, cwd, stdin_rx, ShellDialect::Bash)
+        .unwrap_or_else(|error| {
+            let (output_tx, output_rx) = mpsc::channel(1);
+            let (result_tx, result) = oneshot::channel();
+            drop(output_tx);
+            let _ = result_tx.send(Err(error));
+            ShellExecution {
+                result,
+                abort: ShellAbortHandle::noop(),
+                output_rx,
+                started_instant: Instant::now(),
+            }
+        })
 }
 
 /// Agent 命令必须透传启动前选定的 shell，不能回到平台默认值或自行重试。
