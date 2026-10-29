@@ -72,15 +72,25 @@ pub fn smooth_increment(displayed: usize, target: usize) -> usize {
     (displayed + step).min(target)
 }
 
-pub fn format_elapsed(elapsed_ms: u64) -> String {
-    let secs = elapsed_ms / 1000;
-    let mins = secs / 60;
-    let secs = secs % 60;
-    if mins > 0 {
-        format!("{}m {}s", mins, secs)
+/// 把秒数格式化为人类可读的动态走秒时长（如 `22s`、`5m 00s`、`8m 38s`、`1h 05m 12s`）。
+///
+/// 走秒期间分钟以上保持两位补零（`{:02}s`），确保整分（如 8m 00s）时宽度不塌陷，
+/// 避免类似 `7m 59s` -> `8m 0s` -> `8m 01s` 导致的文本宽度跳变与视觉闪烁。
+pub fn format_elapsed_secs(secs: u64) -> String {
+    if secs >= 3600 {
+        let (hours, minutes, rest) = (secs / 3600, (secs % 3600) / 60, secs % 60);
+        format!("{hours}h {minutes:02}m {rest:02}s")
+    } else if secs >= 60 {
+        let (minutes, rest) = (secs / 60, secs % 60);
+        format!("{minutes}m {rest:02}s")
     } else {
-        format!("{}s", secs)
+        format!("{secs}s")
     }
+}
+
+/// 把毫秒数格式化为人类可读的动态走秒时长。
+pub fn format_elapsed(elapsed_ms: u64) -> String {
+    format_elapsed_secs(elapsed_ms / 1000)
 }
 
 pub fn format_tokens(count: usize) -> String {

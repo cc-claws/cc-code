@@ -81,6 +81,20 @@ fn test_format_elapsed() {
     assert_eq!(format_elapsed(90_000), "1m 30s");
     assert_eq!(format_elapsed(30_000), "30s");
     assert_eq!(format_elapsed(5_000), "5s");
+    assert_eq!(format_elapsed(60_000), "1m 00s", "1分钟整带 00s");
+    assert_eq!(format_elapsed(480_000), "8m 00s", "8分钟整带 00s");
+    assert_eq!(format_elapsed(518_000), "8m 38s", "8分38秒保持一致");
+    assert_eq!(format_elapsed(3_600_000), "1h 00m 00s", "1小时整带 00m 00s");
+}
+
+#[test]
+fn test_format_elapsed_secs() {
+    assert_eq!(format_elapsed_secs(0), "0s");
+    assert_eq!(format_elapsed_secs(59), "59s");
+    assert_eq!(format_elapsed_secs(60), "1m 00s");
+    assert_eq!(format_elapsed_secs(300), "5m 00s");
+    assert_eq!(format_elapsed_secs(342), "5m 42s");
+    assert_eq!(format_elapsed_secs(3665), "1h 01m 05s");
 }
 
 #[test]
