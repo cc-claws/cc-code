@@ -1209,14 +1209,14 @@ async fn test_standalone_lifecycle_hooks_report_block_failure() {
     .unwrap();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     fire_standalone_lifecycle_hooks_with_tx(
-        &[make_registered(HookEvent::SessionEnd, hook)],
-        HookEvent::SessionEnd,
+        &[make_registered(HookEvent::PreCompact, hook)],
+        HookEvent::PreCompact,
         TEST_CWD,
         "s",
         "/t",
         "opus",
         None,
-        Some("clear"),
+        None,
         Some(tx),
     )
     .await;
@@ -1229,7 +1229,7 @@ async fn test_standalone_lifecycle_hooks_report_block_failure() {
             is_async,
             ..
         } => {
-            assert_eq!(event, "SessionEnd");
+            assert_eq!(event, "PreCompact");
             assert_eq!(ran, 1);
             assert!(!is_async);
             assert_eq!(failures.len(), 1);
@@ -1281,4 +1281,32 @@ async fn test_standalone_async_hook_reports_async_summary() {
         }
         other => panic!("意外的 AgentEvent: {other:?}"),
     }
+}
+
+/// SessionEnd 不产生 UI 事件：会话结束没有渲染时机，PRD 明确排除。
+#[tokio::test]
+async fn test_session_end_hooks_do_not_report_to_ui() {
+    let hook: HookType = serde_json::from_value(serde_json::json!({
+        "type": "command",
+        "command": "echo bye"
+    }))
+    .unwrap();
+    let hooks = vec![make_registered(HookEvent::SessionEnd, hook)];
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    super::fire_standalone_lifecycle_hooks_with_tx(
+        &hooks,
+        HookEvent::SessionEnd,
+        TEST_CWD,
+        "s",
+        "/t",
+        "opus",
+        None,
+        Some("clear"),
+        Some(tx),
+    )
+    .await;
+    assert!(
+        rx.try_recv().is_err(),
+        "SessionEnd 不应向 UI 上报任何事件"
+    );
 }

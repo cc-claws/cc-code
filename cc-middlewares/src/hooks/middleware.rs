@@ -793,6 +793,14 @@ pub async fn fire_standalone_lifecycle_hooks_with_tx(
     source: Option<&str>,
     event_tx: Option<tokio::sync::mpsc::UnboundedSender<AgentEvent>>,
 ) {
+    // SessionEnd 不上报：会话结束（退出或 /clear 切换）时没有稳定的渲染时机，
+    // 展示出来也没有意义。PRD「决策记录」明确排除该事件。
+    let event_tx = if event == HookEvent::SessionEnd {
+        None
+    } else {
+        event_tx
+    };
+
     // Filter hooks matching the event
     let matching: Vec<&RegisteredHook> = registered_hooks
         .iter()
