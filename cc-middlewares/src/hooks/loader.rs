@@ -278,6 +278,21 @@ fn write_trust_records(path: &Path, records: &[TrustedProject]) -> std::io::Resu
     f.write_all(out.as_bytes())
 }
 
+/// 向信任清单追加一条记录（含行尾换行）。
+///
+/// 换行必须与记录拼进**同一个缓冲区、一次 `write_all` 写出**：`File` 不带
+/// 缓冲，`writeln!` 会被展开成 `write(记录)` 和 `write("\n")` 两次系统调用，
+/// 两次之间进程退出（Ctrl-C、崩溃、断电）就只剩半条记录——换行丢了，下一条
+/// 记录会直接粘在它后面，一行里塞两个 JSON，两条记录双双失效。
+///
+/// 抽成独立函数是为了让回归测试能注入自定义 `Write` 实现，数清底层调用次数。
+fn append_trust_line<W: std::io::Write>(writer: &mut W, line: &str) -> std::io::Result<()> {
+    let mut payload = String::with_capacity(line.len() + 1);
+    payload.push_str(line);
+    payload.push('\n');
+    writer.write_all(payload.as_bytes())
+}
+
 /// 取用户主目录 `~/.cc-code`。
 ///
 /// 用 [`dirs_next::home_dir`]（Windows 走 Known Folder / `USERPROFILE`，
@@ -369,12 +384,11 @@ pub fn trust_project_in(app_home: &Path, cwd: &str) -> std::io::Result<()> {
     };
     let line = serde_json::to_string(&record).map_err(std::io::Error::other)?;
 
-    use std::io::Write;
     let mut f = fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&jsonl_path)?;
-    writeln!(f, "{line}")?;
+    append_trust_line(&mut f, &line)?;
     Ok(())
 }
 
