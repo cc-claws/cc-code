@@ -76,12 +76,15 @@ async fn test_command_hook_exit_code_2_blocks() {
 }
 
 #[tokio::test]
-async fn test_command_hook_exit_code_1_allows() {
+async fn test_command_hook_exit_code_1_reports_error() {
     let hook = make_command_hook("echo 'error msg' >&2 && exit 1");
     let input = make_hook_input();
     let registered = make_registered();
     let action = execute_command_hook(&hook, &input, &registered).await;
-    assert!(matches!(action, HookAction::Allow));
+    assert!(
+        matches!(action, HookAction::Error { ref reason } if reason.contains("code 1")),
+        "exit 1 是 hook 自身出错，不阻断但必须上报：{action:?}"
+    );
 }
 
 #[cfg(unix)]
@@ -115,7 +118,7 @@ async fn test_command_hook_json_output_block() {
 }
 
 #[tokio::test]
-async fn test_command_hook_timeout() {
+async fn test_command_hook_timeout_reports_error() {
     let hook: HookType = serde_json::from_value(serde_json::json!({
         "type": "command",
         "command": "sleep 10",
@@ -125,7 +128,10 @@ async fn test_command_hook_timeout() {
     let input = make_hook_input();
     let registered = make_registered();
     let action = execute_command_hook(&hook, &input, &registered).await;
-    assert!(matches!(action, HookAction::Allow));
+    assert!(
+        matches!(action, HookAction::Error { ref reason } if reason.contains("timed out")),
+        "超时不阻断调用，但要作为 hook 失败上报：{action:?}"
+    );
 }
 
 #[cfg(unix)]

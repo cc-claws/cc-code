@@ -330,6 +330,10 @@ pub enum HookAction {
     Allow,
     /// 阻止操作（decision=block / exit code 2 / continue=false）
     Block { reason: String },
+    /// hook 自身执行失败（非预期退出码、超时、被信号终止、无法启动）。
+    ///
+    /// 语义上**不阻断**调用，只用于向用户暴露「你配的 hook 坏了」。
+    Error { reason: String },
     /// 修改工具输入（PreToolUse hook 的 updatedInput）
     ModifyInput { new_input: serde_json::Value },
     /// 修改权限行为（permissionDecision）

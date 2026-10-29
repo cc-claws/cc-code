@@ -1002,3 +1002,156 @@ async fn test_async_hook_emits_completed_summary() {
         other => panic!("意外的 AgentEvent: {other:?}"),
     }
 }
+
+/// 异步 hook 被阻断（exit 2）时上报 `kind = "block"`。
+#[tokio::test]
+async fn test_async_hook_block_reports_block_kind() {
+    let hook: HookType = serde_json::from_value(serde_json::json!({
+        "type": "command",
+        "command": "exit 2",
+        "async": true
+    }))
+    .unwrap();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mw = make_middleware(vec![make_registered(HookEvent::PostToolUse, hook)]).with_event_tx(tx);
+    let input = HookInput::tool_result(
+        "s",
+        "/t",
+        TEST_CWD,
+        "yolo",
+        "Bash",
+        &serde_json::json!({"command": "ls"}),
+        &serde_json::json!("ok"),
+        false,
+    );
+    let _ = mw
+        .fire_event(
+            HookEvent::PostToolUse,
+            &input,
+            Some("Bash"),
+            Some(&serde_json::json!({"command": "ls"})),
+            Some("c5"),
+        )
+        .await;
+    let ev = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+        .await
+        .expect("异步 hook 应在超时前完成")
+        .expect("应收到异步 summary");
+    match ev {
+        AgentEvent::HooksCompleted {
+            is_async, failures, ..
+        } => {
+            assert!(is_async);
+            assert_eq!(failures.len(), 1, "阻断的异步 hook 必须上报失败项");
+            assert_eq!(failures[0].kind, "block");
+        }
+        other => panic!("意外的 AgentEvent: {other:?}"),
+    }
+}
+
+/// 同步 hook 崩溃（exit 1）上报 `kind = "error"`，且不阻断工具调用（PRD C6）。
+#[tokio::test]
+async fn test_hook_exit_one_reports_error_kind() {
+    let hook: HookType = serde_json::from_value(serde_json::json!({
+        "type": "command",
+        "command": "exit 1"
+    }))
+    .unwrap();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mw = make_middleware(vec![make_registered(HookEvent::PreToolUse, hook)]).with_event_tx(tx);
+
+    let tool_call = ToolCall::new("c6", "Bash", serde_json::json!({"command": "ls"}));
+    let result = mw
+        .before_tool(
+            &mut cc_agent::agent::state::AgentState::new("/test"),
+            &tool_call,
+        )
+        .await;
+
+    let ev = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+        .await
+        .expect("同步 hook 应立即上报")
+        .expect("应收到 hook summary");
+    match ev {
+        AgentEvent::HooksCompleted {
+            event,
+            ran,
+            failures,
+            is_async,
+            tool_call_id,
+            ..
+        } => {
+            assert_eq!(event, "PreToolUse");
+            assert_eq!(ran, 1, "出错也属于「跑过」，仍计入 ran");
+            assert!(!is_async);
+            assert_eq!(tool_call_id.as_deref(), Some("c6"));
+            assert_eq!(failures.len(), 1, "exit 1 必须上报一条失败项");
+            assert_eq!(failures[0].kind, "error");
+            assert!(
+                failures[0].reason.contains("code 1"),
+                "原因需带退出码，实际为 {:?}",
+                failures[0].reason
+            );
+        }
+        other => panic!("意外的 AgentEvent: {other:?}"),
+    }
+
+    // Error 不改变控制流：工具照常执行，输入未被改动。
+    let passed = result.expect("hook 出错不应阻断工具调用");
+    assert_eq!(passed.name, "Bash");
+    assert_eq!(passed.input["command"], "ls");
+}
+
+/// 异步 hook 失败（exit 1）同样上报 `kind = "error"`，不能只在成功时才发完成提示（PRD C10）。
+#[tokio::test]
+async fn test_async_hook_failure_reports_error_kind() {
+    let hook: HookType = serde_json::from_value(serde_json::json!({
+        "type": "command",
+        "command": "exit 1",
+        "async": true
+    }))
+    .unwrap();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mw = make_middleware(vec![make_registered(HookEvent::PostToolUse, hook)]).with_event_tx(tx);
+
+    let input = HookInput::tool_result(
+        "s",
+        "/t",
+        TEST_CWD,
+        "yolo",
+        "Bash",
+        &serde_json::json!({"command": "ls"}),
+        &serde_json::json!("ok"),
+        false,
+    );
+    let _ = mw
+        .fire_event(
+            HookEvent::PostToolUse,
+            &input,
+            Some("Bash"),
+            Some(&serde_json::json!({"command": "ls"})),
+            Some("c4"),
+        )
+        .await;
+
+    let ev = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+        .await
+        .expect("异步 hook 应在超时前完成")
+        .expect("应收到异步 summary");
+    match ev {
+        AgentEvent::HooksCompleted {
+            event,
+            is_async,
+            failures,
+            tool_call_id,
+            ..
+        } => {
+            assert_eq!(event, "PostToolUse");
+            assert!(is_async, "失败的异步 hook 也要独立上报");
+            assert_eq!(tool_call_id.as_deref(), Some("c4"));
+            assert_eq!(failures.len(), 1, "失败的异步 hook 必须上报失败项");
+            assert_eq!(failures[0].kind, "error");
+        }
+        other => panic!("意外的 AgentEvent: {other:?}"),
+    }
+}

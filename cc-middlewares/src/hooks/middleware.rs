@@ -348,6 +348,9 @@ impl HookMiddleware {
                         reason: reason.clone(),
                     };
                 }
+                // hook 自身出错（非预期退出码/超时/信号/启动失败）不阻断调用：
+                // 已计入 failures 供 UI 展示，控制流继续按 Allow 走。
+                HookAction::Error { .. } => {}
                 _ => {}
             }
         }
@@ -869,11 +872,18 @@ pub async fn fire_standalone_lifecycle_hooks(
 #[path = "middleware_test.rs"]
 mod tests;
 
-/// 把 hook 的阻断语义转成 UI 可渲染的失败项。
+/// 把 hook 的阻断/失败语义转成 UI 可渲染的失败项。
+///
+/// `block` 是策略性阻断（琥珀色），`error` 是 hook 自身出错（红色）——后者
+/// **不改变控制流**，只是把「你配的 hook 坏了」如实告诉用户。
 fn hook_failure(action: &HookAction) -> Option<HookFailureInfo> {
     match action {
         HookAction::Block { reason } => Some(HookFailureInfo {
             kind: "block".to_string(),
+            reason: reason.clone(),
+        }),
+        HookAction::Error { reason } => Some(HookFailureInfo {
+            kind: "error".to_string(),
             reason: reason.clone(),
         }),
         HookAction::PreventContinuation { stop_reason } => Some(HookFailureInfo {

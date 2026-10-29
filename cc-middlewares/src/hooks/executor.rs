@@ -16,12 +16,22 @@ use cc_agent::{
     messages::BaseMessage,
 };
 
+/// 拼一段给用户看的 hook 错误原因：`<prefix>: <stderr 前 200 字符>`。
+fn hook_error_reason(prefix: &str, detail: &str) -> String {
+    let detail = detail.trim();
+    if detail.is_empty() {
+        return prefix.to_string();
+    }
+    let short: String = detail.chars().take(200).collect();
+    format!("{prefix}: {short}")
+}
+
 /// Execute a command hook (shell script).
 ///
 /// - shell: platform default with Git Bash routing on Windows; timeout default 600s
 /// - stdin: serialized HookInput JSON
-/// - exit code 0 → parse stdout, 1 → Allow(warn), 2 → Block(reason)
-/// - timeout → Allow(warn)
+/// - exit code 0 → parse stdout, 1/其他非零 → Error(不阻断), 2 → Block(reason)
+/// - timeout / 信号 / 启动失败 → Error(不阻断)
 pub async fn execute_command_hook(
     hook: &HookType,
     input: &HookInput,
@@ -64,7 +74,9 @@ pub async fn execute_command_hook(
             Ok(command) => command,
             Err(error) => {
                 tracing::warn!("Command hook execution failed: {}", error);
-                return HookAction::Allow;
+                return HookAction::Error {
+                    reason: hook_error_reason("hook failed to run", &error.to_string()),
+                };
             }
         };
     cmd.current_dir(&input.cwd)
@@ -97,11 +109,14 @@ pub async fn execute_command_hook(
                     parse_command_hook_output(&stdout)
                 }
                 Some(1) => {
-                    // Exit code 1 → Allow with warning
+                    // 非阻断失败：CC 语义里 exit 1 表示 hook 执行出错，但不阻止工具调用。
+                    // 保留为 Error 以便 UI 如实告知「hook 坏了」，流程上仍按 Allow 走。
                     if !stderr.is_empty() {
                         tracing::warn!("Command hook exited with code 1: {}", stderr);
                     }
-                    HookAction::Allow
+                    HookAction::Error {
+                        reason: hook_error_reason("hook exited with code 1", &stderr),
+                    }
                 }
                 Some(2) => {
                     // Exit code 2 → Block
@@ -120,11 +135,18 @@ pub async fn execute_command_hook(
                         code,
                         stderr
                     );
-                    HookAction::Allow
+                    HookAction::Error {
+                        reason: hook_error_reason(
+                            &format!("hook exited with code {code}"),
+                            &stderr,
+                        ),
+                    }
                 }
                 None => {
                     tracing::warn!("Command hook terminated by signal");
-                    HookAction::Allow
+                    HookAction::Error {
+                        reason: "hook terminated by signal".to_string(),
+                    }
                 }
             }
         }
@@ -135,11 +157,15 @@ pub async fn execute_command_hook(
                 timeout_secs,
                 command
             );
-            HookAction::Allow
+            HookAction::Error {
+                reason: format!("hook timed out after {timeout_secs}s"),
+            }
         }
         Err(e) => {
             tracing::warn!("Command hook execution failed: {}", e);
-            HookAction::Allow
+            HookAction::Error {
+                reason: hook_error_reason("hook failed to run", &e.to_string()),
+            }
         }
     }
 }
