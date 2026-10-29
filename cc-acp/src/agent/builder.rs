@@ -459,6 +459,12 @@ fn build_agent_inner(
     });
 
     // SubAgent middleware
+    //
+    // 子代理的 SubagentStart/SubagentStop hooks 与主链共用同一份配置（对齐参考实现的
+    // executeSubagentStartHooks：子代理启动时执行会话级 hooks）。这里先拷一份，
+    // 下面的中间件循环会消耗 hook_groups。
+    let subagent_hooks: Vec<cc_middlewares::hooks::types::RegisteredHook> =
+        hook_groups.iter().flatten().cloned().collect();
     let mut subagent = SubAgentMiddleware::new(
         parent_tools,
         Some(Arc::clone(&event_handler) as Arc<dyn AgentEventHandler>),
@@ -471,7 +477,7 @@ fn build_agent_inner(
     .with_extra_agent_dirs(plugin_agent_dirs.clone())
     .with_background_registry(Arc::clone(&background_registry))
     .with_bg_event_sender(bg_event_tx)
-    .with_registered_hooks(vec![])
+    .with_registered_hooks(subagent_hooks)
     .with_inherited_instructions(inherited_instructions)
     .with_permissions(&hitl);
     if let Some(ts) = thread_store {
