@@ -67,9 +67,27 @@ impl App {
 
         // 显示 loading 状态（spinner + 禁用输入）
         self.set_loading(true);
-        let vm = MessageViewModel::system(self.services.lc.tr("app-compact-started"));
-        self.apply_pipeline_action(PipelineAction::add_message(vm));
+        // 压缩期间不往消息流里插「正在进行」提示：参考实现把这段进度挂在 spinner
+        // 上，历史里只留一条完成通知。这里把 spinner 文案临时切到「正在压缩上下文…」，
+        // 完成/失败时由 restore_spinner_after_compact() 还原随机动词。
+        let label = self.services.lc.tr("app-compact-started");
+        self.session_mgr
+            .current_mut()
+            .spinner_state
+            .set_mode_with_label(cc_widgets::SpinnerMode::Thinking, Some(label));
         (true, false, false)
+    }
+
+    /// 压缩结束后还原 spinner 文案。
+    ///
+    /// 压缩期间 spinner 的 verb 被临时替换成「正在压缩上下文…」（见
+    /// [`Self::handle_compact_started`]），这里重新选一个本轮动词，
+    /// 避免压缩结束后整轮都停在那句话上。
+    fn restore_spinner_after_compact(&mut self) {
+        self.session_mgr
+            .current_mut()
+            .spinner_state
+            .pick_round_verb();
     }
 
     pub(crate) fn handle_compact_completed(
@@ -80,6 +98,7 @@ impl App {
         micro_cleared: usize,
         messages: Vec<BaseMessage>,
     ) -> (bool, bool, bool) {
+        self.restore_spinner_after_compact();
         if micro_cleared > 0 {
             // Micro-compact: 更新内部状态，保留 pipeline 显示
             self.session_mgr.current_mut().agent.origin_messages = messages;
@@ -165,6 +184,7 @@ impl App {
     }
 
     pub(crate) fn handle_compact_error(&mut self, msg: String) -> (bool, bool, bool) {
+        self.restore_spinner_after_compact();
         let is_manual = self.session_mgr.current_mut().agent.compact_manual;
         if is_manual {
             self.set_loading(false);
