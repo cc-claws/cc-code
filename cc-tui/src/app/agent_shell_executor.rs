@@ -228,12 +228,6 @@ impl ShellExecutor for AgentShellExecutor {
 
         let task_id = uuid::Uuid::now_v7().to_string();
         let cwd_path = PathBuf::from(&cwd);
-        let output_path = cc_agent::task_output::task_output_path(
-            &task_id,
-            &cwd_path,
-            owner_session_id.as_deref().unwrap_or(&self.session_id),
-        );
-
         // 流式执行：stdout/stderr 合并推送 output_rx，进程退出 result 在 execution.result。
         let execution = execute_shell_command_streaming_with_timeout(
             &command,
@@ -242,6 +236,11 @@ impl ShellExecutor for AgentShellExecutor {
             shell,
             std::time::Duration::from_millis(execution_timeout_ms),
         )?;
+        let output_path = cc_agent::task_output::reserve_task_output_path(
+            &task_id,
+            &cwd_path,
+            owner_session_id.as_deref().unwrap_or(&self.session_id),
+        );
 
         let handoff = Arc::new(ShellHandoff::new(true, run_in_background));
         // 保留同一份完整磁盘输出，仅在前台采样 UI 尾部；移交后继续原样写盘。
