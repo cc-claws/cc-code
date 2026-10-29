@@ -626,6 +626,23 @@ impl MessagePipeline {
     /// 合并键 `(tool_call_id, event)`：`tool_call_id` 由 map 键承担；同事件按名字
     /// 合并（`ran` / `duration_ms` 相加、`failures` 拼接）。
     pub(crate) fn push_hook_result(&mut self, tool_call_id: &str, exec: HookExec) {
+        // Edit / Write 不展示 hook 行：这两类操作已经由用户显式授权，
+        // 再叠一行 hook 执行结果只是噪音。其它工具（Bash / Read / Grep …）照常展示。
+        let tool_name = self
+            .pending_tools
+            .get(tool_call_id)
+            .map(|tool| tool.name.clone())
+            .or_else(|| {
+                self.completed_tools
+                    .iter()
+                    .find(|tool| tool.tool_call_id == tool_call_id)
+                    .map(|tool| tool.name.clone())
+            });
+        // 只读工具（Read / Grep / Glob）不展示 hook 行：这类调用对用户没有决策价值，
+        // 叠一行只是噪音。Edit / Write / Bash / Agent 等仍照常展示。
+        if matches!(tool_name.as_deref(), Some("Read" | "Grep" | "Glob")) {
+            return;
+        }
         let execs = self
             .hook_results
             .entry(tool_call_id.to_string())

@@ -4574,3 +4574,34 @@ fn test_hook_row_sanitizes_newlines_and_ansi() {
         "清洗后应折叠成单行: {text:?}"
     );
 }
+
+/// hook 行强制单行：超宽时截断成一行并以 `…` 收尾，绝不折行。
+#[test]
+fn test_hook_rows_never_wrap_to_multiple_lines() {
+    let long_reason = r"Cannot find module 'C:\Program Files\Clawd on Desk\resources\app.asar.unpacked\hooks\clawd-hook.js' at Module._resolveFilename (node:internal/modules/cjs/loader:1520)";
+    let vm = make_hook_tool_block(vec![crate::ui::message_view::HookRow::failed(format!(
+        "PreToolUse hook failed: {long_reason}"
+    ))]);
+    let lines = render_view_model(&vm, None, 80, true, 0);
+    let hook_lines: Vec<String> = lines
+        .iter()
+        .map(|line| {
+            line.spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>()
+        })
+        .filter(|text| text.contains("hook failed"))
+        .collect();
+    assert_eq!(hook_lines.len(), 1, "hook 行必须只有一行: {hook_lines:?}");
+    assert!(
+        hook_lines[0].ends_with('…'),
+        "超宽应截断并以 … 收尾: {}",
+        hook_lines[0]
+    );
+    assert!(
+        unicode_width::UnicodeWidthStr::width(hook_lines[0].as_str()) <= 80,
+        "行宽不得超出视口: {}",
+        hook_lines[0]
+    );
+}

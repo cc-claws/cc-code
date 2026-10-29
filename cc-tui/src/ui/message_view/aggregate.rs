@@ -9,18 +9,14 @@ fn aggregatable_category(vm: &MessageViewModel) -> Option<ToolCategory> {
         file_inspect,
         shell_backgrounded,
         content,
-        hook_rows,
         ..
     } = vm
     else {
         return None;
     };
 
-    // 带 hook 执行行的块必须留在单条里：聚合组不承载 hook 行，
-    // 进组会让「阻断/失败」这类普通模式必须可见的信息消失。
-    if !hook_rows.is_empty() {
-        return None;
-    }
+    // 带 hook 执行行的块照常参与聚合：聚合 = 用户主动折叠（完全信任），
+    // 折叠组不承载 hook 行，展开也只显示工具内容——hook 行只属于单独显示的块。
 
     // 对齐参考实现：运行中的文件查询 Bash 也进组（计数含在跑的这条）。
     // 仍排除已转后台 / 后台启动标记的——它们要留在单条里显示后台状态。

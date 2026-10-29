@@ -2892,7 +2892,7 @@ fn test_hook_rows_pending_before_tool_start_are_attached_after() {
 
 /// 只读工具带 hook 行时不进聚合组：组不承载 hook 行，进组会把阻断/失败行吞掉。
 #[test]
-fn test_hook_rows_keep_readonly_tool_out_of_group() {
+fn test_hook_rows_do_not_block_readonly_aggregation() {
     let mut pipeline = MessagePipeline::new("/tmp".to_string());
     let _ = pipeline.handle_event(AgentEvent::ToolStart {
         tool_call_id: "tc_read".into(),
@@ -2924,12 +2924,10 @@ fn test_hook_rows_keep_readonly_tool_out_of_group() {
     );
     let tail = pipeline.build_tail_vms();
     assert!(
-        tail.iter().any(|vm| matches!(
-            vm,
-            MessageViewModel::ToolBlock { tool_call_id, hook_rows, .. }
-                if tool_call_id == "tc_read" && !hook_rows.is_empty()
-        )),
-        "带 hook 行的只读工具块必须留在单条里"
+        !tail
+            .iter()
+            .any(|vm| matches!(vm, MessageViewModel::ToolBlock { .. })),
+        "带 hook 行的只读工具同样应被聚合：折叠组不展示 hook 行"
     );
 }
 
@@ -2942,8 +2940,8 @@ fn tool_hook_rows(
         tool_call_id: tool_call_id.into(),
         name: "Bash".into(),
         display: "Bash".into(),
-        args: "ls".into(),
-        input: json!({"command": "ls"}),
+        args: "cargo test".into(),
+        input: json!({"command": "cargo test"}),
         source_agent_id: None,
     });
     pipeline
@@ -3176,4 +3174,52 @@ fn test_pipeline_done_drops_stale_running_hooks() {
         Some(1),
         "已完成行随工具块保留，不得被 done() 清掉"
     );
+}
+
+/// 只读工具不展示 hook 行；Edit / Write 仍展示（用户需要知道自动格式化等是否跑了）。
+#[test]
+fn test_readonly_tools_do_not_show_hook_rows() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    for (id, name) in [("tc_read", "Read"), ("tc_grep", "Grep")] {
+        let _ = pipeline.handle_event(AgentEvent::ToolStart {
+            tool_call_id: id.into(),
+            name: name.into(),
+            display: name.into(),
+            args: "x.rs".into(),
+            input: json!({"file_path": "x.rs"}),
+            source_agent_id: None,
+        });
+        pipeline.push_hook_result(id, HookExec::new("PreToolUse", 1, 3, vec![]));
+    }
+    let tail = pipeline.build_tail_vms();
+    assert!(
+        !tail.iter().any(|vm| matches!(
+            vm,
+            MessageViewModel::ToolBlock { hook_rows, .. } if !hook_rows.is_empty()
+        )),
+        "只读工具不应带 hook 行"
+    );
+}
+
+/// Edit / Write 展示 hook 行（自动格式化、lint 等 hook 常配在这两个工具上）。
+#[test]
+fn test_edit_and_write_tools_show_hook_rows() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    for (id, name) in [("tc_edit", "Edit"), ("tc_write", "Write")] {
+        let _ = pipeline.handle_event(AgentEvent::ToolStart {
+            tool_call_id: id.into(),
+            name: name.into(),
+            display: name.into(),
+            args: "x.rs".into(),
+            input: json!({"file_path": "x.rs"}),
+            source_agent_id: None,
+        });
+        pipeline.push_hook_result(id, HookExec::new("PostToolUse", 1, 3, vec![]));
+    }
+    let tail = pipeline.build_tail_vms();
+    let blocks_with_rows = tail
+        .iter()
+        .filter(|vm| matches!(vm, MessageViewModel::ToolBlock { hook_rows, .. } if !hook_rows.is_empty()))
+        .count();
+    assert_eq!(blocks_with_rows, 2, "Edit / Write 应各自带 hook 行");
 }

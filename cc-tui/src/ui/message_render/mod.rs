@@ -56,23 +56,15 @@ fn hook_row_color(tone: NoteTone) -> Color {
 /// 文本先经 `sanitize_display_text`：hook 的 reason 来自 stderr，可能带换行、
 /// 制表符与 ANSI 转义——直接塞进单个 Span 时 `\n` 宽度为 0，不会当换行，
 /// 会导致行内容错位，甚至把终端转义序列泄漏到屏幕上。
-/// 超宽时按内容宽度折行，续行用悬挂缩进，保证行宽不越视口。
+/// 超宽时按内容宽度**截断**（`…` 收尾）而不是折行——hook 行是状态提示，
+/// 折成多行会把正文挤出视口，而且 20 个 hook 时行数会翻倍。
 fn push_hook_line(lines: &mut Vec<Line<'static>>, text: &str, color: Color, width: usize) {
     let content_width = BranchPrefix::content_width(width);
-    let body = Line::from(Span::styled(
-        sanitize_display_text(text),
-        Style::default().fg(color),
-    ));
-    for (i, wrapped) in wrap_line_spans(body, content_width).into_iter().enumerate() {
-        let prefix = if i == 0 {
-            BranchPrefix::PREFIX
-        } else {
-            BranchPrefix::HANG
-        };
-        let mut spans = vec![Span::styled(prefix, Style::default().fg(color))];
-        spans.extend(wrapped.spans);
-        lines.push(Line::from(spans));
-    }
+    let body = truncate_to_display_width(&sanitize_display_text(text), content_width);
+    lines.push(Line::from(vec![
+        Span::styled(BranchPrefix::PREFIX, Style::default().fg(color)),
+        Span::styled(body, Style::default().fg(color)),
+    ]));
 }
 
 /// 追加该工具调用触发的 hook 行（规格见 spec/global/domains/hooks-display.md）。

@@ -355,8 +355,8 @@ fn start_bash_tool(app: &mut App, tool_call_id: &str) {
         tool_call_id: tool_call_id.to_string(),
         name: "Bash".into(),
         display: "Bash".into(),
-        args: "ls".into(),
-        input: serde_json::json!({"command": "ls"}),
+        args: "cargo test".into(),
+        input: serde_json::json!({"command": "cargo test"}),
         source_agent_id: None,
     });
 }
