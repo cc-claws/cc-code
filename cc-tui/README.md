@@ -132,6 +132,7 @@ cargo run -p cc-tui -- -r <session-id>
 | `/agent-design` | SubAgent 定义管理 |
 | `/memory` | Memory 文件管理面板 |
 | `/theme` | 主题选择面板（也可 `/theme <name>` 直接切换） |
+| `/ps` | 后台任务面板（Agent 运行中也可立即弹出） |
 
 ### Session 命令
 
