@@ -511,11 +511,10 @@ impl App {
 
         // 通知渲染线程加载历史消息
         let vms = self.session_mgr.current().messages.view_messages.clone();
-        let _ = self
-            .session_mgr
+        self.session_mgr
             .current_mut()
             .messages
-            .send_render_event(RenderEvent::Rebuild(vms));
+            .send_render_snapshot(RenderEvent::Rebuild(vms));
         true
     }
 
@@ -651,11 +650,10 @@ impl App {
         // 回收释放的内存给 OS
         crate::alloc_config::alloc_collect();
 
-        let _ = self
-            .session_mgr
+        self.session_mgr
             .current_mut()
             .messages
-            .send_render_event(RenderEvent::Clear);
+            .send_render_snapshot(RenderEvent::Clear);
 
         // 归还已释放内存页给 OS
         crate::alloc_config::alloc_collect();

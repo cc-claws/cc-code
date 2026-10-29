@@ -31,8 +31,15 @@ impl Command for GcCommand {
         let origin_count = active.agent.origin_messages.len();
         let origin_bytes = estimate_messages_heap(&active.agent.origin_messages);
         let (completed_count, completed_bytes) = active.messages.pipeline.completed_stats();
-        let vm_count = active.messages.view_messages.len();
-        let vm_bytes = estimate_view_messages_heap(&active.messages.view_messages);
+        let (cached_vm_count, cached_vm_bytes) = std::iter::once(&active.messages.pipeline)
+            .chain(active.subagent_sessions.values().map(|sub| &sub.pipeline))
+            .map(|pipeline| pipeline.completed_view_cache_stats())
+            .fold((0, 0), |(count, bytes), (next_count, next_bytes)| {
+                (count + next_count, bytes + next_bytes)
+            });
+        let vm_count = active.messages.view_messages.len() + cached_vm_count;
+        let vm_bytes =
+            estimate_view_messages_heap(&active.messages.view_messages) + cached_vm_bytes;
 
         // ── Markdown 缓存诊断：单次加锁快照，不克隆缓存内容 ──
         let md_cache = cc_widgets::markdown::cache::MarkdownCache::global().stats();

@@ -1,6 +1,9 @@
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc,
+use std::{
+    cell::RefCell,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
 };
 
 use cc_agent::interaction::channel_types::ChannelNotification;
@@ -70,6 +73,10 @@ pub struct MessageState {
     pub round_start_vm_idx: usize,
     pub pipeline: MessagePipeline,
     pub render_tx: mpsc::Sender<RenderEvent>,
+    /// 渲染队列满时保留最新完整快照（重建、滚动锚点或清空），下一轮轮询重试。
+    pending_render_rebuild: Option<RenderEvent>,
+    /// 每种渲染模式仅保留最新值，最多五种；重试时先同步模式，再发送内容快照。
+    pending_render_modes: RefCell<Vec<RenderEvent>>,
     pub render_cache: Arc<RwLock<RenderCache>>,
     pub render_notify: Arc<Notify>,
     pub last_render_version: u64,
@@ -107,6 +114,8 @@ impl MessageState {
             round_start_vm_idx: 0,
             pipeline: MessagePipeline::new(cwd),
             render_tx,
+            pending_render_rebuild: None,
+            pending_render_modes: RefCell::new(Vec::new()),
             render_cache,
             render_notify,
             last_render_version: 0,
@@ -146,15 +155,66 @@ impl MessageState {
             RenderEvent::Clear
                 | RenderEvent::ToggleDetail(_)
                 | RenderEvent::ToggleDiff(_)
+                | RenderEvent::ToggleHookRows(_)
                 | RenderEvent::ToggleToolMessages(_)
                 | RenderEvent::SetDetailStrategy(_)
         );
-        self.render_tx.try_send(event)?;
+        // 模式变更是绝对状态，队列满时同类型的新值覆盖旧值，避免开关永久失步。
+        let mode = match &event {
+            RenderEvent::SetDetailStrategy(value) => {
+                Some(RenderEvent::SetDetailStrategy(value.clone()))
+            }
+            RenderEvent::ToggleDetail(value) => Some(RenderEvent::ToggleDetail(*value)),
+            RenderEvent::ToggleDiff(value) => Some(RenderEvent::ToggleDiff(*value)),
+            RenderEvent::ToggleHookRows(value) => Some(RenderEvent::ToggleHookRows(*value)),
+            RenderEvent::ToggleToolMessages(value) => Some(RenderEvent::ToggleToolMessages(*value)),
+            _ => None,
+        };
+        let result = self.render_tx.try_send(event);
+        if let Some(mode) = mode {
+            let mut pending = self.pending_render_modes.borrow_mut();
+            pending.retain(|old| std::mem::discriminant(old) != std::mem::discriminant(&mode));
+            if matches!(&result, Err(mpsc::error::TrySendError::Full(_))) {
+                pending.push(mode);
+            }
+        }
+        result?;
         self.layout_revision.fetch_add(1, Ordering::Relaxed);
         if replaces_layout {
             self.invalidate_layout();
         }
         Ok(())
+    }
+
+    pub(crate) fn send_render_snapshot(&mut self, event: RenderEvent) {
+        debug_assert!(matches!(
+            event,
+            RenderEvent::Rebuild(_) | RenderEvent::RebuildWithAnchor { .. } | RenderEvent::Clear
+        ));
+        if !self.pending_render_modes.borrow().is_empty() {
+            // 锚点必须在新模式下计算，不能越过仍未入队的布局变更。
+            self.pending_render_rebuild = Some(event);
+            return;
+        }
+        self.pending_render_rebuild = match self.send_render_event(event) {
+            Ok(()) | Err(mpsc::error::TrySendError::Closed(_)) => None,
+            Err(mpsc::error::TrySendError::Full(event)) => Some(event),
+        };
+    }
+
+    pub(crate) fn retry_render_rebuild(&mut self) -> bool {
+        let mut updated = false;
+        for event in self.pending_render_modes.take() {
+            updated |= self.send_render_event(event).is_ok();
+        }
+        if !self.pending_render_modes.borrow().is_empty() {
+            return updated;
+        }
+        let Some(event) = self.pending_render_rebuild.take() else {
+            return updated;
+        };
+        self.send_render_snapshot(event);
+        updated || (self.pending_render_rebuild.is_none() && !self.render_tx.is_closed())
     }
 
     /// 添加系统通知并记录锚点位置。
@@ -194,3 +254,7 @@ impl MessageState {
         self.view_messages.push(vm);
     }
 }
+
+#[cfg(test)]
+#[path = "message_state_test.rs"]
+mod tests;
