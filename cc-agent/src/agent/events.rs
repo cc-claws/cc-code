@@ -34,6 +34,24 @@ impl BackgroundTaskResult {
     }
 }
 
+/// hook 失败类别：决定 UI 用的动词与颜色。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HookFailureKind {
+    /// 按策略阻断（exit 2 / decision=block / preventContinuation）
+    Block,
+    /// 脚本崩溃 / 超时 / 输出非法：不阻断调用，只如实上报
+    Error,
+}
+
+/// hook 阻断或执行失败的描述（UI 展示用）。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct HookFailureInfo {
+    pub kind: HookFailureKind,
+    /// 给用户看的原因（hook 输出的 reason、超时说明或错误摘要）
+    pub reason: String,
+}
+
 /// Compact 保留的文件信息摘要
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CompactFileInfo {
@@ -229,6 +247,38 @@ pub enum AgentEvent {
         summary: String,
         /// 回退后的新消息列表（目标消息之前，不含目标本身）
         messages: Vec<crate::messages::BaseMessage>,
+    },
+    /// 异步 hook 开始执行（仅 `async: true` 上报）
+    ///
+    /// 异步 hook 是 fire-and-forget，完成时若工具块早已进入历史前缀，结果行就贴不上。
+    /// 先发这条让 UI 立刻写入占位行，完成时再原地替换。
+    /// 同步 hook 瞬时完成，不报开始事件。
+    HooksStarted {
+        /// 触发的事件名（PreToolUse / PostToolUse ...）
+        event: String,
+        /// 归属的工具调用；非工具事件为 None
+        tool_call_id: Option<String>,
+    },
+    /// 一批 hook 执行完成（同步事件一次、异步 hook 各自一次）
+    ///
+    /// 只用于 UI 展示，不进入 agent history：TUI 在详细模式下渲染为
+    /// `N <Event> hooks ran · Xms`，阻断/失败在普通模式也显示。
+    HooksCompleted {
+        /// 触发的事件名（PreToolUse / PostToolUse / Stop ...）
+        event: String,
+        /// 真正执行过的 hook 数（被 matcher / once / 无 LLM factory 跳过的不计）。
+        ///
+        /// 两条路径口径不同：同步路径执行过就 +1（block / error 也计入，失败另外
+        /// 收进 `failures`）；异步路径每次上报只有一条 hook，成功计 1、失败计 0。
+        ran: usize,
+        /// 该事件所有同步 hook 的总耗时
+        duration_ms: u64,
+        /// 阻断与执行失败清单
+        failures: Vec<HookFailureInfo>,
+        /// true 表示这是异步 hook 完成后的单独上报
+        is_async: bool,
+        /// 归属的工具调用；非工具事件为 None
+        tool_call_id: Option<String>,
     },
     /// 上下文压缩失败
     CompactError { message: String },

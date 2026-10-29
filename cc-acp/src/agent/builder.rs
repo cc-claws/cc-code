@@ -104,6 +104,9 @@ pub struct AcpAgentConfig {
     /// 事件通道（CompactMiddleware 发送 compact 事件）
     pub compact_event_tx:
         Option<Arc<std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<ExecutorEvent>>>>>,
+    /// 事件通道（HookMiddleware 发送 hook 执行结果）
+    pub hook_event_tx:
+        Option<Arc<std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<ExecutorEvent>>>>>,
     /// Thread persistence store for child thread creation (None = non-persistent)
     pub thread_store: Option<Arc<dyn cc_agent::thread::ThreadStore>>,
     /// Parent thread ID for child thread hierarchy (None = top-level agent)
@@ -201,6 +204,7 @@ fn build_agent_inner(
         compact_budget: mw_compact_budget,
         compact_model: mw_compact_model,
         compact_event_tx: mw_compact_event_tx,
+        hook_event_tx: mw_hook_event_tx,
         thread_store,
         parent_thread_id,
         register_runtime,
@@ -455,6 +459,12 @@ fn build_agent_inner(
     });
 
     // SubAgent middleware
+    //
+    // 子代理的 SubagentStart/SubagentStop hooks 与主链共用同一份配置（对齐参考实现的
+    // executeSubagentStartHooks：子代理启动时执行会话级 hooks）。这里先拷一份，
+    // 下面的中间件循环会消耗 hook_groups。
+    let subagent_hooks: Vec<cc_middlewares::hooks::types::RegisteredHook> =
+        hook_groups.iter().flatten().cloned().collect();
     let mut subagent = SubAgentMiddleware::new(
         parent_tools,
         Some(Arc::clone(&event_handler) as Arc<dyn AgentEventHandler>),
@@ -467,7 +477,7 @@ fn build_agent_inner(
     .with_extra_agent_dirs(plugin_agent_dirs.clone())
     .with_background_registry(Arc::clone(&background_registry))
     .with_bg_event_sender(bg_event_tx)
-    .with_registered_hooks(vec![])
+    .with_registered_hooks(subagent_hooks)
     .with_inherited_instructions(inherited_instructions)
     .with_permissions(&hitl);
     if let Some(ts) = thread_store {
@@ -575,11 +585,14 @@ fn build_agent_inner(
             let factory = llm_factory.clone();
             move || factory(None)
         });
+        let hook_event_tx = mw_hook_event_tx
+            .as_ref()
+            .and_then(|slot| slot.lock().ok().and_then(|guard| guard.clone()));
         for (i, group) in hook_groups.into_iter().enumerate() {
             if group.is_empty() {
                 continue;
             }
-            let mw = cc_middlewares::hooks::HookMiddleware::with_session_start(
+            let mut mw = cc_middlewares::hooks::HookMiddleware::with_session_start(
                 group,
                 hook_llm_factory.clone(),
                 &cwd,
@@ -596,6 +609,10 @@ fn build_agent_inner(
                     None
                 },
             );
+            // 注入事件通道：hook 执行结果需要回到 TUI（详细模式汇总 / 异常行）。
+            if let Some(tx) = hook_event_tx.clone() {
+                mw = mw.with_event_tx(tx);
+            }
             executor = executor.add_middleware(Box::new(mw));
         }
     }

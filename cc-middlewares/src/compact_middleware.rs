@@ -116,7 +116,10 @@ impl CompactMiddleware {
     }
 
     async fn fire_hooks(&self, event: hooks::types::HookEvent, msg_count: usize) {
-        hooks::middleware::fire_standalone_lifecycle_hooks(
+        // compact 是生命周期旁路，没有 HookMiddleware 实例；把本中间件的事件通道
+        // 透传下去，hook 执行结果才能以 HooksCompleted 出现在 UI（tool_call_id 为 None）。
+        let event_tx = self.event_tx.lock().unwrap().clone();
+        hooks::middleware::fire_standalone_lifecycle_hooks_with_tx(
             &self.hooks,
             event,
             &self.cwd,
@@ -126,6 +129,7 @@ impl CompactMiddleware {
             Some(msg_count),
             // compact 路径不触发 SessionEnd，source 参数无意义，传 None
             None,
+            event_tx,
         )
         .await
     }

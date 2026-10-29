@@ -58,13 +58,18 @@ pub(crate) fn build_subagent_middlewares(
 
 mod permission;
 
-/// 独立（非方法）版本的 SubagentStart/SubagentStop hook 触发逻辑
+/// 独立（非方法）版本的 SubagentStart/SubagentStop hook 触发逻辑。
+///
+/// `event_tx` 用来上报执行结果（`AgentEvent::HooksCompleted`，`tool_call_id` 恒为
+/// `None`）；`None` 表示无 UI 订阅，静默执行。子 Agent 的 hook 行归属主 Agent 还是
+/// 子 Agent 事件流不在本函数职责内——这里只保证结果能上报、不丢。
 async fn fire_subagent_lifecycle_hooks_static(
     registered_hooks: &[RegisteredHook],
     event: HookEvent,
     cwd: &str,
     subagent_name: &str,
     result: Option<&str>,
+    event_tx: Option<tokio::sync::mpsc::UnboundedSender<cc_agent::agent::events::AgentEvent>>,
 ) {
     let matching: Vec<&RegisteredHook> = registered_hooks
         .iter()
@@ -88,8 +93,12 @@ async fn fire_subagent_lifecycle_hooks_static(
         _ => return,
     };
 
+    let started = std::time::Instant::now();
+    let mut ran = 0usize;
+    let mut failures: Vec<cc_agent::agent::events::HookFailureInfo> = Vec::new();
+
     for registered in &matching {
-        let _action = match &registered.hook {
+        let action = match &registered.hook {
             crate::hooks::types::HookType::Command { .. } => {
                 crate::hooks::executor::execute_command_hook(&registered.hook, &input, registered)
                     .await
@@ -97,9 +106,24 @@ async fn fire_subagent_lifecycle_hooks_static(
             crate::hooks::types::HookType::Http { .. } => {
                 crate::hooks::executor::execute_http_hook(&registered.hook, &input).await
             }
-            _ => crate::hooks::types::HookAction::Allow,
+            // Prompt/Agent 需要 LLM factory，这里没有：视为未执行，不计入 ran。
+            _ => continue,
         };
+        ran += 1;
+        if let Some(failure) = crate::hooks::middleware::hook_failure(&action) {
+            failures.push(failure);
+        }
     }
+
+    crate::hooks::middleware::emit_hooks_summary(
+        event_tx.as_ref(),
+        event.as_str(),
+        ran,
+        started,
+        &failures,
+        false,
+        None,
+    );
 }
 
 /// 子 Agent 的「任务预览」——抽屉行、启动摘要、状态栏都用它代表这个子任务。

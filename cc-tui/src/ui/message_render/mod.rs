@@ -21,8 +21,8 @@ pub(crate) use streaming_bash::shell_output_status_text;
 use super::{
     branch_prefix::BranchPrefix,
     message_view::{
-        AgentSummary, BackgroundTaskStarted, ContentBlockView, MessageViewModel, ToolCategory,
-        ToolEntry,
+        AgentSummary, BackgroundTaskStarted, ContentBlockView, HookRow, MessageViewModel, NoteTone,
+        ToolCategory, ToolEntry,
     },
     theme,
 };
@@ -30,6 +30,120 @@ use crate::app::tool_display::sanitize_display_text;
 
 pub(crate) const CONTROL_B_BACKGROUND_HINT: &str = "(ctrl+b to run in background)";
 const BACKGROUND_RUNNING_STATUS: &str = "Running in the background (↓ to manage)";
+
+/// hook 汇总行（`N <Event> hooks ran · Xms` / `Async hook <Event> completed`）的折叠上限。
+const HOOK_SUMMARY_MAX_ROWS: usize = 4;
+/// hook 阻断/失败行的折叠上限。
+const HOOK_FAILURE_MAX_ROWS: usize = 3;
+
+/// hook 行语义色：成功汇总用 inactive，阻断用 warning，失败用 error。
+///
+/// `Success` 当前没有被 `HookRow` 的构造器产出（汇总/异步行是 `Neutral`，
+/// 阻断/失败是 `Warning`/`Error`），但 `HookRow::failure()` 接受任意 `NoteTone`，
+/// 类型上仍可达；`NoteTone` 又是全 UI 共享枚举，此处保留穷举映射而不是 `_` 兜底，
+/// 以免将来新增 tone 时被静默吞成 inactive。
+fn hook_row_color(tone: NoteTone) -> Color {
+    match tone {
+        NoteTone::Warning => theme::cur().warning,
+        NoteTone::Error => theme::cur().error,
+        NoteTone::Success => theme::cur().success,
+        NoteTone::Neutral => theme::cur().inactive,
+    }
+}
+
+/// 渲染一行 hook 结果：`  ⎿  <text>`，`⎿` 与正文同色（跟随 tone）。
+///
+/// 文本先经 `sanitize_display_text`：hook 的 reason 来自 stderr，可能带换行、
+/// 制表符与 ANSI 转义——直接塞进单个 Span 时 `\n` 宽度为 0，不会当换行，
+/// 会导致行内容错位，甚至把终端转义序列泄漏到屏幕上。
+/// 超宽时按内容宽度折行，续行用悬挂缩进，保证行宽不越视口。
+fn push_hook_line(lines: &mut Vec<Line<'static>>, text: &str, color: Color, width: usize) {
+    let content_width = BranchPrefix::content_width(width);
+    let body = Line::from(Span::styled(
+        sanitize_display_text(text),
+        Style::default().fg(color),
+    ));
+    for (i, wrapped) in wrap_line_spans(body, content_width).into_iter().enumerate() {
+        let prefix = if i == 0 {
+            BranchPrefix::PREFIX
+        } else {
+            BranchPrefix::HANG
+        };
+        let mut spans = vec![Span::styled(prefix, Style::default().fg(color))];
+        spans.extend(wrapped.spans);
+        lines.push(Line::from(spans));
+    }
+}
+
+/// 追加该工具调用触发的 hook 行（规格见 spec/global/domains/hooks-display.md）。
+///
+/// - 阻断/失败行两种模式都显示；汇总/异步完成行仅详细模式显示。
+/// - 折叠口径：同步汇总最多 4 行（其余折成 `… +N events`），失败最多 3 行
+///   （其余折成 `… +N more`）。异步完成行不参与折叠，每个异步 hook 各占一行。
+///   行数不随 hook 数量线性增长。
+fn append_hook_rows(
+    lines: &mut Vec<Line<'static>>,
+    hook_rows: &[HookRow],
+    detail_mode: bool,
+    width: usize,
+) {
+    if hook_rows.is_empty() {
+        return;
+    }
+    let mut failures = 0usize;
+    let mut summaries = 0usize;
+    for row in hook_rows {
+        if row.detail_only {
+            if !detail_mode {
+                continue;
+            }
+            // 异步逐条行不参与汇总行折叠，只有同步汇总行受 4 行限额。
+            if !row.async_row {
+                if summaries >= HOOK_SUMMARY_MAX_ROWS {
+                    continue;
+                }
+                summaries += 1;
+            }
+        } else {
+            if failures >= HOOK_FAILURE_MAX_ROWS {
+                continue;
+            }
+            failures += 1;
+        }
+        push_hook_line(lines, &row.text, hook_row_color(row.tone), width);
+    }
+
+    let hidden_failures = hook_rows
+        .iter()
+        .filter(|row| !row.detail_only)
+        .count()
+        .saturating_sub(HOOK_FAILURE_MAX_ROWS);
+    if hidden_failures > 0 {
+        push_hook_line(
+            lines,
+            &format!("… +{hidden_failures} more"),
+            theme::cur().subtle,
+            width,
+        );
+    }
+    let hidden_summaries = if detail_mode {
+        hook_rows
+            .iter()
+            .filter(|row| row.detail_only && !row.async_row)
+            .count()
+            .saturating_sub(HOOK_SUMMARY_MAX_ROWS)
+    } else {
+        0
+    };
+    if hidden_summaries > 0 {
+        push_hook_line(
+            lines,
+            &format!("… +{hidden_summaries} events"),
+            theme::cur().subtle,
+            width,
+        );
+    }
+}
 
 /// 动态走秒时长格式化直接复用底层的 [`cc_widgets::format_elapsed_secs`]。
 pub(crate) use cc_widgets::format_elapsed_secs;
@@ -1763,24 +1877,28 @@ pub fn render_view_model_with_flags(
             phase,
             source_agent_id,
             live_output,
+            hook_rows,
             ..
         } => {
             // AskUserQuestion 专用渲染路径
             if tool_name == "AskUserQuestion" {
-                return (render_ask_user_block(content, *is_error, width), link_hits);
+                // 与其余提前返回分支一致：hook 行挂在工具内容之后，否则整段丢失。
+                let mut lines = render_ask_user_block(content, *is_error, width);
+                append_hook_rows(&mut lines, hook_rows, detail_mode, width);
+                return (lines, link_hits);
             }
             if tool_name == "Skill" && *collapsed && !detail_mode {
-                return (
-                    skill::render_collapsed_skill(
-                        args_display.as_deref(),
-                        content,
-                        *is_error,
-                        *phase,
-                        width,
-                        tick,
-                    ),
-                    link_hits,
+                let mut lines = skill::render_collapsed_skill(
+                    args_display.as_deref(),
+                    content,
+                    *is_error,
+                    *phase,
+                    width,
+                    tick,
                 );
+                // 折叠 Skill 分支在臂末尾之前提前返回：hook 失败/阻断行仍要跟上。
+                append_hook_rows(&mut lines, hook_rows, detail_mode, width);
+                return (lines, link_hits);
             }
             let skill_instruction = if tool_name == "Skill" && !*is_error {
                 skill::instruction_for_display(content)
@@ -2014,6 +2132,9 @@ pub fn render_view_model_with_flags(
                 }
                 // 实时、历史重建和子 Agent 展开都共用此渲染入口。
                 // 不改 content，因此模型仍能使用完整的任务 ID 和输出路径。
+                // 转后台同样可能带阻断/失败行（PRD「与 Bash 执行结果的组合」），
+                // 必须在提前返回前追加，否则这些行会整段丢失。
+                append_hook_rows(&mut lines, hook_rows, detail_mode, width);
                 return (lines, link_hits);
             }
             if tool_name == "Bash"
@@ -2044,6 +2165,8 @@ pub fn render_view_model_with_flags(
                             ),
                         ]));
                     }
+                    // 运行中带实时输出的分支同样提前返回：hook 行必须挂在输出之后。
+                    append_hook_rows(&mut lines, hook_rows, detail_mode, width);
                     return (lines, link_hits);
                 }
             }
@@ -2363,6 +2486,8 @@ pub fn render_view_model_with_flags(
                     }
                 }
             }
+            // hook 行在工具输出/diff 之后，随工具块一起折叠与滚动。
+            append_hook_rows(&mut lines, hook_rows, detail_mode, width);
             (lines, link_hits)
         }
         MessageViewModel::ShellCommand {

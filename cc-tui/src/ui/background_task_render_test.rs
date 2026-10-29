@@ -17,6 +17,7 @@ fn make_background_tool(content: &str) -> MessageViewModel {
         started_at: None,
         content_hash: 0,
         phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
         live_output: None,
         source_agent_id: None,
     }

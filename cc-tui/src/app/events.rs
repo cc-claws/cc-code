@@ -89,6 +89,24 @@ pub enum AgentEvent {
     },
     /// 上下文压缩失败，携带错误信息
     CompactError(String),
+    /// 异步 hook 开始执行（仅 `async: true` 上报）。
+    ///
+    /// TUI 先写一条 `Async hook {event} running…` 占位，完成事件到达时原地替换。
+    HooksStarted {
+        event: String,
+        tool_call_id: Option<String>,
+    },
+    /// 一批 hook 执行完成（同步事件一次、异步 hook 各自一次）。
+    ///
+    /// 只用于 UI 展示：普通模式只显示阻断/失败，详细模式额外显示逐事件汇总。
+    HooksCompleted {
+        event: String,
+        ran: usize,
+        duration_ms: u64,
+        failures: Vec<cc_agent::agent::events::HookFailureInfo>,
+        is_async: bool,
+        tool_call_id: Option<String>,
+    },
     /// 对话回退完成（rewind 命令）
     RewindCompleted {
         summary: String,

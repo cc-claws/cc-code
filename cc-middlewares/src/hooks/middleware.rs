@@ -8,6 +8,7 @@ use parking_lot::{Mutex, RwLock};
 
 use cc_agent::{
     agent::{
+        events::{AgentEvent, HookFailureInfo, HookFailureKind},
         react::{AgentOutput, ReactLLM, ToolCall, ToolResult},
         state::State,
     },
@@ -40,6 +41,8 @@ pub struct HookMiddleware {
     /// clear（/clear 后首次 prompt）/ compact（compact 后）。
     /// 对齐 CC SessionStart 的 4 种 matcher。
     session_start_source: Option<String>,
+    /// UI 事件通道（TUI 注入）。None 表示 hook 执行完全静默（无 UI 订阅）。
+    event_tx: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<AgentEvent>>>>,
     /// 判断工具是否需要用户审批。用于 PermissionRequest hook 门控。
     /// 默认使用 [`crate::hitl::default_requires_approval`]，
     /// 可通过 `with_requires_approval` 覆盖。
@@ -101,8 +104,41 @@ impl HookMiddleware {
             current_model: current_model.into(),
             once_fired: Arc::new(Mutex::new(HashSet::new())),
             session_start_source,
+            event_tx: Arc::new(Mutex::new(None)),
             requires_approval: crate::hitl::default_requires_approval,
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Hook 执行上报
+    // -----------------------------------------------------------------------
+
+    /// 注入 UI 事件通道。未注入时 hook 执行对用户完全静默（历史行为）。
+    pub fn with_event_tx(self, tx: tokio::sync::mpsc::UnboundedSender<AgentEvent>) -> Self {
+        *self.event_tx.lock() = Some(tx);
+        self
+    }
+
+    /// 上报一次 hook 执行结果（同步事件一次，异步 hook 各自一次）。
+    fn emit_hooks_completed(
+        &self,
+        event: &HookEvent,
+        ran: usize,
+        started: std::time::Instant,
+        failures: &[HookFailureInfo],
+        is_async: bool,
+        tool_call_id: Option<&str>,
+    ) {
+        let guard = self.event_tx.lock();
+        emit_hooks_summary(
+            guard.as_ref(),
+            event.as_str(),
+            ran,
+            started,
+            failures,
+            is_async,
+            tool_call_id,
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -133,6 +169,7 @@ impl HookMiddleware {
         input: &HookInput,
         tool_name: Option<&str>,
         tool_input: Option<&serde_json::Value>,
+        tool_call_id: Option<&str>,
     ) -> HookAction {
         // 确保 hook_event_name 与实际触发的事件一致。
         //
@@ -169,7 +206,10 @@ impl HookMiddleware {
             return HookAction::Allow;
         }
 
+        let started = std::time::Instant::now();
         let mut final_action = HookAction::Allow;
+        let mut ran = 0usize;
+        let mut failures: Vec<HookFailureInfo> = Vec::new();
 
         for registered in &hooks {
             // once check
@@ -210,12 +250,25 @@ impl HookMiddleware {
                 );
             }
             let action = if registered.hook.is_async() {
-                // Fire-and-forget: spawn in background, return Allow immediately
+                // Fire-and-forget: spawn in background, return Allow immediately。
+                // 完成后单独上报一次 is_async 的 summary（见 PRD C9/C10）。
                 let hook = registered.hook.clone();
                 let owned_input = input.clone();
                 let registered = registered.clone();
+                let event_name = event.as_str().to_string();
+                let event_tx = Arc::clone(&self.event_tx);
+                let tool_call_id = tool_call_id.map(str::to_string);
+                // 先报开始：TUI 立刻挂一条 Running 占位。完成事件可能晚于工具块
+                // 进入历史前缀，届时已无位置可贴（见 hooks-display.md）。
+                if let Some(tx) = event_tx.lock().as_ref() {
+                    let _ = tx.send(AgentEvent::HooksStarted {
+                        event: event_name.clone(),
+                        tool_call_id: tool_call_id.clone(),
+                    });
+                }
                 tokio::spawn(async move {
-                    let _ = match &hook {
+                    let started = std::time::Instant::now();
+                    let action = match &hook {
                         HookType::Command { .. } => {
                             execute_command_hook(&hook, &owned_input, &registered).await
                         }
@@ -224,6 +277,19 @@ impl HookMiddleware {
                         // async only applies to Command per schema definition.
                         _ => HookAction::Allow,
                     };
+                    let failures: Vec<HookFailureInfo> =
+                        hook_failure(&action).into_iter().collect();
+                    let guard = event_tx.lock();
+                    if let Some(tx) = guard.as_ref() {
+                        let _ = tx.send(AgentEvent::HooksCompleted {
+                            event: event_name,
+                            ran: usize::from(failures.is_empty()),
+                            duration_ms: started.elapsed().as_millis() as u64,
+                            failures,
+                            is_async: true,
+                            tool_call_id,
+                        });
+                    }
                 });
                 HookAction::Allow
             } else {
@@ -242,6 +308,14 @@ impl HookMiddleware {
                 }
             };
 
+            // 同步 hook：计入 ran，阻断/失败收进 failures
+            if !registered.hook.is_async() {
+                ran += 1;
+                if let Some(failure) = hook_failure(&action) {
+                    failures.push(failure);
+                }
+            }
+
             // once mark
             if Self::is_once_hook(&registered.hook) {
                 self.mark_once_fired(registered);
@@ -249,7 +323,17 @@ impl HookMiddleware {
 
             // Short-circuit on Block / PreventContinuation
             match &action {
-                HookAction::Block { .. } | HookAction::PreventContinuation { .. } => return action,
+                HookAction::Block { .. } | HookAction::PreventContinuation { .. } => {
+                    self.emit_hooks_completed(
+                        &event,
+                        ran,
+                        started,
+                        &failures,
+                        false,
+                        tool_call_id,
+                    );
+                    return action;
+                }
                 HookAction::ModifyInput { new_input } => {
                     final_action = HookAction::ModifyInput {
                         new_input: new_input.clone(),
@@ -266,10 +350,14 @@ impl HookMiddleware {
                         reason: reason.clone(),
                     };
                 }
+                // hook 自身出错（非预期退出码/超时/信号/启动失败）不阻断调用：
+                // 已计入 failures 供 UI 展示，控制流继续按 Allow 走。
+                HookAction::Error { .. } => {}
                 _ => {}
             }
         }
 
+        self.emit_hooks_completed(&event, ran, started, &failures, false, tool_call_id);
         final_action
     }
 
@@ -328,7 +416,7 @@ impl<S: State> Middleware<S> for HookMiddleware {
                 &self.current_model,
             );
             let action = self
-                .fire_event(HookEvent::SessionStart, &input, None, None)
+                .fire_event(HookEvent::SessionStart, &input, None, None, None)
                 .await;
             match &action {
                 HookAction::Block { reason } => {
@@ -367,7 +455,7 @@ impl<S: State> Middleware<S> for HookMiddleware {
             &prompt,
         );
         let action = self
-            .fire_event(HookEvent::UserPromptSubmit, &input, None, None)
+            .fire_event(HookEvent::UserPromptSubmit, &input, None, None, None)
             .await;
 
         // Handle UserPromptSubmit actions
@@ -412,6 +500,7 @@ impl<S: State> Middleware<S> for HookMiddleware {
                 &input,
                 Some(&tool_call.name),
                 Some(&tool_call.input),
+                Some(&tool_call.id),
             )
             .await;
 
@@ -458,6 +547,7 @@ impl<S: State> Middleware<S> for HookMiddleware {
                     &input,
                     Some(&tool_call.name),
                     Some(&tool_call.input),
+                    Some(&tool_call.id),
                 )
                 .await;
 
@@ -467,6 +557,7 @@ impl<S: State> Middleware<S> for HookMiddleware {
                 &input,
                 Some(&tool_call.name),
                 Some(&tool_call.input),
+                Some(&tool_call.id),
             )
             .await;
 
@@ -525,7 +616,13 @@ impl<S: State> Middleware<S> for HookMiddleware {
         );
 
         let _action = self
-            .fire_event(event, &input, Some(&tool_call.name), Some(&tool_call.input))
+            .fire_event(
+                event,
+                &input,
+                Some(&tool_call.name),
+                Some(&tool_call.input),
+                Some(&tool_call.id),
+            )
             .await;
 
         Ok(())
@@ -558,7 +655,7 @@ impl<S: State> Middleware<S> for HookMiddleware {
             message_count: None,
         };
 
-        let stop_action = self.fire_event(HookEvent::Stop, &input, None, None).await;
+        let stop_action = self.fire_event(HookEvent::Stop, &input, None, None, None).await;
 
         // Stop hook Block/PreventContinuation 语义：CC 规范中，Stop hook
         // 返回 block 时 agent 不应停止而应继续工作。这里捕获 action 并把 reason
@@ -587,7 +684,7 @@ impl<S: State> Middleware<S> for HookMiddleware {
         };
 
         // Fire Notification (agent done, waiting for user input)
-        self.fire_event(HookEvent::Notification, &input, None, None)
+        self.fire_event(HookEvent::Notification, &input, None, None, None)
             .await;
 
         Ok(output.clone())
@@ -640,7 +737,7 @@ impl<S: State> Middleware<S> for HookMiddleware {
             message_count: None,
         };
 
-        self.fire_event(HookEvent::StopFailure, &input, None, None)
+        self.fire_event(HookEvent::StopFailure, &input, None, None, None)
             .await;
 
         Ok(())
@@ -656,6 +753,9 @@ impl<S: State> Middleware<S> for HookMiddleware {
 ///
 /// The HookMiddleware instance is owned by the agent task and not accessible
 /// from these code paths, so we dispatch hooks directly.
+///
+/// 本入口不带事件通道，执行结果**不上报**（历史行为）。需要在 UI 上可见的旁路
+/// 调用点改用 [`fire_standalone_lifecycle_hooks_with_tx`]。
 #[allow(clippy::too_many_arguments)]
 pub async fn fire_standalone_lifecycle_hooks(
     registered_hooks: &[RegisteredHook],
@@ -667,6 +767,48 @@ pub async fn fire_standalone_lifecycle_hooks(
     message_count: Option<usize>,
     source: Option<&str>,
 ) {
+    fire_standalone_lifecycle_hooks_with_tx(
+        registered_hooks,
+        event,
+        cwd,
+        session_id,
+        transcript_path,
+        current_model,
+        message_count,
+        source,
+        // 未注入通道：静默执行（TUI 的 SessionEnd 等既有调用点走这里）
+        None,
+    )
+    .await;
+}
+
+/// 同 [`fire_standalone_lifecycle_hooks`]，但把执行结果汇总上报到事件通道。
+///
+/// 旁路调用点没有 `HookMiddleware` 实例，不能复用 `emit_hooks_completed`；这里用
+/// 传进来的 sender 发同一份 [`AgentEvent::HooksCompleted`]，口径与主链一致：
+/// 同步 hook 循环结束后上报一次（`is_async = false`），异步 hook 各自完成后单独
+/// 上报一次（`is_async = true`）。`tool_call_id` 恒为 `None`——生命周期事件不归属
+/// 任何工具调用，TUI 侧渲染成独立的 `⎿` 行。
+#[allow(clippy::too_many_arguments)]
+pub async fn fire_standalone_lifecycle_hooks_with_tx(
+    registered_hooks: &[RegisteredHook],
+    event: HookEvent,
+    cwd: &str,
+    session_id: &str,
+    transcript_path: &str,
+    current_model: &str,
+    message_count: Option<usize>,
+    source: Option<&str>,
+    event_tx: Option<tokio::sync::mpsc::UnboundedSender<AgentEvent>>,
+) {
+    // SessionEnd 不上报：会话结束（退出或 /clear 切换）时没有稳定的渲染时机，
+    // 展示出来也没有意义。PRD「决策记录」明确排除该事件。
+    let event_tx = if event == HookEvent::SessionEnd {
+        None
+    } else {
+        event_tx
+    };
+
     // Filter hooks matching the event
     let matching: Vec<&RegisteredHook> = registered_hooks
         .iter()
@@ -729,6 +871,10 @@ pub async fn fire_standalone_lifecycle_hooks(
         _ => return,
     };
 
+    let started = std::time::Instant::now();
+    let mut ran = 0usize;
+    let mut failures: Vec<HookFailureInfo> = Vec::new();
+
     for registered in matching {
         if let Some(ref msg) = registered.hook.get_status_message() {
             tracing::info!(
@@ -740,39 +886,127 @@ pub async fn fire_standalone_lifecycle_hooks(
         }
 
         if registered.hook.is_async() {
-            // Fire-and-forget async hook
+            // Fire-and-forget async hook：完成后单独上报 is_async summary
             let hook = registered.hook.clone();
             let input = input.clone();
             let registered = registered.clone();
+            let event_name = event.as_str().to_string();
+            let event_tx = event_tx.clone();
             tokio::spawn(async move {
-                let _ = match &hook {
+                let started = std::time::Instant::now();
+                let action = match &hook {
                     HookType::Command { .. } => {
                         execute_command_hook(&hook, &input, &registered).await
                     }
                     HookType::Http { .. } => execute_http_hook(&hook, &input).await,
                     _ => HookAction::Allow,
                 };
+                let failures: Vec<HookFailureInfo> = hook_failure(&action).into_iter().collect();
+                emit_hooks_summary(
+                    event_tx.as_ref(),
+                    &event_name,
+                    usize::from(failures.is_empty()),
+                    started,
+                    &failures,
+                    true,
+                    None,
+                );
             });
             continue;
         }
 
-        let _action = match &registered.hook {
+        let action = match &registered.hook {
             HookType::Command { .. } => {
                 execute_command_hook(&registered.hook, &input, registered).await
             }
-            HookType::Prompt { .. } => {
-                // No LLM factory available in standalone context; skip
-                HookAction::Allow
-            }
             HookType::Http { .. } => execute_http_hook(&registered.hook, &input).await,
-            HookType::Agent { .. } => {
-                // No LLM factory available in standalone context; skip
-                HookAction::Allow
+            // Prompt/Agent 需要 LLM factory，standalone 上下文没有：视为未执行，
+            // 不计入 ran，避免 summary 谎报「跑了几条」。
+            HookType::Prompt { .. } | HookType::Agent { .. } => {
+                tracing::debug!(
+                    event = ?event,
+                    "standalone hook skipped: LLM factory unavailable"
+                );
+                continue;
             }
         };
+
+        // 旁路不做短路：Block/Error 只作为失败项上报，控制流由调用方决定。
+        ran += 1;
+        if let Some(failure) = hook_failure(&action) {
+            failures.push(failure);
+        }
     }
+
+    emit_hooks_summary(
+        event_tx.as_ref(),
+        event.as_str(),
+        ran,
+        started,
+        &failures,
+        false,
+        None,
+    );
 }
 
 #[cfg(test)]
 #[path = "middleware_test.rs"]
 mod tests;
+
+/// 把一次 hook 执行汇总成 [`AgentEvent::HooksCompleted`] 发到事件通道。
+///
+/// 主链（`HookMiddleware::emit_hooks_completed`）与旁路（standalone lifecycle、
+/// subagent lifecycle）共用这一份口径，避免两处统计漂移。
+///
+/// - `ran == 0 && failures.is_empty()`（一条 hook 都没真正执行，或被 matcher/once 全跳过）
+///   时不上报，避免 UI 噪音。
+/// - `event_tx` 为 `None` 表示没有 UI 订阅，完全静默。
+/// - `tool_call_id` 为 `None` 表示非工具事件。
+pub(crate) fn emit_hooks_summary(
+    event_tx: Option<&tokio::sync::mpsc::UnboundedSender<AgentEvent>>,
+    event: &str,
+    ran: usize,
+    started: std::time::Instant,
+    failures: &[HookFailureInfo],
+    is_async: bool,
+    tool_call_id: Option<&str>,
+) {
+    if ran == 0 && failures.is_empty() {
+        return;
+    }
+    let Some(tx) = event_tx else {
+        return;
+    };
+    let _ = tx.send(AgentEvent::HooksCompleted {
+        event: event.to_string(),
+        ran,
+        duration_ms: started.elapsed().as_millis() as u64,
+        failures: failures.to_vec(),
+        is_async,
+        tool_call_id: tool_call_id.map(str::to_string),
+    });
+}
+
+/// 把 hook 的阻断/失败语义转成 UI 可渲染的失败项。
+///
+/// `Block` 是策略性阻断（琥珀色），`Error` 是 hook 自身出错（红色）——后者
+/// **不改变控制流**，只是把「你配的 hook 坏了」如实告诉用户。
+pub(crate) fn hook_failure(action: &HookAction) -> Option<HookFailureInfo> {
+    match action {
+        HookAction::Block { reason } => Some(HookFailureInfo {
+            kind: HookFailureKind::Block,
+            reason: reason.clone(),
+        }),
+        HookAction::Error { reason } => Some(HookFailureInfo {
+            kind: HookFailureKind::Error,
+            reason: reason.clone(),
+        }),
+        HookAction::PreventContinuation { stop_reason } => Some(HookFailureInfo {
+            kind: HookFailureKind::Block,
+            reason: stop_reason
+                .clone()
+                .unwrap_or_else(|| "prevented continuation".to_string()),
+        }),
+        _ => None,
+    }
+}

@@ -92,8 +92,8 @@ async fn test_command_hook_nonzero_exit_is_never_replayed() {
             );
         } else {
             assert!(
-                matches!(action, HookAction::Allow),
-                "exit 1 保持告警放行语义"
+                matches!(action, HookAction::Error { .. }),
+                "exit 1 不阻断但必须上报为失败：{action:?}"
             );
         }
         assert_eq!(
@@ -164,7 +164,10 @@ async fn test_command_hook_timeout_covers_stdin_write() {
     input.prompt = Some("x".repeat(256 * 1024));
     let start = std::time::Instant::now();
     let action = execute_command_hook(&hook, &input, &registered).await;
-    assert!(matches!(action, HookAction::Allow), "超时保持告警放行语义");
+    assert!(
+        matches!(action, HookAction::Error { ref reason } if reason.contains("timed out")),
+        "超时不阻断但要上报为失败：{action:?}"
+    );
     assert!(
         dir.path().join("started").exists(),
         "必须实际启动脚本，不能把启动失败当作超时通过"

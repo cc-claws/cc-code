@@ -279,6 +279,8 @@ pub fn map_event(event: &ExecutorEvent, context_window: u32) -> Vec<MappedEvent>
         | ExecutorEvent::CompactStarted { .. }
         | ExecutorEvent::CompactCompleted { .. }
         | ExecutorEvent::CompactError { .. }
+        | ExecutorEvent::HooksStarted { .. }
+        | ExecutorEvent::HooksCompleted { .. }
         | ExecutorEvent::RewindCompleted { .. }
         | ExecutorEvent::RecapCompleted { .. }
         | ExecutorEvent::RecapError { .. }

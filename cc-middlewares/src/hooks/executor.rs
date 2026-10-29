@@ -2,6 +2,7 @@ use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use crate::hooks::{
     output_parser::{parse_command_hook_output, parse_http_hook_response},
+    reason::{hook_error_reason, single_line_reason},
     ssrf_guard::check_url,
     types::{HookAction, HookInput, HookType, RegisteredHook},
     variables::resolve_hook_variables,
@@ -20,8 +21,8 @@ use cc_agent::{
 ///
 /// - shell: platform default with Git Bash routing on Windows; timeout default 600s
 /// - stdin: serialized HookInput JSON
-/// - exit code 0 → parse stdout, 1 → Allow(warn), 2 → Block(reason)
-/// - timeout → Allow(warn)
+/// - exit code 0 → parse stdout, 1/其他非零 → Error(不阻断), 2 → Block(reason)
+/// - timeout / 信号 / 启动失败 → Error(不阻断)
 pub async fn execute_command_hook(
     hook: &HookType,
     input: &HookInput,
@@ -64,7 +65,9 @@ pub async fn execute_command_hook(
             Ok(command) => command,
             Err(error) => {
                 tracing::warn!("Command hook execution failed: {}", error);
-                return HookAction::Allow;
+                return HookAction::Error {
+                    reason: hook_error_reason("hook failed to run", &error.to_string()),
+                };
             }
         };
     cmd.current_dir(&input.cwd)
@@ -97,11 +100,14 @@ pub async fn execute_command_hook(
                     parse_command_hook_output(&stdout)
                 }
                 Some(1) => {
-                    // Exit code 1 → Allow with warning
+                    // 非阻断失败：CC 语义里 exit 1 表示 hook 执行出错，但不阻止工具调用。
+                    // 保留为 Error 以便 UI 如实告知「hook 坏了」，流程上仍按 Allow 走。
                     if !stderr.is_empty() {
                         tracing::warn!("Command hook exited with code 1: {}", stderr);
                     }
-                    HookAction::Allow
+                    HookAction::Error {
+                        reason: hook_error_reason("hook exited with code 1", &stderr),
+                    }
                 }
                 Some(2) => {
                     // Exit code 2 → Block
@@ -120,11 +126,18 @@ pub async fn execute_command_hook(
                         code,
                         stderr
                     );
-                    HookAction::Allow
+                    HookAction::Error {
+                        reason: hook_error_reason(
+                            &format!("hook exited with code {code}"),
+                            &stderr,
+                        ),
+                    }
                 }
                 None => {
                     tracing::warn!("Command hook terminated by signal");
-                    HookAction::Allow
+                    HookAction::Error {
+                        reason: "hook terminated by signal".to_string(),
+                    }
                 }
             }
         }
@@ -135,11 +148,15 @@ pub async fn execute_command_hook(
                 timeout_secs,
                 command
             );
-            HookAction::Allow
+            HookAction::Error {
+                reason: format!("hook timed out after {timeout_secs}s"),
+            }
         }
         Err(e) => {
             tracing::warn!("Command hook execution failed: {}", e);
-            HookAction::Allow
+            HookAction::Error {
+                reason: hook_error_reason("hook failed to run", &e.to_string()),
+            }
         }
     }
 }
@@ -194,12 +211,17 @@ pub async fn execute_prompt_hook(
             parse_command_hook_output(&answer)
         }
         Ok(Err(e)) => {
+            // LLM 调用失败 = hook 自身跑不起来。不阻断调用，但要让用户看到
             tracing::warn!("Prompt hook LLM call failed: {}", e);
-            HookAction::Allow
+            HookAction::Error {
+                reason: hook_error_reason("hook LLM call failed", &e.to_string()),
+            }
         }
         Err(_) => {
             tracing::warn!("Prompt hook timed out after {}s", timeout_secs);
-            HookAction::Allow
+            HookAction::Error {
+                reason: format!("hook timed out after {timeout_secs}s"),
+            }
         }
     }
 }
@@ -314,13 +336,13 @@ pub async fn execute_http_hook(hook: &HookType, input: &HookInput) -> HookAction
                 tracing::warn!(
                     "HTTP hook returned non-success status {}: {}",
                     status,
-                    if body.len() > 200 {
-                        format!("{}...", &body[..body.floor_char_boundary(200)])
-                    } else {
-                        body
-                    }
+                    single_line_reason(&body)
                 );
-                return HookAction::Allow;
+                // 非 2xx = 端点自身出错（服务不可用 / 路径写错 / 鉴权失败）。
+                // 不阻断调用，但要把状态码暴露给用户，否则「hook 没生效」无从排查。
+                return HookAction::Error {
+                    reason: hook_error_reason(&format!("hook returned status {status}"), &body),
+                };
             }
 
             health.reset();
@@ -342,7 +364,10 @@ pub async fn execute_http_hook(hook: &HookType, input: &HookInput) -> HookAction
                     e
                 );
             }
-            HookAction::Allow
+            // 连接失败 / 超时 / 请求构造失败：hook 端点没跑通，不阻断但上报
+            HookAction::Error {
+                reason: hook_error_reason("hook request failed", &e.to_string()),
+            }
         }
     }
 }
@@ -398,12 +423,17 @@ pub async fn execute_agent_hook(
     match result {
         Ok(Ok((_output, messages))) => extract_structured_output(&messages),
         Ok(Err(e)) => {
+            // Agent hook 自身跑挂（LLM 报错 / 轮数耗尽）：不阻断调用但上报
             tracing::warn!("Agent hook execution failed: {}", e);
-            HookAction::Allow
+            HookAction::Error {
+                reason: hook_error_reason("hook agent failed", &e.to_string()),
+            }
         }
         Err(_) => {
             tracing::warn!("Agent hook timed out after {}s", timeout_secs);
-            HookAction::Allow
+            HookAction::Error {
+                reason: format!("hook timed out after {timeout_secs}s"),
+            }
         }
     }
 }

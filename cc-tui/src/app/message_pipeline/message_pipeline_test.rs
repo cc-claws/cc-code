@@ -2849,3 +2849,287 @@ fn test_interrupt_freezes_active_thinking() {
         "中断后不应再有活跃思考（否则会继续走秒闪烁）"
     );
 }
+
+/// PreToolUse 的 hook 行早于 ToolStart 到达：先暂存，工具块建出来后再挂上。
+#[test]
+fn test_hook_rows_pending_before_tool_start_are_attached_after() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.push_hook_result(
+        "tc_pre",
+        HookExec::new("PreToolUse", 1, 8, Vec::new(), false),
+    );
+    assert!(
+        pipeline
+            .build_tail_vms()
+            .iter()
+            .all(|vm| !matches!(vm, MessageViewModel::ToolBlock { .. })),
+        "工具块未建立时不应凭空造出工具块"
+    );
+
+    let _ = pipeline.handle_event(AgentEvent::ToolStart {
+        tool_call_id: "tc_pre".into(),
+        name: "Bash".into(),
+        display: "Bash".into(),
+        args: "sleep 10".into(),
+        input: json!({"command": "sleep 10"}),
+        source_agent_id: None,
+    });
+
+    for _ in 0..2 {
+        let tail = pipeline.build_tail_vms();
+        let rows = tail
+            .iter()
+            .find_map(|vm| match vm {
+                MessageViewModel::ToolBlock {
+                    tool_call_id,
+                    hook_rows,
+                    ..
+                } if tool_call_id == "tc_pre" => Some(hook_rows.clone()),
+                _ => None,
+            })
+            .expect("ToolStart 之后应生成工具块");
+        assert_eq!(rows.len(), 1, "暂存的 hook 行必须被挂上");
+        assert_eq!(rows[0].text, "1 PreToolUse hooks ran · 8ms");
+    }
+}
+
+/// 只读工具带 hook 行时不进聚合组：组不承载 hook 行，进组会把阻断/失败行吞掉。
+#[test]
+fn test_hook_rows_keep_readonly_tool_out_of_group() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    let _ = pipeline.handle_event(AgentEvent::ToolStart {
+        tool_call_id: "tc_read".into(),
+        name: "Read".into(),
+        display: "Read".into(),
+        args: "Cargo.toml".into(),
+        input: json!({"file_path": "Cargo.toml"}),
+        source_agent_id: None,
+    });
+    let tail = pipeline.build_tail_vms();
+    assert!(
+        !tail
+            .iter()
+            .any(|vm| matches!(vm, MessageViewModel::ToolBlock { .. })),
+        "对照：无 hook 行的只读工具应被聚合成组"
+    );
+
+    pipeline.push_hook_result(
+        "tc_read",
+        HookExec::new(
+            "PreToolUse",
+            1,
+            3,
+            vec![cc_agent::agent::events::HookFailureInfo {
+                kind: cc_agent::agent::events::HookFailureKind::Block,
+                reason: "policy".into(),
+            }],
+            false,
+        ),
+    );
+    let tail = pipeline.build_tail_vms();
+    assert!(
+        tail.iter().any(|vm| matches!(
+            vm,
+            MessageViewModel::ToolBlock { tool_call_id, hook_rows, .. }
+                if tool_call_id == "tc_read" && !hook_rows.is_empty()
+        )),
+        "带 hook 行的只读工具块必须留在单条里"
+    );
+}
+
+/// 建一个 Bash 工具块并取回挂在它上面的 hook 行。
+fn tool_hook_rows(
+    pipeline: &mut MessagePipeline,
+    tool_call_id: &str,
+) -> Vec<crate::ui::message_view::HookRow> {
+    let _ = pipeline.handle_event(AgentEvent::ToolStart {
+        tool_call_id: tool_call_id.into(),
+        name: "Bash".into(),
+        display: "Bash".into(),
+        args: "ls".into(),
+        input: json!({"command": "ls"}),
+        source_agent_id: None,
+    });
+    pipeline
+        .build_tail_vms()
+        .iter()
+        .find_map(|vm| match vm {
+            MessageViewModel::ToolBlock {
+                tool_call_id: id,
+                hook_rows,
+                ..
+            } if id == tool_call_id => Some(hook_rows.clone()),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
+/// 同一工具调用的同一事件分两次到达（global + project 各配一个 hook）：
+/// 只占一行，计数与耗时累加（PRD C4）。
+#[test]
+fn test_hook_result_merges_same_event_for_same_tool_call() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.push_hook_result(
+        "tc_merge",
+        HookExec::new("PreToolUse", 1, 5, Vec::new(), false),
+    );
+    pipeline.push_hook_result(
+        "tc_merge",
+        HookExec::new("PreToolUse", 1, 7, Vec::new(), false),
+    );
+
+    let rows = tool_hook_rows(&mut pipeline, "tc_merge");
+    assert_eq!(rows.len(), 1, "同一事件的两次上报必须合并成一行");
+    assert_eq!(rows[0].text, "2 PreToolUse hooks ran · 12ms");
+    assert!(rows[0].detail_only, "汇总行只在详细模式出现");
+}
+
+/// 合并时 failures 也拼接：第二个 middleware 实例的失败不覆盖第一个。
+#[test]
+fn test_hook_result_merge_concats_failures() {
+    use cc_agent::agent::events::{HookFailureInfo, HookFailureKind};
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.push_hook_result(
+        "tc_fail",
+        HookExec::new(
+            "PostToolUse",
+            2,
+            4,
+            vec![HookFailureInfo {
+                kind: HookFailureKind::Error,
+                reason: "exit 1".into(),
+            }],
+            false,
+        ),
+    );
+    pipeline.push_hook_result(
+        "tc_fail",
+        HookExec::new(
+            "PostToolUse",
+            1,
+            6,
+            vec![HookFailureInfo {
+                kind: HookFailureKind::Block,
+                reason: "denied".into(),
+            }],
+            false,
+        ),
+    );
+
+    let rows = tool_hook_rows(&mut pipeline, "tc_fail");
+    assert_eq!(rows.len(), 3, "两条失败行 + 一条汇总行");
+    assert_eq!(rows[0].text, "PostToolUse hook failed: exit 1");
+    assert_eq!(rows[1].text, "PostToolUse hook blocked: denied");
+    assert_eq!(rows[2].text, "3 PostToolUse hooks ran · 10ms");
+}
+
+/// 异步完成行不参与合并：每个异步 hook 各占一行。
+#[test]
+fn test_async_hook_completions_stay_separate_rows() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.push_hook_result(
+        "tc_async",
+        HookExec::new("PostToolUse", 1, 6, Vec::new(), true),
+    );
+    pipeline.push_hook_result(
+        "tc_async",
+        HookExec::new("PostToolUse", 1, 9, Vec::new(), true),
+    );
+
+    let rows = tool_hook_rows(&mut pipeline, "tc_async");
+    assert_eq!(rows.len(), 2, "每个异步 hook 各占一行");
+    assert!(rows.iter().all(|row| row.async_row));
+    assert!(rows
+        .iter()
+        .all(|row| row.text == "Async hook PostToolUse completed"));
+}
+
+/// 取当前尾部工具块上已挂的 hook 行（不新建工具块）。
+fn tail_hook_rows(
+    pipeline: &MessagePipeline,
+    tool_call_id: &str,
+) -> Vec<crate::ui::message_view::HookRow> {
+    pipeline
+        .build_tail_vms()
+        .iter()
+        .find_map(|vm| match vm {
+            MessageViewModel::ToolBlock {
+                tool_call_id: id,
+                hook_rows,
+                ..
+            } if id == tool_call_id => Some(hook_rows.clone()),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
+/// 异步 hook 开始时先挂一条 Running 占位行。
+#[test]
+fn test_async_hook_started_shows_running_row() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.start_hook_result("tc_running", "PostToolUse");
+
+    let rows = tool_hook_rows(&mut pipeline, "tc_running");
+    assert_eq!(rows.len(), 1, "开始事件应写入一条占位行");
+    assert_eq!(rows[0].text, "Async hook PostToolUse running…");
+    assert!(rows[0].detail_only, "占位行只在详细模式出现");
+    assert!(rows[0].async_row, "占位行不参与汇总行折叠");
+}
+
+/// 完成事件就地替换同事件的占位行：位置不变、行数不增。
+#[test]
+fn test_async_hook_completed_replaces_running_row_in_place() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.start_hook_result("tc_replace", "PostToolUse");
+    let _ = tool_hook_rows(&mut pipeline, "tc_replace");
+    let before = tail_hook_rows(&pipeline, "tc_replace");
+    assert_eq!(before.len(), 1, "替换前应只有占位行");
+
+    let replaced = pipeline.finish_hook_result(
+        "tc_replace",
+        HookExec::new("PostToolUse", 1, 9, Vec::new(), true),
+    );
+
+    assert!(replaced, "命中占位时应就地替换");
+    let after = tail_hook_rows(&pipeline, "tc_replace");
+    assert_eq!(after.len(), before.len(), "替换不得增加行数");
+    assert_eq!(after[0].text, "Async hook PostToolUse completed");
+}
+
+/// 没有占位时（跨轮到达的完成事件）退回追加一行，保持旧行为。
+#[test]
+fn test_async_hook_completed_without_start_appends_row() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    let replaced = pipeline.finish_hook_result(
+        "tc_nostart",
+        HookExec::new("PostToolUse", 1, 6, Vec::new(), true),
+    );
+
+    assert!(!replaced, "没有占位时不应报告命中");
+    let rows = tool_hook_rows(&mut pipeline, "tc_nostart");
+    assert_eq!(rows.len(), 1, "完成事件独立追加一行");
+    assert_eq!(rows[0].text, "Async hook PostToolUse completed");
+}
+
+/// 轮次结束时仍为 Running 的占位必须清掉，已完成的异步行保留。
+#[test]
+fn test_pipeline_done_drops_stale_running_hooks() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.start_hook_result("tc_stale", "PostToolUse");
+    pipeline.push_hook_result(
+        "tc_done",
+        HookExec::new("PostToolUse", 1, 6, Vec::new(), true),
+    );
+
+    pipeline.done();
+
+    assert!(
+        !pipeline.hook_results.contains_key("tc_stale"),
+        "done() 必须移除僵尸占位，避免永远显示 running…"
+    );
+    assert_eq!(
+        pipeline.hook_results.get("tc_done").map(Vec::len),
+        Some(1),
+        "已完成行随工具块保留，不得被 done() 清掉"
+    );
+}

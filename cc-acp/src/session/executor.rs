@@ -628,6 +628,7 @@ pub async fn execute_prompt(
             compact_budget: if disable_compact { None } else { Some(budget) },
             compact_model, // already Option<Arc<dyn BaseModel>> from pool/fresh logic
             compact_event_tx: Some(event_tx.clone()),
+            hook_event_tx: Some(event_tx.clone()),
             thread_store: thread_store.clone(),
             parent_thread_id: thread_id.clone(),
             register_runtime,

@@ -37,10 +37,16 @@ fn test_parse_command_system_message() {
 
 #[test]
 fn test_parse_command_invalid_json() {
-    assert!(matches!(
-        parse_command_hook_output("{invalid json}"),
-        HookAction::Allow
-    ));
+    // 语义变更：以 `{` 开头却不是合法 JSON，说明 hook 想给结构化输出但写坏了。
+    // 旧行为视为 Allow（静默吞掉配置错误），现改为 Error——不阻断调用，
+    // 只把「你的 hook 输出格式坏了」暴露到 TUI 的 hook 结果行。
+    assert!(
+        matches!(
+            parse_command_hook_output("{invalid json}"),
+            HookAction::Error { ref reason } if reason.contains("invalid hook output")
+        ),
+        "非法 JSON 必须上报为 hook 失败而非静默 Allow"
+    );
 }
 
 #[test]
@@ -62,10 +68,14 @@ fn test_parse_http_whitespace_body() {
 
 #[test]
 fn test_parse_http_non_json_body() {
-    assert!(matches!(
-        parse_http_hook_response("plain text"),
-        HookAction::Allow
-    ));
+    // HTTP hook 必须返回 JSON：非 JSON 正文是端点/hook 配置问题，不阻断但上报 Error
+    assert!(
+        matches!(
+            parse_http_hook_response("plain text"),
+            HookAction::Error { ref reason } if reason.contains("response is not JSON")
+        ),
+        "非 JSON 响应必须上报为 hook 失败"
+    );
 }
 
 #[test]
@@ -78,10 +88,14 @@ fn test_parse_http_valid_json() {
 
 #[test]
 fn test_parse_http_invalid_json() {
-    assert!(matches!(
-        parse_http_hook_response("{invalid}"),
-        HookAction::Allow
-    ));
+    // 同 command hook：非法 JSON 不再是静默 Allow，而是非阻断的 Error
+    assert!(
+        matches!(
+            parse_http_hook_response("{invalid}"),
+            HookAction::Error { ref reason } if reason.contains("invalid hook output")
+        ),
+        "HTTP hook 非法 JSON 必须上报为 hook 失败"
+    );
 }
 
 // === sync_response_to_action tests ===
