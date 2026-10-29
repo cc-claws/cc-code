@@ -84,6 +84,18 @@ fn test_shell_running_text_without_timeout() {
 }
 
 #[test]
+fn test_shell_running_text_formats_five_minutes_with_padded_zeroes() {
+    assert_eq!(
+        shell_running_text(Instant::now() - Duration::from_secs(300), Some(600_000)),
+        "Running… (5m 00s · timeout 10m)"
+    );
+    assert_eq!(
+        shell_running_text(Instant::now() - Duration::from_secs(342), Some(600_000)),
+        "Running… (5m 42s · timeout 10m)"
+    );
+}
+
+#[test]
 fn test_ctrl_b_hint_follows_running_line() {
     let text = make_text(&make_bash(ToolPhase::Running, ""), false);
     assert!(

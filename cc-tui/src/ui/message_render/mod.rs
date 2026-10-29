@@ -31,70 +31,74 @@ use crate::app::tool_display::sanitize_display_text;
 pub(crate) const CONTROL_B_BACKGROUND_HINT: &str = "(ctrl+b to run in background)";
 const BACKGROUND_RUNNING_STATUS: &str = "Running in the background (↓ to manage)";
 
-/// 把秒数格式化为人类可读时长，供 Bash 运行状态行「已运行」与「超时期限」共用。
+/// 动态走秒时长格式化直接复用底层的 [`cc_widgets::format_elapsed_secs`]。
+pub(crate) use cc_widgets::format_elapsed_secs;
+
+/// 把秒数格式化为人类可读的紧凑时长，专用于超时期限（timeout）等静态上限配置展示。
 ///
-/// ≥3600s 显示小时，≥60s 显示分钟，<60s 直接写秒数。
-/// 统一口径避免同一行出现「已运行 9m 20s、期限却显示 560s」这类两种风格。
-fn humanize_secs(secs: u64) -> String {
+/// 整分钟（如 10m、2m）或整小时（如 1h）省略尾随零，非整分时保留秒数（如 9m 20s）。
+pub(crate) fn format_timeout_secs(secs: u64) -> String {
     if secs >= 3600 {
-        let (hours, minutes) = (secs / 3600, secs % 3600 / 60);
-        if minutes == 0 {
+        let (hours, minutes, rest) = (secs / 3600, (secs % 3600) / 60, secs % 60);
+        if minutes == 0 && rest == 0 {
             format!("{hours}h")
-        } else {
+        } else if rest == 0 {
             format!("{hours}h {minutes}m")
+        } else {
+            format!("{hours}h {minutes}m {rest}s")
         }
     } else if secs >= 60 {
         let (minutes, rest) = (secs / 60, secs % 60);
         if rest == 0 {
             format!("{minutes}m")
         } else {
-            format!("{minutes}m {rest:02}s")
+            format!("{minutes}m {rest}s")
         }
     } else {
         format!("{secs}s")
     }
 }
 
-/// 模型请求的 `timeout`（毫秒）→ `(timeout 9m 20s)`。
+/// 模型请求的 `timeout`（毫秒）→ `"timeout 9m 20s"`（不含外层括号）。
 ///
 /// 不足 1 分钟的期限保留原有精度：整千毫秒写 `Ns`，否则写原始毫秒。
-fn shell_timeout_text(timeout_ms: Option<u64>) -> Option<String> {
+pub(crate) fn shell_timeout_label(timeout_ms: Option<u64>) -> Option<String> {
     timeout_ms.filter(|ms| *ms > 0).map(|ms| {
         let limit = if ms >= 60_000 {
-            humanize_secs(ms / 1_000)
+            format_timeout_secs(ms / 1_000)
         } else if ms.is_multiple_of(1_000) {
             format!("{}s", ms / 1_000)
         } else {
             format!("{ms}ms")
         };
-        format!("(timeout {limit})")
+        format!("timeout {limit}")
     })
+}
+
+/// 模型请求的 `timeout`（毫秒）→ `(timeout 9m 20s)`。
+pub(crate) fn shell_timeout_text(timeout_ms: Option<u64>) -> Option<String> {
+    shell_timeout_label(timeout_ms).map(|label| format!("({label})"))
 }
 
 pub(crate) fn shell_running_text(
     started_at: std::time::Instant,
     timeout_ms: Option<u64>,
 ) -> String {
-    let elapsed = humanize_secs(started_at.elapsed().as_secs());
-    let timeout = shell_timeout_text(timeout_ms)
-        .map(|text| format!(" · {}", text.trim_start_matches('(').trim_end_matches(')')))
-        .unwrap_or_default();
-    format!("Running… ({elapsed}{timeout})")
+    let elapsed = format_elapsed_secs(started_at.elapsed().as_secs());
+    match shell_timeout_label(timeout_ms) {
+        Some(timeout) => format!("Running… ({elapsed} · {timeout})"),
+        None => format!("Running… ({elapsed})"),
+    }
 }
 
 /// Bash 运行状态行（`"  ⎿  Running… (Xs)"`）中状态文本的固定前缀。
 pub(crate) const SHELL_RUNNING_TEXT_PREFIX: &str = "Running…";
 
-/// 命令已有输出、无法占用状态行时单独显示的耗时文本：`(22s)` / `(1m 05s)`。
+/// 命令已有输出、无法占用状态行时单独显示的耗时文本：`(22s)` / `(1m 05s)` / `(5m 00s)`。
 ///
 /// 渲染与渲染线程的增量刷新共用同一份文本，两边口径必须一致。
 pub(crate) fn shell_elapsed_text(started_at: std::time::Instant) -> String {
-    let secs = started_at.elapsed().as_secs();
-    if secs >= 60 {
-        format!("({}m {:02}s)", secs / 60, secs % 60)
-    } else {
-        format!("({}s)", secs)
-    }
+    format!("({})", format_elapsed_secs(started_at.elapsed().as_secs()))
 }
 
 /// 判断某渲染行是否为 Bash "⎿ Running…" 运行状态行。
