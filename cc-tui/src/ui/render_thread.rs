@@ -162,6 +162,8 @@ pub enum RenderEvent {
     ToggleToolMessages(bool),
     /// 切换内联 diff 显示状态（强制全量重渲染）
     ToggleDiff(bool),
+    /// 切换 hook 结果行的显示状态（数据保留，只影响渲染）
+    ToggleHookRows(bool),
     /// 切换详细模式（shell 输出、粘贴内容、reasoning 展开/折叠）
     ToggleDetail(bool),
 }
@@ -206,6 +208,8 @@ pub(super) struct RenderTask {
     width: u16,
     show_tool_messages: bool,
     diff_visible: bool,
+    /// hook 结果行是否可见（配置 `hooks_ui`，缺省可见）
+    hook_rows_visible: bool,
     detail_mode: bool,
     /// 上次渲染时的主题指纹。主题切换后 markdown 的 `rendered` 快照与内容 hash
     /// 都不变，必须靠它强制放弃缓存行复用。
@@ -241,7 +245,11 @@ fn detail_sensitive(vm: &MessageViewModel) -> bool {
             .any(|b| matches!(b, super::message_view::ContentBlockView::Reasoning { .. })),
         MessageViewModel::ToolBlock { .. } => true,
         MessageViewModel::ShellCommand { .. } => true,
-        MessageViewModel::SystemNote { detail_content, .. } => detail_content.is_some(),
+        MessageViewModel::SystemNote {
+            detail_content,
+            detail_only,
+            ..
+        } => detail_content.is_some() || *detail_only,
         MessageViewModel::CacheWarning { .. } => false,
         MessageViewModel::ToolCallGroup { .. } => true,
         MessageViewModel::SubAgentGroup { .. } => true,
@@ -252,6 +260,20 @@ fn detail_sensitive(vm: &MessageViewModel) -> bool {
 fn diff_sensitive(vm: &MessageViewModel) -> bool {
     match vm {
         MessageViewModel::ToolBlock { diff_input, .. } => diff_input.is_some(),
+        MessageViewModel::ToolCallGroup { .. } => true,
+        MessageViewModel::SubAgentGroup { .. } => true,
+        _ => false,
+    }
+}
+
+/// 该消息的渲染结果是否随 `hook_rows_visible` 变化。
+///
+/// 工具有 hook 行时敏感；组（工具组 / 子 Agent）内嵌渲染子 VM，可能带 hook 行，一并视为敏感。
+fn hook_rows_sensitive(vm: &MessageViewModel) -> bool {
+    match vm {
+        MessageViewModel::ToolBlock { hook_rows, .. } => !hook_rows.is_empty(),
+        // 会话级 hook 行本身就是 SystemNote（`branch_prefix = true`）。
+        MessageViewModel::SystemNote { branch_prefix, .. } => *branch_prefix,
         MessageViewModel::ToolCallGroup { .. } => true,
         MessageViewModel::SubAgentGroup { .. } => true,
         _ => false,
@@ -299,7 +321,7 @@ fn live_thinking_elapsed_ms(vm: &MessageViewModel) -> Option<u64> {
     })
 }
 
-fn render_key(vm: &MessageViewModel, detail: bool, diff: bool) -> u64 {
+fn render_key(vm: &MessageViewModel, detail: bool, diff: bool, hook_rows: bool) -> u64 {
     let mut h = DefaultHasher::new();
     vm.content_hash().hash(&mut h);
     if let Some(ms) = live_thinking_elapsed_ms(vm) {
@@ -311,6 +333,9 @@ fn render_key(vm: &MessageViewModel, detail: bool, diff: bool) -> u64 {
     }
     if diff_sensitive(vm) {
         diff.hash(&mut h);
+    }
+    if hook_rows_sensitive(vm) {
+        hook_rows.hash(&mut h);
     }
     h.finish()
 }
@@ -392,6 +417,7 @@ impl RenderTask {
         index: usize,
         width: usize,
         diff_visible: bool,
+        hook_rows_visible: bool,
         detail_mode: bool,
     ) -> (Vec<Line<'static>>, Vec<LinkHit>) {
         let tick = current_tool_indicator_tick();
@@ -429,9 +455,17 @@ impl RenderTask {
 
         // detail_mode 控制 shell 输出、粘贴内容、reasoning 的展开/折叠
         // diff_visible 只控制普通页面是否内联显示 Write/Edit 的 diff（详细模式下恒显示）
-        // 两者语义不同，必须分开传：并成一个标志会让「内联 Diff」顺带打开整页展开
-        let (mut lines, mut links) =
-            render_view_model_with_flags(vm, Some(index), width, detail_mode, diff_visible, tick);
+        // hook_rows_visible 只控制 hook 结果行是否渲染（数据保留，切回来即恢复）
+        // 三者语义不同，必须分开传：并成一个标志会让「内联 Diff」顺带打开整页展开
+        let (mut lines, mut links) = render_view_model_with_flags(
+            vm,
+            Some(index),
+            width,
+            detail_mode,
+            diff_visible,
+            hook_rows_visible,
+            tick,
+        );
         // 裸 URL 只对工具结果与 `!` 命令输出登记命中区：Markdown 正文/代码块里的
         // `http(s)://` 一律不扫描（与 CC 的 `OutputLine` 口径一致），用户输入更不参与。
         if matches!(
@@ -577,7 +611,14 @@ impl RenderTask {
         // 不敏感的消息切换标志时键不变，可直接复用缓存行。
         let new_keys: Vec<u64> = messages
             .iter()
-            .map(|vm| render_key(vm, self.detail_mode, self.diff_visible))
+            .map(|vm| {
+                render_key(
+                    vm,
+                    self.detail_mode,
+                    self.diff_visible,
+                    self.hook_rows_visible,
+                )
+            })
             .collect();
 
         // 主题切换：markdown 的 `rendered` 快照与内容 hash 都不变，但颜色已过期。
@@ -679,8 +720,14 @@ impl RenderTask {
                 old_message_links[i].clear();
                 self.alt_epochs[i] = 0;
             }
-            let (lines, links) =
-                Self::render_one(&mut vm, i + 1, width, self.diff_visible, self.detail_mode);
+            let (lines, links) = Self::render_one(
+                &mut vm,
+                i + 1,
+                width,
+                self.diff_visible,
+                self.hook_rows_visible,
+                self.detail_mode,
+            );
             self.message_lines[i] = lines;
             self.message_links[i] = links;
             // 新成品 = 新版本号：旧的 wrap 分段必然失效
@@ -1388,6 +1435,15 @@ impl RenderTask {
                     self.rebuild_safe(messages);
                 }
             }
+            RenderEvent::ToggleHookRows(show) => {
+                self.hook_rows_visible = show;
+                // 渲染键包含 hook 标志（仅对带 hook 行的消息敏感），切换后按
+                // 键复用/交换变体即可；历史行不入 VM 数据，只影响渲染。
+                if !self.last_messages.is_empty() {
+                    let messages = std::mem::take(&mut self.last_messages);
+                    self.rebuild_safe(messages);
+                }
+            }
         }
     }
 
@@ -1438,6 +1494,7 @@ pub fn spawn_render_thread(
         width,
         show_tool_messages: false,
         diff_visible: false,
+        hook_rows_visible: true,
         detail_mode: false,
         theme_fingerprint: crate::ui::theme::fingerprint(),
         alt_lines: Vec::new(),

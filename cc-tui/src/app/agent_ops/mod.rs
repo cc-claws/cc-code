@@ -6,7 +6,11 @@
 //!   subagent.rs  — token usage, subagent start
 //!   polling.rs   — poll_agent, poll_background_events, poll_cron_triggers
 
-use super::{agent_events_bg::BackgroundTaskResult, message_pipeline::HookExec, *};
+use super::{
+    agent_events_bg::BackgroundTaskResult,
+    message_pipeline::{HookExec, HookNoteUpdate},
+    *,
+};
 mod acp_bridge;
 mod lifecycle;
 mod output_refresh;
@@ -483,7 +487,7 @@ impl App {
                 tool_call_id,
             } => {
                 // 异步 hook 的占位行：先挂上 `Async hook {event} running…`，
-                // 完成事件到达时由 finish_hook_result 原地替换。
+                // 完成事件到达时由 clear_running_hook 移除，结果行走会话级尾行。
                 if let Some(tool_call_id) = tool_call_id {
                     self.session_mgr
                         .current_mut()
@@ -502,24 +506,69 @@ impl App {
                 is_async,
                 tool_call_id,
             } => {
+                // 会话级去重：全局 hooks 配错时每次工具调用都会重放同一段错误，
+                // 同 (event, kind, reason) 只在本次会话渲染第一条（见 hooks-display PRD）。
+                let failures = self
+                    .session_mgr
+                    .current_mut()
+                    .agent
+                    .dedup_hook_failures(&event, failures);
+                if is_async {
+                    // 异步完成统一走会话级尾行：它可能在工具块冻结进历史前缀之后
+                    // 才回来，挂在工具块上就永远贴不上去。同事件累加计数、不同事件
+                    // 在短窗口内并成一行（见 MessagePipeline::record_async_hook）。
+                    if let Some(tool_call_id) = tool_call_id.as_deref() {
+                        self.session_mgr
+                            .current_mut()
+                            .messages
+                            .pipeline
+                            .clear_running_hook(tool_call_id, &event);
+                    }
+                    // 失败的异步 hook 由失败行承载，不算「完成」，不参与计数。
+                    if ran > 0 {
+                        let update = self
+                            .session_mgr
+                            .current_mut()
+                            .messages
+                            .pipeline
+                            .record_async_hook(&event, std::time::Instant::now());
+                        self.apply_hook_note(update);
+                    }
+                    for failure in &failures {
+                        self.push_hook_failure_note(&event, failure);
+                    }
+                    return (true, false, false);
+                }
                 if let Some(tool_call_id) = tool_call_id {
                     // 工具事件的 hook 行挂在触发它的 ToolBlock 上：随工具块一起折叠、
                     // 滚动。管线负责在尾部重建时重新贴（见 MessagePipeline::push_hook_result），
-                    // 并按 (tool_call_id, event, is_async) 合并多个 middleware 实例的上报。
-                    // 异步完成优先替换同事件的 Running 占位，占位已清理时追加。
+                    // 并按 (tool_call_id, event) 合并多个 middleware 实例的上报。
                     self.session_mgr
                         .current_mut()
                         .messages
                         .pipeline
-                        .finish_hook_result(
+                        .push_hook_result(
                             &tool_call_id,
-                            HookExec::new(event, ran, duration_ms, failures, is_async),
+                            HookExec::new(event, ran, duration_ms, failures),
                         );
                     self.request_rebuild();
+                    return (true, false, false);
                 }
-                // 会话级事件（UserPromptSubmit / Stop / SessionStart / PreCompact …）
-                // 不在 TUI 展示：它们与工具块无关，也不存在跨事件折叠的需求。
-                // 只保留工具事件（Pre/PostToolUse），挂在触发它的 ToolBlock 上。
+                // 会话级同步事件（UserPromptSubmit / Stop / SessionStart …）：
+                // 同事件的多次上报（plugin + global 各一个 hook）合并成一行，
+                // 计数与耗时累加；不同事件各占一行（见 record_sync_hook）。
+                if ran > 0 {
+                    let update = self
+                        .session_mgr
+                        .current_mut()
+                        .messages
+                        .pipeline
+                        .record_sync_hook(&event, ran, duration_ms, std::time::Instant::now());
+                    self.apply_hook_note(update);
+                }
+                for failure in &failures {
+                    self.push_hook_failure_note(&event, failure);
+                }
                 (true, false, false)
             }
             AgentEvent::RewindCompleted { summary, messages } => {
@@ -642,6 +691,108 @@ impl App {
     }
 
     // poll_agent/poll_background_events/poll_cron_triggers are in polling.rs
+}
+
+impl App {
+    /// 写入 / 就地改写一条会话级 hook 汇总行。
+    ///
+    /// 同一事件在一轮内多次上报时，管线返回的 `previous` 是上一次写进视图的文案，
+    /// 此时就地改写那一行；首次到达则新增一行。两者都挂 `ephemeral_notes`，
+    /// 随重建按锚点归位。
+    fn apply_hook_note(&mut self, update: HookNoteUpdate) {
+        let messages = &mut self.session_mgr.current_mut().messages;
+        let replaced = match &update.previous {
+            Some(previous) => replace_hook_note_text(
+                &mut messages.view_messages,
+                &mut messages.ephemeral_notes,
+                previous,
+                &update.text,
+            ),
+            None => false,
+        };
+        if !replaced {
+            messages.push_hook_system_note(
+                update.text,
+                crate::ui::message_view::NoteTone::Neutral,
+                true,
+            );
+        }
+        self.request_rebuild();
+    }
+
+    /// 写入一条会话级 hook 失败行。
+    ///
+    /// 阻断（工具真的没跑）普通模式可见；hook 自身失败只是配置问题，仅详细模式可见。
+    fn push_hook_failure_note(
+        &mut self,
+        event: &str,
+        failure: &cc_agent::agent::events::HookFailureInfo,
+    ) {
+        use crate::ui::message_view::NoteTone;
+        use cc_agent::agent::events::HookFailureKind;
+        let (verb, tone, detail_only) = match failure.kind {
+            HookFailureKind::Block => ("blocked", NoteTone::Warning, false),
+            HookFailureKind::Error => ("failed", NoteTone::Error, true),
+        };
+        self.push_hook_system_note(
+            format!("{event} hook {verb}: {}", failure.reason),
+            tone,
+            detail_only,
+        );
+    }
+}
+
+/// 判断某个视图模型是不是文案为 `text` 的会话级 hook 行（`⎿` 前缀）。
+fn is_hook_note_with_text(vm: &MessageViewModel, text: &str) -> bool {
+    matches!(
+        vm,
+        MessageViewModel::SystemNote {
+            content,
+            branch_prefix: true,
+            ..
+        } if content == text
+    )
+}
+
+/// 把 hook 行的文案就地改写（不新增行、不改变行位置）。
+///
+/// `view_messages` 里是当前渲染的副本，`ephemeral_notes` 里是重建时的素材，
+/// 两处都要改——否则下一次 RebuildAll 会把旧文案重新写回屏幕。
+/// 返回是否找到并改写了旧行。
+fn replace_hook_note_text(
+    view_messages: &mut [MessageViewModel],
+    ephemeral_notes: &mut Vec<(usize, MessageViewModel)>,
+    previous: &str,
+    text: &str,
+) -> bool {
+    // 只改「最后一条」匹配行：跨轮可能出现文案完全相同的旧行（如每轮都是
+    // `1 UserPromptSubmit hook ran · 4ms`），改全部会篡改历史行。
+    let Some(index) = view_messages
+        .iter()
+        .rposition(|vm| is_hook_note_with_text(vm, previous))
+    else {
+        // 旧行已不在视图里（锚点落进前缀被丢弃）：清掉残留素材，
+        // 交给调用方新增一行，避免下一次重建把它重新冒出来。
+        ephemeral_notes.retain(|(_, vm)| !is_hook_note_with_text(vm, previous));
+        return false;
+    };
+    set_hook_note_text(&mut view_messages[index], text);
+    if let Some((_, vm)) = ephemeral_notes
+        .iter_mut()
+        .rev()
+        .find(|(_, vm)| is_hook_note_with_text(vm, previous))
+    {
+        set_hook_note_text(vm, text);
+    }
+    true
+}
+
+/// 改写 SystemNote 的正文并重算哈希（不改哈希会让渲染缓存继续返回旧文案）。
+fn set_hook_note_text(vm: &mut MessageViewModel, text: &str) {
+    if let MessageViewModel::SystemNote { content, .. } = vm {
+        *content = text.to_owned();
+    }
+    vm.recompute_hash();
 }
 
 #[cfg(test)]

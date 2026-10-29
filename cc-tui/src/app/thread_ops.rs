@@ -82,6 +82,24 @@ impl App {
             .send_render_event(RenderEvent::ToggleDiff(new_visible));
     }
 
+    /// 切换 hook 执行结果行的显隐。
+    ///
+    /// 只翻渲染标志：hook 数据仍留在 `ToolBlock.hook_rows` / payload 的
+    /// `hook_results` 里，切回来历史行立即恢复。
+    pub fn toggle_hook_rows(&mut self) {
+        self.session_mgr.current_mut().ui.text_selection.clear();
+        self.session_mgr.current_mut().ui.screen_selection.clear();
+        let new_visible = !self.session_mgr.current_mut().ui.hook_rows_visible;
+        self.session_mgr.current_mut().ui.hook_rows_visible = new_visible;
+
+        // ToggleHookRows 会按渲染键复用/交换变体重渲带 hook 行的消息
+        let _ = self
+            .session_mgr
+            .current()
+            .messages
+            .send_render_event(RenderEvent::ToggleHookRows(new_visible));
+    }
+
     /// 添加一个图片附件到待发送列表
     pub fn add_pending_attachment(&mut self, att: PendingAttachment) {
         self.session_mgr
@@ -169,6 +187,13 @@ impl App {
             .current_mut()
             .agent
             .session_tool_stats
+            .clear();
+        // hook 失败去重集合按会话重置：/clear 后换了话题，同一条错误应重新提示一次，
+        // 不能被上一轮的去重记录静默掉。
+        self.session_mgr
+            .current_mut()
+            .agent
+            .seen_hook_failures
             .clear();
         self.session_mgr.current_mut().messages.last_submitted_text = None;
         self.session_mgr.current_mut().spinner_state.reset();

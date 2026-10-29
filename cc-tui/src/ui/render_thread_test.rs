@@ -408,7 +408,7 @@ fn full_wrap(vms: &[MessageViewModel], width: u16) -> (usize, Vec<super::Wrapped
     let mut all_lines: Vec<Line<'static>> = Vec::new();
     for vm in vms {
         let (mut lines, _) =
-            super::RenderTask::render_one(&mut vm.clone(), 0, width as usize, false, false);
+            super::RenderTask::render_one(&mut vm.clone(), 0, width as usize, false, true, false);
         all_lines.append(&mut lines);
     }
     // dedup 连续空行
@@ -893,6 +893,7 @@ fn test_refresh_running_tool_indicator_updates_cached_header() {
         width: 80,
         show_tool_messages: false,
         diff_visible: false,
+        hook_rows_visible: true,
         detail_mode: false,
         theme_fingerprint: crate::ui::theme::fingerprint(),
         alt_lines: Vec::new(),
@@ -959,6 +960,7 @@ fn test_refresh_running_bash_toolblock_adds_control_b_hint_after_threshold() {
         width: 80,
         show_tool_messages: false,
         diff_visible: false,
+        hook_rows_visible: true,
         detail_mode: false,
         theme_fingerprint: crate::ui::theme::fingerprint(),
         alt_lines: Vec::new(),
@@ -1040,6 +1042,7 @@ fn detail_mode_long_cmd_running_task(
         width,
         show_tool_messages: false,
         diff_visible: false,
+        hook_rows_visible: true,
         detail_mode: true,
         theme_fingerprint: crate::ui::theme::fingerprint(),
         alt_lines: Vec::new(),
@@ -1262,6 +1265,65 @@ async fn test_no_toggle_diff_keeps_inline_diff_hidden() {
     );
 }
 
+/// 带一条 hook 阻断行的 Bash 工具块（阻断行在普通模式也可见）。
+fn hook_tool_block_vm() -> MessageViewModel {
+    MessageViewModel::ToolBlock {
+        tool_name: "Bash".to_string(),
+        tool_call_id: "tc_hook".to_string(),
+        display_name: "Bash".to_string(),
+        args_display: Some("cargo test".to_string()),
+        content: "test result: ok. 12 passed".to_string(),
+        is_error: false,
+        collapsed: true,
+        color: crate::ui::theme::cur().success,
+        diff_input: None,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        live_output: None,
+        source_agent_id: None,
+        started_at: None,
+        timeout_ms: None,
+        shell_backgrounded: false,
+        file_inspect: false,
+        hook_rows: vec![crate::ui::message_view::HookRow::blocked(
+            "PreToolUse hook blocked: policy",
+        )],
+        content_hash: 0,
+    }
+}
+
+/// hook 行开关：渲染线程出生即开启；ToggleHookRows(false) 后 hook 行消失，
+/// 再切回 true 必须恢复（数据留在 VM 里，不需要重新灌数据）。
+#[tokio::test]
+async fn test_toggle_hook_rows_hides_and_restores_hook_rows() {
+    let (tx, cache, _notify) = spawn_render_thread(80);
+
+    tx.send(RenderEvent::Rebuild(vec![hook_tool_block_vm()]))
+        .await
+        .unwrap();
+    wait_render().await;
+    let shown = cache_line_texts(&cache.read());
+    assert!(
+        shown.iter().any(|l| l.contains("policy")),
+        "缺省应展示 hook 行: {shown:?}"
+    );
+
+    tx.send(RenderEvent::ToggleHookRows(false)).await.unwrap();
+    wait_render().await;
+    let hidden = cache_line_texts(&cache.read());
+    assert!(
+        !hidden.iter().any(|l| l.contains("policy")),
+        "关闭后 hook 行应消失: {hidden:?}"
+    );
+
+    tx.send(RenderEvent::ToggleHookRows(true)).await.unwrap();
+    wait_render().await;
+    let restored = cache_line_texts(&cache.read());
+    assert!(
+        restored.iter().any(|l| l.contains("policy")),
+        "切回后历史 hook 行应恢复: {restored:?}"
+    );
+}
+
 // ===== #626：执行中反复切换 detail 的一致性回归 =====
 // 场景：流式尾增长 + 工具运行中（指示器 tick 刷新）+ 子 agent 推进，
 // 其间反复 ToggleDetail。每一步都与「同状态从零渲染」逐行对照：
@@ -1418,6 +1480,7 @@ fn exec_task(detail_mode: bool) -> RenderTask {
         width: 120,
         show_tool_messages: false,
         diff_visible: false,
+        hook_rows_visible: true,
         detail_mode,
         alt_lines: Vec::new(),
         alt_links: Vec::new(),
@@ -1906,7 +1969,7 @@ fn test_bare_url_links_only_for_tool_and_shell_output() {
         *content = format!("Build fail 2m30s {url}");
     }
     tool.recompute_hash();
-    let (_, links) = RenderTask::render_one(&mut tool.clone(), 0, 100, false, false);
+    let (_, links) = RenderTask::render_one(&mut tool.clone(), 0, 100, false, true, false);
     assert_eq!(links.len(), 1, "工具结果里的裸 URL 应登记命中区");
     assert_eq!(links[0].url, url);
 
@@ -1925,13 +1988,13 @@ fn test_bare_url_links_only_for_tool_and_shell_output() {
         moved_to_background: false,
     };
     shell.recompute_hash();
-    let (_, links) = RenderTask::render_one(&mut shell.clone(), 0, 100, false, false);
+    let (_, links) = RenderTask::render_one(&mut shell.clone(), 0, 100, false, true, false);
     assert_eq!(links.len(), 1, "`!` 输出里的裸 URL 应登记命中区");
 
     // 正文（含代码块）：不得登记。
     let mut assistant = MessageViewModel::assistant();
     assistant.append_chunk(&format!("看这个 {url}\n\n```\ncurl {url}\n```\n"));
-    let (_, links) = RenderTask::render_one(&mut assistant.clone(), 0, 100, false, false);
+    let (_, links) = RenderTask::render_one(&mut assistant.clone(), 0, 100, false, true, false);
     assert!(
         links.is_empty(),
         "正文与代码块里的裸 URL 不得变成链接，否则就是范围越界"
@@ -1939,7 +2002,7 @@ fn test_bare_url_links_only_for_tool_and_shell_output() {
 
     // 用户输入：不得登记。
     let user = MessageViewModel::user(format!("跑一下 echo {url}"));
-    let (_, links) = RenderTask::render_one(&mut user.clone(), 0, 100, false, false);
+    let (_, links) = RenderTask::render_one(&mut user.clone(), 0, 100, false, true, false);
     assert!(links.is_empty(), "用户输入不得变成链接");
 }
 
@@ -1958,7 +2021,7 @@ fn test_streaming_bubble_render_fills_rendered() {
     let mut vm = pipeline.build_streaming_bubble();
 
     // render_one 是关联函数，不依赖 RenderTask 实例
-    let (lines, _links) = RenderTask::render_one(&mut vm, 1, 80, false, false);
+    let (lines, _links) = RenderTask::render_one(&mut vm, 1, 80, false, true, false);
     let plain = lines
         .iter()
         .map(|l| {
@@ -2007,7 +2070,7 @@ fn test_image_attachment_rows_keep_layout_links_and_copy_coordinates_aligned() {
     .into_iter()
     .collect();
     message.set_image_paths(&paths);
-    let (lines, links) = RenderTask::render_one(&mut message, 0, 80, false, false);
+    let (lines, links) = RenderTask::render_one(&mut message, 0, 80, false, true, false);
     let (total, wrap) = RenderTask::build_message_wrap_map(&lines, 80, true);
     assert_eq!(total, 4, "正文、两张附件和消息分隔行应全部计入高度");
     assert_eq!(wrap[1].copy_prefix_graphemes, 5);
@@ -2101,6 +2164,7 @@ fn test_rebuild_produces_tool_path_links_in_cache() {
         width: 80,
         show_tool_messages: false,
         diff_visible: false,
+        hook_rows_visible: true,
         detail_mode: false,
         theme_fingerprint: crate::ui::theme::fingerprint(),
         alt_lines: Vec::new(),

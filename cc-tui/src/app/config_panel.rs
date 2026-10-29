@@ -19,14 +19,15 @@ pub const ROW_THRESHOLD: usize = 2;
 pub const ROW_RECAP: usize = 3;
 pub const ROW_LANGUAGE: usize = 4;
 pub const ROW_DIFF: usize = 5;
-pub const ROW_DETAIL_RENDER_STRATEGY: usize = 6;
-pub const ROW_STREAMING: usize = 7;
-pub const ROW_PROACTIVENESS: usize = 8;
-pub const ROW_SEPARATOR: usize = 9;
-pub const ROW_OVERRIDES_HEADER: usize = 10;
-pub const ROW_PERSONA: usize = 11;
-pub const ROW_TONE: usize = 12;
-pub const ROW_COUNT: usize = 13;
+pub const ROW_HOOKS_DISPLAY: usize = 6;
+pub const ROW_DETAIL_RENDER_STRATEGY: usize = 7;
+pub const ROW_STREAMING: usize = 8;
+pub const ROW_PROACTIVENESS: usize = 9;
+pub const ROW_SEPARATOR: usize = 10;
+pub const ROW_OVERRIDES_HEADER: usize = 11;
+pub const ROW_PERSONA: usize = 12;
+pub const ROW_TONE: usize = 13;
+pub const ROW_COUNT: usize = 14;
 
 fn next_editable_row(current: usize, reverse: bool) -> usize {
     let editable: &[usize] = &[
@@ -35,6 +36,7 @@ fn next_editable_row(current: usize, reverse: bool) -> usize {
         ROW_RECAP,
         ROW_LANGUAGE,
         ROW_DIFF,
+        ROW_HOOKS_DISPLAY,
         ROW_DETAIL_RENDER_STRATEGY,
         ROW_STREAMING,
         ROW_PROACTIVENESS,
@@ -75,18 +77,20 @@ const SCREEN_LAYOUT: &[usize] = &[
     ROW_LANGUAGE,               // screen 8: desc
     ROW_DIFF,                   // screen 9: value
     ROW_DIFF,                   // screen 10: desc
-    ROW_DETAIL_RENDER_STRATEGY, // screen 11: value
-    ROW_DETAIL_RENDER_STRATEGY, // screen 12: desc
-    ROW_STREAMING,              // screen 13: value
-    ROW_STREAMING,              // screen 14: desc
-    ROW_PROACTIVENESS,          // screen 15: value
-    ROW_PROACTIVENESS,          // screen 16: desc
-    ROW_SEPARATOR,              // screen 17
-    ROW_OVERRIDES_HEADER,       // screen 18
-    ROW_PERSONA,                // screen 19: value
-    ROW_PERSONA,                // screen 20: desc
-    ROW_TONE,                   // screen 21: value
-    ROW_TONE,                   // screen 22: desc
+    ROW_HOOKS_DISPLAY,          // screen 11: value
+    ROW_HOOKS_DISPLAY,          // screen 12: desc
+    ROW_DETAIL_RENDER_STRATEGY, // screen 13: value
+    ROW_DETAIL_RENDER_STRATEGY, // screen 14: desc
+    ROW_STREAMING,              // screen 15: value
+    ROW_STREAMING,              // screen 16: desc
+    ROW_PROACTIVENESS,          // screen 17: value
+    ROW_PROACTIVENESS,          // screen 18: desc
+    ROW_SEPARATOR,              // screen 19
+    ROW_OVERRIDES_HEADER,       // screen 20
+    ROW_PERSONA,                // screen 21: value
+    ROW_PERSONA,                // screen 22: desc
+    ROW_TONE,                   // screen 23: value
+    ROW_TONE,                   // screen 24: desc
 ];
 
 fn screen_to_logical_row(screen_line: usize) -> Option<usize> {
@@ -106,6 +110,7 @@ fn save_config_now(panel: &mut ConfigPanel, ctx: &mut PanelContext<'_>) {
         // 保存后必须同步当前会话的 ui 状态并补发事件，否则改完不重启不生效、
         // 新会话里也只有 ui 字段是对的（渲染线程仍是出生时的 false）。
         let want_diff = cfg.config.diff_enabled;
+        let want_hooks = cfg.config.hooks_ui_enabled();
         let session = ctx.session_mgr.current_mut();
         if previous_strategy != cfg.config.detail_render_strategy {
             let strategy = cfg
@@ -122,6 +127,14 @@ fn save_config_now(panel: &mut ConfigPanel, ctx: &mut PanelContext<'_>) {
             let _ = session
                 .messages
                 .send_render_event(crate::ui::render_thread::RenderEvent::ToggleDiff(want_diff));
+        }
+        // hook 行同理：渲染线程只认 ToggleHookRows 事件，保存后必须同步运行时标志
+        // 并补发事件，否则改完不重启不生效。
+        if session.ui.hook_rows_visible != want_hooks {
+            session.ui.hook_rows_visible = want_hooks;
+            let _ = session.messages.send_render_event(
+                crate::ui::render_thread::RenderEvent::ToggleHookRows(want_hooks),
+            );
         }
         // #319: 保存失败时记录错误用于 UI 展示，而非静默忽略
         match App::save_config(cfg, ctx.services.config_path_override.as_deref()) {
@@ -157,6 +170,7 @@ pub struct ConfigPanel {
     pub cur_tone: usize,
     pub buf_proactiveness: String, // "low" / "medium" / "high"
     pub buf_diff: bool,
+    pub buf_hooks_display: bool,
     pub buf_detail_render_strategy: String, // "auto" / "cache" / "virtual"
     pub buf_streaming: String,              // "streaming" / "block" / "none"
     /// #319: 上次保存失败时的错误信息，用于 UI 展示
@@ -179,6 +193,7 @@ impl ConfigPanel {
             .clone()
             .unwrap_or_else(|| "medium".to_string());
         let diff_enabled = cfg.config.diff_enabled;
+        let hooks_display = cfg.config.hooks_ui_enabled();
 
         Self {
             cursor: ROW_AUTOCOMPACT,
@@ -193,6 +208,7 @@ impl ConfigPanel {
             cur_tone: 0,
             buf_proactiveness: proactiveness,
             buf_diff: diff_enabled,
+            buf_hooks_display: hooks_display,
             buf_detail_render_strategy: match cfg.config.detail_render_strategy.as_deref() {
                 Some("cache") => "cache",
                 Some("virtual") => "virtual",
@@ -244,6 +260,10 @@ impl ConfigPanel {
 
     pub fn cycle_diff(&mut self) {
         self.buf_diff = !self.buf_diff;
+    }
+
+    pub fn cycle_hooks_display(&mut self) {
+        self.buf_hooks_display = !self.buf_hooks_display;
     }
 
     pub fn cycle_streaming(&mut self, reverse: bool) {
@@ -390,6 +410,9 @@ impl ConfigPanel {
 
         // diff
         cfg.config.diff_enabled = self.buf_diff;
+
+        // hooks display：显式写入 Some(bool)，与「未设置 = 展示」的缺省区分开
+        cfg.config.hooks_ui = Some(self.buf_hooks_display);
         cfg.config.detail_render_strategy = match self.buf_detail_render_strategy.as_str() {
             "cache" | "virtual" => Some(self.buf_detail_render_strategy.clone()),
             _ => None,
@@ -505,6 +528,7 @@ impl PanelComponent for ConfigPanel {
                     | ROW_LANGUAGE
                     | ROW_PROACTIVENESS
                     | ROW_DIFF
+                    | ROW_HOOKS_DISPLAY
                     | ROW_DETAIL_RENDER_STRATEGY
                     | ROW_STREAMING => {
                         match self.cursor {
@@ -513,6 +537,7 @@ impl PanelComponent for ConfigPanel {
                             ROW_LANGUAGE => self.cycle_language(false),
                             ROW_PROACTIVENESS => self.cycle_proactiveness(),
                             ROW_DIFF => self.cycle_diff(),
+                            ROW_HOOKS_DISPLAY => self.cycle_hooks_display(),
                             ROW_DETAIL_RENDER_STRATEGY => self.cycle_detail_render_strategy(false),
                             ROW_STREAMING => self.cycle_streaming(false),
                             _ => {}
@@ -534,6 +559,7 @@ impl PanelComponent for ConfigPanel {
                     | ROW_LANGUAGE
                     | ROW_PROACTIVENESS
                     | ROW_DIFF
+                    | ROW_HOOKS_DISPLAY
                     | ROW_DETAIL_RENDER_STRATEGY
                     | ROW_STREAMING => {
                         match self.cursor {
@@ -542,6 +568,7 @@ impl PanelComponent for ConfigPanel {
                             ROW_LANGUAGE => self.cycle_language(true),
                             ROW_PROACTIVENESS => self.cycle_proactiveness(),
                             ROW_DIFF => self.cycle_diff(),
+                            ROW_HOOKS_DISPLAY => self.cycle_hooks_display(),
                             ROW_DETAIL_RENDER_STRATEGY => self.cycle_detail_render_strategy(true),
                             ROW_STREAMING => self.cycle_streaming(true),
                             _ => {}
@@ -565,6 +592,7 @@ impl PanelComponent for ConfigPanel {
                     | ROW_LANGUAGE
                     | ROW_PROACTIVENESS
                     | ROW_DIFF
+                    | ROW_HOOKS_DISPLAY
                     | ROW_DETAIL_RENDER_STRATEGY
                     | ROW_STREAMING => {
                         match self.cursor {
@@ -573,6 +601,7 @@ impl PanelComponent for ConfigPanel {
                             ROW_LANGUAGE => self.cycle_language(false),
                             ROW_PROACTIVENESS => self.cycle_proactiveness(),
                             ROW_DIFF => self.cycle_diff(),
+                            ROW_HOOKS_DISPLAY => self.cycle_hooks_display(),
                             ROW_DETAIL_RENDER_STRATEGY => self.cycle_detail_render_strategy(false),
                             ROW_STREAMING => self.cycle_streaming(false),
                             _ => {}
@@ -622,6 +651,7 @@ impl PanelComponent for ConfigPanel {
                             | ROW_RECAP
                             | ROW_LANGUAGE
                             | ROW_DIFF
+                            | ROW_HOOKS_DISPLAY
                             | ROW_DETAIL_RENDER_STRATEGY
                             | ROW_STREAMING
                             | ROW_PROACTIVENESS

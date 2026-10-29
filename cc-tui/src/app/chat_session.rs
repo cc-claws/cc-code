@@ -63,6 +63,9 @@ pub struct ChatSession {
 }
 
 impl ChatSession {
+    // 会话构造参数天然较多（cwd / 命令表 / 技能 / 配置项…），集中传参比散装
+    // builder 更直观；新增 ui 布尔后超过 clippy 默认阈值。
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         cwd: String,
         command_registry: CommandRegistry,
@@ -70,6 +73,7 @@ impl ChatSession {
         lc: &crate::i18n::LcRegistry,
         detail_enabled: bool,
         diff_enabled: bool,
+        hook_rows_visible: bool,
         render_config: Option<&crate::config::AppConfig>,
     ) -> Self {
         let (render_tx, render_cache, render_notify) =
@@ -99,12 +103,19 @@ impl ChatSession {
         if detail_enabled {
             let _ = render_tx.try_send(crate::ui::render_thread::RenderEvent::ToggleDetail(true));
         }
+        // hook 行开关的缺省值是「展示」，渲染线程出生即为 true；只有配置显式关闭时
+        // 才需要补发事件，否则配置的 false 到不了渲染线程（同 diff_enabled 的门）。
+        if !hook_rows_visible {
+            let _ =
+                render_tx.try_send(crate::ui::render_thread::RenderEvent::ToggleHookRows(false));
+        }
         Self {
             ui: UiState::new(
                 super::build_textarea(false),
                 &cwd,
                 detail_enabled,
                 diff_enabled,
+                hook_rows_visible,
             ),
             messages,
             session_panels: super::panel_manager::PanelManager::new(),
