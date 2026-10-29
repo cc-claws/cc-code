@@ -101,6 +101,7 @@ fn make_mode(detail: bool) -> LayoutMode {
         width: 80,
         detail,
         diff: false,
+        hook_rows: true,
         theme: crate::ui::theme::fingerprint(),
     }
 }
@@ -126,7 +127,7 @@ fn make_reference(
 ) -> (Vec<Line<'static>>, Vec<WrappedLineInfo>) {
     let mut lines = Vec::new();
     for (index, mut vm) in messages.iter().cloned().enumerate() {
-        for line in RenderTask::render_one(&mut vm, index + 1, 80, false, detail).0 {
+        for line in RenderTask::render_one(&mut vm, index + 1, 80, false, true, detail).0 {
             if super::super::render_thread::is_blank_line(&line)
                 && lines
                     .last()

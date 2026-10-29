@@ -62,6 +62,7 @@ pub(super) struct LayoutMode {
     pub width: u16,
     pub detail: bool,
     pub diff: bool,
+    pub hook_rows: bool,
     pub theme: u64,
 }
 #[derive(Clone, Copy, Debug)]
@@ -94,6 +95,7 @@ struct PayloadKey {
     version: u64,
     detail: bool,
     diff: bool,
+    hook_rows: bool,
     tick: u64,
     tail: bool,
 }
@@ -297,7 +299,7 @@ impl VirtualRenderer {
         }
         // 模式改变仅使布局代际失效；滚动不改变代际。
         self.history_epoch = self.history_epoch.wrapping_add(1);
-        // detail/diff 的成品由 key 区分，共用同一个字节预算；热切换无需重渲染。
+        // detail/diff/hook_rows 的成品由 key 区分，共用同一个字节预算；热切换无需重渲染。
         // 只有宽度/主题变化会使所有成品失效。
         if self
             .mode
@@ -318,6 +320,7 @@ impl VirtualRenderer {
             version: self.metadata[index].version,
             detail: mode.detail,
             diff: mode.diff,
+            hook_rows: mode.hook_rows,
             tick: if estimator::is_live(&messages[index]) {
                 tick
             } else {
@@ -384,8 +387,14 @@ impl VirtualRenderer {
         mode: LayoutMode,
         tail: usize,
     ) -> SegmentPayload {
-        let (raw, raw_links) =
-            RenderTask::render_one(vm, index + 1, mode.width as usize, mode.diff, mode.detail);
+        let (raw, raw_links) = RenderTask::render_one(
+            vm,
+            index + 1,
+            mode.width as usize,
+            mode.diff,
+            mode.hook_rows,
+            mode.detail,
+        );
         let mut lines = Vec::new();
         let mut origins = Vec::new();
         let mut previous_empty = index > 0;

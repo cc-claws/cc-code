@@ -252,6 +252,7 @@ config-field-persona = 人设
 config-field-tone = 语气
 config-field-proactiveness = 主动性
 config-field-diff = 内联 Diff
+config-field-hooks-display = Hook 显示
 config-field-recap = 会话回顾
 config-value-on = 开
 config-value-off = 关
@@ -269,6 +270,7 @@ config-desc-persona = 覆盖系统提示词 persona（留空=默认）
 config-desc-tone = 覆盖系统提示词 tone（留空=默认）
 config-desc-proactiveness = low / medium / high — agent 主动性级别
 config-desc-diff = （开/关 — 显示 Write/Edit 工具的内联 diff）
+config-desc-hooks-display = （开/关 — 在工具结果下方显示 hook 执行结果）
 config-field-streaming = 渲染模式
 config-field-detail-render-strategy = 详情渲染
 config-desc-detail-render-strategy = auto 自动适配长会话；cache 全量缓存；virtual 按视口渲染。即时生效。

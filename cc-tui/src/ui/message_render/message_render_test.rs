@@ -992,9 +992,11 @@ fn test_tool_block_inline_diff_switch_controls_normal_page_only() {
         source_agent_id: None,
     };
 
-    let off = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, false, 0).0);
-    let on = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, true, 0).0);
-    let detail = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, true, false, 0).0);
+    let off =
+        rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, false, true, 0).0);
+    let on = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, true, true, 0).0);
+    let detail =
+        rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, true, false, true, 0).0);
 
     assert!(!off.contains("new line"), "开关关闭时普通页面不显示 diff");
     assert!(
@@ -1044,7 +1046,8 @@ fn test_edit_diff_replaces_tool_result_line() {
         source_agent_id: None,
     };
 
-    let detail = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, true, false, 0).0);
+    let detail =
+        rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, true, false, true, 0).0);
     assert!(
         !detail.contains("Replaced text"),
         "diff 渲染时不应再显示工具结果文本行: {detail}"
@@ -1055,7 +1058,8 @@ fn test_edit_diff_replaces_tool_result_line() {
     );
 
     // diff 未渲染（普通模式 + 开关关闭）时，工具结果文本仍作为唯一信息保留
-    let off = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, false, 0).0);
+    let off =
+        rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, false, true, 0).0);
     assert!(
         off.contains("Replaced text"),
         "diff 未渲染时应保留工具结果文本: {off}"
@@ -1094,7 +1098,8 @@ fn test_write_create_keeps_tool_result_line() {
         source_agent_id: None,
     };
 
-    let detail = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, true, false, 0).0);
+    let detail =
+        rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, true, false, true, 0).0);
     assert!(
         detail.contains("Wrote 2 lines"),
         "新建文件应保留 Wrote N lines 结果行: {detail}"
@@ -1135,9 +1140,11 @@ fn test_inline_diff_switch_does_not_expand_other_blocks() {
         source_agent_id: None,
     };
 
-    let off = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, false, 0).0);
-    let on = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, true, 0).0);
-    let detail = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, true, false, 0).0);
+    let off =
+        rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, false, true, 0).0);
+    let on = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, true, true, 0).0);
+    let detail =
+        rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, true, false, true, 0).0);
 
     assert!(
         off.contains("… +3 lines (ctrl+o to expand)"),
@@ -4268,6 +4275,56 @@ fn test_hook_block_row_visible_in_normal_mode() {
         rendered_text(&normal).contains("PreToolUse hook blocked: policy"),
         "普通模式应显示阻断原因: {:?}",
         rendered_text(&normal)
+    );
+}
+
+/// 配置 `hooks_ui = false`（/config 的 Hooks display 关闭）时 hook 行整段跳过；
+/// 数据仍挂在 `ToolBlock.hook_rows` 上，开关切回即恢复。
+#[test]
+fn test_hook_rows_hidden_when_hooks_display_disabled() {
+    use crate::ui::message_view::HookRow;
+    let rows = vec![HookRow::blocked("PreToolUse hook blocked: policy")];
+    let baseline = render_view_model_with_flags(
+        &make_hook_tool_block(Vec::new()),
+        Some(1),
+        80,
+        false,
+        false,
+        true,
+        0,
+    );
+    let hidden = render_view_model_with_flags(
+        &make_hook_tool_block(rows.clone()),
+        Some(1),
+        80,
+        false,
+        false,
+        false,
+        0,
+    );
+    let shown = render_view_model_with_flags(
+        &make_hook_tool_block(rows),
+        Some(1),
+        80,
+        false,
+        false,
+        true,
+        0,
+    );
+    assert_eq!(
+        hidden.0.len(),
+        baseline.0.len(),
+        "关闭时应与无 hook 行逐行一致"
+    );
+    assert!(
+        !rendered_text(&hidden.0).contains("policy"),
+        "关闭时不应出现 hook 行"
+    );
+    assert_eq!(shown.0.len(), baseline.0.len() + 1, "开启时阻断行应出现");
+    assert!(
+        rendered_text(&shown.0).contains("policy"),
+        "开启时应展示 hook 行: {:?}",
+        rendered_text(&shown.0)
     );
 }
 

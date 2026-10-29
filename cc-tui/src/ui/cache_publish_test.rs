@@ -11,6 +11,7 @@ fn make_render_task(width: u16, cache: RenderCache) -> RenderTask {
         width,
         show_tool_messages: false,
         diff_visible: false,
+        hook_rows_visible: true,
         detail_mode: false,
         theme_fingerprint: theme::fingerprint(),
         alt_lines: Vec::new(),

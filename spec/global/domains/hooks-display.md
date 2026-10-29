@@ -142,6 +142,18 @@ cc-middlewares → ExecutorEvent::HooksCompleted(HookRunSummary)
 - 同 `(event, kind, reason)` 的失败本次会话只渲染第一条。
 - 不写入 agent history，不参与 compact 统计。
 
+## 展示开关
+
+配置项 `hooks_ui`（`~/.cc-code/settings.json`，缺省 `true`）：关闭后 TUI 完全不展示 hook 行，
+结果只进日志。
+
+- **切换入口**：`/config` 面板的 `Hooks display [ON/OFF]` 一行，保存即生效
+- **即时生效机制**：照抄 `diff_enabled` —— 配置负责持久化，`ui.hook_rows_visible` 负责运行时，
+  切换时发 `RenderEvent::ToggleHookRows(bool)`，`render_key` 含该维度，因此按渲染键复用/交换
+  变体，不需要清空 hash 缓存
+- **数据保留**：`ToolBlock.hook_rows` / `MessagePipeline.hook_results` 不清空，开关切回后
+  历史行立即恢复
+
 ## 分期
 
 **P0（本次）**：事件计数 + 总耗时汇总、异步完成提示、阻断/失败提示。

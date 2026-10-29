@@ -107,6 +107,8 @@ pub struct UiState {
     pub bg_bar_area: Option<ratatui::layout::Rect>,
     /// Write/Edit 工具结果内联 diff 是否可见
     pub diff_visible: bool,
+    /// hook 执行结果行是否可见（配置 `hooks_ui`；数据始终保留，只控制渲染）
+    pub hook_rows_visible: bool,
     /// Shell 命令输出详细模式（Ctrl+O 切换）
     pub detail_mode: bool,
     /// 输入框中被占位符折叠展示的外部多行粘贴内容
@@ -137,6 +139,7 @@ impl UiState {
         cwd: &str,
         detail_enabled: bool,
         diff_enabled: bool,
+        hook_rows_visible: bool,
     ) -> Self {
         let _ = cwd; // 历史路径已迁移至 ~/.cc-code/，cwd 保留用于未来扩展
         let input_history = super::history_persistence::load_input_history();
@@ -188,6 +191,7 @@ impl UiState {
             steer_foreground_grace: None,
             bg_bar_area: None,
             diff_visible: diff_enabled,
+            hook_rows_visible,
             detail_mode: detail_enabled,
             pasted_text_blocks: Vec::new(),
             next_pasted_text_id: 1,

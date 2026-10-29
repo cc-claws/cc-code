@@ -53,6 +53,7 @@ impl RenderWorker {
             width: self.task.width,
             detail: self.task.detail_mode,
             diff: self.task.diff_visible,
+            hook_rows: self.task.hook_rows_visible,
             theme: theme::fingerprint(),
         };
         let result = AssertUnwindSafe(self.layout.render(
@@ -261,6 +262,10 @@ impl RenderWorker {
             }
             RenderEvent::ToggleDiff(show) if self.virtual_active => {
                 self.task.diff_visible = show;
+                self.publish_virtual().await;
+            }
+            RenderEvent::ToggleHookRows(show) if self.virtual_active => {
+                self.task.hook_rows_visible = show;
                 self.publish_virtual().await;
             }
             event => {

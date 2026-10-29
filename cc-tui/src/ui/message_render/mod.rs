@@ -70,6 +70,8 @@ fn push_hook_line(lines: &mut Vec<Line<'static>>, text: &str, color: Color, widt
 /// 追加该工具调用触发的 hook 行（规格见 spec/global/domains/hooks-display.md）。
 ///
 /// - 阻断行两种模式都显示；hook 自身失败、汇总、异步完成行仅详细模式显示。
+/// - `hook_rows_visible` 为 false 时整段跳过（配置 `hooks_ui` / /config 面板开关）。
+///   数据本身保留在 `ToolBlock.hook_rows` 里，开关切回来历史行立即恢复。
 /// - 折叠口径：同步汇总最多 4 行（其余折成 `… +N events`），失败最多 3 行
 ///   （其余折成 `… +N more`）。异步完成行不参与折叠，每个异步 hook 各占一行。
 ///   行数不随 hook 数量线性增长。
@@ -77,9 +79,10 @@ fn append_hook_rows(
     lines: &mut Vec<Line<'static>>,
     hook_rows: &[HookRow],
     detail_mode: bool,
+    hook_rows_visible: bool,
     width: usize,
 ) {
-    if hook_rows.is_empty() {
+    if hook_rows.is_empty() || !hook_rows_visible {
         return;
     }
     let mut failures = 0usize;
@@ -1574,22 +1577,25 @@ pub fn render_view_model_with_links(
     detail_mode: bool,
     tick: u64,
 ) -> (Vec<Line<'static>>, Vec<cc_widgets::markdown::LinkHit>) {
-    render_view_model_with_flags(vm, index, width, detail_mode, false, tick)
+    render_view_model_with_flags(vm, index, width, detail_mode, false, true, tick)
 }
 
 /// 带完整渲染标志的入口。
 ///
-/// 两个标志语义不同，必须分开传：
+/// 三个标志语义不同，必须分开传：
 /// - `detail_mode`（Ctrl+O 详细模式）：控制 shell 输出行数、粘贴内容、reasoning、
 ///   工具折叠状态等**整页展开**行为；
 /// - `diff_visible`（配置 `diff_enabled`）：只控制**普通页面**是否内联显示 Write/Edit
-///   的 diff 块，不影响上面任何一项（详细模式下 diff 恒可见）。
+///   的 diff 块，不影响上面任何一项（详细模式下 diff 恒可见）；
+/// - `hook_rows_visible`（配置 `hooks_ui`）：只控制 hook 结果行是否渲染，
+///   VM 里的 hook 数据始终保留（开关切回来历史行恢复）。
 pub fn render_view_model_with_flags(
     vm: &MessageViewModel,
     _index: Option<usize>,
     width: usize,
     detail_mode: bool,
     diff_visible: bool,
+    hook_rows_visible: bool,
     tick: u64,
 ) -> (Vec<Line<'static>>, Vec<cc_widgets::markdown::LinkHit>) {
     use unicode_segmentation::UnicodeSegmentation;
@@ -1875,7 +1881,7 @@ pub fn render_view_model_with_flags(
             if tool_name == "AskUserQuestion" {
                 // 与其余提前返回分支一致：hook 行挂在工具内容之后，否则整段丢失。
                 let mut lines = render_ask_user_block(content, *is_error, width);
-                append_hook_rows(&mut lines, hook_rows, detail_mode, width);
+                append_hook_rows(&mut lines, hook_rows, detail_mode, hook_rows_visible, width);
                 return (lines, link_hits);
             }
             if tool_name == "Skill" && *collapsed && !detail_mode {
@@ -1888,7 +1894,7 @@ pub fn render_view_model_with_flags(
                     tick,
                 );
                 // 折叠 Skill 分支在臂末尾之前提前返回：hook 失败/阻断行仍要跟上。
-                append_hook_rows(&mut lines, hook_rows, detail_mode, width);
+                append_hook_rows(&mut lines, hook_rows, detail_mode, hook_rows_visible, width);
                 return (lines, link_hits);
             }
             let skill_instruction = if tool_name == "Skill" && !*is_error {
@@ -2125,7 +2131,7 @@ pub fn render_view_model_with_flags(
                 // 不改 content，因此模型仍能使用完整的任务 ID 和输出路径。
                 // 转后台同样可能带阻断/失败行（PRD「与 Bash 执行结果的组合」），
                 // 必须在提前返回前追加，否则这些行会整段丢失。
-                append_hook_rows(&mut lines, hook_rows, detail_mode, width);
+                append_hook_rows(&mut lines, hook_rows, detail_mode, hook_rows_visible, width);
                 return (lines, link_hits);
             }
             if tool_name == "Bash"
@@ -2157,7 +2163,7 @@ pub fn render_view_model_with_flags(
                         ]));
                     }
                     // 运行中带实时输出的分支同样提前返回：hook 行必须挂在输出之后。
-                    append_hook_rows(&mut lines, hook_rows, detail_mode, width);
+                    append_hook_rows(&mut lines, hook_rows, detail_mode, hook_rows_visible, width);
                     return (lines, link_hits);
                 }
             }
@@ -2478,7 +2484,7 @@ pub fn render_view_model_with_flags(
                 }
             }
             // hook 行在工具输出/diff 之后，随工具块一起折叠与滚动。
-            append_hook_rows(&mut lines, hook_rows, detail_mode, width);
+            append_hook_rows(&mut lines, hook_rows, detail_mode, hook_rows_visible, width);
             (lines, link_hits)
         }
         MessageViewModel::ShellCommand {
@@ -2663,6 +2669,7 @@ pub fn render_view_model_with_flags(
                         width.saturating_sub(2),
                         detail_mode,
                         diff_visible,
+                        hook_rows_visible,
                         tick,
                     )
                     .0;
@@ -2723,7 +2730,11 @@ pub fn render_view_model_with_flags(
             };
             // 会话级 hook 结果行：行首 `⎿` 与工具结果同列，整行按语义色，无
             // `●`/`·`/`⚠` 前缀（规格见 spec/global/domains/hooks-display.md）。
+            // hook 展示关闭时整行不渲染——VM 里的行数据不动，开关切回即恢复。
             if *branch_prefix {
+                if !hook_rows_visible {
+                    return (Vec::new(), link_hits);
+                }
                 let color = match body_tone {
                     Some(NoteTone::Neutral) | None => theme::cur().inactive,
                     Some(tone) => note_tone_color(*tone),
