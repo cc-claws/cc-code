@@ -247,6 +247,16 @@ impl App {
         // 到达子管线后去掉路由信封；它就是该管线的本地主线程。
         let defer_rebuild = matches!(&event, AgentEvent::ToolPending { .. });
         let output_changed = matches!(&event, AgentEvent::ToolOutput { .. });
+        let streaming = matches!(
+            &event,
+            AgentEvent::AiReasoning(_)
+                | AgentEvent::AssistantChunk { .. }
+                | AgentEvent::TokenUsageUpdate { .. }
+                | AgentEvent::ContextWarning { .. }
+                | AgentEvent::LlmRetrying { .. }
+                | AgentEvent::SystemNotice { .. }
+                | AgentEvent::LspDiagnostics { .. }
+        );
         match &mut event {
             AgentEvent::ToolPending {
                 source_agent_id, ..
@@ -356,7 +366,7 @@ impl App {
             self.session_mgr.current_mut().agent.tool_status_dirty = true;
         } else if output_changed {
             self.session_mgr.current_mut().agent.tool_output_dirty = true;
-        } else if focused && !self.session_mgr.current().agent.tool_status_dirty {
+        } else if focused && !streaming && !self.session_mgr.current().agent.tool_status_dirty {
             self.request_rebuild();
         }
         (true, false, false)
@@ -435,13 +445,8 @@ impl App {
                     ) {
                         sub.spinner.clear_summary();
                     }
-                    sub.pipeline.handle_event(AgentEvent::Done);
-                    sub.rebuild();
-                    if sub.view_messages.is_empty() && !result.is_empty() {
-                        let mut vm = MessageViewModel::assistant();
-                        vm.append_chunk(&result);
-                        sub.view_messages.push(vm);
-                    }
+                    // 结束态完整落在规范状态中；隐藏任务等切入时才构造最终视图。
+                    sub.handle_event(AgentEvent::Done);
                 }
             }
             _ => return (false, false, false),

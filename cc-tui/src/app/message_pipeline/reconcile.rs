@@ -11,6 +11,17 @@ pub use crate::ui::message_view::aggregate_batch_groups;
 use super::transform::merge_consecutive_thinking;
 use super::MessagePipeline;
 
+/// 只保留一份活跃尾部的基础 VM，避免长任务为每个流式事件重做历史转换。
+const COMPLETED_VIEW_CACHE_BUDGET: usize = 16 * 1024 * 1024;
+
+pub(super) struct CompletedViewCache {
+    revision: u64,
+    start: usize,
+    theme: u64,
+    bytes: usize,
+    messages: Vec<MessageViewModel>,
+}
+
 // ─── 管线事件 ────────────────────────────────────────────────────────────────
 
 /// 管线处理事件后的输出动作
@@ -124,6 +135,47 @@ pub(crate) fn merge_frozen_subagents(
 }
 
 impl MessagePipeline {
+    pub(crate) fn completed_view_cache_stats(&self) -> (usize, usize) {
+        self.completed_view_cache
+            .borrow()
+            .as_ref()
+            .map(|cache| (cache.messages.len(), cache.bytes))
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn invalidate_completed_view_cache(&mut self) {
+        self.completed_revision = self.completed_revision.wrapping_add(1);
+        *self.completed_view_cache.get_mut() = None;
+    }
+
+    pub(super) fn cached_completed_view_models(&self, start: usize) -> Vec<MessageViewModel> {
+        let theme = theme::fingerprint();
+        {
+            let cache = self.completed_view_cache.borrow();
+            if let Some(cache) = cache.as_ref().filter(|cache| {
+                cache.revision == self.completed_revision
+                    && cache.start == start
+                    && cache.theme == theme
+            }) {
+                return cache.messages.clone();
+            }
+        }
+        // 失效成品先释放，再构造新版本，不同时保留多个历史/主题的尾部。
+        *self.completed_view_cache.borrow_mut() = None;
+        let messages = Self::unaggregated_view_models(&self.completed[start..], &self.cwd);
+        let bytes = crate::command::core::gc::estimate_view_messages_heap(&messages);
+        if bytes <= COMPLETED_VIEW_CACHE_BUDGET {
+            *self.completed_view_cache.borrow_mut() = Some(CompletedViewCache {
+                revision: self.completed_revision,
+                start,
+                theme,
+                bytes,
+                messages: messages.clone(),
+            });
+        }
+        messages
+    }
+
     /// 构建 RebuildAll action（用于外部 agent_ops 显式触发重建）。
     /// 由调用者提供 prefix_len（round_start_vm_idx），pipeline 内部不维护 VM 索引。
     ///
@@ -166,7 +218,8 @@ impl MessagePipeline {
         if self.has_snapshot_this_round {
             let start = self.completed_len_at_round_start.min(self.completed.len());
             // 本轮可能包含用户主动补充的 Human 消息，不能用最后一条 Human 截掉之前的执行过程。
-            tail_vms = Self::unaggregated_view_models(&self.completed[start..], &self.cwd);
+            // 缓存只含规范历史投影；动态工具、hook、shell 和聚合仍在副本上更新。
+            tail_vms = self.cached_completed_view_models(start);
             let reconcile_subagent_count =
                 tail_vms.iter().filter(|vm| vm.is_subagent_group()).count();
             tracing::debug!(
@@ -310,8 +363,7 @@ impl MessagePipeline {
         }
 
         self.apply_shell_runtime(&mut tail_vms);
-        // hook 执行行必须在聚合前挂好：带 hook 行的只读工具块不参与聚合（否则行会随
-        // 块一起被折进 ToolCallGroup），且尾部每次重建都要重新贴一次。
+        // 每次在基础投影副本上贴最新 hook 行；随后沿用聚合规则，折叠组内不展示这些行。
         self.apply_hook_rows(&mut tail_vms);
         aggregate_tool_groups(&mut tail_vms);
         // Re-run after appending streaming/pending tools so a completed tool group
@@ -328,3 +380,7 @@ impl MessagePipeline {
         tail_vms
     }
 }
+
+#[cfg(test)]
+#[path = "completed_view_cache_test.rs"]
+mod completed_view_cache_tests;

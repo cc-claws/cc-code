@@ -52,7 +52,11 @@ TUI 输入 → AcpTuiClient.new_session() / .prompt()
 
 所有消息更新通过统一 `RebuildAll` 路径触发（无增量更新）。`MessagePipeline` 维护规范状态，`build_tail_vms()` 构建尾部 VMs，`messages_to_view_models()` 是唯一转换入口。流式文本通过 16ms 间隔 + 自适应分块策略触发 RebuildAll。独立 `RenderThread` 处理渲染，通过 `RenderCache(RwLock)` 与 UI 线程同步。
 
+`poll_agent()` 每批最多消费 128 条 ACP 通知或约 4ms（至少处理一条），未消费事件留在通道中保持 FIFO，随后交还键鼠与绘制。子线程只更新规范状态；隐藏视口在切入时构建，聚焦视口的文本/推理按 16ms 合并刷新，工具阶段与结束事件立即同步。流式子视口刷新不重建父时间线。历史基础 VM 按 completed revision、轮次起点与主题指纹复用，每条管线只留一份、估算上限 16MiB；动态工具、hook、shell 与聚合在副本上补齐，历史替换/新轮次/清空会失效，切离子视口时释放其投影缓存，主/子缓存均计入 `/gc` 的 VM 统计。渲染队列满时保留最新完整快照并在后续轮询重试，清空和切换视图必须走同一入口，避免丢失最终帧或重放旧视口。
+
 输入、后台更新与动画共用 33ms 绘制期限，连续请求不能推迟尾帧。`prepare_viewport` 通过 `try_prepare_width` 非阻塞投递/收取宽度确认，未就绪时保留旧屏并继续处理输入；同一内容布局的滚动不再投递宽度屏障。内容请求使用独立 revision，历史/模式/视图替换另推进 epoch，避免误收旧确认；虚拟窗口实测高度仅在是否可容纳的边界改变时重新准备宽度。缓存构造及旧成品析构在共享写锁外完成。拖选后的左键释放仍等最后一帧呈现，再从快照提取复制内容。
+
+渲染模式事件拥塞时按类型只保留最新值（最多五种），后续轮询先重试模式，再重试内容快照；成功发送新值或通道关闭时必须丢弃同类型旧值。hook 显隐与其他布局模式一样推进 layout epoch。
 
 **[TRAP]** Ephemeral VM（SystemNote/CacheWarning）依赖锚点机制：`ephemeral_notes: Vec<(usize, MessageViewModel)>` 记录插入时的 `view_messages.len()` 作为位置索引（非 MessageId）。RebuildAll 时通过 `(anchor - prefix_len).min(tail_len) + prefix_len` 计算插入位置。`retain()` 路径通过 `anchor >= prefix_len` 过滤过期锚点。新增 ephemeral VM 类型必须同步更新过滤逻辑。（详见 spec/global/domains/message-pipeline.md#issue_2026-05-12-systemnote-position-drift-on-rebuild）
 

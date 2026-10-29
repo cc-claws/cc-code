@@ -27,6 +27,8 @@ pub(crate) fn format_duration(duration: Duration) -> String {
 /// `DRAWER_ACTIVITY_THROTTLE` 刷新一次，中间的瞬时值直接丢弃——丢的是渲染帧而不是
 /// 状态，最终值仍会同步（子 Agent 结束时立即同步，见 `sync_activity_display`）。
 const DRAWER_ACTIVITY_THROTTLE: Duration = Duration::from_millis(200);
+/// 子视口与主消息流使用同样的最小刷新间隔；状态仍按 FIFO 完整消费。
+const SUBAGENT_VIEW_REFRESH_INTERVAL: Duration = Duration::from_millis(16);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SubagentRunStatus {
@@ -57,6 +59,11 @@ pub(crate) struct BackgroundAgentSession {
     pub final_result: Option<String>,
     pub pipeline: MessagePipeline,
     pub view_messages: Vec<MessageViewModel>,
+    view_dirty: bool,
+    streaming_refresh_pending: bool,
+    last_view_refresh_at: Option<Instant>,
+    #[cfg(test)]
+    view_rebuild_count: usize,
     pub agent: AgentComm,
     pub spinner: cc_widgets::SpinnerState,
     pub pending_inputs: Vec<(uuid::Uuid, String)>,
@@ -114,6 +121,11 @@ impl BackgroundAgentSession {
             final_result: None,
             pipeline: MessagePipeline::new(cwd),
             view_messages: Vec::new(),
+            view_dirty: false,
+            streaming_refresh_pending: false,
+            last_view_refresh_at: None,
+            #[cfg(test)]
+            view_rebuild_count: 0,
             agent,
             spinner,
             pending_inputs: Vec::new(),
@@ -182,6 +194,12 @@ impl BackgroundAgentSession {
     }
 
     pub(crate) fn rebuild(&mut self) {
+        self.rebuild_view();
+        // 审批/消息投递等显式刷新也可能来自隐藏任务，不额外驻留历史投影。
+        self.pipeline.invalidate_completed_view_cache();
+    }
+
+    fn rebuild_view(&mut self) {
         self.view_messages = self.pipeline.build_tail_vms();
         for vm in &mut self.view_messages {
             if let MessageViewModel::ToolBlock {
@@ -208,6 +226,37 @@ impl BackgroundAgentSession {
         }
         self.view_messages
             .extend(self.notices.iter().cloned().map(MessageViewModel::system));
+        if self.view_messages.is_empty() && !self.status.is_active() {
+            if let Some(result) = self
+                .final_result
+                .as_ref()
+                .filter(|result| !result.is_empty())
+            {
+                let mut vm = MessageViewModel::assistant();
+                vm.append_chunk(result);
+                self.view_messages.push(vm);
+            }
+        }
+        self.view_dirty = false;
+        self.streaming_refresh_pending = false;
+        self.last_view_refresh_at = Some(Instant::now());
+        #[cfg(test)]
+        {
+            self.view_rebuild_count += 1;
+        }
+    }
+
+    pub(crate) fn refresh_view_if_dirty(&mut self) {
+        if self.view_dirty {
+            self.rebuild_view();
+        }
+    }
+
+    pub(crate) fn streaming_view_refresh_due(&self, now: Instant) -> bool {
+        self.streaming_refresh_pending
+            && self.last_view_refresh_at.is_none_or(|last| {
+                now.saturating_duration_since(last) >= SUBAGENT_VIEW_REFRESH_INTERVAL
+            })
     }
 
     /// 用最新一句助手文本更新抽屉「正在做什么」列。
@@ -229,6 +278,18 @@ impl BackgroundAgentSession {
     }
 
     pub(crate) fn handle_event(&mut self, event: AgentEvent) {
+        let streaming = matches!(
+            &event,
+            AgentEvent::AiReasoning(_) | AgentEvent::AssistantChunk { .. }
+        );
+        let view_changed = !matches!(
+            &event,
+            AgentEvent::TokenUsageUpdate { .. }
+                | AgentEvent::ContextWarning { .. }
+                | AgentEvent::LlmRetrying { .. }
+                | AgentEvent::SystemNotice { .. }
+                | AgentEvent::LspDiagnostics { .. }
+        );
         let now = Instant::now();
         match &event {
             AgentEvent::ToolStart {
@@ -366,7 +427,9 @@ impl BackgroundAgentSession {
             _ => {}
         }
         self.pipeline.handle_event(event);
-        self.rebuild();
+        // 事件接收只更新规范状态。隐藏视口不做转换，聚焦视口每批最多刷新一次。
+        self.view_dirty |= view_changed;
+        self.streaming_refresh_pending |= streaming;
     }
 }
 
@@ -466,6 +529,10 @@ impl super::App {
         {
             sub.scroll_position = position;
             sub.input_draft = Some(draft);
+            if id.as_deref() != Some(sub.instance_id.as_str()) {
+                // 只为当前子视口保留新增的历史投影缓存，避免看过的活跃任务逐个累计。
+                sub.pipeline.invalidate_completed_view_cache();
+            }
         } else {
             session.main_scroll_position = position;
             session.main_input_draft = Some(draft);
@@ -634,3 +701,7 @@ impl super::App {
 #[cfg(test)]
 #[path = "subagent_session_test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "subagent_refresh_test.rs"]
+mod refresh_tests;

@@ -5,36 +5,60 @@ impl App {
     /// 发送当前 view_messages 的全量重建到渲染线程。
     ///
     /// 当前视口直接读取独立管线的内存快照，渲染期间不阻塞查询 SQLite。
-    pub(crate) fn render_rebuild(&self) {
-        let session = &self.session_mgr.current();
+    pub(crate) fn render_rebuild(&mut self) {
+        self.refresh_focused_subagent_view();
+        let session = self.session_mgr.current();
         let vms = self.resolve_render_vms(session);
-        let _ = session
+        self.session_mgr
+            .current_mut()
             .messages
-            .send_render_event(RenderEvent::Rebuild(vms));
+            .send_render_snapshot(RenderEvent::Rebuild(vms));
     }
 
     /// 发送带滚动锚点的全量重建到渲染线程。
     ///
     /// 聚焦后台 agent 时忽略锚点（直接 Rebuild），因为 agent 视图与主视图
     /// 的滚动位置不共享。
-    pub(crate) fn render_rebuild_with_anchor(&self, anchor_message_idx: usize) {
-        let session = &self.session_mgr.current();
-        if session.focused_instance_id.is_some() {
+    pub(crate) fn render_rebuild_with_anchor(&mut self, anchor_message_idx: usize) {
+        if self.session_mgr.current().focused_instance_id.is_some() {
             // 子视口有独立滚动位置，不采用主视图锚点。
-            let vms = self.resolve_render_vms(session);
-            let _ = session
-                .messages
-                .send_render_event(RenderEvent::Rebuild(vms));
+            self.render_rebuild();
         } else {
-            let vms = self.resolve_render_vms(session);
+            let vms = self.resolve_render_vms(self.session_mgr.current());
             let adjusted_anchor = anchor_message_idx.min(vms.len().saturating_sub(1));
-            let _ = session
+            self.session_mgr
+                .current_mut()
                 .messages
-                .send_render_event(RenderEvent::RebuildWithAnchor {
+                .send_render_snapshot(RenderEvent::RebuildWithAnchor {
                     messages: vms,
                     anchor_message_idx: adjusted_anchor,
                 });
         }
+    }
+
+    fn refresh_focused_subagent_view(&mut self) {
+        let session = self.session_mgr.current_mut();
+        if let Some(sub) = session
+            .focused_instance_id
+            .as_ref()
+            .and_then(|id| session.subagent_sessions.get_mut(id))
+        {
+            sub.refresh_view_if_dirty();
+        }
+    }
+
+    /// 只刷新当前子视口；流式分片不能顺带重建无关的父时间线。
+    pub(crate) fn flush_subagent_view_refresh(&mut self) -> bool {
+        if !self
+            .session_mgr
+            .current()
+            .active_subagent()
+            .is_some_and(|sub| sub.streaming_view_refresh_due(std::time::Instant::now()))
+        {
+            return false;
+        }
+        self.render_rebuild();
+        true
     }
 
     /// 根据聚焦状态决定渲染数据源。

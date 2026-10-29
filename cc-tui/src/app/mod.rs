@@ -570,11 +570,10 @@ impl App {
                         .messages
                         .view_messages
                         .clone();
-                    let _ = self
-                        .session_mgr
+                    self.session_mgr
                         .current_mut()
                         .messages
-                        .send_render_event(RenderEvent::Rebuild(remaining));
+                        .send_render_snapshot(RenderEvent::Rebuild(remaining));
                 }
                 // 截断 origin_messages（回滚 StateSnapshot 扩展的内容）
                 let pre_len = self.session_mgr.current_mut().metadata.pre_submit_state_len;

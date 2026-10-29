@@ -19,6 +19,7 @@
 //! AssistantBubble，确保最终状态与 restore 路径完全一致。
 
 use std::{
+    cell::RefCell,
     collections::HashMap,
     time::{Duration, Instant},
 };
@@ -510,6 +511,8 @@ pub struct MessagePipeline {
     cwd: String,
     /// 已完成的 BaseMessages（规范状态，可用于持久化）
     completed: Vec<BaseMessage>,
+    completed_revision: u64,
+    completed_view_cache: RefCell<Option<reconcile::CompletedViewCache>>,
     /// 当前正在流式构建的 AI 文本
     current_ai_text: String,
     /// 当前正在流式构建的 AI 推理内容
@@ -587,6 +590,8 @@ impl MessagePipeline {
         Self {
             cwd,
             completed: Vec::new(),
+            completed_revision: 0,
+            completed_view_cache: RefCell::new(None),
             current_ai_text: String::new(),
             current_ai_reasoning: String::new(),
             reasoning_started_at: None,
@@ -1621,6 +1626,7 @@ impl MessagePipeline {
 
     /// 清空所有状态
     pub fn clear(&mut self) {
+        self.invalidate_completed_view_cache();
         self.shell_runtimes.clear();
         self.completed.clear();
         self.current_ai_text.clear();
@@ -1637,6 +1643,7 @@ impl MessagePipeline {
 
     /// 清空并释放所有内部 buffer 的 capacity
     pub fn shrink_to_fit(&mut self) {
+        self.invalidate_completed_view_cache();
         self.completed.shrink_to_fit();
         self.current_ai_text.shrink_to_fit();
         self.current_ai_reasoning.shrink_to_fit();
@@ -1684,6 +1691,7 @@ impl MessagePipeline {
 
     /// 标记新一轮对话开始。由 submit_message() 调用。
     pub fn begin_round(&mut self) {
+        self.invalidate_completed_view_cache();
         self.completed_len_at_round_start = self.completed.len();
         self.has_snapshot_this_round = false;
         self.adaptive_policy.reset();
@@ -1753,6 +1761,7 @@ impl MessagePipeline {
     /// 从 pipeline 规范状态构建尾部 VMs。
     ///
     pub fn set_completed(&mut self, msgs: Vec<BaseMessage>) {
+        self.invalidate_completed_view_cache();
         self.completed.extend(msgs);
         self.current_ai_text.clear();
         self.current_ai_reasoning.clear();
@@ -1773,6 +1782,7 @@ impl MessagePipeline {
 
     /// 从外部加载全量 BaseMessages（用于历史恢复后覆盖），并清除所有状态
     pub fn restore_completed(&mut self, msgs: Vec<BaseMessage>) {
+        self.invalidate_completed_view_cache();
         self.completed = msgs;
         self.completed_len_at_round_start = self.completed.len();
         self.has_snapshot_this_round = false;

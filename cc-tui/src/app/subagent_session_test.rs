@@ -44,6 +44,10 @@ async fn test_subagent_interleaved_reasoning_tools_and_tokens_are_isolated() {
         "_peri": {"sourceAgentId": "one"}, "update": {"sessionUpdate": "tool_call_update", "toolCallId": "shared-id", "title": "Bash", "status": "completed", "rawOutput": "武汉结果"},
     }));
     app.request_rebuild();
+    // 隐藏子视口按需物化；这里显式观察两条独立时间线以验证隔离。
+    for sub in app.session_mgr.current_mut().subagent_sessions.values_mut() {
+        sub.refresh_view_if_dirty();
+    }
     let session = app.session_mgr.current();
     let one = &session.subagent_sessions["one"];
     let two = &session.subagent_sessions["two"];
@@ -150,6 +154,7 @@ async fn test_subagent_viewport_keyboard_cursor_and_read_only_completion() {
             source_agent_id: None,
         },
     );
+    app.poll_agent();
     assert!(make_text(app.session_mgr.current().current_view_messages()).contains("独立回复"));
     app.handle_subagent_lifecycle(&json!({"event":"stopped", "instanceId":"one", "result":"独立回复", "isError":false, "elapsedMs":32000}));
     make_key(&mut app, KeyCode::Char('a'), KeyModifiers::NONE);
@@ -225,6 +230,7 @@ async fn test_subagent_lifecycle_started_is_idempotent() {
     make_started(&mut app, "one", "任务");
     assert_eq!(app.session_mgr.current().background_agents.len(), 1);
     assert_eq!(app.session_mgr.current().subagent_sessions.len(), 1);
+    app.switch_subagent_viewport(Some("one".into()));
     assert!(
         make_text(&app.session_mgr.current().subagent_sessions["one"].view_messages)
             .contains("内容保留")
