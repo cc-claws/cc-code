@@ -843,12 +843,46 @@ impl RenderTask {
                     is_error,
                     ..
                 } => tool_name != "AskUserQuestion" && *phase != ToolPhase::Finished && !*is_error,
+                // `!` 命令同样要按 tick 刷新 `Running… (Xs)` 秒数，否则静默命令
+                // （如 `! sleep 5`）的状态行会一直停在首帧文本。
+                MessageViewModel::ShellCommand { exit_code, .. } => exit_code.is_none(),
                 _ => RenderTask::visible_subagent_messages(vm)
                     .iter()
                     .any(running),
             }
         }
         self.last_messages.iter().any(running)
+    }
+
+    /// `!` 命令运行中应显示的状态文本。
+    ///
+    /// 与 `render_shell_command` 的产出逐字对齐：无输出时是 `Running…`/`Running… (Xs)`
+    /// 状态行；已有输出时是单独的 `(Xs)` 耗时行（前 2 秒没有这一行）。
+    fn running_shell_command_status(vm: &MessageViewModel) -> Option<String> {
+        let MessageViewModel::ShellCommand {
+            exit_code: None,
+            started_at: Some(start),
+            stdout,
+            stderr,
+            moved_to_background: false,
+            ..
+        } = vm
+        else {
+            return None;
+        };
+        let past_threshold = start.elapsed() >= Duration::from_secs(2);
+        let has_output = !stdout.trim().is_empty() || !stderr.trim().is_empty();
+        if !has_output {
+            Some(if past_threshold {
+                super::message_render::shell_running_text(*start, None)
+            } else {
+                super::message_render::SHELL_RUNNING_TEXT_PREFIX.to_string()
+            })
+        } else if past_threshold {
+            Some(super::message_render::shell_elapsed_text(*start))
+        } else {
+            None
+        }
     }
 
     /// 判断 running Bash 是否已超过 2 秒（需要显示 Running…/ctrl+b hint）
@@ -881,6 +915,25 @@ impl RenderTask {
         // 其余消息的渲染键不受影响，避免全量重绘。
         let mut needs_rebuild = false;
         for (idx, vm) in self.last_messages.iter().enumerate() {
+            // 场景 B：`!` 命令的状态行/耗时行随秒数变化。缓存里找不到期望文本时
+            // 只失效该条消息的 hash，由重建写入新秒数。
+            if let Some(expected) = Self::running_shell_command_status(vm) {
+                let has_expected = self.message_lines.get(idx).is_some_and(|lines| {
+                    lines
+                        .iter()
+                        .flat_map(|line| &line.spans)
+                        .any(|span| span.content == expected)
+                });
+                if !has_expected {
+                    needs_rebuild = true;
+                    if let Some(h) = self.message_hashes.get_mut(idx) {
+                        *h = h.wrapping_add(1);
+                    }
+                    if let Some(lines) = self.message_lines.get_mut(idx) {
+                        lines.clear();
+                    }
+                }
+            }
             // 子 Agent 工具不是顶层行，不能用 lines[1] 更新；只在秒数变化时
             // 失效该组的缓存，同时覆盖首次越过 2 秒且没有新输出的情况。
             let children = Self::visible_subagent_messages(vm);

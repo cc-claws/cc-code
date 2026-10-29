@@ -85,6 +85,18 @@ pub(crate) fn shell_running_text(
 /// Bash 运行状态行（`"  ⎿  Running… (Xs)"`）中状态文本的固定前缀。
 pub(crate) const SHELL_RUNNING_TEXT_PREFIX: &str = "Running…";
 
+/// 命令已有输出、无法占用状态行时单独显示的耗时文本：`(22s)` / `(1m 05s)`。
+///
+/// 渲染与渲染线程的增量刷新共用同一份文本，两边口径必须一致。
+pub(crate) fn shell_elapsed_text(started_at: std::time::Instant) -> String {
+    let secs = started_at.elapsed().as_secs();
+    if secs >= 60 {
+        format!("({}m {:02}s)", secs / 60, secs % 60)
+    } else {
+        format!("({}s)", secs)
+    }
+}
+
 /// 判断某渲染行是否为 Bash "⎿ Running…" 运行状态行。
 ///
 /// 供渲染线程在增量刷新时**按内容定位**状态行。详细模式下超长命令会让 header
@@ -1382,20 +1394,17 @@ fn render_shell_command(
     let status_line_shown = output_lines.is_empty();
     if !moved_to_background && exit_code.is_none() && past_threshold {
         if !status_line_shown {
-            let secs = started_at.map(|t| t.elapsed().as_secs()).unwrap_or(0);
-            let elapsed_str = if secs >= 60 {
-                format!("({}m {:02}s)", secs / 60, secs % 60)
-            } else {
-                format!("({}s)", secs)
-            };
-            shell_output_lines(
-                &mut lines,
-                BranchPrefix::HANG,
-                &elapsed_str,
-                Style::default().fg(theme::cur().inactive),
-                theme::cur().subtle,
-                width,
-            );
+            if let Some(start) = started_at {
+                let elapsed_str = shell_elapsed_text(start);
+                shell_output_lines(
+                    &mut lines,
+                    BranchPrefix::HANG,
+                    &elapsed_str,
+                    Style::default().fg(theme::cur().inactive),
+                    theme::cur().subtle,
+                    width,
+                );
+            }
         }
         shell_output_lines(
             &mut lines,
