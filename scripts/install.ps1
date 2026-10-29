@@ -175,20 +175,25 @@ function Get-Sha256Hex {
 
 # --- Cleanup Old Versions ---
 function Clean-OldVersions {
-    param([string]$InstallDir, [string]$CurrentVersion)
+    param([string]$InstallDir, [string]$CurrentVersion, [string]$ExeName = "cc-code.exe")
 
-    # Collect agent-v* directories, excluding current version
+    # Collect npm-v* directories (excluding current version) and leftover
+    # "<ExeName>.old.<stamp>" copies. The latter are produced when a running
+    # image had to be renamed aside during self-update (#798); the one still
+    # held by the running process cannot be removed yet and is retried on the
+    # next update, so they never accumulate beyond one.
     $oldDirs = @(Get-ChildItem -Path $InstallDir -Directory | Where-Object {
         $_.Name -match '^npm-v' -and $_.Name -ne $CurrentVersion
     })
+    $oldFiles = @(Get-ChildItem -Path $InstallDir -File -Filter "$ExeName.old.*" -ErrorAction SilentlyContinue)
 
-    if ($oldDirs.Count -eq 0) {
+    if ($oldDirs.Count -eq 0 -and $oldFiles.Count -eq 0) {
         info "No old versions to clean up."
         return
     }
 
     Write-Host ""
-    warn "Found $($oldDirs.Count) old version(s):"
+    warn "Found $($oldDirs.Count + $oldFiles.Count) old item(s) to clean up:"
     $totalSize = 0
     foreach ($d in $oldDirs) {
         $size = (Get-ChildItem -Path $d.FullName -Recurse -File -ErrorAction SilentlyContinue |
@@ -198,23 +203,50 @@ function Clean-OldVersions {
         $sizeMB = [math]::Round($size / 1MB, 1)
         Write-Host "  $($d.Name)  ($sizeMB MB)"
     }
+    foreach ($f in $oldFiles) {
+        $totalSize += $f.Length
+        $sizeMB = [math]::Round($f.Length / 1MB, 1)
+        Write-Host "  $($f.Name)  ($sizeMB MB)"
+    }
     $totalMB = [math]::Round($totalSize / 1MB, 1)
     Write-Host "  Total: $totalMB MB"
     Write-Host ""
 
-    $answer = Read-Host "Delete old versions? [y/N]"
-    switch ($answer) {
-        { $_ -match '^[yY](es)?$' } {
-            foreach ($d in $oldDirs) {
-                Remove-Item -Recurse -Force $d.FullName
-                info "Removed: $($d.Name)"
-            }
-            info "Cleaned up $($oldDirs.Count) old version(s)."
-        }
-        default {
-            info "Skipped cleanup."
+    # Self-update spawns this script with redirected stdin, where Read-Host
+    # always returns an empty answer and the cleanup would be skipped forever
+    # (#798); CC_CODE_NO_CLEANUP_PROMPT makes that path explicit.
+    $shouldClean = $false
+    if ($env:CC_CODE_NO_CLEANUP_PROMPT -eq "1") {
+        info "Non-interactive mode: cleaning up without confirmation."
+        $shouldClean = $true
+    } elseif ([Console]::IsInputRedirected) {
+        info "Non-interactive mode: cleaning up without confirmation."
+        $shouldClean = $true
+    } else {
+        $answer = Read-Host "Delete old versions? [y/N]"
+        $shouldClean = $answer -match '^[yY](es)?$'
+    }
+
+    if (-not $shouldClean) {
+        info "Skipped cleanup."
+        return
+    }
+
+    foreach ($d in $oldDirs) {
+        Remove-Item -Recurse -Force $d.FullName
+        info "Removed: $($d.Name)"
+    }
+    foreach ($f in $oldFiles) {
+        # The copy backing the running image is still locked; keep it and let
+        # the next update run remove it rather than aborting the cleanup.
+        try {
+            Remove-Item -Force -ErrorAction Stop $f.FullName
+            info "Removed: $($f.Name)"
+        } catch {
+            info "Kept $($f.Name) (in use by the running instance; retried next update)."
         }
     }
+    info "Cleaned up old versions."
 }
 
 # --- Main ---
@@ -418,7 +450,7 @@ function Main {
     }
 
     # Offer to clean up old versions
-    Clean-OldVersions -InstallDir $InstallDir -CurrentVersion $VersionTag
+    Clean-OldVersions -InstallDir $InstallDir -CurrentVersion $VersionTag -ExeName $ExeName
 
     Write-Host ""
     info "Installation complete! Version: $VersionTag"

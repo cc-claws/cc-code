@@ -76,6 +76,8 @@ async fn run_update_unix() -> Result<String> {
 
     let mut child = Command::new("bash")
         .arg(tmp.to_str().unwrap())
+        // stdin 不可交互，清理步骤不能停下来等确认（#798）
+        .env("CC_CODE_NO_CLEANUP_PROMPT", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -92,9 +94,11 @@ async fn run_update_windows() -> Result<String> {
 
     // 先强制子进程控制台输出为 UTF-8 并开启 TLS 1.2/1.3：在非英文 Windows 上默认代码页（如 GBK）
     // 会把中文（错误信息等）写成非 UTF-8 字节，老旧系统默认未启用 TLS 1.2 会导致 irm 握手失败。
+    // CC_CODE_NO_CLEANUP_PROMPT：自更新时 stdin 不可交互，清理旧版本不能等 Read-Host 确认（#798）。
     let ps_command = format!(
         "try {{ [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 }} catch {{}}; \
          try {{ [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072 -bor 12288 }} catch {{}}; \
+         $env:CC_CODE_NO_CLEANUP_PROMPT = '1'; \
          irm {SCRIPT_URL_PS1} | iex"
     );
 
