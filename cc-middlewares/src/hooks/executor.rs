@@ -17,12 +17,19 @@ use cc_agent::{
 };
 
 /// 拼一段给用户看的 hook 错误原因：`<prefix>: <stderr 前 200 字符>`。
+///
+/// reason 最终落在 TUI 的单行 hook 结果行里，而 stderr 可能带换行、制表符与
+/// ANSI 转义：先剥离转义，再把所有空白折叠成单个空格，保证「一行一条原因」
+/// 且不会把终端控制序列带进渲染层。
 fn hook_error_reason(prefix: &str, detail: &str) -> String {
-    let detail = detail.trim();
-    if detail.is_empty() {
+    use crate::tools::output_filter::strip_ansi;
+
+    let cleaned = strip_ansi(detail);
+    let flattened = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+    if flattened.is_empty() {
         return prefix.to_string();
     }
-    let short: String = detail.chars().take(200).collect();
+    let short: String = flattened.chars().take(200).collect();
     format!("{prefix}: {short}")
 }
 
@@ -220,12 +227,17 @@ pub async fn execute_prompt_hook(
             parse_command_hook_output(&answer)
         }
         Ok(Err(e)) => {
+            // LLM 调用失败 = hook 自身跑不起来。不阻断调用，但要让用户看到
             tracing::warn!("Prompt hook LLM call failed: {}", e);
-            HookAction::Allow
+            HookAction::Error {
+                reason: hook_error_reason("hook LLM call failed", &e.to_string()),
+            }
         }
         Err(_) => {
             tracing::warn!("Prompt hook timed out after {}s", timeout_secs);
-            HookAction::Allow
+            HookAction::Error {
+                reason: format!("hook timed out after {timeout_secs}s"),
+            }
         }
     }
 }
@@ -343,10 +355,14 @@ pub async fn execute_http_hook(hook: &HookType, input: &HookInput) -> HookAction
                     if body.len() > 200 {
                         format!("{}...", &body[..body.floor_char_boundary(200)])
                     } else {
-                        body
+                        body.clone()
                     }
                 );
-                return HookAction::Allow;
+                // 非 2xx = 端点自身出错（服务不可用 / 路径写错 / 鉴权失败）。
+                // 不阻断调用，但要把状态码暴露给用户，否则「hook 没生效」无从排查。
+                return HookAction::Error {
+                    reason: hook_error_reason(&format!("hook returned status {status}"), &body),
+                };
             }
 
             health.reset();
@@ -368,7 +384,10 @@ pub async fn execute_http_hook(hook: &HookType, input: &HookInput) -> HookAction
                     e
                 );
             }
-            HookAction::Allow
+            // 连接失败 / 超时 / 请求构造失败：hook 端点没跑通，不阻断但上报
+            HookAction::Error {
+                reason: hook_error_reason("hook request failed", &e.to_string()),
+            }
         }
     }
 }
@@ -424,12 +443,17 @@ pub async fn execute_agent_hook(
     match result {
         Ok(Ok((_output, messages))) => extract_structured_output(&messages),
         Ok(Err(e)) => {
+            // Agent hook 自身跑挂（LLM 报错 / 轮数耗尽）：不阻断调用但上报
             tracing::warn!("Agent hook execution failed: {}", e);
-            HookAction::Allow
+            HookAction::Error {
+                reason: hook_error_reason("hook agent failed", &e.to_string()),
+            }
         }
         Err(_) => {
             tracing::warn!("Agent hook timed out after {}s", timeout_secs);
-            HookAction::Allow
+            HookAction::Error {
+                reason: format!("hook timed out after {timeout_secs}s"),
+            }
         }
     }
 }

@@ -17,9 +17,12 @@ pub fn parse_command_hook_output(stdout: &str) -> HookAction {
     match serde_json::from_str::<SyncHookResponse>(trimmed) {
         Ok(response) => sync_response_to_action(&response),
         Err(e) => {
-            // JSON 解析失败 → 纯文本，视为 Allow（记录日志）
+            // 以 `{` 开头却不是合法 JSON → 声明了结构化输出却没写对，
+            // 是「hook 坏了」而非「hook 无意见」：上报 Error（不阻断调用）。
             tracing::warn!("Hook stdout JSON parse failed: {}", e);
-            HookAction::Allow
+            HookAction::Error {
+                reason: format!("invalid hook output: {e}"),
+            }
         }
     }
 }
@@ -39,22 +42,23 @@ pub fn parse_http_hook_response(body: &str) -> HookAction {
 
     // 不以 { 开头 → 非法（HTTP hook 必须返回 JSON）
     if !trimmed.starts_with('{') {
-        tracing::warn!(
-            "HTTP hook must return JSON, got non-JSON body: {}",
-            if trimmed.len() > 200 {
-                format!("{}...", &trimmed[..trimmed.floor_char_boundary(200)])
-            } else {
-                trimmed.to_string()
-            }
-        );
-        return HookAction::Allow;
+        // reason 会渲染成单行：把正文里的换行/制表符折叠成空格再截断
+        let flattened = trimmed.split_whitespace().collect::<Vec<_>>().join(" ");
+        let snippet: String = flattened.chars().take(200).collect();
+        tracing::warn!("HTTP hook must return JSON, got non-JSON body: {}", snippet);
+        // 端点返回了非 JSON 正文 → hook 配置/服务有问题，上报 Error（不阻断调用）
+        return HookAction::Error {
+            reason: format!("invalid hook output: response is not JSON: {snippet}"),
+        };
     }
 
     match serde_json::from_str::<SyncHookResponse>(trimmed) {
         Ok(response) => sync_response_to_action(&response),
         Err(e) => {
             tracing::warn!("HTTP hook JSON parse failed: {}", e);
-            HookAction::Allow
+            HookAction::Error {
+                reason: format!("invalid hook output: {e}"),
+            }
         }
     }
 }

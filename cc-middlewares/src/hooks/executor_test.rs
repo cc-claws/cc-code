@@ -1,5 +1,6 @@
 use super::*;
 use crate::hooks::types::HookEvent;
+use cc_agent::agent::react::Reasoning;
 use cc_agent::messages::MessageId;
 use std::path::PathBuf;
 
@@ -350,12 +351,16 @@ async fn test_http_hook_connect_failure_trips_circuit_breaker() {
     let elapsed = start.elapsed();
 
     // 验证即使配置了 600 秒超时，连接失败也在 connect_timeout (800ms) 内快速退出
-    assert!(matches!(action, HookAction::Allow));
+    // 语义：连接失败 = hook 端点没跑通 → Error（不阻断，但要上报给 UI）
+    assert!(
+        matches!(action, HookAction::Error { ref reason } if reason.contains("hook request failed")),
+        "连接失败必须上报为 hook 失败：{action:?}"
+    );
     assert!(elapsed < std::time::Duration::from_secs(3));
     // 验证熔断已被触发
     assert!(health.is_open());
 
-    // 验证后续请求直接瞬间跳过
+    // 验证后续请求直接瞬间跳过（熔断期间不上报失败，避免刷屏）
     let start_second = std::time::Instant::now();
     let action_second = execute_http_hook(&hook, &input).await;
     assert!(matches!(action_second, HookAction::Allow));
@@ -409,4 +414,152 @@ async fn test_agent_hook_wrong_type_returns_allow() {
         Arc::new(|| unimplemented!());
     let action = execute_agent_hook(&hook, &input, &llm_factory, "/tmp").await;
     assert!(matches!(action, HookAction::Allow));
+}
+
+/// reason 最终渲染成单行：换行/制表符折叠成空格，ANSI 转义剥离。
+#[test]
+fn test_hook_error_reason_flattens_whitespace_and_ansi() {
+    let reason = hook_error_reason(
+        "hook exited with code 1",
+        "\x1b[31mboom\x1b[0m\nsecond\tline",
+    );
+    assert_eq!(reason, "hook exited with code 1: boom second line");
+}
+
+/// 只有空白（或全被剥掉）的 stderr 只保留前缀，不留悬空冒号。
+#[test]
+fn test_hook_error_reason_blank_detail_returns_prefix() {
+    assert_eq!(
+        hook_error_reason("hook failed to run", " \r\n\t\x1b[0m "),
+        "hook failed to run"
+    );
+}
+
+// === hook 自身失败上报（非阻断 Error）测试 ===
+
+/// 恒定返回错误的 mock LLM：用于验证 prompt / agent hook 的失败分支。
+struct MockFailingLlm;
+
+#[async_trait::async_trait]
+impl ReactLLM for MockFailingLlm {
+    async fn generate_reasoning(
+        &self,
+        _messages: &[BaseMessage],
+        _tools: &[&dyn cc_agent::tools::BaseTool],
+        _streaming: Option<cc_agent::llm::types::StreamingContext>,
+    ) -> cc_agent::error::AgentResult<Reasoning> {
+        Err(cc_agent::error::AgentError::LlmError(
+            "mock llm unavailable".to_string(),
+        ))
+    }
+}
+
+fn make_failing_llm_factory() -> Arc<dyn Fn() -> Box<dyn ReactLLM + Send + Sync> + Send + Sync> {
+    Arc::new(|| Box::new(MockFailingLlm) as Box<dyn ReactLLM + Send + Sync>)
+}
+
+/// 起一个只回固定响应的本地 HTTP 桩（仅 127.0.0.1 环回，不走外网）。
+async fn spawn_http_stub(
+    status: &'static str,
+    body: &'static str,
+) -> (String, tokio::task::JoinHandle<()>) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let response = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let task = tokio::spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            // 读完整个请求（头 + content-length 指定的 body）再回包，
+            // 避免带着未读数据关闭连接被对端判为 RST。
+            let mut request = Vec::new();
+            let mut buf = [0_u8; 4096];
+            loop {
+                match stream.read(&mut buf).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(count) => request.extend_from_slice(&buf[..count]),
+                }
+                if let Some(end) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+                    let head = String::from_utf8_lossy(&request[..end]).to_ascii_lowercase();
+                    let length = head
+                        .lines()
+                        .find_map(|line| {
+                            line.strip_prefix("content-length:")
+                                .and_then(|value| value.trim().parse::<usize>().ok())
+                        })
+                        .unwrap_or(0);
+                    if request.len() >= end + 4 + length {
+                        break;
+                    }
+                }
+            }
+            let _ = stream.write_all(response.as_bytes()).await;
+            let _ = stream.flush().await;
+        }
+    });
+    (url, task)
+}
+
+#[tokio::test]
+async fn test_prompt_hook_llm_failure_reports_error() {
+    let hook: HookType = serde_json::from_value(serde_json::json!({
+        "type": "prompt",
+        "prompt": "check $ARGUMENTS",
+        "timeout": 5
+    }))
+    .unwrap();
+    let input = make_hook_input();
+    let action = execute_prompt_hook(&hook, &input, &make_failing_llm_factory()).await;
+    assert!(
+        matches!(action, HookAction::Error { ref reason } if reason.contains("LLM call failed")),
+        "prompt hook 的 LLM 调用失败必须上报为 hook 失败：{action:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_agent_hook_llm_failure_reports_error() {
+    let hook: HookType = serde_json::from_value(serde_json::json!({
+        "type": "agent",
+        "prompt": "decide $ARGUMENTS",
+        "timeout": 10
+    }))
+    .unwrap();
+    let input = make_hook_input();
+    let action = execute_agent_hook(
+        &hook,
+        &input,
+        &make_failing_llm_factory(),
+        env!("CARGO_MANIFEST_DIR"),
+    )
+    .await;
+    assert!(
+        matches!(action, HookAction::Error { ref reason } if reason.contains("hook agent failed")),
+        "agent hook 执行失败必须上报为 hook 失败：{action:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_http_hook_non_success_status_reports_error() {
+    let _guard = crate::hooks::http_health::test_lock().await;
+    crate::hooks::http_health::reset_all_http_health_for_test();
+    let (url, server) = spawn_http_stub("500 Internal Server Error", r#"{"error":"boom"}"#).await;
+
+    let hook: HookType = serde_json::from_value(serde_json::json!({
+        "type": "http",
+        "url": format!("{url}/hook"),
+        "timeout": 5
+    }))
+    .unwrap();
+    let input = make_hook_input();
+    let action = execute_http_hook(&hook, &input).await;
+    server.abort();
+    crate::hooks::http_health::reset_all_http_health_for_test();
+
+    assert!(
+        matches!(action, HookAction::Error { ref reason } if reason.contains("500")),
+        "非 2xx 状态码必须上报为 hook 失败并带状态码：{action:?}"
+    );
 }
