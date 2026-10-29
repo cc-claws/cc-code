@@ -21,6 +21,44 @@ async fn make_messages(app: &mut App, text: &str) {
     ready.await.expect("渲染完成");
 }
 
+/// 启动期系统提示不算会话历史。
+///
+/// 回归：hooks 未信任提示在首帧之前入列，曾被判成「已有历史」，
+/// 导致欢迎卡与吉祥物在整个会话里都不显示（#783 与 #652 的门控相撞）。
+#[tokio::test]
+async fn test_startup_notice_keeps_welcome_visible() {
+    // Arrange
+    let (mut app, _) = App::new_headless(120, 40).await;
+    app.push_toned_system_note(
+        r#"本项目 hooks 未加载：D:\code\peri 未被信任。执行 `cc-code trust-project "D:\code\peri"` 放行（或设 CC_CODE_TRUST_PROJECT_HOOKS=1）。"#.to_string(),
+        crate::ui::message_view::NoteTone::Warning,
+    );
+    let session = app.session_mgr.current().metadata.session_id;
+    // Act
+    app.global_ui
+        .viewport
+        .sync_welcome(session, has_conversation_history(&app));
+    // Assert
+    assert!(
+        !has_conversation_history(&app),
+        "纯系统提示不应算作会话历史"
+    );
+    assert!(
+        app.global_ui.viewport.startup_welcome,
+        "启动期提示不得把会话判成旧会话"
+    );
+    assert!(welcome_visible(&app), "欢迎卡与吉祥物应可见");
+    assert!(welcome_rows(&app, 80) > 0, "欢迎卡应占用行数");
+
+    // 真实用户消息才算历史
+    app.session_mgr
+        .current_mut()
+        .messages
+        .view_messages
+        .push(MessageViewModel::user("hi".into()));
+    assert!(has_conversation_history(&app), "真实用户消息应计入会话历史");
+}
+
 #[tokio::test]
 async fn test_compact_idle_height_is_stable_and_input_follows_card() {
     for (width, height) in [(80, 24), (120, 40), (40, 24)] {

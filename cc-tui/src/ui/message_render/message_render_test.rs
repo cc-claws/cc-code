@@ -2707,6 +2707,7 @@ fn test_compact_done_rendering_no_bullet_prefix() {
         content_hash: 0,
         detail_content: None,
         tone: None,
+        body_tone: None,
     };
     let text_lines: Vec<String> = render_view_model(&vm, None, 80, false, 0)
         .iter()
@@ -2776,6 +2777,7 @@ fn test_all_paths_preserve_width_no_overflow() {
         content_hash: 0,
         detail_content: None,
         tone: None,
+        body_tone: None,
     };
     assert!(
         max_line_width(&render_view_model(&vm, None, width, false, 0)) <= width,
@@ -3737,6 +3739,7 @@ fn test_system_note_with_tone_renders_dot_prefix_in_status_color() {
             content_hash: 0,
             detail_content: None,
             tone: Some(tone),
+            body_tone: None,
         };
         // Act
         let lines = render_view_model(&vm, None, 80, false, 0);
@@ -3763,6 +3766,7 @@ fn test_system_note_without_tone_keeps_plain_style() {
         content_hash: 0,
         detail_content: None,
         tone: None,
+        body_tone: None,
     };
     // Act
     let lines = render_view_model(&vm, None, 80, false, 0);
@@ -3771,6 +3775,44 @@ fn test_system_note_without_tone_keeps_plain_style() {
     assert!(
         !rendered.starts_with('●'),
         "普通系统提示不应带 ● 前缀: {rendered}"
+    );
+}
+
+/// 正文语义色（`body_tone`）：行首给语义符号、整行用语义色，用于需要用户
+/// 一眼认出严重程度的提示（如「本项目 hooks 未加载」）。
+#[test]
+fn test_system_note_body_tone_uses_warning_symbol() {
+    use crate::ui::message_view::NoteTone;
+    // Arrange
+    let vm = MessageViewModel::system_toned(
+        "本项目 hooks 未加载：D:\\code\\peri 未被信任。".to_string(),
+        NoteTone::Warning,
+    );
+    // Act
+    let lines = render_view_model(&vm, None, 80, false, 0);
+    // Assert
+    let rendered: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
+    assert!(
+        rendered.starts_with("⚠ "),
+        "警告提示应以 ⚠ 开头（不读正文也能认出）: {rendered}"
+    );
+    assert!(
+        !rendered.starts_with('●'),
+        "语义提示不与后台通知的 ● 圆点混用: {rendered}"
+    );
+    assert!(
+        rendered.contains("hooks 未加载"),
+        "正文内容不得丢失: {rendered}"
+    );
+    let text_span = lines[0]
+        .spans
+        .iter()
+        .find(|span| span.content.contains("hooks 未加载"))
+        .expect("应存在正文 span");
+    assert_eq!(
+        text_span.style.fg,
+        Some(crate::ui::theme::cur().warning),
+        "正文应使用 warning 色"
     );
 }
 

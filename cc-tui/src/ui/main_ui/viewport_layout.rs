@@ -23,7 +23,7 @@ pub fn prepare_viewport(
     app.global_ui.viewport.terminal_size = size;
     app.global_ui.viewport.sync_welcome(
         app.session_mgr.current().metadata.session_id,
-        !app.session_mgr.current().messages.view_messages.is_empty(),
+        has_conversation_history(app),
     );
     let fullscreen = app.global_ui.viewport.fullscreen_latched
         || app
@@ -125,6 +125,19 @@ impl BottomHeights {
         .into_iter()
         .fold(0, u16::saturating_add)
     }
+}
+
+/// 是否已有真实对话。
+///
+/// 启动期的系统提示（如「本项目 hooks 未加载」）是纯 UI 通知，不能算历史：
+/// 算进去会让首帧就把会话判成「恢复的旧会话」，欢迎卡与吉祥物随之消失。
+pub(super) fn has_conversation_history(app: &App) -> bool {
+    app.session_mgr
+        .current()
+        .messages
+        .view_messages
+        .iter()
+        .any(|vm| !vm.is_notice())
 }
 
 pub(super) fn welcome_visible(app: &App) -> bool {

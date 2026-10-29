@@ -191,6 +191,12 @@ pub enum MessageViewModel {
         /// `Some` 表示这是后台任务通知：渲染时加 `●` 前缀并按语义着色，
         /// 对齐参考实现的 `UserAgentNotificationMessage`；`None` 是普通系统提示。
         tone: Option<NoteTone>,
+        /// 正文语义色（`None` = 沿用普通系统提示的灰色 / 关键词兜底）。
+        ///
+        /// 与 `tone` 正交：`tone` 只决定 `●` 圆点与通知来源，`body_tone` 决定
+        /// 正文（含折行续行）颜色。存语义 tone 而非 `Color`，`/theme` 切换后
+        /// 渲染时再解析成主题色，不会把旧调色板钉死在 VM 里。
+        body_tone: Option<NoteTone>,
     },
     /// 缓存率过低警告（黄色纯文本，无前缀符号）
     CacheWarning {
@@ -354,15 +360,17 @@ impl PartialEq for MessageViewModel {
                     content: a,
                     detail_content: a_det,
                     tone: a_tone,
+                    body_tone: a_body_tone,
                     ..
                 },
                 MessageViewModel::SystemNote {
                     content: b,
                     detail_content: b_det,
                     tone: b_tone,
+                    body_tone: b_body_tone,
                     ..
                 },
-            ) => a == b && a_det == b_det && a_tone == b_tone,
+            ) => a == b && a_det == b_det && a_tone == b_tone && a_body_tone == b_body_tone,
             (
                 MessageViewModel::CacheWarning { content: a, .. },
                 MessageViewModel::CacheWarning { content: b, .. },
@@ -531,12 +539,14 @@ impl Hash for MessageViewModel {
                 content,
                 detail_content,
                 tone,
+                body_tone,
                 ..
             } => {
                 3u8.hash(state);
                 // tone 影响渲染颜色，必须参与 hash（内容完全相同的通知
                 // 换状态后要靠它触发重建）。
                 tone.hash(state);
+                body_tone.hash(state);
                 content.hash(state);
                 detail_content.hash(state);
             }
@@ -773,6 +783,7 @@ impl MessageViewModel {
                         content_hash: 0,
                         detail_content: None,
                         tone: Some(display.tone),
+                        body_tone: None,
                     };
                     vm.recompute_hash();
                     return vm;
@@ -1053,6 +1064,7 @@ impl MessageViewModel {
                     content_hash: 0,
                     detail_content: None,
                     tone: None,
+                    body_tone: None,
                 };
                 vm.recompute_hash();
                 vm
@@ -1114,6 +1126,17 @@ impl MessageViewModel {
         matches!(self, MessageViewModel::AssistantBubble { .. })
     }
 
+    /// 判断是否为纯 UI 通知（系统提示 / 缓存率警告）。
+    ///
+    /// 这类节点不是会话历史：启动期推一条系统提示不应让会话被判成「已有历史」，
+    /// 否则欢迎卡与视口初始定位会被提示左右。
+    pub fn is_notice(&self) -> bool {
+        matches!(
+            self,
+            MessageViewModel::SystemNote { .. } | MessageViewModel::CacheWarning { .. }
+        )
+    }
+
     /// 判断是否为可跳过的空 thinking bubble。
     /// 有正文、耗时或动作摘要的推理必须留给后续归并，不能在工具聚合时丢弃。
     pub fn is_reasoning_only(&self) -> bool {
@@ -1148,6 +1171,7 @@ impl MessageViewModel {
                 content_hash: 0,
                 detail_content: None,
                 tone: Some(display.tone),
+                body_tone: None,
             };
             vm.recompute_hash();
             return vm;
@@ -1175,6 +1199,7 @@ impl MessageViewModel {
                 content_hash: 0,
                 detail_content: None,
                 tone: Some(display.tone),
+                body_tone: None,
             };
             vm.recompute_hash();
             return vm;
@@ -1333,6 +1358,7 @@ impl MessageViewModel {
             content_hash: 0,
             detail_content: None,
             tone,
+            body_tone: None,
         };
         vm.recompute_hash();
         vm
@@ -1350,6 +1376,21 @@ impl MessageViewModel {
             content_hash: 0,
             detail_content: Some(detail_content),
             tone,
+            body_tone: None,
+        };
+        vm.recompute_hash();
+        vm
+    }
+
+    /// 创建正文带语义色、无圆点的系统提示（如「本项目 hooks 未加载」这类需要用户
+    /// 一眼看到的警告）。圆点仍由内容决定，不回退到 `tone` 的后台通知样式。
+    pub fn system_toned(content: String, tone: NoteTone) -> Self {
+        let mut vm = MessageViewModel::SystemNote {
+            content,
+            content_hash: 0,
+            detail_content: None,
+            tone: None,
+            body_tone: Some(tone),
         };
         vm.recompute_hash();
         vm
