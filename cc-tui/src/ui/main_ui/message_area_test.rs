@@ -287,6 +287,12 @@ fn test_compact_runner_line_advances_along_fixed_track() {
     );
     assert_eq!(early.matches('·').count(), 11, "跑道固定 12 格: {early}");
     assert_eq!(later_pos, (early_pos + 3) % 12, "跑：每 150ms 前进一格");
+
+    // 与飞碟一致的双向节奏：跑到头后折返，而不是瞬跳回起点。
+    let (_, turn_pos) = render(2350); // 帧 15：终点停留，仍在最右
+    let (_, back_pos) = render(2750); // 帧 18：已折返
+    assert_eq!(turn_pos, 11, "抵达右端后停留");
+    assert!(back_pos < turn_pos, "到头后应折返: {back_pos} vs {turn_pos}");
     assert_eq!(
         tired.matches('🚶').count(),
         1,

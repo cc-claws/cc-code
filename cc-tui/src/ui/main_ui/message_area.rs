@@ -840,6 +840,9 @@ fn compact_runner_line(started_at: std::time::Instant) -> Line<'static> {
     const WALK_STEP_MS: u128 = 420;
     /// 跑到这个时长就「累了」改走路。
     const TIRED_AFTER_SECS: u64 = 20;
+    /// 折返的两段停留（帧数），节奏与飞碟一致但更短，适合人的步频。
+    const HOLD_END: usize = 4;
+    const HOLD_START: usize = 4;
 
     let elapsed = started_at.elapsed();
     let tired = elapsed.as_secs() >= TIRED_AFTER_SECS;
@@ -848,13 +851,26 @@ fn compact_runner_line(started_at: std::time::Instant) -> Line<'static> {
     } else {
         ("🏃", RUN_STEP_MS, theme::cur().thinking)
     };
-    let step = (elapsed.as_millis() / step_ms) as usize % TRACK;
+    // 与飞碟同一套双向节奏：跑到头 → 终点停留 → 折返 → 起点停留。
+    let frame = (elapsed.as_millis() / step_ms) as usize;
+    let cycle = TRACK + HOLD_END + (TRACK - 1) + HOLD_START;
+    let phase = frame % cycle;
+    let (pos, forward) = if phase < TRACK {
+        (phase, true)
+    } else if phase < TRACK + HOLD_END {
+        (TRACK - 1, true)
+    } else if phase < TRACK + HOLD_END + (TRACK - 1) {
+        (TRACK - 2 - (phase - TRACK - HOLD_END), false)
+    } else {
+        (0, false)
+    };
+
     let mut spans = Vec::with_capacity(TRACK);
     for cell in 0..TRACK {
-        if cell == step {
+        if cell == pos {
             spans.push(Span::styled(glyph, Style::default().fg(glyph_color)));
-        } else if cell < step {
-            // 跑过的格子留下足迹，能看出这一圈已经跑过哪一段。
+        } else if (forward && cell < pos) || (!forward && cell > pos) {
+            // 已经经过的格子留下足迹；折返时足迹落在身后那一侧。
             spans.push(Span::styled(
                 "• ",
                 Style::default().fg(theme::cur().inactive),
