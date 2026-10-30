@@ -819,6 +819,126 @@ fn test_render_new_file_code_matches_diff_line_highlight() {
     );
 }
 
+struct AnsiTestTheme;
+
+impl Theme for AnsiTestTheme {
+    fn accent(&self) -> Color {
+        Color::LightMagenta
+    }
+    fn success(&self) -> Color {
+        Color::LightGreen
+    }
+    fn warning(&self) -> Color {
+        Color::LightYellow
+    }
+    fn error(&self) -> Color {
+        Color::LightRed
+    }
+    fn thinking(&self) -> Color {
+        Color::LightBlue
+    }
+    fn text(&self) -> Color {
+        Color::White
+    }
+    fn muted(&self) -> Color {
+        Color::Gray
+    }
+    fn dim(&self) -> Color {
+        Color::Gray
+    }
+    fn border(&self) -> Color {
+        Color::Gray
+    }
+    fn border_active(&self) -> Color {
+        Color::LightMagenta
+    }
+    fn popup_bg(&self) -> Color {
+        Color::Black
+    }
+    fn cursor_bg(&self) -> Color {
+        Color::Gray
+    }
+    fn loading(&self) -> Color {
+        Color::LightBlue
+    }
+    fn diff_add(&self) -> Color {
+        Color::LightGreen
+    }
+    fn diff_add_decoration(&self) -> Color {
+        Color::LightGreen
+    }
+    fn diff_add_bg(&self) -> Color {
+        Color::Reset
+    }
+    fn diff_add_word_bg(&self) -> Color {
+        Color::Reset
+    }
+    fn diff_remove(&self) -> Color {
+        Color::LightRed
+    }
+    fn diff_remove_decoration(&self) -> Color {
+        Color::LightRed
+    }
+    fn diff_remove_bg(&self) -> Color {
+        Color::Reset
+    }
+    fn diff_remove_word_bg(&self) -> Color {
+        Color::Reset
+    }
+    fn syntax_theme_name(&self) -> &'static str {
+        "ansi"
+    }
+}
+
+#[cfg(feature = "markdown-highlight")]
+#[test]
+fn test_render_diff_ansi_theme_context_lines_not_pitch_black() {
+    let input = DiffInput {
+        file_path: "probe.php".to_string(),
+        old_content: "<?php\n$colNames = array_map(function($c) { return $c->Field; }, $columns);\n$old = 1;\n".to_string(),
+        new_content: "<?php\n$colNames = array_map(function($c) { return $c->Field; }, $columns);\n$new = 2;\n".to_string(),
+        is_new_file: false,
+        is_deleted_file: false,
+        is_binary: false,
+    };
+    let lines = render_diff_impl(&input, 100, &AnsiTestTheme);
+    let context_line = lines
+        .iter()
+        .find(|l| joined_text(l).contains("array_map"))
+        .expect("应找到含 array_map 的 Context 行");
+    for s in &context_line.spans {
+        if let Some(fg) = s.style.fg {
+            assert!(
+                !matches!(fg, Color::Rgb(0..=6, 0, 0)),
+                "Context 行中不应存在 RGB 0~6 伪纯黑 span: {:?}",
+                s
+            );
+        }
+    }
+}
+
+#[test]
+fn test_render_diff_ansi_theme_resets_background() {
+    let input = DiffInput {
+        file_path: "probe.rs".to_string(),
+        old_content: "fn old_code() {}\n".to_string(),
+        new_content: "fn new_code() {}\n".to_string(),
+        is_new_file: false,
+        is_deleted_file: false,
+        is_binary: false,
+    };
+    let lines = render_diff_impl(&input, 80, &AnsiTestTheme);
+    for line in &lines {
+        for s in &line.spans {
+            assert_eq!(
+                s.style.bg, None,
+                "ANSI 模式下所有 span 不应有背景色，实际 span: {:?}",
+                s
+            );
+        }
+    }
+}
+
 /// 对齐 CC `ColorFile`：新建文件预览带行号 gutter，宽度 = 总行数位数 + 2
 #[test]
 fn test_render_new_file_code_has_line_number_gutter() {
