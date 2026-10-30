@@ -176,4 +176,52 @@
         );
     }
 
+    #[test]
+    fn test_syntect_color_to_ratatui_ansi_convention() {
+        use syntect::highlighting::Color as SynColor;
+        // alpha == 1 应映射为 None（终端默认色，自适应黑白背景）
+        assert_eq!(
+            syntect_color_to_ratatui(SynColor { r: 0, g: 0, b: 0, a: 1 }),
+            None,
+            "alpha=1 应被解析为 None 终端默认前景色"
+        );
+        // alpha == 0 应映射为 ANSI 16 色
+        assert_eq!(
+            syntect_color_to_ratatui(SynColor { r: 1, g: 0, b: 0, a: 0 }),
+            Some(ratatui::style::Color::Red),
+            "alpha=0, r=1 应映射为 Red"
+        );
+        assert_eq!(
+            syntect_color_to_ratatui(SynColor { r: 5, g: 0, b: 0, a: 0 }),
+            Some(ratatui::style::Color::Magenta),
+            "alpha=0, r=5 应映射为 Magenta"
+        );
+        // alpha == 255 应映射为真实 RGB
+        assert_eq!(
+            syntect_color_to_ratatui(SynColor { r: 248, g: 248, b: 242, a: 255 }),
+            Some(ratatui::style::Color::Rgb(248, 248, 242)),
+            "alpha=255 应保留 24 位真实 RGB"
+        );
+    }
+
+    #[test]
+    fn test_ansi_theme_does_not_render_pitch_black() {
+        let code = "$colNames = array_map(function($c) { return $c->Field; }, $columns);";
+        let result = highlight_code_block("php", &[code.to_string()], "ansi");
+        assert!(result.is_some(), "ansi 主题应能解析 php 代码");
+        let line = &result.unwrap()[0];
+        for span in &line.spans {
+            if let Some(fg) = span.style.fg {
+                assert!(
+                    !matches!(fg, ratatui::style::Color::Rgb(0..=6, 0, 0)),
+                    "ansi 主题下不应存在 RGB 值为 0~6 的伪纯黑 span: {:?}",
+                    span
+                );
+            }
+        }
+        let has_none_fg = line.spans.iter().any(|s| s.style.fg.is_none());
+        assert!(has_none_fg, "未匹配 scope 的默认文本前景色应为 None 自适应终端");
+    }
+
+
 
