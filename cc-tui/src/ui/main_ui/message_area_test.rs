@@ -251,7 +251,7 @@ fn test_spinner_extra_count_clamps_with_many_todos() {
     );
 }
 
-/// 压缩跑道：固定 12 格，同一时刻只有一个小人；先跑，跑久了改走。
+/// 压缩跑道：固定 12 格，小人从右向左单向奔跑并穿墙回卷；先跑，跑久了改走。
 #[test]
 fn test_compact_runner_line_advances_along_fixed_track() {
     fn render(offset_ms: u64) -> (String, usize) {
@@ -286,19 +286,78 @@ fn test_compact_runner_line_advances_along_fixed_track() {
         "同一时刻只有一个小人: {later}"
     );
     assert_eq!(early.matches('·').count(), 11, "跑道固定 12 格: {early}");
-    assert_eq!(later_pos, (early_pos + 3) % 12, "跑：每 150ms 前进一格");
+    assert_eq!(early_pos, 11, "起始帧位于最右端");
+    assert_eq!(later_pos, 8, "跑：每 150ms 向左前进一格 (11 -> 8)");
+    assert_eq!(
+        later.matches('•').count(),
+        3,
+        "身后的 3 格留下足迹: {later}"
+    );
+    assert_eq!(
+        later.matches('·').count(),
+        8,
+        "身前的 8 格为待跑点: {later}"
+    );
 
-    // 与飞碟一致的双向节奏：跑到头后折返，而不是瞬跳回起点。
-    let (_, turn_pos) = render(2350); // 帧 15：终点停留，仍在最右
-    let (_, back_pos) = render(2750); // 帧 18：已折返
-    assert_eq!(turn_pos, 11, "抵达右端后停留");
-    assert!(back_pos < turn_pos, "到头后应折返: {back_pos} vs {turn_pos}");
+    // 穿墙单向循环验证：跑过一轮（1800ms）后重新从右端进场
+    let (_, wrap_pos) = render(1800);
+    assert_eq!(wrap_pos, 11, "跑完一轮后穿墙回卷至最右端");
+
     assert_eq!(
         tired.matches('🚶').count(),
         1,
         "跑满 20 秒应改走路: {tired}"
     );
     assert_eq!(tired.matches('🏃').count(), 0, "走路时不再跑: {tired}");
+}
+
+/// 螃蟹跑道：固定 12 格，横向爬行并双向折返，契合横行特性。
+#[test]
+fn test_compact_crab_line_follows_bidirectional_cycle() {
+    fn render(offset_ms: u64) -> (String, usize) {
+        let started = std::time::Instant::now() - std::time::Duration::from_millis(offset_ms);
+        let line = compact_crab_line(started);
+        let text: String = line.spans.iter().map(|sp| sp.content.as_ref()).collect();
+        let pos = line
+            .spans
+            .iter()
+            .position(|sp| sp.content.contains('🦀'))
+            .expect("应存在螃蟹");
+        (text, pos)
+    }
+
+    let (early, early_pos) = render(0);
+    let (later, later_pos) = render(480);
+    let (tired, _) = render(25_000);
+
+    assert_eq!(
+        early.matches('🦀').count(),
+        1,
+        "同一时刻只有一只螃蟹: {early}"
+    );
+    assert_eq!(
+        later.matches('🦀').count(),
+        1,
+        "同一时刻只有一只螃蟹: {later}"
+    );
+    assert_eq!(early_pos, 0, "起始帧位于最左端");
+    assert_eq!(later_pos, 3, "爬：每 160ms 向右前进一格 (0 -> 3)");
+    assert_eq!(later.matches('•').count(), 3, "爬过的格子留下足迹: {later}");
+
+    // 与飞碟一致的双向节奏：爬到头后折返，而不是瞬跳回起点。
+    let (_, turn_pos) = render(2100); // 帧 13：终点停留，仍在最右
+    let (_, back_pos) = render(2900); // 帧 18：已折返
+    assert_eq!(turn_pos, 11, "抵达右端后停留");
+    assert!(
+        back_pos < turn_pos,
+        "到头后应折返: {back_pos} vs {turn_pos}"
+    );
+
+    assert_eq!(
+        tired.matches('🦀').count(),
+        1,
+        "爬满 20 秒仍显示螃蟹: {tired}"
+    );
 }
 
 /// 飞碟跑道：14 格、40ms/帧，前进 → 终点停留 → 后退 → 起点停留（对齐 MiMo）。

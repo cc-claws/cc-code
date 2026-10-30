@@ -72,7 +72,7 @@ impl App {
         {
             let agent = &mut self.session_mgr.current_mut().agent;
             agent.compact_started_at = Some(std::time::Instant::now());
-            // 每次压缩随机挑一种动画（小人/飞碟），全程保持不变。
+            // 每次压缩随机挑一种动画（小人/螃蟹/飞碟），全程保持不变。
             agent.compact_motion = super::agent_comm::CompactMotion::random();
         }
         let label = self.services.lc.tr("app-compact-started");
