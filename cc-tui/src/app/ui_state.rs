@@ -136,6 +136,20 @@ pub struct UiState {
 }
 
 impl UiState {
+    pub(crate) fn display(&self) -> crate::ui::render_thread::DisplayFlags {
+        crate::ui::render_thread::DisplayFlags {
+            detail_mode: self.detail_mode,
+            diff_visible: self.diff_visible,
+            show_tool_messages: self.show_tool_messages,
+        }
+    }
+
+    pub(crate) fn apply_display(&mut self, display: crate::ui::render_thread::DisplayFlags) {
+        self.detail_mode = display.detail_mode;
+        self.diff_visible = display.diff_visible;
+        self.show_tool_messages = display.show_tool_messages;
+    }
+
     pub(crate) fn set_scroll_position(&mut self, offset: usize, follow: bool) {
         self.scroll_offset = offset;
         self.scroll_follow = follow;

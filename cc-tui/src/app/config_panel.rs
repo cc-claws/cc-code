@@ -102,13 +102,13 @@ fn save_config_now(panel: &mut ConfigPanel, ctx: &mut PanelContext<'_>) {
         return;
     };
     let previous_strategy = cfg.config.detail_render_strategy.clone();
+    let previous_diff = cfg.config.diff_enabled;
     if panel.apply_edit(cfg, &ctx.services.lc).is_ok() {
         if let Some(ref lang) = cfg.config.language {
             let _ = ctx.services.lc.switch(lang);
         }
-        // 「内联 Diff」只写进配置到不了渲染线程（它只认 ToggleDiff 事件），
-        // 保存后必须同步当前会话的 ui 状态并补发事件，否则改完不重启不生效、
-        // 新会话里也只有 ui 字段是对的（渲染线程仍是出生时的 false）。
+        // 配置保存只在 Diff 默认值确有变化时更新当前视口。
+        // 其它选项的保存不能覆盖当前视口临时切换的显示状态。
         let want_diff = cfg.config.diff_enabled;
         let want_hooks = cfg.config.hooks_ui_enabled();
         let session = ctx.session_mgr.current_mut();
@@ -122,10 +122,10 @@ fn save_config_now(panel: &mut ConfigPanel, ctx: &mut PanelContext<'_>) {
                 crate::ui::render_thread::RenderEvent::SetDetailStrategy(strategy),
             );
         }
-        if session.ui.diff_visible != want_diff {
+        if previous_diff != want_diff && session.ui.diff_visible != want_diff {
             session.ui.diff_visible = want_diff;
-            let _ = session
-                .send_render_event(crate::ui::render_thread::RenderEvent::ToggleDiff(want_diff));
+            session.remember_viewport_display();
+            session.rebuild_viewport();
         }
         // hook 行同理：渲染线程只认 ToggleHookRows 事件，保存后必须同步运行时标志
         // 并补发事件，否则改完不重启不生效。

@@ -156,6 +156,13 @@ impl RenderWorker {
         let mut event = event;
         let event = loop {
             match event {
+                RenderEvent::WithDisplay {
+                    display,
+                    event: inner,
+                } => {
+                    self.task.apply_display(display);
+                    event = *inner;
+                }
                 RenderEvent::WithViewport {
                     viewport,
                     event: inner,

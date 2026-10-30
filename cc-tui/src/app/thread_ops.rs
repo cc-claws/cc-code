@@ -44,11 +44,8 @@ impl App {
     pub fn toggle_collapsed_messages(&mut self) {
         self.session_mgr.current_mut().ui.show_tool_messages =
             !self.session_mgr.current_mut().ui.show_tool_messages;
-        let show_tool_messages = self.session_mgr.current().ui.show_tool_messages;
-        let _ = self
-            .session_mgr
-            .current_mut()
-            .send_render_event(RenderEvent::ToggleToolMessages(show_tool_messages));
+        self.session_mgr.current_mut().remember_viewport_display();
+        self.render_rebuild();
     }
 
     pub fn toggle_detail_mode(&mut self) {
@@ -57,11 +54,8 @@ impl App {
         let new_visible = !self.session_mgr.current_mut().ui.detail_mode;
         self.session_mgr.current_mut().ui.detail_mode = new_visible;
 
-        // ToggleDetail 会清空 hash 缓存并触发全量重渲染
-        let _ = self
-            .session_mgr
-            .current()
-            .send_render_event(RenderEvent::ToggleDetail(new_visible));
+        self.session_mgr.current_mut().remember_viewport_display();
+        self.render_rebuild();
     }
 
     /// 切换 Write/Edit 工具结果内联 diff 的显隐
@@ -71,11 +65,8 @@ impl App {
         let new_visible = !self.session_mgr.current_mut().ui.diff_visible;
         self.session_mgr.current_mut().ui.diff_visible = new_visible;
 
-        // ToggleDiff 会清空 hash 缓存并触发全量重渲染
-        let _ = self
-            .session_mgr
-            .current()
-            .send_render_event(RenderEvent::ToggleDiff(new_visible));
+        self.session_mgr.current_mut().remember_viewport_display();
+        self.render_rebuild();
     }
 
     /// 切换 hook 执行结果行的显隐。
@@ -508,7 +499,6 @@ impl App {
         let vms = self.session_mgr.current().messages.view_messages.clone();
         self.session_mgr
             .current_mut()
-            .messages
             .send_render_snapshot(RenderEvent::Rebuild(vms));
         true
     }
@@ -647,7 +637,6 @@ impl App {
 
         self.session_mgr
             .current_mut()
-            .messages
             .send_render_snapshot(RenderEvent::Clear);
 
         // 归还已释放内存页给 OS

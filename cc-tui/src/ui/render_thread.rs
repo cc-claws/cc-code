@@ -138,8 +138,21 @@ pub struct PreparedWidth {
     pub measured_rows: usize,
 }
 
+/// 当前视口独立保存的显示选项，随消息快照一起提交。
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct DisplayFlags {
+    pub detail_mode: bool,
+    pub diff_visible: bool,
+    pub show_tool_messages: bool,
+}
+
 /// 渲染线程接收的事件
 pub enum RenderEvent {
+    /// 显示状态与目标消息不可分开入队，队列重试只保留最新完整快照。
+    WithDisplay {
+        display: DisplayFlags,
+        event: Box<RenderEvent>,
+    },
     /// 重排与捕获时的阅读意图原子入队，不能等待下一帧才同步位置。
     WithViewport {
         viewport: RenderViewport,
@@ -191,20 +204,26 @@ impl RenderEvent {
     #[cfg(test)]
     pub(crate) fn into_payload(self) -> Self {
         match self {
-            Self::WithViewport { event, .. } => event.into_payload(),
+            Self::WithViewport { event, .. } | Self::WithDisplay { event, .. } => {
+                event.into_payload()
+            }
             event => event,
         }
     }
 
     pub(crate) fn payload(&self) -> &Self {
         match self {
-            Self::WithViewport { event, .. } => event.payload(),
+            Self::WithViewport { event, .. } | Self::WithDisplay { event, .. } => event.payload(),
             event => event,
         }
     }
 
     pub(crate) fn clone_mode(&self) -> Option<Self> {
         Some(match self {
+            Self::WithDisplay { display, event } => Self::WithDisplay {
+                display: *display,
+                event: Box::new(event.clone_mode()?),
+            },
             Self::WithViewport { viewport, event } => Self::WithViewport {
                 viewport: *viewport,
                 event: Box::new(event.clone_mode()?),
@@ -392,6 +411,20 @@ fn render_key(vm: &MessageViewModel, detail: bool, diff: bool, hook_rows: bool) 
 }
 
 impl RenderTask {
+    fn apply_display(&mut self, display: DisplayFlags) {
+        if self.detail_mode != display.detail_mode
+            || self.diff_visible != display.diff_visible
+            || self.show_tool_messages != display.show_tool_messages
+        {
+            // 与 Toggle 路径一致，禁止把旧 VM 的 cosmetic 判定用于新显示状态。
+            // 保留行、双变体与换行缓存，仍按完整渲染键复用有效成品。
+            self.last_messages.clear();
+        }
+        self.detail_mode = display.detail_mode;
+        self.diff_visible = display.diff_visible;
+        self.show_tool_messages = display.show_tool_messages;
+    }
+
     /// 根据 cache.lines 和当前宽度计算 wrap_map。
     /// 对每个逻辑行使用 ratatui 的 Paragraph::line_count 精确计算视觉行数，
     /// 与实际渲染的 WordWrapper 算法完全一致。
@@ -1447,6 +1480,10 @@ impl RenderTask {
     ) {
         let _ = rx;
         match event {
+            RenderEvent::WithDisplay { display, event } => {
+                self.apply_display(display);
+                self.handle_event_with_scroll_anchor(*event, rx, scroll_anchor);
+            }
             RenderEvent::WithViewport { viewport, event } => {
                 let anchor = (!viewport.follow_tail)
                     .then_some(viewport.anchor)
@@ -1648,3 +1685,7 @@ mod cache_publish_tests;
 #[cfg(test)]
 #[path = "tick_scroll_anchor_test.rs"]
 mod tick_scroll_anchor_tests;
+
+#[cfg(test)]
+#[path = "render_display_test.rs"]
+mod display_tests;

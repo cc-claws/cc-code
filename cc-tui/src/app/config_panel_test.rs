@@ -295,6 +295,106 @@ async fn test_config_panel_hooks_display_updates_runtime_and_saved_config() {
     assert_eq!(loaded.config.hooks_ui, Some(false), "保存应写回配置文件");
 }
 
+#[tokio::test]
+async fn test_config_panel_unrelated_save_preserves_viewport_diff_override() {
+    let (mut app, _handle) = App::new_headless(80, 30).await;
+    let dir = tempfile::tempdir().unwrap();
+    app.services.config_path_override = Some(dir.path().join("settings.json"));
+    app.services.peri_config = Some(PeriConfig::default());
+    app.toggle_diff();
+    let mut panel = ConfigPanel::from_config(&PeriConfig::default());
+    panel.cursor = ROW_HOOKS_DISPLAY;
+    let mut ctx = PanelContext {
+        services: &mut app.services,
+        session_mgr: &mut app.session_mgr,
+        acp_client: None,
+    };
+    panel.handle_key(
+        Input {
+            key: tui_textarea::Key::Char(' '),
+            ctrl: false,
+            alt: false,
+            shift: false,
+        },
+        &mut ctx,
+    );
+    drop(ctx);
+    assert!(
+        app.session_mgr.current().ui.diff_visible,
+        "保存 Hook 设置不能覆盖当前临时 Diff 开关"
+    );
+    assert!(app.session_mgr.current().main_display.diff_visible);
+    assert!(
+        !app.services
+            .peri_config
+            .as_ref()
+            .expect("配置存在")
+            .config
+            .diff_enabled,
+        "临时 Diff 状态不能被顺手持久化"
+    );
+}
+
+#[tokio::test]
+async fn test_config_panel_diff_save_updates_only_current_viewport() {
+    let (mut app, _handle) = App::new_headless(80, 30).await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    app.services.config_path_override = Some(path.clone());
+    app.services.peri_config = Some(PeriConfig::default());
+    app.handle_subagent_lifecycle(&serde_json::json!({
+        "event": "started", "instanceId": "child", "agentType": "general-purpose",
+        "taskPreview": "child", "isBackground": true, "model": "child-model",
+    }));
+    app.switch_subagent_viewport(Some("child".into()));
+    let (sender, mut receiver) = tokio::sync::mpsc::channel(4);
+    app.session_mgr.current_mut().messages.render_tx = sender;
+    let mut panel = ConfigPanel::from_config(&PeriConfig::default());
+    panel.cursor = ROW_DIFF;
+    let mut ctx = PanelContext {
+        services: &mut app.services,
+        session_mgr: &mut app.session_mgr,
+        acp_client: None,
+    };
+    panel.handle_key(
+        Input {
+            key: tui_textarea::Key::Char(' '),
+            ctrl: false,
+            alt: false,
+            shift: false,
+        },
+        &mut ctx,
+    );
+    drop(ctx);
+    assert!(app.session_mgr.current().ui.diff_visible);
+    match receiver.try_recv().expect("Diff 配置应即时发送完整快照") {
+        crate::ui::render_thread::RenderEvent::WithDisplay { display, event } => {
+            assert!(display.diff_visible);
+            assert!(matches!(
+                event.into_payload(),
+                crate::ui::render_thread::RenderEvent::Rebuild(_)
+            ));
+        }
+        _ => panic!("Diff 配置不能只发脱离消息来源的模式事件"),
+    }
+    assert!(
+        crate::config::load_from(&path)
+            .expect("读回隔离配置")
+            .config
+            .diff_enabled
+    );
+    app.switch_subagent_viewport(None);
+    assert!(
+        !app.session_mgr.current().ui.diff_visible,
+        "其它视口不能随配置保存被改写"
+    );
+    app.switch_subagent_viewport(Some("child".into()));
+    assert!(
+        app.session_mgr.current().ui.diff_visible,
+        "保存目标视口的临时显示状态必须保留"
+    );
+}
+
 #[test]
 fn test_config_panel_cycle_recap() {
     let mut panel = ConfigPanel::from_config(&PeriConfig::default());

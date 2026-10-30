@@ -6,13 +6,7 @@ impl App {
     ///
     /// 当前视口直接读取独立管线的内存快照，渲染期间不阻塞查询 SQLite。
     pub(crate) fn render_rebuild(&mut self) {
-        self.refresh_focused_subagent_view();
-        let session = self.session_mgr.current();
-        let vms = self.resolve_render_vms(session);
-        self.session_mgr
-            .current_mut()
-            .messages
-            .send_render_snapshot(RenderEvent::Rebuild(vms));
+        self.session_mgr.current_mut().rebuild_viewport();
     }
 
     /// 发送带滚动锚点的全量重建到渲染线程。
@@ -24,35 +18,18 @@ impl App {
             // 子视口有独立滚动位置，不采用主视图锚点。
             self.render_rebuild();
         } else {
-            let vms = self.resolve_render_vms(self.session_mgr.current());
+            let vms = self.session_mgr.current_mut().render_view_messages();
             let anchor = ViewportAnchor {
                 message_index: anchor.message_index.min(vms.len().saturating_sub(1)),
                 ..anchor
             };
             let scroll_revision = self.session_mgr.current().ui.scroll_revision;
-            let event =
-                self.session_mgr
-                    .current()
-                    .with_render_viewport(RenderEvent::RebuildWithAnchor {
-                        messages: vms,
-                        anchor,
-                        scroll_revision,
-                    });
-            self.session_mgr
-                .current_mut()
-                .messages
-                .send_render_snapshot(event);
-        }
-    }
-
-    fn refresh_focused_subagent_view(&mut self) {
-        let session = self.session_mgr.current_mut();
-        if let Some(sub) = session
-            .focused_instance_id
-            .as_ref()
-            .and_then(|id| session.subagent_sessions.get_mut(id))
-        {
-            sub.refresh_view_if_dirty();
+            let event = RenderEvent::RebuildWithAnchor {
+                messages: vms,
+                anchor,
+                scroll_revision,
+            };
+            self.session_mgr.current_mut().send_render_snapshot(event);
         }
     }
 
@@ -68,20 +45,6 @@ impl App {
         }
         self.render_rebuild();
         true
-    }
-
-    /// 根据聚焦状态决定渲染数据源。
-    ///
-    /// - 未聚焦：返回内存中的 view_messages
-    /// - 聚焦后台 agent：读取该子线程的独立内存视图
-    fn resolve_render_vms(&self, session: &ChatSession) -> Vec<MessageViewModel> {
-        let mut messages = session.current_view_messages().to_vec();
-        if session.focused_instance_id.is_none() {
-            for message in &mut messages {
-                message.set_image_paths(&session.metadata.image_paths);
-            }
-        }
-        messages
     }
 
     /// 从 pipeline 规范状态触发 RebuildAll（统一入口）。

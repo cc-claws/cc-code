@@ -564,16 +564,7 @@ impl App {
                     .retain(|(a, _)| *a < user_msg_idx);
                 {
                     self.session_mgr.current().messages.invalidate_layout();
-                    let remaining = self
-                        .session_mgr
-                        .current_mut()
-                        .messages
-                        .view_messages
-                        .clone();
-                    self.session_mgr
-                        .current_mut()
-                        .messages
-                        .send_render_snapshot(RenderEvent::Rebuild(remaining));
+                    self.render_rebuild();
                 }
                 // 截断 origin_messages（回滚 StateSnapshot 扩展的内容）
                 let pre_len = self.session_mgr.current_mut().metadata.pre_submit_state_len;
