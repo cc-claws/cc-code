@@ -1431,6 +1431,24 @@ fn shell_output_lines(
     ));
 }
 
+/// 用 `user_message_background` 补空格到视口整宽，让底色铺满整行。
+///
+/// 用户消息、`!` 本机命令、排队消息与 sticky header 共用这一口径
+/// （TUI-STYLE：「用户消息底色 —— 所有行带底色」）。行尾补出的空格不参与选区与复制
+/// （`app::text_selection` 已对每行做 `trim_end`），因此不会污染剪贴板。
+fn push_bg_fill(spans: &mut Vec<Span<'static>>, width: usize) {
+    let used: usize = spans
+        .iter()
+        .map(|span| UnicodeWidthStr::width(span.content.as_ref()))
+        .sum();
+    if used < width {
+        spans.push(Span::styled(
+            " ".repeat(width - used),
+            Style::default().bg(theme::cur().user_message_background),
+        ));
+    }
+}
+
 /// 渲染用户 `!` 本机命令的标题行。
 ///
 /// 标题行使用整行背景和粉色 `!` 标记，保持与 CC 的本地命令块一致。
@@ -1693,6 +1711,11 @@ pub fn render_view_model_with_flags(
                         for span in &wline.spans {
                             spans.push(span.clone().patch_style(Style::default().bg(user_bg)));
                         }
+                        // 补空格到视口整宽，让底色铺满整行（与 `shell_command_header` /
+                        // `queued_messages` / `sticky_header` 的用户消息底色口径一致，
+                        // 见 TUI-STYLE「所有行带底色」）。行尾空白不参与选区复制
+                        // （`text_selection` 已 trim_end）。
+                        push_bg_fill(&mut spans, width);
                         lines.push(Line::from(spans));
                     } else {
                         // 后续行（含预折行产生的续行）：2 空格悬挂缩进，带底色
@@ -1700,6 +1723,7 @@ pub fn render_view_model_with_flags(
                         for span in &wline.spans {
                             spans.push(span.clone().patch_style(Style::default().bg(user_bg)));
                         }
+                        push_bg_fill(&mut spans, width);
                         lines.push(Line::from(spans));
                     }
                 }
