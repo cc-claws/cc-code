@@ -150,3 +150,105 @@
             "活跃任务的 runtime 不得被裁剪"
         );
     }
+
+    /// 回归 #829：停止态（cancel 已触发）的任务 complete 后不应发送通知，
+    /// 避免 drain_notifications 将内部文本以 Human 消息泄漏到主时间线。
+    #[tokio::test]
+    async fn test_stopped_task_complete_does_not_send_notification() {
+        let (registry, mut rx) = make_registry();
+        let task_id = "bg-stop";
+
+        registry.register(make_task(task_id)).unwrap();
+        let cancel = AgentCancellationToken::new();
+        cancel.cancel(); // 模拟用户停止
+        registry.attach_runtime(
+            make_snapshot(task_id, BackgroundTaskStatus::Running),
+            cancel,
+            SteeringQueue::default(),
+        );
+
+        let result = BackgroundTaskResult {
+            task_id: task_id.to_string(),
+            agent_name: "test-agent".to_string(),
+            prompt_summary: "stopped task".to_string(),
+            success: false,
+            output: "Interrupted by user".to_string(),
+            tool_calls_count: 0,
+            duration_ms: 50,
+            child_thread_id: None,
+        };
+        registry.complete(task_id, result);
+
+        // 快照应标记为 Stopped
+        let snapshot = registry.status(task_id).unwrap();
+        assert_eq!(snapshot.status, BackgroundTaskStatus::Stopped, "停止态快照应为 Stopped");
+
+        // 通知通道应为空——停止态不发通知
+        assert!(
+            rx.try_recv().is_err(),
+            "停止态的任务不应发送 notification（#829）"
+        );
+    }
+
+    /// 对照组：正常完成的任务仍应发送通知。
+    #[tokio::test]
+    async fn test_completed_task_still_sends_notification() {
+        let (registry, mut rx) = make_registry();
+        let task_id = "bg-ok";
+
+        registry.register(make_task(task_id)).unwrap();
+        registry.attach_runtime(
+            make_snapshot(task_id, BackgroundTaskStatus::Running),
+            AgentCancellationToken::new(),
+            SteeringQueue::default(),
+        );
+
+        let result = BackgroundTaskResult {
+            task_id: task_id.to_string(),
+            agent_name: "test-agent".to_string(),
+            prompt_summary: "ok task".to_string(),
+            success: true,
+            output: "done".to_string(),
+            tool_calls_count: 1,
+            duration_ms: 100,
+            child_thread_id: None,
+        };
+        registry.complete(task_id, result);
+
+        let received = rx.try_recv().expect("正常完成的任务应发送 notification");
+        assert!(received.success);
+    }
+
+    /// 对照组：超时任务（cancel 已触发但 output 含 "timed out"）不算停止，应发通知。
+    #[tokio::test]
+    async fn test_timed_out_task_sends_notification_even_when_cancelled() {
+        let (registry, mut rx) = make_registry();
+        let task_id = "bg-timeout";
+
+        registry.register(make_task(task_id)).unwrap();
+        let cancel = AgentCancellationToken::new();
+        cancel.cancel();
+        registry.attach_runtime(
+            make_snapshot(task_id, BackgroundTaskStatus::Running),
+            cancel,
+            SteeringQueue::default(),
+        );
+
+        let result = BackgroundTaskResult {
+            task_id: task_id.to_string(),
+            agent_name: "test-agent".to_string(),
+            prompt_summary: "timeout task".to_string(),
+            success: false,
+            output: "Agent timed out after 60s".to_string(),
+            tool_calls_count: 3,
+            duration_ms: 60000,
+            child_thread_id: None,
+        };
+        registry.complete(task_id, result);
+
+        // 超时不是停止，应标记为 Failed 且发送通知
+        let snapshot = registry.status(task_id).unwrap();
+        assert_eq!(snapshot.status, BackgroundTaskStatus::Failed, "超时应标记为 Failed 而非 Stopped");
+        let received = rx.try_recv().expect("超时任务应发送 notification");
+        assert!(!received.success);
+    }

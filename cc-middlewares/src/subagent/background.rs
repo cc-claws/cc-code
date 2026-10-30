@@ -186,21 +186,29 @@ impl BackgroundTaskRegistry {
     }
 
     pub fn complete(&self, task_id: &str, result: BackgroundTaskResult) {
-        if let Some(runtime) = self.runtimes.lock().get_mut(task_id) {
-            runtime.snapshot.status =
-                if runtime.cancel.is_cancelled() && !result.output.contains("timed out") {
-                    BackgroundTaskStatus::Stopped
-                } else if result.success {
-                    BackgroundTaskStatus::Completed
-                } else {
-                    BackgroundTaskStatus::Failed
-                };
+        let stopped = if let Some(runtime) = self.runtimes.lock().get_mut(task_id) {
+            let is_stopped =
+                runtime.cancel.is_cancelled() && !result.output.contains("timed out");
+            runtime.snapshot.status = if is_stopped {
+                BackgroundTaskStatus::Stopped
+            } else if result.success {
+                BackgroundTaskStatus::Completed
+            } else {
+                BackgroundTaskStatus::Failed
+            };
             runtime.snapshot.elapsed_ms = result.duration_ms;
             runtime.snapshot.result = Some(result.output.clone());
             runtime.mailbox.close();
-        }
+            is_stopped
+        } else {
+            false
+        };
         self.tasks.lock().remove(task_id);
-        if self.notification_tx.lock().send(result).is_err() {
+        // 停止态不发通知：主 Agent 已通过 invoke_stop 返回值获知结果，
+        // 且 PR #475 约束「停止不触发新模型轮次」——此通知无消费者需要。
+        // 发送会导致 drain_notifications 将其写入 Human 消息，
+        // TUI 侧以用户气泡渲染内部文本（#829）。
+        if !stopped && self.notification_tx.lock().send(result).is_err() {
             warn!(
                 task_id,
                 "background task complete: notification channel closed"

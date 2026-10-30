@@ -1,5 +1,6 @@
 use super::*;
 use crate::claude_agent_parser::ToolsValue;
+use crate::subagent::background::BackgroundTaskStatus;
 use cc_agent::{
     agent::react::{ReactLLM, Reasoning},
     messages::BaseMessage,
@@ -795,7 +796,11 @@ async fn test_cancel_token_interrupts_subagent() {
 
     // 后台模式下的取消走注册表：`registry.cancel(task_id)` → 取消该子 Agent 的
     // CancellationToken（父级 token 对后台任务无效）→ 执行体以 Interrupted 收尾。
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    //
+    // 观测点说明（#829）：停止态不再通过 notification 通道上报，因此这里改为
+    // 轮询 registry 的终态快照来确认「执行体已收尾、槽位已释放」——
+    // 这正是本用例要验证的取消链路有效性，通知只是过去的观测手段。
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
     let registry = Arc::new(crate::subagent::background::BackgroundTaskRegistry::new(tx));
     let t = SubAgentTool::new(
         Arc::new(vec![]),
@@ -824,19 +829,23 @@ async fn test_cancel_token_interrupts_subagent() {
     );
 
     registry.cancel(&task_id).expect("活跃任务应可取消");
-    let done = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
-        .await
-        .expect("取消后必须在超时内收尾（否则取消链路失效）")
-        .expect("取消也应给出完成结果");
+    // 轮询等待取消链路收尾：终态标记为 Stopped 即证明执行体已被中断并完成清理。
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut snapshot = None;
+    while std::time::Instant::now() < deadline {
+        if let Ok(s) = registry.status(&task_id) {
+            if s.status == BackgroundTaskStatus::Stopped {
+                snapshot = Some(s);
+                break;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    let snapshot = snapshot.expect("取消后必须在超时内收尾（否则取消链路失效）");
+    let output = snapshot.result.unwrap_or_default();
     assert!(
-        !done.success,
-        "被取消的任务必须按失败上报：{:?}",
-        done.output
-    );
-    assert!(
-        done.output.to_lowercase().contains("interrupt"),
-        "取消的输出应说明被中断：{}",
-        done.output
+        output.to_lowercase().contains("interrupt"),
+        "取消的输出应说明被中断：{output}"
     );
     assert_eq!(registry.active_count(), 0, "取消后必须释放并发槽位");
 }
