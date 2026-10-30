@@ -57,9 +57,9 @@ fn test_hyperlink_registry_wraps_registered_cells_only() {
     );
     assert_eq!(frame.decorate(3, 2, &Cell::new("x")), None, "其他行不包裹");
     assert_eq!(
-        frame.decorate(3, 1, &Cell::new(" ")),
+        frame.decorate(5, 1, &Cell::new(" ")),
         None,
-        "空白格子不得成为热点"
+        "未注册链接的空白格子不得成为热点"
     );
     begin_frame(true);
     let frame = make_prepared_frame(&frame, &mut buffer);
@@ -127,4 +127,36 @@ fn test_hyperlink_preserves_cell_color_when_recolor_disabled() {
     assert_eq!(buffer[(2, 0)].fg, own_color, "差分前保留附件自身颜色");
     assert_eq!(decorated.fg, own_color, "输出层不得再次改色");
     assert_eq!(decorated.bg, Color::DarkGray, "选区背景必须保留");
+}
+
+#[test]
+fn test_hyperlink_space_within_link_is_colored_and_decorated() {
+    let baseline = Frame::default();
+    // buffer 在 (0,0)=h, (1,0)=空格, (2,0)=i —— 模拟 "h i" 超链接文本
+    let mut buffer = Buffer::empty(Rect::new(0, 0, 10, 2));
+    buffer[(0, 0)].set_symbol("h");
+    buffer[(1, 0)].set_symbol(" ");
+    buffer[(2, 0)].set_symbol("i");
+    begin_frame(true);
+    let url = "https://a.example/space";
+    let id = (0, 0, 3);
+    register(0, 0, url, true, id);
+    register(1, 0, url, true, id);
+    register(2, 0, url, true, id);
+    let frame = make_prepared_frame(&baseline, &mut buffer);
+
+    // 空格 cell 也应染成链接色
+    assert_eq!(
+        buffer[(1, 0)].fg,
+        Color::LightBlue,
+        "链接内空格必须染成链接色，不能呈现蓝白相间"
+    );
+    // 空格 cell 也应被 OSC8 装饰
+    let decorated = frame
+        .decorate(1, 0, &buffer[(1, 0)])
+        .expect("链接内的空格必须被 OSC8 包裹");
+    assert!(
+        decorated.symbol().contains(url),
+        "空格的 OSC8 序列必须包含链接 URL"
+    );
 }

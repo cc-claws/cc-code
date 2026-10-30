@@ -89,9 +89,6 @@ impl Frame {
                         links.remove(&position);
                         continue;
                     }
-                    if cell.symbol().trim().is_empty() {
-                        links.remove(&position);
-                    }
                     if links.get(&position).is_some_and(|link| link.recolor) {
                         cell.set_fg(LINK_COLOR);
                     }
@@ -126,7 +123,7 @@ impl Frame {
 
     /// 只装饰真正写出的副本，原 buffer 与链接色均已由 prepare 确定。
     pub(super) fn decorate(&self, x: u16, y: u16, cell: &Cell) -> Option<Cell> {
-        if cell.skip || cell.symbol().trim().is_empty() {
+        if cell.skip {
             return None;
         }
         let link = self.links.get(&(x, y))?;
