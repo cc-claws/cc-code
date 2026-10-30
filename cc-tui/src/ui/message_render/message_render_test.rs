@@ -1697,6 +1697,77 @@ fn test_render_normal_user_bubble_unchanged() {
     assert!(first_text.contains("Hello"), "应包含原始内容");
 }
 
+/// 用户消息底色铺满整行：短消息也要补空格到视口宽度，
+/// 与 `shell_command_header` / `queued_messages` / `sticky_header` 口径一致。
+#[test]
+fn test_user_bubble_background_fills_full_viewport_width() {
+    let vm = MessageViewModel::user("好".to_string());
+    let width = 80;
+
+    let lines = render_view_model(&vm, Some(1), width, false, 0);
+    let user_bg = crate::ui::theme::cur().user_message_background;
+    let line = &lines[0];
+
+    // 行尾 span 必须是补出的整行底色空格
+    let last = line.spans.last().expect("首行不应为空");
+    assert_eq!(
+        last.style.bg,
+        Some(user_bg),
+        "行尾必须是用户消息底色，实际: {:?}",
+        last.style.bg
+    );
+    let used: usize = line
+        .spans
+        .iter()
+        .map(|span| unicode_width::UnicodeWidthStr::width(span.content.as_ref()))
+        .sum();
+    assert_eq!(used, width, "底色应铺满整行视口宽度");
+    assert!(
+        last.content.chars().all(|c| c == ' '),
+        "补位 span 只能由空格组成，实际: {:?}",
+        last.content
+    );
+}
+
+/// 多行用户消息（含预折行续行）每一行都要铺满底色。
+#[test]
+fn test_user_bubble_background_fills_every_wrapped_line() {
+    let long = "这是一条足够长的用户消息，用来触发预折行并验证续行同样铺满底色。".repeat(3);
+    let vm = MessageViewModel::user(long);
+    let width = 40;
+    let user_bg = crate::ui::theme::cur().user_message_background;
+
+    let lines = render_view_model(&vm, Some(1), width, false, 0);
+    assert!(lines.len() > 1, "长消息应折成多行");
+    for (idx, line) in lines.iter().enumerate() {
+        let used: usize = line
+            .spans
+            .iter()
+            .map(|span| unicode_width::UnicodeWidthStr::width(span.content.as_ref()))
+            .sum();
+        assert_eq!(used, width, "第 {idx} 行应铺满整行宽度");
+        assert_eq!(
+            line.spans.last().unwrap().style.bg,
+            Some(user_bg),
+            "第 {idx} 行行尾必须是用户消息底色"
+        );
+    }
+}
+
+/// 行尾补出的空格不得进入选区复制文本（`text_selection` 逐行 `trim_end`）。
+#[test]
+fn test_user_bubble_padding_does_not_pollute_copy() {
+    let vm = MessageViewModel::user("好".to_string());
+    let lines = render_view_model(&vm, Some(1), 80, false, 0);
+    let raw: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
+    assert!(raw.len() > 2, "应当补出了尾部空格");
+    assert_eq!(
+        raw.trim_end(),
+        "\u{276f} 好",
+        "去掉行尾空白后应只剩前缀与正文"
+    );
+}
+
 #[test]
 fn test_render_user_bubble_link_hit_aligns_with_prefixed_line() {
     // 端到端验证：markdown → ViewModel → render_view_model_with_links 后，
