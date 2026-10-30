@@ -74,6 +74,8 @@ Kimi K2.6 is an open-source, native multimodal agentic model from Moonshot AI, b
 
 No credentials configured? The deterministic layer still runs and an LLM classifier takes over as fallback; when there is no confirmation channel (sub-agents, `-p`) the call is denied. The session model is never involved — judging is offloaded to JEV, so safety checks don't spend your context tokens. `Shift+Tab` toggles between `Auto` and `Bypass`.
 
+> For deep-dive architecture, fallback classifiers, and troubleshooting, see the [Auto Mode & Permissions Guide](docs/auto-mode-guide.md).
+
 ---
 
 ## Core Capabilities

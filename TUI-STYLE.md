@@ -759,6 +759,8 @@ Auto 模式下，父 Agent 有“允许、拒绝、询问用户”三种结果�
 
 模式切换后标签 1500ms BOLD + SLOW_BLINK 高亮。状态栏首列始终显示（两档都有标签）。
 
+> 详细分层防御、JEV 语义门与兜底分类机制见 [Auto 模式与权限把关指南](docs/auto-mode-guide.md)。
+
 ## Agent Command Center
 
 `/agents` 打开独立全页视图；原 Agent 定义入口为 `/agent-design`，`/tasks` 不再注册，定时任务仍用 `/cron`。空草稿且焦点、根会话和无弹窗等门控满足时，裸 `←` 的 Press 打开中心（Repeat 不触发）；状态栏 `← N agents` 数当前项目根会话。

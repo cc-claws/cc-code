@@ -29,6 +29,7 @@
 
 ### 领域文档
 
+- [Auto 模式与权限把关指南](auto-mode-guide.md) — Auto/Bypass 模式、JEV 语义门、确定性规则与本地 LLM 兜底分类机制
 - [Agent](../spec/global/domains/agent.md) — Agent 架构和执行流程
 - [TUI](../spec/global/domains/tui.md) — TUI 架构和组件
 - [消息管线](../spec/global/domains/message-pipeline.md) — 消息处理流程
