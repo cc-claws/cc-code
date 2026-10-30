@@ -2973,6 +2973,7 @@ fn test_hook_result_merges_same_event_for_same_tool_call() {
 }
 
 /// 合并时 failures 也拼接：第二个 middleware 实例的失败不覆盖第一个。
+/// Block 行为不产生 hook 行（避免与工具块本身红色输出重复），仅 Error 产生失败行。
 #[test]
 fn test_hook_result_merge_concats_failures() {
     use cc_agent::agent::events::{HookFailureInfo, HookFailureKind};
@@ -2996,8 +2997,8 @@ fn test_hook_result_merge_concats_failures() {
             1,
             6,
             vec![HookFailureInfo {
-                kind: HookFailureKind::Block,
-                reason: "denied".into(),
+                kind: HookFailureKind::Error,
+                reason: "timeout".into(),
             }],
         ),
     );
@@ -3005,11 +3006,35 @@ fn test_hook_result_merge_concats_failures() {
     let rows = tool_hook_rows(&mut pipeline, "tc_fail");
     assert_eq!(rows.len(), 3, "两条失败行 + 一条汇总行");
     assert_eq!(rows[0].text, "PostToolUse hook failed: exit 1");
-    assert_eq!(rows[1].text, "PostToolUse hook blocked: denied");
+    assert_eq!(rows[1].text, "PostToolUse hook failed: timeout");
     assert_eq!(rows[2].text, "3 PostToolUse hooks ran · 10ms");
     assert!(rows[0].detail_only(), "hook 自身失败行只在详细模式出现");
-    assert!(!rows[1].detail_only(), "阻断行普通模式必须可见");
+    assert!(rows[1].detail_only(), "hook 自身失败行只在详细模式出现");
     assert!(rows[2].detail_only(), "汇总行只在详细模式出现");
+}
+
+/// 验证 Hook 阻断（Block）不生成 hook 行，避免与工具块红字结果重复。
+#[test]
+fn test_hook_blocked_does_not_render_hook_row() {
+    use cc_agent::agent::events::{HookFailureInfo, HookFailureKind};
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.push_hook_result(
+        "tc_blocked",
+        HookExec::new(
+            "PreToolUse",
+            1,
+            2,
+            vec![HookFailureInfo {
+                kind: HookFailureKind::Block,
+                reason: "[BLOCKED] git push 被拦截".into(),
+            }],
+        ),
+    );
+    let rows = tool_hook_rows(&mut pipeline, "tc_blocked");
+    assert!(
+        !rows.iter().any(|r| r.text.contains("blocked")),
+        "Block 不应产生黄色 hook blocked 行: {rows:?}"
+    );
 }
 
 /// 会话级同步汇总：同一事件多次上报合并成一行，计数与耗时累加；单条用单数。
