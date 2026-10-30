@@ -119,6 +119,7 @@ No credentials configured? The deterministic layer still runs and an LLM classif
 
 | Feature | Version | Description |
 |---------|---------|-------------|
+| **Reliable Long-Session Resume** | Unreleased | Restoring a long session avoids redundant history reads and full cache rewrites. Child sessions retain newly appended messages, and closing idle sessions releases their serialization locks (#813). |
 | **Responsive Sub-agent Views** | v0.6.212 | Streaming updates are coalesced so typing and scrolling remain responsive; hidden views defer conversion, including on completion. Completed history uses a bounded projection cache released when leaving the sub-agent view, and a full render queue retries the latest snapshot (#796). |
 | **Hooks Display Switch** | v0.6.212 | The `hooks_ui` setting (default on) adds a `Hooks display` row to `/config`: turning it off hides hook rows immediately while keeping the data, so toggling back restores them at once. Fold blocks no longer show hook rows, hook rows are forced to a single line, and duplicate failures are deduped per event (#808). |
 | **Hook Runs Reported in the UI** | v0.6.210 | Hook execution rows attach to their tool block with a summary in detailed mode; async hooks show a `running` placeholder replaced in place on completion, rows merge per event, and subagents inherit session hooks with real SubagentStart/Stop execution. Non-blocking failures report through `HookAction::Error`, with failure classification for invalid JSON and prompt/http/agent hooks (#804). |
@@ -128,11 +129,8 @@ No credentials configured? The deterministic layer still runs and an LLM classif
 | **Untrusted Hooks Notice Keeps the Welcome Card** | v0.6.207 | The startup notice for untrusted project hooks no longer counts as conversation history, so the welcome card and mascot stay visible; the notice itself is rendered with warning semantics (`⚠` in amber) instead of plain grey (#788). |
 | **Approval Dialog Descriptions and Full-File Diffs** | v0.6.206 | Tool calls carrying a `description` show it on its own line under the dialog title; `Write`/`Edit` approvals preview the full before/after file diff (new files get a numbered, syntax-highlighted code preview), falling back to the fragment diff when the file can't be read or located (#785). |
 | **Hooks Trust List in JSONL** | v0.6.205 | The project trust list moves to `~/.cc-code/trusted_projects.jsonl` (one entry per line, bad lines skipped individually, legacy text list auto-migrated with a `.legacy.bak` kept); home-directory resolution no longer silently fails when `HOME` is unset, so project and plugin hooks stop being skipped on Windows, and TUI startup now visibly warns about untrusted project hooks (#783). |
-| **Grep / Glob Spec Alignment** | v0.6.202 | `Grep` gains a `context` alias for `-C`, documents ripgrep escaping and multi-line patterns, and integrates with clickable file links; `Glob` returns cwd-relative paths newest-first and reports `No files found` uniformly; both engines relativize paths and the system prompt steers Grep/Glob first (#773). |
-| **Background Notifications Preserve Drafts** | v0.6.203 | Background shell notifications no longer clear an unsent draft or consume its pasted text and images; the cursor and attachments remain available for editing and sending (#777). |
-| **Consistent Markdown Link Colors** | v0.6.203 | Markdown links retain their underline and use the existing terminal hyperlink blue instead of the theme's success color (#775). |
 
-> Older releases (v0.6.0 – v0.6.201) are listed in the [CHANGELOG](./CHANGELOG.md).
+> Older releases (v0.6.0 – v0.6.203) are listed in the [CHANGELOG](./CHANGELOG.md).
 
 ---
 

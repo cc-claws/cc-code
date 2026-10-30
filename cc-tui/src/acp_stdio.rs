@@ -65,6 +65,65 @@ fn stdio_project_config(ctx: &StdioContext, cwd: &str) -> cc_tui::config::PeriCo
     )
 }
 
+async fn resume_session(ctx: &StdioContext, sid: &str) -> Result<(), agent_client_protocol::Error> {
+    let meta = ctx
+        .thread_store
+        .load_meta(&sid.to_string())
+        .await
+        .map_err(|error| {
+            agent_client_protocol::Error::invalid_params()
+                .data(format!("session not found: {sid}: {error}"))
+        })?;
+    // resume 恢复上下文但不回放历史；已有非空历史时无需再次读取。
+    let needs_history = {
+        let sessions = ctx.sessions.read();
+        sessions
+            .get(sid)
+            .is_none_or(|session| session.history.is_empty())
+    };
+    if !needs_history {
+        tracing::info!(session_id = %sid, "Session resumed (existing)");
+        return Ok(());
+    }
+    let cwd = meta.cwd;
+    let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
+        &cwd,
+        stdio_project_config(ctx, &cwd).config,
+        &ctx.plugin_skill_dirs,
+        &ctx.plugin_agent_dirs,
+        &frozen_date,
+        cc_acp::session::frozen::rule_model_from(&ctx.provider.read()),
+    );
+    // parking_lot guard 不能跨 await；读取期间其他请求可能已填入历史。
+    let history = cc_acp::dispatch::load_session_messages(ctx.thread_store.as_ref(), sid).await;
+    let mut sessions = ctx.sessions.write();
+    if let Some(session) = sessions.get_mut(sid) {
+        if session.history.is_empty() {
+            session.history = history;
+        }
+        tracing::info!(session_id = %sid, "Session resumed (existing)");
+    } else {
+        sessions.insert(
+            sid.to_string(),
+            SessionInfo {
+                session_id: sid.to_string(),
+                thread_id: sid.to_string(),
+                cwd,
+                history,
+                cancel_token: None,
+                background_registry: Arc::default(),
+                frozen: Some(frozen_data),
+                agent_pool: Arc::default(),
+                prompt_lock: Arc::default(),
+                background_results: None,
+            },
+        );
+        tracing::info!(session_id = %sid, "Session resumed (new)");
+    }
+    Ok(())
+}
+
 async fn persist_stdio_snapshot(ctx: &StdioContext, sid: &str, cwd: &str) {
     let config = stdio_project_config(ctx, cwd);
     let provider = cc_tui::app::agent::LlmProvider::from_config(&config)
@@ -827,53 +886,14 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                 let ctx = ctx_clone.clone();
                 async move |req: ResumeSessionRequest, responder, _cx: ConnectionTo<Client>| {
                     let sid = req.session_id.0.to_string();
-                    let meta = match ctx.thread_store.load_meta(&sid).await {
-                        Ok(meta) => meta,
+                    match resume_session(&ctx, &sid).await {
+                        Ok(()) => {
+                            let _ = responder.respond(ResumeSessionResponse::new());
+                        }
                         Err(error) => {
-                            let _ = responder.respond_with_error(agent_client_protocol::Error::invalid_params()
-                                .data(format!("session not found: {sid}: {error}")));
-                            return Ok(());
+                            let _ = responder.respond_with_error(error);
                         }
-                    };
-                    let cwd = meta.cwd;
-                    // Build frozen data for session
-                    let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
-                    let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
-                        &cwd,
-                        stdio_project_config(&ctx, &cwd).config,
-                        &ctx.plugin_skill_dirs,
-                        &ctx.plugin_agent_dirs,
-                        &frozen_date,
-                        cc_acp::session::frozen::rule_model_from(&ctx.provider.read()),
-                    );
-                    // 与 session/load 的区别：resume 必须恢复会话上下文但**不回放**历史。
-                    // 读取必须先于加锁（parking_lot guard 不能跨 await 持有）。
-                    let history = dispatch::load_session_messages(ctx.thread_store.as_ref(), &sid).await;
-                    let mut sessions = ctx.sessions.write();
-                    if !sessions.contains_key(&sid) {
-                        sessions.insert(
-                            sid.clone(),
-                            SessionInfo {
-                                session_id: sid.clone(),
-                                thread_id: sid.clone(),
-                                cwd,
-                                history,
-                                cancel_token: None,
-                                background_registry: Arc::default(),
-                                frozen: Some(frozen_data),
-                                agent_pool: Arc::default(),
-                                prompt_lock: Arc::default(),
-                                background_results: None,
-                            },
-                        );
-                        tracing::info!(session_id = %sid, "Session resumed (new)");
-                    } else if let Some(s) = sessions.get_mut(&sid) {
-                        if s.history.is_empty() {
-                            s.history = history;
-                        }
-                        tracing::info!(session_id = %sid, "Session resumed (existing)");
                     }
-                    let _ = responder.respond(ResumeSessionResponse::new());
                     Ok(())
                 }
             },
@@ -1337,3 +1357,7 @@ fn history_tool_call(id: &str, name: &str, input: &serde_json::Value) -> ToolCal
 #[cfg(test)]
 #[path = "acp_stdio_test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "acp_stdio_resume_test.rs"]
+mod resume_tests;

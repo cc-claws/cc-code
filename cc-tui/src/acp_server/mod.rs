@@ -24,10 +24,12 @@ use crate::{app::agent::LlmProvider, config::PeriConfig};
 
 mod notify;
 mod prompt;
+mod prompt_locks;
 mod requests;
 
 pub(crate) use notify::{extract_session_id, handle_notification, send_session_info_update};
 pub(crate) use prompt::execute_prompt;
+use prompt_locks::{release_closed_session_lock, SharedPromptLocks};
 pub(crate) use requests::handle_request;
 
 /// MCP-over-ACP (unstable, #25)：Agent → Client 方向。
@@ -117,8 +119,7 @@ pub async fn run_acp_server(
     let sessions: SharedSessions = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
     // Per-session prompt serialization lock: ensures that when a prompt completes
     // (state.history updated) the next prompt for the same session sees the updated history.
-    let prompt_locks: Arc<tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> =
-        Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+    let prompt_locks: SharedPromptLocks = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
 
     while let Some(msg) = transport.recv().await {
         match msg {
@@ -177,11 +178,12 @@ pub async fn run_acp_server(
                             .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
                             .clone()
                     };
+                    let prompt_locks = Arc::clone(&prompt_locks);
 
                     tokio::spawn(async move {
                         // Serialize prompts per session: wait for any in-flight prompt to finish
                         // so that state.history is up-to-date when this prompt reads it.
-                        let _guard = prompt_lock.lock().await;
+                        let prompt_guard = prompt_lock.lock().await;
                         let result = execute_prompt(
                             params,
                             &sessions,
@@ -209,6 +211,10 @@ pub async fn run_acp_server(
                         if !prompt_session_id.is_empty() {
                             send_session_info_update(transport.as_ref(), &prompt_session_id).await;
                         }
+                        drop(prompt_guard);
+                        drop(prompt_lock);
+                        release_closed_session_lock(&sessions, &prompt_locks, &prompt_session_id)
+                            .await;
                     });
                 } else if method == "peri/session/steer" {
                     // 等待消费确认不能持有 sessions 锁或阻塞取消/审批请求。
@@ -243,8 +249,9 @@ pub async fn run_acp_server(
                     let sessions = Arc::clone(&sessions);
                     let transport = Arc::clone(&transport);
                     let thread_store = cfg.thread_store.clone();
+                    let prompt_locks = Arc::clone(&prompt_locks);
                     tokio::spawn(async move {
-                        let _guard = lock.lock().await;
+                        let prompt_guard = lock.lock().await;
                         let result = append_history_to_session(
                             &sid,
                             &params,
@@ -253,13 +260,31 @@ pub async fn run_acp_server(
                         )
                         .await;
                         let _ = transport.send_response(id, result).await;
+                        drop(prompt_guard);
+                        drop(lock);
+                        release_closed_session_lock(&sessions, &prompt_locks, &sid).await;
                     });
                 } else {
-                    let mut sessions = sessions.lock().await;
-                    let result =
-                        handle_request(&method, &params, &cfg, &mut sessions, transport.as_ref())
-                            .await;
+                    let mut session_states = sessions.lock().await;
+                    let result = handle_request(
+                        &method,
+                        &params,
+                        &cfg,
+                        &mut session_states,
+                        transport.as_ref(),
+                    )
+                    .await;
+                    let closed = method == "session/close" && result.is_ok();
                     let _ = transport.send_response(id, result).await;
+                    drop(session_states);
+                    if closed {
+                        release_closed_session_lock(
+                            &sessions,
+                            &prompt_locks,
+                            extract_session_id(&params, ""),
+                        )
+                        .await;
+                    }
                 }
             }
             IncomingMessage::Notification { method, params } => {
