@@ -208,13 +208,11 @@ impl BackgroundTaskRegistry {
         // 且 PR #475 约束「停止不触发新模型轮次」——此通知无消费者需要。
         // 发送会导致 drain_notifications 将其写入 Human 消息，
         // TUI 侧以用户气泡渲染内部文本（#829）。
-        if !stopped {
-            if self.notification_tx.lock().send(result).is_err() {
-                warn!(
-                    task_id,
-                    "background task complete: notification channel closed"
-                );
-            }
+        if !stopped && self.notification_tx.lock().send(result).is_err() {
+            warn!(
+                task_id,
+                "background task complete: notification channel closed"
+            );
         }
     }
 
