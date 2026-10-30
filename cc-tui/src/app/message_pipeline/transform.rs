@@ -174,7 +174,7 @@ impl MessagePipeline {
     }
 
     /// 标记"仍在进行中"的思考段：渲染层据此显示
-    /// `● Thinking for Ns, <现在时计数>…`（对齐参考实现 Jc 的走秒 + 现在时）。
+    /// `∴ Thinking <N> chars, <现在时计数>…`（活跃态报本段字数，冻结时才落耗时）。
     ///
     /// 锚点 `reasoning_started_at` 在本轮结束时（`done()`）清空，
     /// 因此只要有锚点就说明还在这一轮里。
@@ -542,7 +542,7 @@ pub(crate) fn merge_consecutive_thinking(vms: &mut Vec<MessageViewModel>) {
                     {
                         match duration_ms {
                             // 对齐参考实现：完成态耗时回落为**最后一段**的时长
-                            // （活跃态的走秒由渲染层用锚点增量补足，见 Thinking for Ns）。
+                            // （活跃态不再显示耗时，只报本段字数）。
                             Some(ms) => tot_ms = *ms,
                             // R6：任一段缺耗时 → 整体降级（避免低估）
                             None => missing_ms = true,

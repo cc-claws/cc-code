@@ -4081,8 +4081,8 @@ fn test_normal_mode_hides_thinking_body() {
     let rendered = rendered_text(&render_view_model(&vm, None, 80, false, 0));
     // Assert：只有摘要行，正文一行都不出现
     assert!(
-        rendered.contains("Thinking for"),
-        "普通模式应保留走秒摘要行: {rendered}"
+        rendered.contains("Thinking for 51 chars"),
+        "普通模式应保留字数摘要行: {rendered}"
     );
     for hidden in ["n01", "n04", "n13"] {
         assert!(
@@ -4125,7 +4125,10 @@ fn test_group_thinking_hides_body_in_normal_mode() {
     // Act：普通模式
     let rendered = rendered_text(&render_view_model(&vm, None, 80, false, 0));
     // Assert
-    assert!(rendered.contains("Thinking for"), "应保留走秒思考行: {rendered}");
+    assert!(
+        rendered.contains("Thinking for 51 chars, reading 3 files…"),
+        "应保留字数 + 现在时动作的思考行: {rendered}"
+    );
     assert!(
         !rendered.contains("n13"),
         "普通模式下组内思考正文不应出现: {rendered}"
@@ -4832,5 +4835,41 @@ fn test_hook_rows_never_wrap_to_multiple_lines() {
         unicode_width::UnicodeWidthStr::width(hook_lines[0].as_str()) <= 80,
         "行宽不得超出视口: {}",
         hook_lines[0]
+    );
+}
+
+#[test]
+fn test_active_thinking_row_shows_char_count() {
+    let render = |chars: usize, active: bool| {
+        let mut vm = MessageViewModel::assistant();
+        if let MessageViewModel::AssistantBubble { blocks, .. } = &mut vm {
+            blocks.push(ContentBlockView::Reasoning {
+                char_count: chars,
+                duration_ms: Some(5000),
+                action_summary: Some("read 2 files".to_string()),
+                text: "x".repeat(chars),
+                active,
+                active_since: None,
+                hint: None,
+            });
+        }
+        rendered_text(&render_view_model(&vm, None, 120, false, 0))
+    };
+    // Act：同一段思考在流式推进时的两个时刻
+    let early = render(800, true);
+    let later = render(3649, true);
+    // Assert：活跃态报字数（随 chunk 增长），冻结后只剩耗时
+    assert!(
+        early.contains("Thinking for 800 chars, reading 2 files…"),
+        "活跃态应显示字数 + 现在时动作: {early}"
+    );
+    assert!(
+        later.contains("Thinking for 3649 chars, reading 2 files…"),
+        "字数增长后应更新显示: {later}"
+    );
+    let frozen = render(3649, false);
+    assert!(
+        frozen.contains("Thought for 5s, read 2 files"),
+        "冻结后应由耗时取代字数: {frozen}"
     );
 }

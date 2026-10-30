@@ -1181,7 +1181,7 @@ impl MessagePipeline {
     /// 正文到达 = 本组结束：冻结当前组耗时，开新组。
     fn freeze_group(&mut self) {
         // 冻结前把"最后一条事件到此刻"的增量也计入：这一段就是参考实现里
-        // 相邻消息（思考消息本身）的时间差，缺了它会让 `Thinking for 22s` 冻结成
+        // 相邻消息（思考消息本身）的时间差，缺了它会让 `Thought for 20s` 冻结成
         // `Thought for 1s`（数字跳水）。
         let now = std::time::Instant::now();
         if let Some(prev) = self.last_event_at {

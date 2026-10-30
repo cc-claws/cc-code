@@ -772,7 +772,7 @@ pub enum ContentBlockView {
         action_summary: Option<String>,
         /// 原始推理全文（详细模式展开时显示；不参与哈希/比较）
         text: String,
-        /// 该思考段是否仍在进行中：运行中显示 `● Thinking for Ns, …`（现在时 + 走秒）
+        /// 该思考段是否仍在进行中：运行中显示 `∴ Thinking <N> chars, …`（现在时 + 字数）
         active: bool,
         /// 进行中的实时起点：渲染时用 `now - active_since` 在 `duration_ms` 之上追加增量。
         /// 只影响显示，不参与哈希/比较（避免每次构造都换 hash）。
