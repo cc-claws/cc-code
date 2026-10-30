@@ -57,7 +57,10 @@ async fn test_width_preparation_cannot_overtake_pending_view_snapshot_after_queu
     assert!(!try_prepare_width(&mut app, 120, false));
     assert!(
         matches!(
-            receiver.try_recv().expect("主视图必须先入队"),
+            receiver
+                .try_recv()
+                .expect("主视图必须先入队")
+                .into_payload(),
             RenderEvent::Rebuild(_)
         ),
         "宽度准备不能越过待发主视图，拿旧子视图高度钳位"
@@ -218,10 +221,13 @@ async fn test_width_preparation_mode_change_requires_new_confirmation() {
             measured_rows: 1,
         })
         .is_err());
-    assert!(matches!(
-        receiver.try_recv(),
-        Ok(RenderEvent::ToggleDetail(true))
-    ));
+    match receiver.try_recv().expect("详细模式应提交新的完整快照") {
+        RenderEvent::WithDisplay { display, event } => {
+            assert!(display.detail_mode);
+            assert!(matches!(event.into_payload(), RenderEvent::Rebuild(_)));
+        }
+        _ => panic!("显示状态与内容必须在宽度准备前一起提交"),
+    }
     let reply = make_width_reply(&mut receiver);
     make_complete_width(&app, reply, 120);
     assert!(try_prepare_width(&mut app, 120, false));

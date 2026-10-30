@@ -68,6 +68,7 @@ pub(crate) struct BackgroundAgentSession {
     pub spinner: cc_widgets::SpinnerState,
     pub pending_inputs: Vec<(uuid::Uuid, String)>,
     pub scroll_position: (usize, bool),
+    pub(crate) display: crate::ui::render_thread::DisplayFlags,
     pub running_tool_times: HashMap<String, Instant>,
     pub completion_received: bool,
     pub ended_at: Option<Instant>,
@@ -130,6 +131,7 @@ impl BackgroundAgentSession {
             spinner,
             pending_inputs: Vec::new(),
             scroll_position: (usize::MAX, true),
+            display: Default::default(),
             running_tool_times: HashMap::new(),
             completion_received: false,
             ended_at: None,
@@ -521,6 +523,7 @@ impl super::App {
         let leaving = self.session_mgr.current().focused_instance_id.clone();
         let session = self.session_mgr.current_mut();
         let position = (session.ui.scroll_offset, session.ui.scroll_follow);
+        let display = session.ui.display();
         let draft = std::mem::replace(&mut session.ui.textarea, super::build_textarea(false));
         if let Some(sub) = session
             .focused_instance_id
@@ -528,6 +531,7 @@ impl super::App {
             .and_then(|id| session.subagent_sessions.get_mut(id))
         {
             sub.scroll_position = position;
+            sub.display = display;
             sub.input_draft = Some(draft);
             if id.as_deref() != Some(sub.instance_id.as_str()) {
                 // 只为当前子视口保留新增的历史投影缓存，避免看过的活跃任务逐个累计。
@@ -535,6 +539,7 @@ impl super::App {
             }
         } else {
             session.main_scroll_position = position;
+            session.main_display = display;
             session.main_input_draft = Some(draft);
         }
         session.messages.invalidate_layout();
@@ -556,6 +561,11 @@ impl super::App {
             .map(|sub| sub.scroll_position)
             .unwrap_or(session.main_scroll_position);
         session.ui.set_scroll_position(offset, follow);
+        let display = session
+            .active_subagent()
+            .map(|sub| sub.display)
+            .unwrap_or(session.main_display);
+        session.ui.apply_display(display);
         session.messages.last_viewport = None;
         session.ui.text_selection.clear();
         session.ui.pending_text_copy = None;
@@ -705,3 +715,7 @@ mod tests;
 #[cfg(test)]
 #[path = "subagent_refresh_test.rs"]
 mod refresh_tests;
+
+#[cfg(test)]
+#[path = "viewport_display_test.rs"]
+mod display_tests;

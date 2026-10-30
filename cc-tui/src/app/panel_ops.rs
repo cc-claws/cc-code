@@ -112,6 +112,7 @@ impl App {
             approval_source_agent_id: None,
             main_scroll_position: (usize::MAX, true),
             main_input_draft: None,
+            main_display: Default::default(),
             spinner_state: cc_widgets::SpinnerState::new(cc_widgets::SpinnerMode::Idle),
             shell_pool: super::ShellCommandPool::default(),
             background_shells: Vec::new(),

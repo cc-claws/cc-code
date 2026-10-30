@@ -47,6 +47,7 @@ pub struct ChatSession {
     pub approval_source_agent_id: Option<String>,
     pub main_scroll_position: (usize, bool),
     pub main_input_draft: Option<tui_textarea::TextArea<'static>>,
+    pub(crate) main_display: crate::ui::render_thread::DisplayFlags,
     pub spinner_state: cc_widgets::SpinnerState,
     pub shell_pool: ShellCommandPool,
     /// Ctrl+B 后台化的 shell 任务列表（多个并发后台命令）
@@ -63,6 +64,52 @@ pub struct ChatSession {
 }
 
 impl ChatSession {
+    pub(crate) fn remember_viewport_display(&mut self) {
+        let display = self.ui.display();
+        if let Some(sub) = self
+            .focused_instance_id
+            .as_ref()
+            .and_then(|id| self.subagent_sessions.get_mut(id))
+        {
+            sub.display = display;
+        } else {
+            self.main_display = display;
+        }
+        self.messages.invalidate_layout();
+    }
+
+    pub(crate) fn render_view_messages(
+        &mut self,
+    ) -> Vec<crate::ui::message_view::MessageViewModel> {
+        if let Some(sub) = self
+            .focused_instance_id
+            .as_ref()
+            .and_then(|id| self.subagent_sessions.get_mut(id))
+        {
+            sub.refresh_view_if_dirty();
+        }
+        let mut messages = self.current_view_messages().to_vec();
+        if self.focused_instance_id.is_none() {
+            for message in &mut messages {
+                message.set_image_paths(&self.metadata.image_paths);
+            }
+        }
+        messages
+    }
+
+    pub(crate) fn rebuild_viewport(&mut self) {
+        let messages = self.render_view_messages();
+        self.send_render_snapshot(crate::ui::render_thread::RenderEvent::Rebuild(messages));
+    }
+
+    pub(crate) fn send_render_snapshot(&mut self, event: crate::ui::render_thread::RenderEvent) {
+        let event = crate::ui::render_thread::RenderEvent::WithDisplay {
+            display: self.ui.display(),
+            event: Box::new(self.with_render_viewport(event)),
+        };
+        self.messages.send_render_snapshot(event);
+    }
+
     /// 重排命令携带同一次缓存取样的阅读位置，不依赖下一帧 Viewport 上报。
     pub(crate) fn with_render_viewport(
         &self,
@@ -141,10 +188,8 @@ impl ChatSession {
         if let Some(mode) = render_config.and_then(|config| config.streaming_mode.as_deref()) {
             messages.pipeline.init_streaming_mode_from_config(mode);
         }
-        // 渲染线程的 diff/detail 标志出生即为 false，且 Rebuild 事件不携带标志，
-        // 配置的初始值不会自己到达渲染线程——必须在会话创建时显式同步，
-        // 否则 diff_enabled 打开了也永不生效（只有运行时的 toggle_diff /
-        // Ctrl+O 动作才会发 Toggle 事件，配置这条门一直是断的）。
+        // 渲染线程的 diff/detail 标志出生即为 false；先同步主视口的配置初值。
+        // 后续内容快照会原子携带当前视口的实际显示状态。
         if diff_enabled {
             let _ = render_tx.try_send(crate::ui::render_thread::RenderEvent::ToggleDiff(true));
         }
@@ -182,6 +227,11 @@ impl ChatSession {
             approval_source_agent_id: None,
             main_scroll_position: (usize::MAX, true),
             main_input_draft: None,
+            main_display: crate::ui::render_thread::DisplayFlags {
+                detail_mode: detail_enabled,
+                diff_visible: diff_enabled,
+                show_tool_messages: false,
+            },
             spinner_state: cc_widgets::SpinnerState::with_lang(
                 cc_widgets::SpinnerMode::Idle,
                 lc.current_lang(),

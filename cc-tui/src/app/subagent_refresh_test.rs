@@ -49,7 +49,7 @@ fn make_refresh_later(app: &mut App) {
 }
 
 fn make_render_messages(event: RenderEvent) -> Vec<MessageViewModel> {
-    match event {
+    match event.into_payload() {
         RenderEvent::Rebuild(messages) | RenderEvent::RebuildWithAnchor { messages, .. } => {
             messages
         }
@@ -372,7 +372,7 @@ async fn test_render_retry_preserves_rebuild_scroll_anchor() {
     receiver.try_recv().expect("移除旧帧");
     app.poll_agent();
     assert!(
-        matches!(receiver.try_recv().expect("应收到带锚点的完整快照"),
+        matches!(receiver.try_recv().expect("应收到带锚点的完整快照").into_payload(),
         RenderEvent::RebuildWithAnchor { anchor, messages, .. } if anchor.message_index == 1 && messages.len() == 2)
     );
 }
