@@ -127,6 +127,8 @@ Command trait 的 `description()` 接收 `&LcRegistry` 参数并返回 `String`�
 
 ## 状态管理
 
+**会话串行锁生命周期**：`acp_server::prompt_locks` 仅在会话已关闭、且锁表是该锁唯一 Arc 持有者时回收。运行中与排队请求结束后，先释放 prompt guard 和 Arc，再重试清理；同 ID 恢复期间保留原锁，避免新旧请求绕过串行。清理固定按 `sessions → prompt_locks` 顺序加锁。
+
 **`ServiceRegistry` 与 `GlobalUiState`**：`App` 状态拆分为 `ServiceRegistry`（跨会话共享：config/MCP/cron/provider）和 `GlobalUiState`（纯 UI 临时状态：高亮计时器/弹窗）。面板 dispatch 宏（`with_global_panels!`/`with_session_panels!`）位于 `event/macros.rs`。
 
 **`CommandRegistry::dispatch` 借用限制 [TRAP]**：`&self` + `&mut App` 冲突，用 `std::mem::take` + put-back 解决。dispatch 期间不可改变 `app.session_mgr` 的 session 实例。
