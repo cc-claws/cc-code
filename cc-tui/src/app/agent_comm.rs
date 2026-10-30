@@ -97,23 +97,25 @@ pub type BgTaskResult = cc_agent::agent::events::BackgroundTaskResult;
 /// 每次压缩开始时随机选一种并锁死，避免逐帧切换造成闪变。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompactMotion {
-    /// 小人沿固定跑道跑；跑满 20 秒「累了」改走。
+    /// 小人沿固定跑道从右向左单向奔跑；跑满 20 秒「累了」改走。
     Runner,
+    /// 螃蟹沿固定跑道横向折返爬行。
+    Crab,
     /// 飞碟沿跑道飞行，身后拖出 `· ∙ ˙` 尾迹，到头折返。
     Ufo,
 }
 
 impl CompactMotion {
-    /// 抛硬币选一种。用纳秒低位做随机，避免为一次二选一引入随机数依赖。
+    /// 随机挑一种。用纳秒低位做随机，避免为三选一引入随机数依赖。
     pub fn random() -> Self {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.subsec_nanos())
             .unwrap_or(0);
-        if nanos.is_multiple_of(2) {
-            Self::Runner
-        } else {
-            Self::Ufo
+        match nanos % 3 {
+            0 => Self::Runner,
+            1 => Self::Crab,
+            _ => Self::Ufo,
         }
     }
 }

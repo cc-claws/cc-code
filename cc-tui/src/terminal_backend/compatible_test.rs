@@ -596,6 +596,7 @@ fn test_hyperlink_decoration_stays_out_of_buffer() {
 fn test_ascii_fallback_covers_compact_animation_glyphs() {
     assert_eq!(super::ascii_fallback("🏃"), Some("R"));
     assert_eq!(super::ascii_fallback("🚶"), Some("W"));
+    assert_eq!(super::ascii_fallback("🦀"), Some("C"));
     assert_eq!(super::ascii_fallback("🛸"), Some("o"));
     assert_eq!(super::ascii_fallback("∙"), Some("."));
     assert_eq!(super::ascii_fallback("˙"), Some("."));

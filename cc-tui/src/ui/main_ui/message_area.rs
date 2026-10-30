@@ -828,10 +828,12 @@ pub(super) fn visible_tail(app: &App) -> Vec<Line<'static>> {
     supplementary_lines(app, &spinner_line)
 }
 
-/// 压缩进行中的「小人跑道」：固定 12 格，小人每 150ms 前进一格并回卷。
+/// 压缩进行中的「小人跑道」：固定 12 格，小人每 150ms 从右向左单向奔跑并穿墙回卷。
 ///
 /// 占的是 tip 那一行（不增加布局高度），压缩结束即消失。进度是假的，
 /// 这里只表达「还在跑」，所以不用进度条。
+/// Unicode 中 `🏃` / `🚶` 默认面朝左侧，因此采用从右向左单向奔跑动线，
+/// 使小人脸部与位移方向保持自然一致，避免双向折返时的太空步倒退违和。
 fn compact_runner_line(started_at: std::time::Instant) -> Line<'static> {
     const TRACK: usize = 12;
     /// 跑：每 150ms 一格。
@@ -840,9 +842,6 @@ fn compact_runner_line(started_at: std::time::Instant) -> Line<'static> {
     const WALK_STEP_MS: u128 = 420;
     /// 跑到这个时长就「累了」改走路。
     const TIRED_AFTER_SECS: u64 = 20;
-    /// 折返的两段停留（帧数），节奏与飞碟一致但更短，适合人的步频。
-    const HOLD_END: usize = 4;
-    const HOLD_START: usize = 4;
 
     let elapsed = started_at.elapsed();
     let tired = elapsed.as_secs() >= TIRED_AFTER_SECS;
@@ -851,7 +850,52 @@ fn compact_runner_line(started_at: std::time::Instant) -> Line<'static> {
     } else {
         ("🏃", RUN_STEP_MS, theme::cur().thinking)
     };
-    // 与飞碟同一套双向节奏：跑到头 → 终点停留 → 折返 → 起点停留。
+    let frame = (elapsed.as_millis() / step_ms) as usize;
+    let step = frame % TRACK;
+    // 从右端（TRACK - 1）向左端（0）单向奔跑
+    let pos = TRACK - 1 - step;
+
+    let mut spans = Vec::with_capacity(TRACK);
+    for cell in 0..TRACK {
+        if cell == pos {
+            spans.push(Span::styled(glyph, Style::default().fg(glyph_color)));
+        } else if cell > pos {
+            // 向左跑时，已经经过的格子落在小人身后（右侧）留下足迹
+            spans.push(Span::styled(
+                "• ",
+                Style::default().fg(theme::cur().inactive),
+            ));
+        } else {
+            spans.push(Span::styled("· ", Style::default().fg(theme::cur().subtle)));
+        }
+    }
+    Line::from(spans)
+}
+
+/// 压缩进行中的「螃蟹跑道」：固定 12 格，螃蟹每 160ms 横向爬行一格，到头折返。
+///
+/// 螃蟹天然侧身横向行走，双向折返跑没有任何脸部朝向违和感，同时呼应
+/// Rust 吉祥物 Ferris。
+fn compact_crab_line(started_at: std::time::Instant) -> Line<'static> {
+    const TRACK: usize = 12;
+    /// 爬：每 160ms 一格横行小碎步。
+    const RUN_STEP_MS: u128 = 160;
+    /// 慢爬：步子放慢。
+    const WALK_STEP_MS: u128 = 420;
+    /// 爬满这个时长就改慢爬。
+    const TIRED_AFTER_SECS: u64 = 20;
+    /// 折返的两段停留（帧数）。
+    const HOLD_END: usize = 4;
+    const HOLD_START: usize = 4;
+
+    let elapsed = started_at.elapsed();
+    let tired = elapsed.as_secs() >= TIRED_AFTER_SECS;
+    let (step_ms, glyph_color) = if tired {
+        (WALK_STEP_MS, theme::cur().inactive)
+    } else {
+        (RUN_STEP_MS, theme::cur().claude)
+    };
+    let glyph = "🦀";
     let frame = (elapsed.as_millis() / step_ms) as usize;
     let cycle = TRACK + HOLD_END + (TRACK - 1) + HOLD_START;
     let phase = frame % cycle;
@@ -957,10 +1001,11 @@ fn supplementary_lines(app: &App, spinner_line: &Option<Line<'static>>) -> Vec<L
             // tip 由调度器在轮次边界挑选/发布（见 App::set_loading），渲染只读当前已发布的
             // 一条；本轮运行 >30min 时被 /clear 时间覆盖 tip 顶替（对齐 CC，见 issue #511）
             let turn_elapsed = app.session_mgr.current().viewport_spinner().elapsed_ms();
-            // 压缩进行中：这一行让位给「小人跑道」动画（不额外占行、不改布局高度）。
+            // 压缩进行中：这一行让位给「压缩跑道」动画（不额外占行、不改布局高度）。
             if let Some(started_at) = app.session_mgr.current().agent.compact_started_at {
                 lines.push(match app.session_mgr.current().agent.compact_motion {
                     crate::app::CompactMotion::Runner => compact_runner_line(started_at),
+                    crate::app::CompactMotion::Crab => compact_crab_line(started_at),
                     crate::app::CompactMotion::Ufo => compact_ufo_line(started_at),
                 });
             } else if let Some((label, text)) = app.spinner_tip_display(turn_elapsed) {
