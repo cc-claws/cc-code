@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.220：**思考行显示实时字数**——思考进行中消息区顶部改为 `∴ Thinking for 1247 chars, read 2 files…`，字数取流式推理的实时长度、随 chunk 增长，能看出推理是否还在推进；正文开始输出后落成 `Thought for 16s`。活跃与冻结统一为同一暗色，去掉冻结瞬间的亮度跳变（#836）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 Unreleased：**长会话恢复与子会话历史修复**——减少重复历史读取与整份缓存回写，避免祖先前缀使子会话新增消息被跳过；关闭空闲会话后安全释放串行锁，在途请求与同 ID 恢复继续保持串行（#813）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.212：**子 Agent 运行中的输入与滚动响应优化**——流式更新按批处理并合并刷新，隐藏视口（含完成时）延后转换，已完成历史投影缓存有界且切离即释放；渲染队列满时重试最新快照，避免完成后画面停留在旧状态（#796）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。

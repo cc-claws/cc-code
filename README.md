@@ -121,6 +121,7 @@ No credentials configured? The deterministic layer still runs and an LLM classif
 
 | Feature | Version | Description |
 |---------|---------|-------------|
+| **Live Thinking Char Count** | v0.6.220 | While the model is thinking, the header shows the live character count of the streamed reasoning (`∴ Thinking for 1247 chars…`) instead of a stopwatch, so you can tell it is still producing; the line freezes into `Thought for 16s, read 2 files` once the reply starts. Active and finished rows share one dim color (#836). |
 | **Reliable Long-Session Resume** | Unreleased | Restoring a long session avoids redundant history reads and full cache rewrites. Child sessions retain newly appended messages, and closing idle sessions releases their serialization locks (#813). |
 | **Responsive Sub-agent Views** | v0.6.212 | Streaming updates are coalesced so typing and scrolling remain responsive; hidden views defer conversion, including on completion. Completed history uses a bounded projection cache released when leaving the sub-agent view, and a full render queue retries the latest snapshot (#796). |
 | **Hooks Display Switch** | v0.6.212 | The `hooks_ui` setting (default on) adds a `Hooks display` row to `/config`: turning it off hides hook rows immediately while keeping the data, so toggling back restores them at once. Fold blocks no longer show hook rows, hook rows are forced to a single line, and duplicate failures are deduped per event (#808). |
@@ -130,9 +131,7 @@ No credentials configured? The deterministic layer still runs and an LLM classif
 | **`!` Commands Use Git Bash** | v0.6.207 | `!` commands now run through Git Bash like the Bash tool instead of `cmd /C`, so `sleep`, `ls` and `grep` work on Windows; the running state reads `Running… (Xs)` and the seconds keep ticking for silent commands (#790). |
 | **Untrusted Hooks Notice Keeps the Welcome Card** | v0.6.207 | The startup notice for untrusted project hooks no longer counts as conversation history, so the welcome card and mascot stay visible; the notice itself is rendered with warning semantics (`⚠` in amber) instead of plain grey (#788). |
 | **Approval Dialog Descriptions and Full-File Diffs** | v0.6.206 | Tool calls carrying a `description` show it on its own line under the dialog title; `Write`/`Edit` approvals preview the full before/after file diff (new files get a numbered, syntax-highlighted code preview), falling back to the fragment diff when the file can't be read or located (#785). |
-| **Hooks Trust List in JSONL** | v0.6.205 | The project trust list moves to `~/.cc-code/trusted_projects.jsonl` (one entry per line, bad lines skipped individually, legacy text list auto-migrated with a `.legacy.bak` kept); home-directory resolution no longer silently fails when `HOME` is unset, so project and plugin hooks stop being skipped on Windows, and TUI startup now visibly warns about untrusted project hooks (#783). |
-
-> Older releases (v0.6.0 – v0.6.203) are listed in the [CHANGELOG](./CHANGELOG.md).
+> Older releases (v0.6.0 – v0.6.205) are listed in the [CHANGELOG](./CHANGELOG.md).
 
 ---
 
