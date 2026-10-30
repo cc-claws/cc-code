@@ -159,6 +159,7 @@ async fn make_complete(
             &mut source,
             make_mode(detail),
             Viewport {
+                scroll_revision: 0,
                 height: 100_000,
                 ..Viewport::default()
             },
@@ -369,6 +370,7 @@ async fn test_virtual_hidden_tail_matches_reference_without_following() {
             &mut sources,
             make_mode(false),
             Viewport {
+                scroll_revision: 0,
                 height: 1000,
                 follow_tail: false,
                 ..Viewport::default()
@@ -428,6 +430,7 @@ async fn test_virtual_lru_budget_and_copy_after_actual_eviction() {
                 &mut sources,
                 make_mode(true),
                 Viewport {
+                    scroll_revision: 0,
                     top,
                     height: 12,
                     follow_tail: false,
@@ -492,6 +495,7 @@ async fn test_virtual_reading_head_does_not_materialize_offscreen_tail() {
             &mut sources,
             make_mode(true),
             Viewport {
+                scroll_revision: 0,
                 height: 8,
                 follow_tail: false,
                 ..Viewport::default()

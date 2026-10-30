@@ -207,15 +207,13 @@ pub(crate) fn render_messages(
             app.session_mgr.current_mut().messages.last_resize_width = Some(text_area_width);
             let _ = app
                 .session_mgr
-                .current_mut()
-                .messages
-                .render_tx
-                .try_send(RenderEvent::Resize(text_area_width));
+                .current()
+                .send_render_event(RenderEvent::Resize(text_area_width));
         }
     }
 
     // ── 从 RenderCache 读取并计算滚动参数 ──────────────────────────────────
-    let (min_scroll, max_scroll, offset) = {
+    let (min_scroll, max_scroll, offset, viewport_anchor) = {
         let mut cache = app.session_mgr.current().messages.render_cache.write();
 
         // 全屏 alternate screen 模式：无原生 scrollback，所有内容都在 TUI 视口内，
@@ -230,37 +228,40 @@ pub(crate) fn render_messages(
             .max(min_scroll);
         let scroll_follow = app.session_mgr.current().ui.scroll_follow;
         let scroll_offset = app.session_mgr.current().ui.scroll_offset;
-        let scroll_anchor = cache.scroll_anchor.take().filter(|_| {
-            cache.virtual_layout.as_ref().is_none_or(|layout| {
-                layout.requested_top == scroll_offset
-                    && layout.requested_height == visible_height as usize
-                    && cache.width == text_area.width
-            })
+        let scroll_revision = app.session_mgr.current().ui.scroll_revision;
+        // 切视图后的首帧尚未上报当前位置，缓存可能仍按旧视图的欢迎前缀计算。
+        let view_presented = app.session_mgr.current().messages.last_viewport.is_some();
+        let scroll_anchor = cache.scroll_anchor.take().filter(|anchor| {
+            view_presented
+                && anchor.scroll_revision == scroll_revision
+                && (cache.virtual_layout.is_none() || cache.width == text_area.width)
         });
         let dragging = app.session_mgr.current().ui.message_scrollbar_dragging;
         let (new_follow, off) = if dragging {
             // dragging 期间跳过 follow/anchor 优先级，强制使用用户拖拽的 offset
             let off = scroll_offset.clamp(min_scroll, max_scroll);
-            (off >= max_scroll, off)
+            (scroll_follow, off)
         } else if scroll_follow {
             (true, max_scroll)
         } else if scroll_offset < prefix_rows {
             // 消息锚点不包含欢迎卡；浏览前缀时重建不能把用户推到消息起点。
             let off = scroll_offset.min(max_scroll);
-            (off >= max_scroll, off)
+            (false, off)
         } else if let Some(anchor) = scroll_anchor {
             let off = anchor
+                .visual_row
                 .saturating_add(prefix_rows)
                 .clamp(min_scroll, max_scroll);
-            let new_follow = off >= max_scroll;
-            (new_follow, off)
+            (false, off)
         } else {
             let off = scroll_offset.clamp(min_scroll, max_scroll);
-            let new_follow = off >= max_scroll;
-            (new_follow, off)
+            // 布局缩短/估算校正只钳位坐标，不代表用户选择重新跟随最新。
+            (false, off)
         };
 
         let version = cache.version;
+        // 与本帧滚动位置从同一缓存取样，不能在 worker 发布下一布局后重新解释旧 off。
+        let viewport_anchor = cache.viewport_anchor_at(off.saturating_sub(prefix_rows));
         drop(cache);
 
         app.session_mgr.current_mut().messages.last_render_version = version;
@@ -269,7 +270,7 @@ pub(crate) fn render_messages(
         app.session_mgr.current_mut().ui.scrollbar_min_offset = min_scroll;
         app.session_mgr.current_mut().ui.scrollbar_max_offset = max_scroll;
 
-        (min_scroll, max_scroll, off)
+        (min_scroll, max_scroll, off, viewport_anchor)
     };
 
     // 欢迎前缀在本帧实际占用的高度（消息绘制与视口上报共用同一口径）
@@ -283,17 +284,14 @@ pub(crate) fn render_messages(
         let top_msg = offset.saturating_sub(prefix_rows);
         let body_height = text_area.height.saturating_sub(prefix_height) as usize;
         let session = app.session_mgr.current_mut();
-        let anchor = session
-            .messages
-            .render_cache
-            .read()
-            .viewport_anchor_at(top_msg);
+        let anchor = viewport_anchor;
         let request = (
             top_msg,
             body_height,
             session.ui.scroll_follow,
             text_area.width,
             anchor,
+            session.ui.scroll_revision,
         );
         if session.messages.last_viewport != Some(request)
             && session
@@ -304,6 +302,7 @@ pub(crate) fn render_messages(
                     height: body_height,
                     follow_tail: session.ui.scroll_follow,
                     anchor,
+                    scroll_revision: session.ui.scroll_revision,
                 })
                 .is_ok()
         {

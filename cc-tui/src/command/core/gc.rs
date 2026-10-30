@@ -594,6 +594,7 @@ fn estimate_render_cache_heap(rc: &crate::ui::render_thread::RenderCache) -> usi
         }
     }
     total += rc.message_offsets.capacity() * std::mem::size_of::<usize>();
+    total += rc.line_origins.capacity() * std::mem::size_of::<(usize, usize)>();
     total +=
         rc.wrap_map.capacity() * std::mem::size_of::<crate::ui::render_thread::WrappedLineInfo>();
     for w in &rc.wrap_map {

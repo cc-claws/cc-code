@@ -1,7 +1,7 @@
 //! #629：消息成品按段物化；全局仅保留高度/版本，窗口之外按字节 LRU 淘汰。
 use super::{
     message_view::MessageViewModel,
-    render_thread::{RenderCache, RenderTask, WrappedLineInfo},
+    render_thread::{RenderCache, RenderTask, ScrollAnchor, WrappedLineInfo},
 };
 use cc_widgets::markdown::LinkHit;
 use ratatui::text::Line;
@@ -65,12 +65,13 @@ pub(super) struct LayoutMode {
     pub hook_rows: bool,
     pub theme: u64,
 }
-#[derive(Clone, Copy, Debug)]
-pub(super) struct Viewport {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Viewport {
     pub top: usize,
     pub height: usize,
     pub follow_tail: bool,
     pub anchor: Option<ViewportAnchor>,
+    pub scroll_revision: u64,
 }
 impl Default for Viewport {
     fn default() -> Self {
@@ -79,6 +80,7 @@ impl Default for Viewport {
             height: 40,
             follow_tail: true,
             anchor: None,
+            scroll_revision: 0,
         }
     }
 }
@@ -603,7 +605,7 @@ impl VirtualRenderer {
         }
         self.evict(&pinned);
         output.total_lines = self.heights.total();
-        output.scroll_anchor = Some(top.min(output.total_lines.saturating_sub(height)));
+        let resolved_top = top.min(output.total_lines.saturating_sub(height));
         // 兼容字段仅含窗口局部下标，所有全局定位必须使用 snapshot 的视觉前缀。
         if self.offsets_dirty {
             let mut offset = 0usize;
@@ -641,6 +643,14 @@ impl VirtualRenderer {
                 largest_segment_bytes: self.largest_segment,
             },
         }));
+        output.scroll_anchor =
+            output
+                .viewport_anchor_at(resolved_top)
+                .map(|position| ScrollAnchor {
+                    position,
+                    visual_row: resolved_top,
+                    scroll_revision: viewport.scroll_revision,
+                });
         output
     }
     pub fn export_selection(

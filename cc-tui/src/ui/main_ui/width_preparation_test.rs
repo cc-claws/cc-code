@@ -20,7 +20,7 @@ async fn make_pending_app() -> (App, mpsc::Receiver<RenderEvent>) {
 
 fn make_width_reply(receiver: &mut mpsc::Receiver<RenderEvent>) -> oneshot::Sender<PreparedWidth> {
     let event = receiver.try_recv().expect("应投递一次宽度准备");
-    match event {
+    match event.into_payload() {
         RenderEvent::PrepareWidth { reply, .. } => reply,
         _ => panic!("预期宽度准备事件"),
     }
@@ -36,6 +36,49 @@ fn make_complete_width(app: &App, reply: oneshot::Sender<PreparedWidth>, width: 
             measured_rows: cache.total_lines,
         })
         .expect("当前宽度请求仍应有效");
+}
+
+#[tokio::test]
+async fn test_width_preparation_cannot_overtake_pending_view_snapshot_after_queue_full() {
+    let (mut app, _) = make_pending_app().await;
+    let (sender, mut receiver) = mpsc::channel(1);
+    assert!(sender.try_send(RenderEvent::Resize(77)).is_ok());
+    app.session_mgr.current_mut().messages.render_tx = sender;
+    app.session_mgr.current_mut().messages.view_messages =
+        vec![MessageViewModel::user("主视口历史".into())];
+    app.session_mgr
+        .current_mut()
+        .ui
+        .set_scroll_position(100, false);
+    app.render_rebuild();
+    receiver
+        .try_recv()
+        .expect("旧子视口事件已处理，队列腾出一格");
+    assert!(!try_prepare_width(&mut app, 120, false));
+    assert!(
+        matches!(
+            receiver.try_recv().expect("主视图必须先入队"),
+            RenderEvent::Rebuild(_)
+        ),
+        "宽度准备不能越过待发主视图，拿旧子视图高度钳位"
+    );
+    assert_eq!(
+        app.session_mgr.current().ui.scroll_offset,
+        100,
+        "待发期间保留恢复的位置"
+    );
+    assert!(!try_prepare_width(&mut app, 120, false));
+    let reply = make_width_reply(&mut receiver);
+    app.session_mgr
+        .current()
+        .messages
+        .render_cache
+        .write()
+        .total_lines = 500;
+    make_complete_width(&app, reply, 120);
+    assert!(try_prepare_width(&mut app, 120, false));
+    assert_eq!(app.session_mgr.current().ui.scroll_offset, 100);
+    assert!(!app.session_mgr.current().ui.scroll_follow);
 }
 
 #[tokio::test]

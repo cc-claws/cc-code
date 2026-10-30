@@ -58,6 +58,8 @@ TUI 输入 → AcpTuiClient.new_session() / .prompt()
 
 渲染模式事件拥塞时按类型只保留最新值（最多五种），后续轮询先重试模式，再重试内容快照；成功发送新值或通道关闭时必须丢弃同类型旧值。hook 显隐与其他布局模式一样推进 layout epoch。
 
+历史阅读位置使用消息索引、渲染逻辑行和行内偏移组成的锚点，经典缓存与虚拟窗口共用同一语义。用户滚动、拖动和切换视口递增 scroll revision，异步结果只能恢复同版本位置；连续重建应沿用尚未消费的语义锚点。模式和宽度重排命令须原子携带当前视口，不能等下一帧才同步用户滚动。worker 仅在缓存发布成功后确认视口；同宽准备、同值策略仍须兑现待发布窗口，完成回复不能早于发布。内容收缩、重排、命令完成与后台续接只钳位当前位置，不能恢复自动跟随；主动滚到底或提交新消息才恢复跟随。保留的内容快照和模式更新必须先入队，再准备宽度，避免按旧视图高度钳位新视图。切视图首帧不采旧缓存锚点；Markdown 自身预折行尚无文本来源映射，跨宽度仅按渲染行恢复，不能保证同一字位置。
+
 **[TRAP]** Ephemeral VM（SystemNote/CacheWarning）依赖锚点机制：`ephemeral_notes: Vec<(usize, MessageViewModel)>` 记录插入时的 `view_messages.len()` 作为位置索引（非 MessageId）。RebuildAll 时通过 `(anchor - prefix_len).min(tail_len) + prefix_len` 计算插入位置。`retain()` 路径通过 `anchor >= prefix_len` 过滤过期锚点。新增 ephemeral VM 类型必须同步更新过滤逻辑。（详见 spec/global/domains/message-pipeline.md#issue_2026-05-12-systemnote-position-drift-on-rebuild）
 
 **[TRAP]** BaseMessage vs MessageViewModel 维度混淆：`completed_len_at_round_start` 是 BaseMessage 长度，`prefix_len` 是 VM 索引，两者非 1:1。`prefix_len` 必须用 `round_start_vm_idx`，`drain` 必须钳位。**禁止 Pipeline 内部返回 `RebuildAll`**——Pipeline 不拥有 `round_start_vm_idx`。（详见 spec/global/domains/message-pipeline.md#issue_2026-05-20-llm-error-message-area-clear-flicker）

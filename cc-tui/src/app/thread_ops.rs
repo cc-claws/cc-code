@@ -10,8 +10,7 @@ impl App {
         } else {
             ui.scroll_offset.clamp(min_scroll, max_scroll)
         };
-        ui.scroll_offset = current.saturating_sub(3).max(min_scroll);
-        ui.scroll_follow = false;
+        ui.set_scroll_position(current.saturating_sub(3).max(min_scroll), false);
     }
 
     pub fn scroll_down(&mut self) {
@@ -24,21 +23,21 @@ impl App {
             ui.scroll_offset.clamp(min_scroll, max_scroll)
         };
         let next = current.saturating_add(3).min(max_scroll);
-        ui.scroll_offset = next;
-        ui.scroll_follow = next >= max_scroll;
+        ui.set_scroll_position(next, next >= max_scroll);
     }
 
     /// 滚动到底部（恢复 follow 模式）
     pub fn scroll_to_bottom(&mut self) {
-        self.session_mgr.current_mut().ui.scroll_offset = usize::MAX;
-        self.session_mgr.current_mut().ui.scroll_follow = true;
+        self.session_mgr
+            .current_mut()
+            .ui
+            .set_scroll_position(usize::MAX, true);
     }
 
     /// 滚动到顶部
     pub fn scroll_to_top(&mut self) {
         let ui = &mut self.session_mgr.current_mut().ui;
-        ui.scroll_offset = ui.scrollbar_min_offset.min(ui.scrollbar_max_offset);
-        ui.scroll_follow = false;
+        ui.set_scroll_position(ui.scrollbar_min_offset.min(ui.scrollbar_max_offset), false);
     }
 
     /// 展开/折叠所有工具调用消息
@@ -49,7 +48,6 @@ impl App {
         let _ = self
             .session_mgr
             .current_mut()
-            .messages
             .send_render_event(RenderEvent::ToggleToolMessages(show_tool_messages));
     }
 
@@ -63,7 +61,6 @@ impl App {
         let _ = self
             .session_mgr
             .current()
-            .messages
             .send_render_event(RenderEvent::ToggleDetail(new_visible));
     }
 
@@ -78,7 +75,6 @@ impl App {
         let _ = self
             .session_mgr
             .current()
-            .messages
             .send_render_event(RenderEvent::ToggleDiff(new_visible));
     }
 
@@ -96,7 +92,6 @@ impl App {
         let _ = self
             .session_mgr
             .current()
-            .messages
             .send_render_event(RenderEvent::ToggleHookRows(new_visible));
     }
 
@@ -321,7 +316,7 @@ impl App {
             .as_ref()
             .and_then(|config| config.config.detail_render_strategy.clone())
             .unwrap_or_else(|| "auto".to_owned());
-        let _ = self.session_mgr.current_mut().messages.send_render_event(
+        let _ = self.session_mgr.current_mut().send_render_event(
             crate::ui::render_thread::RenderEvent::SetDetailStrategy(strategy),
         );
     }

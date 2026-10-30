@@ -54,7 +54,11 @@ fn test_render_snapshot_does_not_overtake_pending_mode_when_queue_becomes_availa
     receiver.try_recv().expect("渲染线程腾出队列容量");
     state.send_render_snapshot(RenderEvent::RebuildWithAnchor {
         messages: vec![MessageViewModel::system("带锚点的内容".into())],
-        anchor_message_idx: 0,
+        anchor: crate::ui::render_thread::ViewportAnchor {
+            message_index: 0,
+            ..Default::default()
+        },
+        scroll_revision: 0,
     });
     assert!(receiver.try_recv().is_err(), "快照不能越过待发送模式");
     assert!(state.retry_render_rebuild());
@@ -65,7 +69,7 @@ fn test_render_snapshot_does_not_overtake_pending_mode_when_queue_becomes_availa
     assert!(state.retry_render_rebuild());
     assert!(matches!(
         receiver.try_recv().expect("随后应用带锚点的快照"),
-        RenderEvent::RebuildWithAnchor { anchor_message_idx: 0, messages } if messages.len() == 1
+        RenderEvent::RebuildWithAnchor { anchor, messages, .. } if anchor.message_index == 0 && messages.len() == 1
     ));
 }
 
@@ -109,4 +113,37 @@ fn test_render_mode_success_replaces_pending_value_and_closed_channel_releases_i
     drop(receiver);
     assert!(!state.retry_render_rebuild());
     assert!(state.pending_render_modes.borrow().is_empty());
+}
+
+#[test]
+fn test_render_mode_queue_retry_retains_atomic_viewport_and_coalesces_by_payload() {
+    let (mut state, mut receiver) = make_message_state();
+    state.send_render_snapshot(RenderEvent::Clear);
+    for revision in 1..=3 {
+        let event = RenderEvent::WithViewport {
+            viewport: crate::ui::render_thread::RenderViewport {
+                top: 100 - revision as usize,
+                follow_tail: false,
+                scroll_revision: revision,
+                ..Default::default()
+            },
+            event: Box::new(RenderEvent::ToggleDetail(revision % 2 == 0)),
+        };
+        assert!(state.send_render_event(event).is_err());
+    }
+    assert_eq!(
+        state.pending_render_modes.borrow().len(),
+        1,
+        "包装后仍按模式类型合并"
+    );
+    receiver.try_recv().expect("释放队列容量");
+    assert!(state.retry_render_rebuild());
+    match receiver.try_recv().expect("重试完整请求") {
+        RenderEvent::WithViewport { viewport, event } => {
+            assert_eq!(viewport.top, 97);
+            assert_eq!(viewport.scroll_revision, 3);
+            assert!(matches!(*event, RenderEvent::ToggleDetail(false)));
+        }
+        _ => panic!("队列满不能拆散重排与阅读位置"),
+    }
 }

@@ -365,12 +365,15 @@ async fn test_render_retry_preserves_rebuild_scroll_anchor() {
         MessageViewModel::system("第一条".into()),
         MessageViewModel::system("第二条".into()),
     ];
-    app.render_rebuild_with_anchor(1);
+    app.render_rebuild_with_anchor(crate::ui::render_thread::ViewportAnchor {
+        message_index: 1,
+        ..Default::default()
+    });
     receiver.try_recv().expect("移除旧帧");
     app.poll_agent();
     assert!(
         matches!(receiver.try_recv().expect("应收到带锚点的完整快照"),
-        RenderEvent::RebuildWithAnchor { anchor_message_idx: 1, messages } if messages.len() == 2)
+        RenderEvent::RebuildWithAnchor { anchor, messages, .. } if anchor.message_index == 1 && messages.len() == 2)
     );
 }
 
@@ -499,4 +502,185 @@ async fn test_subagent_large_backlog_yields_to_keyboard_and_mouse_without_losing
     );
     assert_eq!(app.session_mgr.current().ui.textarea.lines(), &["x"]);
     assert_eq!(app.session_mgr.current().ui.scroll_offset, 97);
+}
+
+#[tokio::test]
+async fn test_hidden_subagent_pending_does_not_rebuild_parent_and_materializes_when_opened() {
+    let (mut app, _handle) = App::new_headless(100, 30).await;
+    make_started(&mut app);
+    let parent_before = app.session_mgr.current().messages.view_messages.clone();
+    let (sender, mut receiver) = mpsc::channel(32);
+    app.session_mgr.current_mut().messages.render_tx = sender;
+    app.handle_session_update_peri(&json!({
+        "_peri": {"sourceAgentId": "child"},
+        "update": {"sessionUpdate": "tool_call", "toolCallId": "queued-shell", "title": "Bash", "status": "pending", "rawInput": {"command": "build"}},
+    }));
+    assert!(
+        !app.session_mgr.current().agent.tool_status_dirty,
+        "隐藏后台工具排队不能标记父消息区需要重建"
+    );
+    app.poll_agent();
+    assert!(
+        receiver.try_recv().is_err(),
+        "隐藏后台工具排队不能发布父快照"
+    );
+    assert_eq!(
+        app.session_mgr.current().messages.view_messages,
+        parent_before
+    );
+    assert_eq!(
+        app.session_mgr.current().subagent_sessions["child"].view_rebuild_count,
+        0,
+        "排队事件只保存子规范状态"
+    );
+    app.switch_subagent_viewport(Some("child".into()));
+    assert!(app.session_mgr.current().current_view_messages().iter().any(|message| {
+        matches!(message, MessageViewModel::ToolBlock { tool_call_id, phase: crate::ui::message_view::ToolPhase::Queued, .. } if tool_call_id == "queued-shell")
+    }), "切入后仍须显示后台工具的排队状态");
+}
+
+#[tokio::test]
+async fn test_hidden_subagent_output_does_not_rebuild_parent_and_materializes_when_opened() {
+    let (mut app, _handle) = App::new_headless(100, 30).await;
+    make_started(&mut app);
+    app.handle_session_update_peri(&json!({
+        "_peri": {"sourceAgentId": "child"},
+        "update": {"sessionUpdate": "tool_call", "toolCallId": "running-shell", "title": "Bash", "rawInput": {"command": "build"}},
+    }));
+    let parent_before = app.session_mgr.current().messages.view_messages.clone();
+    let (sender, mut receiver) = mpsc::channel(32);
+    app.session_mgr.current_mut().messages.render_tx = sender;
+    app.handle_session_update_peri(&json!({
+        "_peri": {"sourceAgentId": "child"},
+        "update": {"sessionUpdate": "tool_call_update", "toolCallId": "running-shell", "_meta": {"peri": {"toolOutput": {
+            "tail": "后台最新输出", "totalLines": 1, "totalBytes": 18, "elapsedMs": 1500,
+        }}}},
+    }));
+    assert!(
+        !app.session_mgr.current().agent.tool_output_dirty,
+        "隐藏后台工具输出不能启动父消息区刷新时钟"
+    );
+    app.poll_agent();
+    assert!(
+        receiver.try_recv().is_err(),
+        "隐藏后台工具输出不能发布父快照"
+    );
+    assert_eq!(
+        app.session_mgr.current().messages.view_messages,
+        parent_before
+    );
+    assert_eq!(
+        app.session_mgr.current().subagent_sessions["child"].view_rebuild_count,
+        0,
+        "工具输出只保存子规范状态"
+    );
+    app.switch_subagent_viewport(Some("child".into()));
+    assert!(app.session_mgr.current().current_view_messages().iter().any(|message| {
+        matches!(message, MessageViewModel::ToolBlock { tool_call_id, live_output: Some(output), .. } if tool_call_id == "running-shell" && output.tail == "后台最新输出")
+    }), "切入后必须显示隐藏期间收到的最新输出");
+}
+
+#[tokio::test]
+async fn test_subagent_focused_and_foreground_tools_keep_pending_and_output_refresh() {
+    for (is_background, focused) in [(true, true), (false, false)] {
+        let (mut app, _handle) = App::new_headless(100, 30).await;
+        app.handle_subagent_lifecycle(&json!({
+            "event": "started", "instanceId": "child", "agentType": "general-purpose",
+            "taskPreview": "工具刷新边界", "isBackground": is_background,
+        }));
+        if focused {
+            app.switch_subagent_viewport(Some("child".into()));
+        }
+        let (sender, mut receiver) = mpsc::channel(32);
+        app.session_mgr.current_mut().messages.render_tx = sender;
+        app.handle_session_update_peri(&json!({
+            "_peri": {"sourceAgentId": "child"},
+            "update": {"sessionUpdate": "tool_call", "toolCallId": "shell", "title": "Bash", "status": "pending", "rawInput": {"command": "build"}},
+        }));
+        assert!(
+            app.session_mgr.current().agent.tool_status_dirty,
+            "聚焦子视口和旧前台工具排队仍需发布可见状态"
+        );
+        app.poll_agent();
+        assert!(receiver.try_recv().is_ok(), "可见工具排队必须发布快照");
+        while receiver.try_recv().is_ok() {}
+        app.handle_session_update_peri(&json!({
+            "_peri": {"sourceAgentId": "child"},
+            "update": {"sessionUpdate": "tool_call", "toolCallId": "shell", "title": "Bash", "rawInput": {"command": "build"}},
+        }));
+        while receiver.try_recv().is_ok() {}
+        app.handle_session_update_peri(&json!({
+            "_peri": {"sourceAgentId": "child"},
+            "update": {"sessionUpdate": "tool_call_update", "toolCallId": "shell", "_meta": {"peri": {"toolOutput": {
+                "tail": "可见工具输出", "totalLines": 1, "totalBytes": 18, "elapsedMs": 1500,
+            }}}},
+        }));
+        assert!(
+            app.session_mgr.current().agent.tool_output_dirty,
+            "聚焦子视口和旧前台工具输出仍需刷新"
+        );
+        app.poll_agent();
+        let messages = make_render_messages(receiver.try_recv().expect("可见输出必须发布快照"));
+        let tools: Vec<_> = if focused {
+            messages.iter().collect()
+        } else {
+            messages
+                .iter()
+                .filter_map(|message| match message {
+                    MessageViewModel::SubAgentGroup {
+                        recent_messages, ..
+                    } => Some(recent_messages),
+                    _ => None,
+                })
+                .flatten()
+                .collect()
+        };
+        assert!(tools.iter().any(|message| {
+            matches!(message, MessageViewModel::ToolBlock { tool_call_id, live_output: Some(output), .. } if tool_call_id == "shell" && output.tail == "可见工具输出")
+        }), "可见子工具仍须保留最新输出");
+    }
+}
+
+#[tokio::test]
+async fn test_subagent_progress_skips_snapshots_and_preserves_lifecycle_refresh() {
+    for focused in [false, true] {
+        let (mut app, _handle) = App::new_headless(100, 30).await;
+        let (sender, mut receiver) = mpsc::channel(32);
+        app.session_mgr.current_mut().messages.render_tx = sender;
+        make_started(&mut app);
+        assert!(receiver.try_recv().is_ok(), "真实启动仍须发布主消息区变化");
+        while receiver.try_recv().is_ok() {}
+        if focused {
+            app.switch_subagent_viewport(Some("child".into()));
+            while receiver.try_recv().is_ok() {}
+        }
+        let parent_before = app.session_mgr.current().messages.view_messages.clone();
+        let rebuilds_before =
+            app.session_mgr.current().subagent_sessions["child"].view_rebuild_count;
+        assert_eq!(app.handle_subagent_lifecycle(&json!({
+            "event": "progress", "instanceId": "child", "totalSteps": 3, "currentActivity": "Bash",
+        })), (true, false, false));
+        app.poll_agent();
+        assert!(
+            receiver.try_recv().is_err(),
+            "无消息变化的生命周期进度不能发布完整消息快照"
+        );
+        assert_eq!(
+            app.session_mgr.current().messages.view_messages,
+            parent_before
+        );
+        assert_eq!(
+            app.session_mgr.current().subagent_sessions["child"].view_rebuild_count,
+            rebuilds_before,
+            "进度通知不能构造消息视图"
+        );
+        app.handle_subagent_lifecycle(&json!({
+            "event": "stopped", "instanceId": "child", "result": "完成", "isError": false,
+        }));
+        assert!(receiver.try_recv().is_ok(), "真实结束仍须发布当前视口快照");
+        assert_eq!(
+            app.session_mgr.current().subagent_sessions["child"].status,
+            SubagentRunStatus::Completed
+        );
+    }
 }

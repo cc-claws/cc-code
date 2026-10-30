@@ -118,21 +118,20 @@ fn save_config_now(panel: &mut ConfigPanel, ctx: &mut PanelContext<'_>) {
                 .detail_render_strategy
                 .clone()
                 .unwrap_or_else(|| "auto".to_owned());
-            let _ = session.messages.send_render_event(
+            let _ = session.send_render_event(
                 crate::ui::render_thread::RenderEvent::SetDetailStrategy(strategy),
             );
         }
         if session.ui.diff_visible != want_diff {
             session.ui.diff_visible = want_diff;
             let _ = session
-                .messages
                 .send_render_event(crate::ui::render_thread::RenderEvent::ToggleDiff(want_diff));
         }
         // hook 行同理：渲染线程只认 ToggleHookRows 事件，保存后必须同步运行时标志
         // 并补发事件，否则改完不重启不生效。
         if session.ui.hook_rows_visible != want_hooks {
             session.ui.hook_rows_visible = want_hooks;
-            let _ = session.messages.send_render_event(
+            let _ = session.send_render_event(
                 crate::ui::render_thread::RenderEvent::ToggleHookRows(want_hooks),
             );
         }

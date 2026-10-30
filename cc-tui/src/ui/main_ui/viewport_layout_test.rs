@@ -590,7 +590,8 @@ async fn test_welcome_message_and_tail_scroll_as_continuous_content() {
                 .messages
                 .render_cache
                 .write()
-                .scroll_anchor = (offset < prefix).then_some(0);
+                .scroll_anchor =
+                (offset < prefix).then_some(crate::ui::render_thread::ScrollAnchor::default());
             app.session_mgr.current_mut().ui.scroll_follow = false;
             app.session_mgr.current_mut().ui.scroll_offset = offset;
             handle

@@ -67,6 +67,8 @@ pub enum QueuedMessageAction {
 
 pub(crate) type SteeringResult = (uuid::Uuid, Result<(), String>);
 
+pub type RenderViewportRequest = (usize, usize, bool, u16, Option<ViewportAnchor>, u64);
+
 /// 消息状态：会话级的消息管线、渲染通道、消息列表。
 pub struct MessageState {
     pub view_messages: Vec<MessageViewModel>,
@@ -91,7 +93,7 @@ pub struct MessageState {
     /// 最近一次发送给渲染线程的 resize 宽度（用于去抖，避免每帧重复发送）
     pub last_resize_width: Option<u16>,
     /// 已成功投递的视口，通道满时保留旧值以便下一帧重试。
-    pub last_viewport: Option<(usize, usize, bool, u16, Option<ViewportAnchor>)>,
+    pub last_viewport: Option<RenderViewportRequest>,
     /// 内容布局请求独立于视口物化的 cache.version，普通滚动不推进此版本。
     layout_revision: AtomicU64,
     /// 历史替换/模式切换使旧的异步宽度确认失效。
@@ -151,7 +153,7 @@ impl MessageState {
         event: RenderEvent,
     ) -> Result<(), mpsc::error::TrySendError<RenderEvent>> {
         let replaces_layout = matches!(
-            event,
+            event.payload(),
             RenderEvent::Clear
                 | RenderEvent::ToggleDetail(_)
                 | RenderEvent::ToggleDiff(_)
@@ -160,20 +162,13 @@ impl MessageState {
                 | RenderEvent::SetDetailStrategy(_)
         );
         // 模式变更是绝对状态，队列满时同类型的新值覆盖旧值，避免开关永久失步。
-        let mode = match &event {
-            RenderEvent::SetDetailStrategy(value) => {
-                Some(RenderEvent::SetDetailStrategy(value.clone()))
-            }
-            RenderEvent::ToggleDetail(value) => Some(RenderEvent::ToggleDetail(*value)),
-            RenderEvent::ToggleDiff(value) => Some(RenderEvent::ToggleDiff(*value)),
-            RenderEvent::ToggleHookRows(value) => Some(RenderEvent::ToggleHookRows(*value)),
-            RenderEvent::ToggleToolMessages(value) => Some(RenderEvent::ToggleToolMessages(*value)),
-            _ => None,
-        };
+        let mode = event.clone_mode();
         let result = self.render_tx.try_send(event);
         if let Some(mode) = mode {
             let mut pending = self.pending_render_modes.borrow_mut();
-            pending.retain(|old| std::mem::discriminant(old) != std::mem::discriminant(&mode));
+            pending.retain(|old| {
+                std::mem::discriminant(old.payload()) != std::mem::discriminant(mode.payload())
+            });
             if matches!(&result, Err(mpsc::error::TrySendError::Full(_))) {
                 pending.push(mode);
             }
@@ -188,7 +183,7 @@ impl MessageState {
 
     pub(crate) fn send_render_snapshot(&mut self, event: RenderEvent) {
         debug_assert!(matches!(
-            event,
+            event.payload(),
             RenderEvent::Rebuild(_) | RenderEvent::RebuildWithAnchor { .. } | RenderEvent::Clear
         ));
         if !self.pending_render_modes.borrow().is_empty() {
@@ -215,6 +210,10 @@ impl MessageState {
         };
         self.send_render_snapshot(event);
         updated || (self.pending_render_rebuild.is_none() && !self.render_tx.is_closed())
+    }
+
+    pub(crate) fn render_updates_pending(&self) -> bool {
+        self.pending_render_rebuild.is_some() || !self.pending_render_modes.borrow().is_empty()
     }
 
     /// 添加系统通知并记录锚点位置。

@@ -41,6 +41,8 @@ pub struct UiState {
     /// 虚拟窗口尚未就绪时保留实际显示位置，不能拿请求位置解释鼠标选区。
     pub presented_scroll_offset: usize,
     pub scroll_follow: bool,
+    /// 用户滚动/切换视口的版本，异步布局只能恢复同一版本的位置。
+    pub scroll_revision: u64,
     pub show_tool_messages: bool,
     pub hint_cursor: Option<usize>,
     /// Esc 关掉候选浮层时记下当时的输入文本，文本不变就不再弹（对齐 CC
@@ -134,6 +136,12 @@ pub struct UiState {
 }
 
 impl UiState {
+    pub(crate) fn set_scroll_position(&mut self, offset: usize, follow: bool) {
+        self.scroll_offset = offset;
+        self.scroll_follow = follow;
+        self.scroll_revision = self.scroll_revision.wrapping_add(1);
+    }
+
     pub fn new(
         textarea: TextArea<'static>,
         cwd: &str,
@@ -149,6 +157,7 @@ impl UiState {
             scroll_offset: usize::MAX,
             presented_scroll_offset: 0,
             scroll_follow: true,
+            scroll_revision: 0,
             show_tool_messages: false,
             hint_cursor: None,
             hint_dismissed_for: None,

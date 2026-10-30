@@ -58,7 +58,9 @@ impl App {
 
     pub(crate) fn handle_compact_started(&mut self, manual: bool) -> (bool, bool, bool) {
         // 退出聚焦模式（如有）
-        self.session_mgr.current_mut().focused_instance_id = None;
+        if self.session_mgr.current().focused_instance_id.is_some() {
+            self.switch_subagent_viewport(None);
+        }
         self.session_mgr.current_mut().ui.bg_bar_cursor = None;
 
         // 仅在手动 compact（/compact 命令）时置位，handle_compact_completed 依赖此标志结束 loading。

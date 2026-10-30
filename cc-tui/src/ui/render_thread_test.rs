@@ -173,7 +173,11 @@ async fn test_rebuild_with_anchor_sets_scroll_anchor() {
             MessageViewModel::user("First".to_string()),
             MessageViewModel::user("Second".to_string()),
         ],
-        anchor_message_idx: 1,
+        anchor: crate::ui::render_thread::ViewportAnchor {
+            message_index: 1,
+            ..Default::default()
+        },
+        scroll_revision: 0,
     })
     .await
     .unwrap();
