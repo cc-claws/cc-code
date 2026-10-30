@@ -343,7 +343,7 @@ impl App {
         };
         let cwd = self.services.cwd.clone();
         let lang = self.services.lc.current_lang();
-        let (focused, actions) = {
+        let (focused, is_background, actions) = {
             let session = self.session_mgr.current_mut();
             let sub = session.get_or_create_subagent(id, "agent", "", &cwd, lang);
             let is_background = sub.is_background;
@@ -357,10 +357,15 @@ impl App {
                 Vec::new()
             };
             let focused = session.focused_instance_id.as_deref() == Some(id);
-            (focused, actions)
+            (focused, is_background, actions)
         };
         for action in actions {
             self.apply_pipeline_action(action);
+        }
+        // 隐藏后台任务只改变子规范状态和抽屉；内部工具事件不能触发父消息重建。
+        // 聚焦子视口和旧前台分组仍沿用原有的排队/输出刷新路径。
+        if is_background && !focused {
+            return (true, false, false);
         }
         if defer_rebuild {
             self.session_mgr.current_mut().agent.tool_status_dirty = true;
@@ -406,6 +411,8 @@ impl App {
                 // （见 subagent_session.rs 的 push_assistant_activity）。两者不是一回事，
                 // 这里刻意**不**接受它：否则工具名会把助手文本覆盖掉，该列在
                 // `Bash` / `Grep` 与助手文本之间来回跳（#526）。
+                // 没有消息状态变化，无需向渲染线程发送完整快照。
+                return (true, false, false);
             }
             "stopped" => {
                 self.cancel_subagent_approval(id);

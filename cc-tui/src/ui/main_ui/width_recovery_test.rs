@@ -206,6 +206,7 @@ async fn test_width_recovery_real_virtual_worker_remeasures_full_window_and_rest
         .expect("真实虚拟模式应入队");
     sender
         .send(RenderEvent::Viewport {
+            scroll_revision: 0,
             top: requested_top,
             height: 1,
             follow_tail: false,
@@ -242,6 +243,7 @@ async fn test_width_recovery_real_virtual_worker_remeasures_full_window_and_rest
     }
     sender
         .send(RenderEvent::Viewport {
+            scroll_revision: 0,
             top: 0,
             height: request.available_rows,
             follow_tail: false,
@@ -267,6 +269,7 @@ async fn test_width_recovery_real_virtual_worker_remeasures_full_window_and_rest
     };
     sender
         .send(RenderEvent::Viewport {
+            scroll_revision: 0,
             top: requested_top,
             height: 1,
             follow_tail: false,
@@ -310,6 +313,7 @@ async fn test_width_recovery_real_virtual_worker_remeasures_full_window_and_rest
     for offset in 1..=3 {
         sender
             .send(RenderEvent::Viewport {
+                scroll_revision: 0,
                 top: requested_top + offset,
                 height: 1,
                 follow_tail: false,

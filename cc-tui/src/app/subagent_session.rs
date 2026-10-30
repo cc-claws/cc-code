@@ -555,8 +555,8 @@ impl super::App {
             .active_subagent()
             .map(|sub| sub.scroll_position)
             .unwrap_or(session.main_scroll_position);
-        session.ui.scroll_offset = offset;
-        session.ui.scroll_follow = follow;
+        session.ui.set_scroll_position(offset, follow);
+        session.messages.last_viewport = None;
         session.ui.text_selection.clear();
         session.ui.pending_text_copy = None;
         session.ui.presented_selection_snapshot = None;

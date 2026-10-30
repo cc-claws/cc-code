@@ -31,6 +31,7 @@ fn make_published_cache() -> RenderCache {
         virtual_layout: Some(Arc::new(VirtualLayoutSnapshot::default())),
         lines,
         message_offsets: vec![0],
+        line_origins: vec![(0, 0)],
         total_lines,
         version: 41,
         wrap_map,
@@ -42,7 +43,11 @@ fn make_published_cache() -> RenderCache {
             recolor: true,
         }],
         width: 37,
-        scroll_anchor: Some(7),
+        scroll_anchor: Some(ScrollAnchor {
+            position: ViewportAnchor::default(),
+            visual_row: 7,
+            scroll_revision: 5,
+        }),
     }
 }
 
@@ -72,8 +77,14 @@ fn test_cache_publish_rebuild_preserves_pending_anchor_and_replaces_all_products
     assert_eq!(cache.width, 40, "新帧必须使用当前排版宽度");
     assert_eq!(
         cache.scroll_anchor,
-        Some(7),
-        "未消费的滚动锚点不能因整帧替换丢失"
+        cache
+            .visual_row_for_anchor(ViewportAnchor::default())
+            .map(|visual_row| ScrollAnchor {
+                position: ViewportAnchor::default(),
+                visual_row,
+                scroll_revision: 5,
+            }),
+        "未消费的滚动锚点必须按新布局恢复，且保留用户滚动版本"
     );
     assert!(cache.virtual_layout.is_none(), "经典缓存不能保留旧虚拟布局");
     assert!(previous_layout.upgrade().is_none(), "发布后必须释放旧布局");

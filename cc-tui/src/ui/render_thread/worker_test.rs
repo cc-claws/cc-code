@@ -5,7 +5,10 @@ use tokio::sync::{mpsc, Notify};
 
 use crate::ui::{
     message_view::MessageViewModel,
-    render_thread::{spawn_render_thread, RenderCache, RenderEvent, SelectionAnchor},
+    render_thread::{
+        spawn_render_thread, RenderCache, RenderEvent, RenderViewport, SelectionAnchor,
+        WidthPreparationRequest,
+    },
 };
 
 async fn make_wait_for_version(
@@ -59,9 +62,134 @@ async fn make_copy_reply(
 }
 
 #[tokio::test]
+async fn test_worker_scroll_anchor_publishes_viewport_for_unchanged_width_controls() {
+    for control in 0..3 {
+        let (tx, cache, notify) = spawn_render_thread(80);
+        tx.send(RenderEvent::SetDetailStrategy("virtual".to_owned()))
+            .await
+            .expect("启用真实虚拟渲染");
+        tx.send(RenderEvent::Rebuild(
+            (0..100)
+                .map(|index| MessageViewModel::user(format!("历史消息 {index}")))
+                .collect(),
+        ))
+        .await
+        .expect("发送长历史");
+        make_wait_for_version(&cache, &notify, 1).await;
+        let version = cache.read().version;
+        let viewport = RenderViewport {
+            top: 12,
+            height: 7,
+            follow_tail: false,
+            anchor: None,
+            scroll_revision: 1,
+        };
+        let (done, completion) = tokio::sync::oneshot::channel();
+        let (reply, prepared) = tokio::sync::oneshot::channel();
+        let event = match control {
+            0 => RenderEvent::Resize(80),
+            1 => RenderEvent::ResizeAndWait(80, done),
+            _ => RenderEvent::PrepareWidth {
+                request: WidthPreparationRequest {
+                    width: 80,
+                    available_rows: 10_000,
+                    extra_rows: 0,
+                    has_messages: true,
+                    fullscreen: false,
+                },
+                reply,
+            },
+        };
+        tx.send(RenderEvent::WithViewport {
+            viewport,
+            event: Box::new(event),
+        })
+        .await
+        .expect("相同宽度携带新的阅读位置");
+        match control {
+            0 => make_wait_for_version(&cache, &notify, version + 1).await,
+            1 => tokio::time::timeout(Duration::from_secs(5), completion)
+                .await
+                .expect("同宽同步请求应完成")
+                .expect("完成信号不得丢失"),
+            _ => {
+                let result = tokio::time::timeout(Duration::from_secs(5), prepared)
+                    .await
+                    .expect("同宽准备请求应完成")
+                    .expect("准备结果不得丢失");
+                assert_eq!(result.width, 80);
+            }
+        }
+        let output = cache.read();
+        let layout = output.virtual_layout.as_ref().expect("应保留虚拟布局");
+        assert!(output.version > version, "完成信号之前必须发布新窗口");
+        assert_eq!(layout.requested_top, 12, "同宽不能吞掉新的阅读位置");
+        assert_eq!(layout.requested_height, 7, "同宽不能吞掉新的可见高度");
+        assert_eq!(output.scroll_anchor.expect("新窗口位置").scroll_revision, 1);
+    }
+}
+
+#[tokio::test]
+async fn test_worker_scroll_anchor_publishes_viewport_for_unchanged_strategy() {
+    let (tx, cache, notify) = spawn_render_thread(80);
+    tx.send(RenderEvent::SetDetailStrategy("virtual".to_owned()))
+        .await
+        .expect("启用真实虚拟渲染");
+    tx.send(RenderEvent::Rebuild(
+        (0..100)
+            .map(|index| MessageViewModel::user(format!("历史消息 {index}")))
+            .collect(),
+    ))
+    .await
+    .expect("发送长历史");
+    make_wait_for_version(&cache, &notify, 1).await;
+    let version = cache.read().version;
+    tx.send(RenderEvent::WithViewport {
+        viewport: RenderViewport {
+            top: 12,
+            height: 7,
+            follow_tail: false,
+            anchor: None,
+            scroll_revision: 1,
+        },
+        event: Box::new(RenderEvent::SetDetailStrategy("virtual".to_owned())),
+    })
+    .await
+    .expect("相同策略携带新视口");
+    make_wait_for_version(&cache, &notify, version + 1).await;
+    let version = cache.read().version;
+    tx.send(RenderEvent::Viewport {
+        top: 12,
+        height: 7,
+        follow_tail: false,
+        anchor: None,
+        scroll_revision: 1,
+    })
+    .await
+    .expect("下一帧上报相同视口");
+    let (done, completion) = tokio::sync::oneshot::channel();
+    tx.send(RenderEvent::ResizeAndWait(80, done))
+        .await
+        .expect("等待队列处理完成");
+    tokio::time::timeout(Duration::from_secs(5), completion)
+        .await
+        .expect("渲染队列必须保持响应")
+        .expect("完成信号不得丢失");
+    let output = cache.read();
+    let layout = output.virtual_layout.as_ref().expect("应保留虚拟布局");
+    assert_eq!(layout.requested_top, 12);
+    assert_eq!(layout.requested_height, 7);
+    assert_eq!(
+        output.version, version,
+        "真正发布后，相同视口应避免重复物化"
+    );
+}
+
+#[tokio::test]
 async fn test_worker_auto_promotes_anchored_rebuild_without_rendering_full_history() {
     let (tx, cache, notify) = spawn_render_thread(80);
     tx.send(RenderEvent::Viewport {
+        scroll_revision: 0,
         top: 0,
         height: 8,
         follow_tail: true,
@@ -87,7 +215,11 @@ async fn test_worker_auto_promotes_anchored_rebuild_without_rendering_full_histo
     ));
     tx.send(RenderEvent::RebuildWithAnchor {
         messages,
-        anchor_message_idx: 30,
+        anchor: crate::ui::render_thread::ViewportAnchor {
+            message_index: 30,
+            ..Default::default()
+        },
+        scroll_revision: 0,
     })
     .await
     .expect("带锚点重建应入队");
@@ -125,7 +257,11 @@ async fn test_worker_auto_promotes_anchored_rebuild_without_rendering_full_histo
     let version = cache.read().version;
     tx.send(RenderEvent::RebuildWithAnchor {
         messages: smaller,
-        anchor_message_idx: 30,
+        anchor: crate::ui::render_thread::ViewportAnchor {
+            message_index: 30,
+            ..Default::default()
+        },
+        scroll_revision: 0,
     })
     .await
     .expect("同一代际的内容更新应入队");
@@ -146,7 +282,11 @@ async fn test_worker_auto_promotes_anchored_rebuild_without_rendering_full_histo
     let version = cache.read().version;
     tx.send(RenderEvent::RebuildWithAnchor {
         messages: vec![MessageViewModel::system("compact replacement".to_owned())],
-        anchor_message_idx: 0,
+        anchor: crate::ui::render_thread::ViewportAnchor {
+            message_index: 0,
+            ..Default::default()
+        },
+        scroll_revision: 0,
     })
     .await
     .expect("压缩后的替换历史应入队");
@@ -164,6 +304,7 @@ async fn test_worker_strategy_round_trip_releases_old_virtual_residents() {
         .await
         .expect("策略应入队");
     tx.send(RenderEvent::Viewport {
+        scroll_revision: 0,
         top: 0,
         height: 3,
         follow_tail: true,
@@ -181,6 +322,7 @@ async fn test_worker_strategy_round_trip_releases_old_virtual_residents() {
     make_wait_for_version(&cache, &notify, 1).await;
     let version = cache.read().version;
     tx.send(RenderEvent::Viewport {
+        scroll_revision: 0,
         top: 100,
         height: 3,
         follow_tail: false,
@@ -195,6 +337,7 @@ async fn test_worker_strategy_round_trip_releases_old_virtual_residents() {
     make_wait_for_version(&cache, &notify, version + 1).await;
     let version = cache.read().version;
     tx.send(RenderEvent::Viewport {
+        scroll_revision: 0,
         top: 0,
         height: 3,
         follow_tail: false,
@@ -349,7 +492,11 @@ async fn test_worker_history_replacement_discards_old_links_and_selection() {
         messages: vec![MessageViewModel::user(
             "[replacement](https://new.example/rewind)".to_owned(),
         )],
-        anchor_message_idx: 0,
+        anchor: crate::ui::render_thread::ViewportAnchor {
+            message_index: 0,
+            ..Default::default()
+        },
+        scroll_revision: 0,
     })
     .await
     .unwrap();
@@ -480,6 +627,7 @@ async fn test_worker_tick_not_starved_by_viewport_flood() {
         loop {
             if flood_tx
                 .send(RenderEvent::Viewport {
+                    scroll_revision: 0,
                     top: 0,
                     height: 8,
                     follow_tail: true,

@@ -233,8 +233,9 @@ impl App {
             self.clear_pasted_text_blocks();
         }
         self.set_loading(true);
-        self.session_mgr.current_mut().ui.scroll_offset = usize::MAX;
-        self.session_mgr.current_mut().ui.scroll_follow = true;
+        if shell_notification_display.is_none() {
+            self.scroll_to_bottom();
+        }
         self.session_mgr.current_mut().todo_items.clear();
         self.session_mgr.current_mut().latest_recap = None;
 
@@ -460,8 +461,7 @@ impl App {
         self.session_mgr.current_mut().metadata.last_human_message = Some(display);
         self.session_mgr.current_mut().messages.last_submitted_text = None; // bg continuation 不恢复到输入框
         self.set_loading(true);
-        self.session_mgr.current_mut().ui.scroll_offset = usize::MAX;
-        self.session_mgr.current_mut().ui.scroll_follow = true;
+        // 后台结果自动续接不是用户发送消息，保留正在阅读历史的位置与跟随意图。
         self.session_mgr.current_mut().todo_items.clear();
 
         // 开始计时新任务——清理上一个 prompt 可能残留的 cancel 状态。

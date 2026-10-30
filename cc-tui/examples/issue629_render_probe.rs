@@ -142,6 +142,7 @@ async fn measure_case(count: usize) -> Value {
         height: 40,
         follow_tail: true,
         anchor: None,
+        scroll_revision: 0,
     })
     .await
     .expect("设置视口失败");
@@ -187,8 +188,10 @@ async fn measure_windows(
     let mut misses = Vec::new();
     let mut hits = Vec::new();
     let mut max_bytes = 0;
+    let mut scroll_revision = 0;
     for index in (3..count).step_by(10) {
         for (logical_line, samples) in [(0, &mut misses), (1, &mut hits)] {
+            scroll_revision += 1;
             let top = cache
                 .read()
                 .virtual_layout
@@ -209,6 +212,7 @@ async fn measure_windows(
                         logical_line,
                         row_in_line: 0,
                     }),
+                    scroll_revision,
                 },
             )
             .await;

@@ -1,5 +1,5 @@
 use super::{message_pipeline::PipelineAction, *};
-use crate::ui::render_thread::RenderEvent;
+use crate::ui::render_thread::{RenderEvent, ViewportAnchor};
 
 impl App {
     /// 发送当前 view_messages 的全量重建到渲染线程。
@@ -19,20 +19,29 @@ impl App {
     ///
     /// 聚焦后台 agent 时忽略锚点（直接 Rebuild），因为 agent 视图与主视图
     /// 的滚动位置不共享。
-    pub(crate) fn render_rebuild_with_anchor(&mut self, anchor_message_idx: usize) {
+    pub(crate) fn render_rebuild_with_anchor(&mut self, anchor: ViewportAnchor) {
         if self.session_mgr.current().focused_instance_id.is_some() {
             // 子视口有独立滚动位置，不采用主视图锚点。
             self.render_rebuild();
         } else {
             let vms = self.resolve_render_vms(self.session_mgr.current());
-            let adjusted_anchor = anchor_message_idx.min(vms.len().saturating_sub(1));
+            let anchor = ViewportAnchor {
+                message_index: anchor.message_index.min(vms.len().saturating_sub(1)),
+                ..anchor
+            };
+            let scroll_revision = self.session_mgr.current().ui.scroll_revision;
+            let event =
+                self.session_mgr
+                    .current()
+                    .with_render_viewport(RenderEvent::RebuildWithAnchor {
+                        messages: vms,
+                        anchor,
+                        scroll_revision,
+                    });
             self.session_mgr
                 .current_mut()
                 .messages
-                .send_render_snapshot(RenderEvent::RebuildWithAnchor {
-                    messages: vms,
-                    anchor_message_idx: adjusted_anchor,
-                });
+                .send_render_snapshot(event);
         }
     }
 
@@ -266,37 +275,31 @@ impl App {
                 let keep_live = session.messages.pipeline.live_thinking_active();
                 normalize_active_thinking(&mut session.messages.view_messages, keep_live);
 
-                let anchor_message_idx = {
+                let anchor = {
                     let cache = self.session_mgr.current().messages.render_cache.read();
                     let ui = &self.session_mgr.current().ui;
-                    // #650：scroll_offset 含欢迎前缀行，先换算回消息空间；
-                    // #629：虚拟布局下按其视觉偏移查锚点。
-                    let scroll_row = ui.scroll_offset.saturating_sub(ui.message_prefix_rows);
-                    let msg_idx = if let Some(layout) = &cache.virtual_layout {
+                    // 经典/虚拟布局共用渲染逻辑行锚点，保留当前消息内部的折行偏移。
+                    // 欢迎前缀和未物化窗口不伪造消息锚点；跟底由 UI 独立处理。
+                    if self.session_mgr.current().messages.last_viewport.is_some()
+                        && !ui.scroll_follow
+                        && ui.scroll_offset >= ui.message_prefix_rows
+                    {
                         cache
-                            .viewport_anchor_at(scroll_row)
-                            .map(|anchor| anchor.message_index)
-                            .unwrap_or_else(|| {
-                                layout
-                                    .message_visual_offsets
-                                    .partition_point(|&row| row <= scroll_row)
-                                    .saturating_sub(1)
+                            .scroll_anchor
+                            .filter(|anchor| anchor.scroll_revision == ui.scroll_revision)
+                            .map(|anchor| anchor.position)
+                            .or_else(|| {
+                                cache.viewport_anchor_at(ui.scroll_offset - ui.message_prefix_rows)
                             })
                     } else {
-                        cache
-                            .message_offsets
-                            .iter()
-                            .enumerate()
-                            .find(|(_, &offset)| {
-                                offset < cache.wrap_map.len()
-                                    && cache.wrap_map[offset].visual_row_start >= scroll_row
-                            })
-                            .map(|(idx, _)| idx)
-                            .unwrap_or(prefix_len)
-                    };
-                    msg_idx.min(self.session_mgr.current().messages.view_messages.len())
+                        None
+                    }
                 };
-                self.render_rebuild_with_anchor(anchor_message_idx);
+                if let Some(anchor) = anchor {
+                    self.render_rebuild_with_anchor(anchor);
+                } else {
+                    self.render_rebuild();
+                }
             }
         }
     }

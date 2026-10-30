@@ -18,6 +18,7 @@ pub(super) struct RenderWorker {
     layout: VirtualRenderer,
     strategy: Strategy,
     viewport: Viewport,
+    published_viewport: Option<Viewport>,
     latched: bool,
     virtual_active: bool,
     sources: Vec<Arc<MessageViewModel>>,
@@ -29,6 +30,7 @@ impl RenderWorker {
             layout: VirtualRenderer::default(),
             strategy: Strategy::Auto,
             viewport: Viewport::default(),
+            published_viewport: None,
             latched: false,
             virtual_active: false,
             sources: Vec::new(),
@@ -75,13 +77,43 @@ impl RenderWorker {
         };
         // 大对象析构不占据 UI 读锁。
         drop(old);
+        self.published_viewport = Some(self.viewport);
         self.task.notify.notify_one();
     }
+    async fn publish_viewport_if_needed(&mut self) {
+        if self.virtual_active && self.published_viewport != Some(self.viewport) {
+            self.publish_virtual().await;
+        }
+    }
     async fn rebuild(&mut self, messages: Vec<MessageViewModel>) {
+        self.rebuild_with_scroll_anchor(messages, None).await;
+    }
+
+    fn reading_anchor(&self) -> Option<(ViewportAnchor, u64)> {
+        (!self.viewport.follow_tail)
+            .then_some(self.viewport.anchor)
+            .flatten()
+            .map(|anchor| (anchor, self.viewport.scroll_revision))
+    }
+
+    async fn rebuild_with_scroll_anchor(
+        &mut self,
+        messages: Vec<MessageViewModel>,
+        scroll_anchor: Option<(ViewportAnchor, u64)>,
+    ) {
+        let scroll_anchor =
+            scroll_anchor.filter(|(_, revision)| *revision >= self.viewport.scroll_revision);
         let replaced = self.layout.sync_messages(&messages);
         if replaced {
             self.latched = false;
             self.viewport.anchor = None;
+        }
+        if let Some((anchor, scroll_revision)) = scroll_anchor {
+            if scroll_revision >= self.viewport.scroll_revision {
+                self.viewport.anchor = Some(anchor);
+                self.viewport.scroll_revision = scroll_revision;
+                self.viewport.follow_tail = false;
+            }
         }
         if self.strategy == Strategy::Auto
             && (self.layout.estimated_detail_rows() >= AUTO_DETAIL_ROWS
@@ -113,11 +145,34 @@ impl RenderWorker {
             }
             self.sources = Vec::new();
             self.virtual_active = false;
-            self.task.rebuild_safe(messages);
+            self.task.rebuild_safe_with_anchor(
+                messages,
+                scroll_anchor.or_else(|| self.reading_anchor()),
+            );
             self.task.notify.notify_one();
         }
     }
     async fn handle(&mut self, event: RenderEvent, rx: &mut mpsc::Receiver<RenderEvent>) {
+        let mut event = event;
+        let event = loop {
+            match event {
+                RenderEvent::WithViewport {
+                    viewport,
+                    event: inner,
+                } => {
+                    if viewport.scroll_revision >= self.viewport.scroll_revision {
+                        self.viewport = viewport;
+                    }
+                    event = *inner;
+                }
+                event => break event,
+            }
+        };
+        self.handle_payload(event, rx).await;
+        // 上下文已接收不代表窗口已发布；同值模式事件也必须兑现新的视口。
+        self.publish_viewport_if_needed().await;
+    }
+    async fn handle_payload(&mut self, event: RenderEvent, rx: &mut mpsc::Receiver<RenderEvent>) {
         match event {
             RenderEvent::PrepareWidth { request, reply } => {
                 let restore_viewport = self.virtual_active
@@ -138,6 +193,7 @@ impl RenderWorker {
                         height: request.available_rows,
                         follow_tail: false,
                         anchor: None,
+                        scroll_revision: self.viewport.scroll_revision,
                     };
                 }
                 self.resize(request.width).await;
@@ -157,9 +213,6 @@ impl RenderWorker {
                 };
                 self.viewport = viewport;
                 self.resize(width).await;
-                if restore_viewport && width == request.width {
-                    self.publish_virtual().await;
-                }
                 let _ = reply.send(PreparedWidth {
                     width,
                     full_width_rows,
@@ -198,20 +251,18 @@ impl RenderWorker {
                 height,
                 follow_tail,
                 anchor,
+                scroll_revision,
             } => {
-                let changed = self.viewport.top != top
-                    || self.viewport.height != height
-                    || self.viewport.follow_tail != follow_tail
-                    || self.viewport.anchor != anchor;
+                if scroll_revision < self.viewport.scroll_revision {
+                    return;
+                }
                 self.viewport = Viewport {
                     top,
                     height,
                     follow_tail,
                     anchor,
+                    scroll_revision,
                 };
-                if changed && self.virtual_active {
-                    self.publish_virtual().await;
-                }
             }
             RenderEvent::CopySelection { start, end, reply } => {
                 if self.virtual_active {
@@ -224,31 +275,22 @@ impl RenderWorker {
             RenderEvent::Rebuild(messages) => self.rebuild(messages).await,
             RenderEvent::RebuildWithAnchor {
                 messages,
-                anchor_message_idx,
+                anchor,
+                scroll_revision,
             } => {
-                if self.viewport.anchor.is_none() {
-                    self.viewport.anchor = Some(ViewportAnchor {
-                        message_index: anchor_message_idx,
-                        logical_line: 0,
-                        row_in_line: 0,
-                    });
-                }
-                self.rebuild(messages).await;
-                if !self.virtual_active {
-                    let mut cache = self.task.cache.write();
-                    cache.scroll_anchor = cache
-                        .message_offsets
-                        .get(anchor_message_idx)
-                        .and_then(|i| cache.wrap_map.get(*i))
-                        .map(|w| w.visual_row_start);
-                }
+                self.rebuild_with_scroll_anchor(messages, Some((anchor, scroll_revision)))
+                    .await;
             }
             RenderEvent::Clear => {
                 self.layout.clear();
                 self.sources = Vec::new();
                 self.latched = false;
                 self.virtual_active = false;
-                self.viewport = Viewport::default();
+                self.published_viewport = None;
+                self.viewport = Viewport {
+                    scroll_revision: self.viewport.scroll_revision,
+                    ..Viewport::default()
+                };
                 self.task.handle_event(RenderEvent::Clear, rx);
                 self.task.notify.notify_one();
             }
@@ -269,20 +311,24 @@ impl RenderWorker {
                 self.publish_virtual().await;
             }
             event => {
-                self.task.handle_event(event, rx);
+                self.task
+                    .handle_event_with_scroll_anchor(event, rx, self.reading_anchor());
                 self.task.notify.notify_one();
             }
         }
     }
     async fn resize(&mut self, width: u16) {
         if self.task.width == width && self.task.cache.read().width == width {
+            // 宽度准备/同步的完成信号发出前，仍须发布上下文带来的新窗口。
+            self.publish_viewport_if_needed().await;
             return;
         }
         if self.virtual_active {
             self.task.width = width;
             self.publish_virtual().await;
         } else {
-            self.task.resize(width);
+            self.task
+                .resize_with_scroll_anchor(width, self.reading_anchor());
         }
     }
     pub async fn run(mut self, mut rx: mpsc::Receiver<RenderEvent>) {
@@ -314,7 +360,17 @@ impl RenderWorker {
                     biased;
                     _ = tokio::time::sleep_until(deadline) => {
                         tick_deadline = Some(tokio::time::Instant::now() + TOOL_INDICATOR_TICK_INTERVAL);
-                        if self.virtual_active {self.publish_virtual().await;}else if self.task.refresh_running_tool_indicators(current_tool_indicator_tick()){self.task.notify.notify_one();}
+                        if self.virtual_active {
+                            self.publish_virtual().await;
+                        } else {
+                            let reading_anchor = self.reading_anchor();
+                            if self.task.refresh_running_tool_indicators_with_scroll_anchor(
+                                current_tool_indicator_tick(),
+                                reading_anchor,
+                            ) {
+                                self.task.notify.notify_one();
+                            }
+                        }
                         continue;
                     }
                     event=rx.recv()=>event,

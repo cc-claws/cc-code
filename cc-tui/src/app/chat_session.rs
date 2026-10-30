@@ -63,6 +63,54 @@ pub struct ChatSession {
 }
 
 impl ChatSession {
+    /// 重排命令携带同一次缓存取样的阅读位置，不依赖下一帧 Viewport 上报。
+    pub(crate) fn with_render_viewport(
+        &self,
+        event: crate::ui::render_thread::RenderEvent,
+    ) -> crate::ui::render_thread::RenderEvent {
+        use crate::ui::render_thread::{RenderEvent, RenderViewport};
+        let Some(area) = self.ui.messages_area else {
+            return event;
+        };
+        let offset = if self.ui.scroll_follow {
+            self.ui.scrollbar_max_offset
+        } else {
+            self.ui.scroll_offset
+        };
+        let prefix = self.ui.message_prefix_rows;
+        let prefix_visible = prefix.saturating_sub(offset).min(area.height as usize);
+        let cache = self.messages.render_cache.read();
+        let anchor =
+            if self.ui.scroll_follow || offset < prefix || self.messages.last_viewport.is_none() {
+                None
+            } else {
+                cache
+                    .scroll_anchor
+                    .filter(|anchor| anchor.scroll_revision == self.ui.scroll_revision)
+                    .map(|anchor| anchor.position)
+                    .or_else(|| cache.viewport_anchor_at(offset.saturating_sub(prefix)))
+            };
+        RenderEvent::WithViewport {
+            viewport: RenderViewport {
+                top: offset.saturating_sub(prefix),
+                height: area.height as usize - prefix_visible,
+                follow_tail: self.ui.scroll_follow,
+                anchor,
+                scroll_revision: self.ui.scroll_revision,
+            },
+            event: Box::new(event),
+        }
+    }
+
+    pub(crate) fn send_render_event(
+        &self,
+        event: crate::ui::render_thread::RenderEvent,
+    ) -> Result<(), tokio::sync::mpsc::error::TrySendError<crate::ui::render_thread::RenderEvent>>
+    {
+        self.messages
+            .send_render_event(self.with_render_viewport(event))
+    }
+
     // 会话构造参数天然较多（cwd / 命令表 / 技能 / 配置项…），集中传参比散装
     // builder 更直观；新增 ui 布尔后超过 clippy 默认阈值。
     #[allow(clippy::too_many_arguments)]
