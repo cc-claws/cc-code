@@ -1,6 +1,6 @@
 {
     "name": "@cc-claw/code",
-    "version": "0.6.217",
+    "version": "0.6.218",
     "description": "cc-code — Terminal coding agent powered by open-source models — Rust-built, `.claude/` ecosystem compatible",
     "keywords": [
         "agent",
@@ -38,10 +38,10 @@
         "node": ">=16"
     },
     "optionalDependencies": {
-        "@cc-claw/code-win32-x64": "0.6.217",
-        "@cc-claw/code-darwin-x64": "0.6.217",
-        "@cc-claw/code-darwin-arm64": "0.6.217",
-        "@cc-claw/code-linux-x64": "0.6.217",
-        "@cc-claw/code-linux-arm64": "0.6.217"
+        "@cc-claw/code-win32-x64": "0.6.218",
+        "@cc-claw/code-darwin-x64": "0.6.218",
+        "@cc-claw/code-darwin-arm64": "0.6.218",
+        "@cc-claw/code-linux-x64": "0.6.218",
+        "@cc-claw/code-linux-arm64": "0.6.218"
     }
 }
