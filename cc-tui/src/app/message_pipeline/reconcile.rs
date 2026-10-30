@@ -374,7 +374,7 @@ impl MessagePipeline {
             aggregate_batch_groups(&mut tail_vms);
         }
 
-        // 本轮仍在进行时，把最后一个思考行标成 active（渲染 `● Thinking for Ns, …`）
+        // 本轮仍在进行时，把最后一个思考行标成 active（渲染 `∴ Thinking <N> chars, …`）
         self.mark_live_thinking(&mut tail_vms);
 
         tail_vms

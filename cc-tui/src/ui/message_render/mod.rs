@@ -974,7 +974,7 @@ fn uppercase_first_char(s: &str) -> String {
 }
 
 /// 把已完成态的动作摘要改成进行时（`read 2 files` → `reading 2 files`），
-/// 用于运行中的 Thinking 行，对齐参考实现的 `Thinking for 1s, reading 2 files…`。
+/// 用于运行中的 Thinking 行（`Thinking for 3629 chars, reading 2 files…`）。
 fn present_tense_summary(summary: &str) -> String {
     const VERBS: [(&str, &str); 6] = [
         ("searched for ", "searching for "),
@@ -1807,11 +1807,11 @@ pub fn render_view_model_with_flags(
                         action_summary,
                         text,
                         active: block_active,
-                        active_since,
                         ..
                     } => {
-                        // 运行中（本轮未结束且非详细模式）：对齐参考实现——
-                        // 行首圆点 + 现在时 + 省略号 + 走秒，**不吐思考正文**。
+                        // 运行中（本轮未结束且非详细模式）：行首圆点 + 现在时 + 字数，**不吐思考正文**。
+                        // 活跃态报本段已流式产出的思考字数（用户能看着数字涨），耗时只在冻结后
+                        // 落成 `Thought for Ns`——同一段思考不出现两种单位。
                         let active = *block_active && !detail_mode;
                         // Thought 标题：缩进 2 列对齐。活跃态没有可展开的正文，不给提示
                         let hint = if detail_mode || active {
@@ -1819,20 +1819,10 @@ pub fn render_view_model_with_flags(
                         } else {
                             " (ctrl+o to expand)"
                         };
-                        // 走秒口径同参考实现 Jc：已完成累计 + 距锚点（最后一段思考结束）的增量，
-                        // 至少显示 1s。
-                        let live_ms = active.then(|| {
-                            let base = duration_ms.unwrap_or(0);
-                            let extra = active_since
-                                .map(|anchor| anchor.elapsed().as_millis() as u64)
-                                .unwrap_or(0);
-                            base + extra
-                        });
-                        let live_secs = live_ms.map(|ms| ms.max(1000) / 1000);
-                        let (prefix, timing) = if let Some(secs) = live_secs {
+                        let (prefix, timing) = if active {
                             // 活跃态恒显 `∴ ` 前缀（不再做 500ms 显隐闪烁）
                             let dot = "∴ ".to_string();
-                            (dot, format!("Thinking for {secs}s"))
+                            (dot, format!("Thinking for {char_count} chars"))
                         } else {
                             // 有耗时 → `Thought for Ns`；无耗时（历史旧数据）→ 回退字数
                             // 冻结后不再带符号，只保留缩进（与活跃行对齐）
@@ -1859,13 +1849,9 @@ pub fn render_view_model_with_flags(
                             .unwrap_or_default();
                         let ellipsis = if active { "…" } else { "" };
                         let title = format!("{prefix}{timing}{actions}{ellipsis}{hint}");
-                        // 颜色对齐参考实现 `dimColor={!isActiveGroup}`：
-                        // 活跃用正常亮度（text_soft），结束后才压暗（inactive）。
-                        let title_color = if live_secs.is_some() {
-                            theme::cur().text_soft
-                        } else {
-                            theme::cur().inactive
-                        };
+                        // 活跃与冻结同色（统一压暗）：冻结瞬间不再有亮度跳变。
+                        // 活跃态靠行首 `∴ ` 与末尾省略号区分，不靠颜色。
+                        let title_color = theme::cur().inactive;
                         lines.push(Line::from(vec![Span::styled(
                             title,
                             Style::default().fg(title_color),
@@ -3007,28 +2993,17 @@ pub fn render_view_model_with_flags(
             // 一等公民：组自带思考行（活跃 → Thinking，冻结 → Thought），不再依赖 AssistantBubble。
             if let Some(t) = thinking {
                 let active = t.active && !detail_mode;
-                // 普通模式只留摘要行：进行中走秒，结束后落成 `Thought for Ns`，不吐正文。
-                let live_ms = if active {
-                    let base = t.duration_ms.unwrap_or(0);
-                    let extra = t
-                        .active_since
-                        .map(|anchor| anchor.elapsed().as_millis() as u64)
-                        .unwrap_or(0);
-                    Some(base + extra)
-                } else {
-                    None
-                };
+                // 普通模式只留摘要行：进行中报本段字数，结束后落成 `Thought for Ns`，不吐正文。
                 // 活跃态没有可展开的正文，不给展开提示
                 let hint = if detail_mode || active {
                     ""
                 } else {
                     " (ctrl+o to expand)"
                 };
-                let (prefix, timing) = if let Some(ms) = live_ms {
-                    let secs = ms.max(1000) / 1000;
+                let (prefix, timing) = if active {
                     // 活跃态恒显 `∴ ` 前缀（不再做 500ms 显隐闪烁）
                     let dot = "∴ ".to_string();
-                    (dot, format!("Thinking for {secs}s"))
+                    (dot, format!("Thinking for {} chars", t.text.chars().count()))
                 } else {
                     // 冻结后不再带符号，只保留缩进（与活跃行对齐）
                     (
@@ -3051,12 +3026,9 @@ pub fn render_view_model_with_flags(
                         }
                     })
                     .unwrap_or_default();
-                let ellipsis = if live_ms.is_some() { "…" } else { "" };
-                let title_color = if live_ms.is_some() {
-                    theme::cur().text_soft
-                } else {
-                    theme::cur().inactive
-                };
+                let ellipsis = if active { "…" } else { "" };
+                // 活跃与冻结同色（统一压暗）：冻结瞬间不再有亮度跳变。
+                let title_color = theme::cur().inactive;
                 lines.push(Line::from(Span::styled(
                     format!("{prefix}{timing}{actions}{ellipsis}{hint}"),
                     Style::default().fg(title_color),
