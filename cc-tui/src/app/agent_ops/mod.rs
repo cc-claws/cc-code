@@ -722,7 +722,8 @@ impl App {
 
     /// 写入一条会话级 hook 失败行。
     ///
-    /// 阻断（工具真的没跑）普通模式可见；hook 自身失败只是配置问题，仅详细模式可见。
+    /// 阻断（Block）由底层错误输出完整呈现，不再生成单独的黄色提示行；
+    /// hook 自身失败只是配置问题，仅详细模式可见。
     fn push_hook_failure_note(
         &mut self,
         event: &str,
@@ -730,14 +731,13 @@ impl App {
     ) {
         use crate::ui::message_view::NoteTone;
         use cc_agent::agent::events::HookFailureKind;
-        let (verb, tone, detail_only) = match failure.kind {
-            HookFailureKind::Block => ("blocked", NoteTone::Warning, false),
-            HookFailureKind::Error => ("failed", NoteTone::Error, true),
-        };
+        if failure.kind == HookFailureKind::Block {
+            return;
+        }
         self.push_hook_system_note(
-            format!("{event} hook {verb}: {}", failure.reason),
-            tone,
-            detail_only,
+            format!("{event} hook failed: {}", failure.reason),
+            NoteTone::Error,
+            true,
         );
     }
 }

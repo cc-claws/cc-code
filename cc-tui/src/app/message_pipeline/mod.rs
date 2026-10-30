@@ -313,10 +313,11 @@ impl HookExec {
         }
     }
 
-    /// 把一次执行结果转成渲染行：阻断/失败行在前，汇总行在后（PRD 快照 C5/C6）。
+    /// 把一次执行结果转成渲染行：失败行在前，汇总行在后。
     ///
-    /// 汇总行与 hook 自身失败行都是 `detail_only`，普通模式不渲染；
-    /// 只有阻断行（工具真的没跑）进普通模式。
+    /// 阻断（Block）已由底层工具调用的 ToolResult/ToolRejected 错误块以红色完整呈现，
+    /// 不再生成单行黄色 hook blocked 提示（避免与工具结果重复）。
+    /// hook 自身失败行与汇总行都是 `detail_only`，普通模式不渲染。
     fn to_rows(&self) -> Vec<HookRow> {
         if self.phase == HookPhase::Running {
             return vec![HookRow::async_row_running(format!(
@@ -327,13 +328,13 @@ impl HookExec {
         let mut rows: Vec<HookRow> = self
             .failures
             .iter()
-            .map(|failure| match failure.kind {
-                HookFailureKind::Block => {
-                    HookRow::blocked(format!("{} hook blocked: {}", self.event, failure.reason))
-                }
-                HookFailureKind::Error => {
-                    HookRow::failed(format!("{} hook failed: {}", self.event, failure.reason))
-                }
+            .filter_map(|failure| match failure.kind {
+                // 阻断行为已由工具块以红色完整输出，此处不再重复产生 hook blocked 行
+                HookFailureKind::Block => None,
+                HookFailureKind::Error => Some(HookRow::failed(format!(
+                    "{} hook failed: {}",
+                    self.event, failure.reason
+                ))),
             })
             .collect();
         // ran 为 0 说明本次没有 hook 真正开跑（全被 once / matcher 过滤），
