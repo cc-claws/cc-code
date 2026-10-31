@@ -44,7 +44,39 @@ fn load_theme_set() -> ThemeSet {
     set
 }
 
-/// 对多行代码块进行语法高亮，返回着色后的 Line 列表。
+/// 将 syntect 的颜色转换为 ratatui 的 Color。
+///
+/// 特别处理 bat 的 `ansi` 主题规范（bat's ansi-theme convention）：
+/// - `a == 0`：ANSI 16 色调色板索引保存在 `.r` 中（0..15）
+/// - `a == 1`：sentinel，表示终端默认前景色（返回 None，由终端自适应黑白底色）
+/// - 其他（通常 `a == 255`）：常规 24-bit 真实 RGB 颜色
+pub fn syntect_color_to_ratatui(color: syntect::highlighting::Color) -> Option<Color> {
+    match color.a {
+        0 => Some(match color.r {
+            0 => Color::Black,
+            1 => Color::Red,
+            2 => Color::Green,
+            3 => Color::Yellow,
+            4 => Color::Blue,
+            5 => Color::Magenta,
+            6 => Color::Cyan,
+            7 => Color::Gray,
+            8 => Color::DarkGray,
+            9 => Color::LightRed,
+            10 => Color::LightGreen,
+            11 => Color::LightYellow,
+            12 => Color::LightBlue,
+            13 => Color::LightMagenta,
+            14 => Color::LightCyan,
+            15 => Color::White,
+            idx => Color::Indexed(idx),
+        }),
+        1 => None,
+        _ => Some(Color::Rgb(color.r, color.g, color.b)),
+    }
+}
+
+/// 对多行代码块进行语法高亮，返回着色后的 Line列表。
 /// 当语言标签未识别时返回 None，调用方应回退到统一颜色渲染。
 pub fn highlight_code_block(
     lang: &str,
@@ -65,8 +97,11 @@ pub fn highlight_code_block(
 
         let ranges = highlighter.highlight_line(line_text, ss).ok()?;
         for (style, text) in ranges {
-            let color = Color::Rgb(style.foreground.r, style.foreground.g, style.foreground.b);
-            spans.push(Span::styled(text.to_string(), Style::default().fg(color)));
+            let mut span_style = Style::default();
+            if let Some(fg) = syntect_color_to_ratatui(style.foreground) {
+                span_style = span_style.fg(fg);
+            }
+            spans.push(Span::styled(text.to_string(), span_style));
         }
         result.push(Line::from(spans));
     }

@@ -145,6 +145,27 @@ pub fn cur() -> Palette {
 /// 每次渲染时调用，保证 /theme 切换后 widgets 渲染同步生效。
 pub fn widgets_theme() -> cc_widgets::CustomTheme {
     let p = cur();
+    let is_ansi = matches!(
+        current_name().resolve(),
+        ThemeName::DarkAnsi | ThemeName::LightAnsi
+    );
+    // 对齐参考实现：ANSI 主题下整行背景设为 DEFAULT_BG（无背景），
+    // 仅靠行首 +/- 符号与行号高亮区分增删，避免 16 色纯色大底色刺眼且破坏对比度。
+    let (diff_add_bg, diff_add_word_bg, diff_remove_bg, diff_remove_word_bg) = if is_ansi {
+        (
+            ratatui::style::Color::Reset,
+            ratatui::style::Color::Reset,
+            ratatui::style::Color::Reset,
+            ratatui::style::Color::Reset,
+        )
+    } else {
+        (
+            p.diff_added,
+            p.diff_added_word,
+            p.diff_removed,
+            p.diff_removed_word,
+        )
+    };
     cc_widgets::CustomTheme {
         accent: p.claude,
         success: p.success,
@@ -164,12 +185,12 @@ pub fn widgets_theme() -> cc_widgets::CustomTheme {
         bash_border: p.bash_border,
         diff_add: p.diff_add_fg,
         diff_add_decoration: p.diff_add_decoration,
-        diff_add_bg: p.diff_added,
-        diff_add_word_bg: p.diff_added_word,
+        diff_add_bg,
+        diff_add_word_bg,
         diff_remove: p.diff_remove_fg,
         diff_remove_decoration: p.diff_remove_decoration,
-        diff_remove_bg: p.diff_removed,
-        diff_remove_word_bg: p.diff_removed_word,
+        diff_remove_bg,
+        diff_remove_word_bg,
         diff_hunk: p.diff_hunk,
         syntax_theme_name: syntax_theme_for(current_name().resolve()),
     }
@@ -323,5 +344,45 @@ mod tests {
         );
         // Default 为深色配色（text 白色），与 CC 的 dark 一致
         assert_eq!(syntax_theme_for(ThemeName::Default), "Monokai Extended");
+    }
+
+    #[test]
+    fn test_widgets_theme_ansi_background_is_reset() {
+        set_current(ThemeName::DarkAnsi);
+        let wt = widgets_theme();
+        assert_eq!(
+            wt.diff_add_bg,
+            Color::Reset,
+            "DarkAnsi 下 diff_add_bg 应为 Reset 无底色"
+        );
+        assert_eq!(
+            wt.diff_remove_bg,
+            Color::Reset,
+            "DarkAnsi 下 diff_remove_bg 应为 Reset 无底色"
+        );
+        assert_eq!(
+            wt.diff_add_word_bg,
+            Color::Reset,
+            "DarkAnsi 下 diff_add_word_bg 应为 Reset 无底色"
+        );
+        assert_eq!(
+            wt.diff_remove_word_bg,
+            Color::Reset,
+            "DarkAnsi 下 diff_remove_word_bg 应为 Reset 无底色"
+        );
+        assert_eq!(wt.syntax_theme_name, "ansi", "DarkAnsi 语法主题应为 ansi");
+
+        set_current(ThemeName::Default);
+        let wt_default = widgets_theme();
+        assert_ne!(
+            wt_default.diff_add_bg,
+            Color::Reset,
+            "Default 下 diff_add_bg 不应为 Reset"
+        );
+        assert_ne!(
+            wt_default.diff_remove_bg,
+            Color::Reset,
+            "Default 下 diff_remove_bg 不应为 Reset"
+        );
     }
 }

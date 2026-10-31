@@ -26,6 +26,10 @@ StateSnapshot 事件触发
 
 ## 技术方案总结
 
+`load_context` 的 SQLite 缓存是物化基线，顺序为祖先前缀加自身后缀。命中后以尾消息的 `thread_id + message_id` 定位当前自身 `rowid`，只读取其后的自身记录；仅含祖先或为空的缓存从自身起点读取，不能用缓存总条数作自身消息偏移。命中读取不重写缓存或 `updated_at`，首次物化与删除后的缓存失效保留原语义。SQL 绑定接收已序列化字符串的所有权，避免再次克隆整份历史。
+
+TUI `session/load` 与 Stdio `session/resume` 对已有非空运行时历史跳过会被丢弃的存储读取；空历史仍允许补载，元数据存在性校验继续执行。Stdio `session/load` 需要回放完整历史，保留独立读取与回放路径。
+
 | 维度 | 选型 |
 |------|------|
 | 数据库驱动 | sqlx 0.8（runtime-tokio + sqlite），原生 async，不含 macros/migrate |

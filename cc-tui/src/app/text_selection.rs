@@ -617,10 +617,46 @@ impl ScreenSelection {
     }
 }
 
+/// 拼接一行内 `[col_start, col_end)` 列的文本，按 symbol 显示宽度推进列游标。
+///
+/// 宽字符（如 CJK）占 2 列，其后的占位 cell 由 ratatui 置为 `Cell::EMPTY`，
+/// 而 `Cell::symbol()` 会把它读成 `" "`。逐列拼接会把占位格当成真实空格，
+/// 导致「触发」被复制成「触 发」。
+///
+/// 解法是从**行首单元格边界**开始按宽度推进：读到宽度为 w 的 symbol 就前进 w 列，
+/// 于是占位列永远不会被单独访问，也就不会产出多余空格。起点取 `origin_col` 而非
+/// `col_start`，是为了保证推进始终从单元格边界出发——若直接从 `col_start` 起步而该列
+/// 恰是某宽字符的占位列，整行后续列的字符对齐都会错位。
+fn extract_row_text(
+    snapshot: &ScreenSnapshot,
+    row: usize,
+    col_start: usize,
+    col_end: usize,
+) -> String {
+    let mut out = String::new();
+    let mut col = snapshot.origin_col;
+    while col < col_end {
+        let symbol = snapshot.cell_symbol(row, col);
+        // 空白/组合符宽度可能为 0，至少按 1 列推进，避免死循环。
+        let width = unicode_width::UnicodeWidthStr::width(symbol).max(1);
+        // 只产出完全落入选区的字符：宽字符被选区边界截断时整体丢弃，不复制半个字。
+        if col >= col_start && col + width <= col_end {
+            out.push_str(symbol);
+        }
+        col += width;
+    }
+    out
+}
+
 /// 从 ScreenSnapshot 提取选区文本（CJK 友好）。
 /// start/end 为绝对屏幕坐标 (row, col)，自动处理 start > end。
 /// 首行从 start_col 起、末行到 end_col 止，中间行整行；每行 trim_end 去尾部空白，
-/// 剔除首尾空行（保留中间空行以维持视觉结构）。宽字符占位 cell 的空 symbol 自然不贡献字符。
+/// 剔除首尾空行（保留中间空行以维持视觉结构）。
+///
+/// 宽字符占位 cell 必须跳过：ratatui 的 `Cell::symbol()` 对无 symbol 的 cell 返回
+/// `" "`（而非 `""`），而宽字符的后继列恰是这种 `Cell::EMPTY`。若逐列直接拼接，
+/// 每读一个汉字就会多出一个空格（「触发」→「触 发」）。因此这里按 symbol 的显示宽度
+/// 推进列游标：宽字符消费掉其占位列，占位列不再单独产出字符。
 pub fn extract_snapshot_text(
     snapshot: &ScreenSnapshot,
     start: (u16, u16),
@@ -648,9 +684,7 @@ pub fn extract_snapshot_text(
         } else {
             snapshot.origin_col + snapshot.width
         };
-        let line: String = (col_start..col_end)
-            .map(|col| snapshot.cell_symbol(row, col).to_string())
-            .collect();
+        let line: String = extract_row_text(snapshot, row, col_start, col_end);
         lines.push(line.trim_end().to_string());
     }
     // 剔除首尾空行

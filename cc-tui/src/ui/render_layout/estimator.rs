@@ -236,9 +236,9 @@ mod tests;
 
 /// 该 VM 的渲染结果是否随**墙钟**变化（需要每帧把 tick 打进缓存键）。
 ///
-/// 除「运行中的工具块」外，活跃思考行（`● Thinking for Ns`，走秒 + 500ms 相位闪烁）
-/// 同样依赖时间。漏掉这类会让虚拟布局持续命中过期成品
-/// （Codex 审计：`render_layout` tick 只覆盖 `is_live`）。
+/// 除「运行中的工具块」外，活跃思考行（`∴ Thinking <N> chars`）也归在此类。
+/// 它已不显示走秒，按内容 hash 即可刷新；保留在这里只是维持原有的每帧刷新行为，
+/// 收窄需同步改 `estimator_test`。
 pub(in crate::ui) fn is_live(vm: &MessageViewModel) -> bool {
     match vm {
         MessageViewModel::ToolBlock {

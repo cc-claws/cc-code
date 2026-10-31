@@ -41,6 +41,8 @@ pub struct UiState {
     /// 虚拟窗口尚未就绪时保留实际显示位置，不能拿请求位置解释鼠标选区。
     pub presented_scroll_offset: usize,
     pub scroll_follow: bool,
+    /// 用户滚动/切换视口的版本，异步布局只能恢复同一版本的位置。
+    pub scroll_revision: u64,
     pub show_tool_messages: bool,
     pub hint_cursor: Option<usize>,
     /// Esc 关掉候选浮层时记下当时的输入文本，文本不变就不再弹（对齐 CC
@@ -107,6 +109,8 @@ pub struct UiState {
     pub bg_bar_area: Option<ratatui::layout::Rect>,
     /// Write/Edit 工具结果内联 diff 是否可见
     pub diff_visible: bool,
+    /// hook 执行结果行是否可见（配置 `hooks_ui`；数据始终保留，只控制渲染）
+    pub hook_rows_visible: bool,
     /// Shell 命令输出详细模式（Ctrl+O 切换）
     pub detail_mode: bool,
     /// 输入框中被占位符折叠展示的外部多行粘贴内容
@@ -132,11 +136,32 @@ pub struct UiState {
 }
 
 impl UiState {
+    pub(crate) fn display(&self) -> crate::ui::render_thread::DisplayFlags {
+        crate::ui::render_thread::DisplayFlags {
+            detail_mode: self.detail_mode,
+            diff_visible: self.diff_visible,
+            show_tool_messages: self.show_tool_messages,
+        }
+    }
+
+    pub(crate) fn apply_display(&mut self, display: crate::ui::render_thread::DisplayFlags) {
+        self.detail_mode = display.detail_mode;
+        self.diff_visible = display.diff_visible;
+        self.show_tool_messages = display.show_tool_messages;
+    }
+
+    pub(crate) fn set_scroll_position(&mut self, offset: usize, follow: bool) {
+        self.scroll_offset = offset;
+        self.scroll_follow = follow;
+        self.scroll_revision = self.scroll_revision.wrapping_add(1);
+    }
+
     pub fn new(
         textarea: TextArea<'static>,
         cwd: &str,
         detail_enabled: bool,
         diff_enabled: bool,
+        hook_rows_visible: bool,
     ) -> Self {
         let _ = cwd; // 历史路径已迁移至 ~/.cc-code/，cwd 保留用于未来扩展
         let input_history = super::history_persistence::load_input_history();
@@ -146,6 +171,7 @@ impl UiState {
             scroll_offset: usize::MAX,
             presented_scroll_offset: 0,
             scroll_follow: true,
+            scroll_revision: 0,
             show_tool_messages: false,
             hint_cursor: None,
             hint_dismissed_for: None,
@@ -188,6 +214,7 @@ impl UiState {
             steer_foreground_grace: None,
             bg_bar_area: None,
             diff_visible: diff_enabled,
+            hook_rows_visible,
             detail_mode: detail_enabled,
             pasted_text_blocks: Vec::new(),
             next_pasted_text_id: 1,

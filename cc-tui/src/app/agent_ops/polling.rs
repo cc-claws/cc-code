@@ -2,6 +2,17 @@
 //! Extracted from original agent_ops.rs (2026-05-20 split).
 
 use crate::app::App;
+use std::time::{Duration, Instant};
+
+const MAX_AGENT_NOTIFICATIONS_PER_POLL: usize = 128;
+const AGENT_NOTIFICATION_POLL_BUDGET: Duration = Duration::from_millis(4);
+
+/// 连续流式事件不能耗尽 UI 一帧；即使首条处理较慢，也必须先消费一条再让出。
+fn notification_poll_budget_exhausted(processed: usize, started_at: Instant, now: Instant) -> bool {
+    processed > 0
+        && (processed >= MAX_AGENT_NOTIFICATIONS_PER_POLL
+            || now.saturating_duration_since(started_at) >= AGENT_NOTIFICATION_POLL_BUDGET)
+}
 
 impl App {
     pub fn poll_agent(&mut self) -> bool {
@@ -101,7 +112,18 @@ impl App {
                 return true;
             }
             let output_updated = self.flush_tool_output_refresh();
-            return steering_updated || drawer_updated || bg_shell_updated || output_updated;
+            let subagent_updated = self.flush_subagent_view_refresh();
+            let render_retried = self
+                .session_mgr
+                .current_mut()
+                .messages
+                .retry_render_rebuild();
+            return steering_updated
+                || drawer_updated
+                || bg_shell_updated
+                || output_updated
+                || subagent_updated
+                || render_retried;
         }
 
         let mut updated = steering_updated || drawer_updated || bg_shell_updated;
@@ -121,7 +143,19 @@ impl App {
             }
         }
 
+        let poll_started_at = Instant::now();
+        let mut notifications_processed = 0;
         loop {
+            if notification_poll_budget_exhausted(
+                notifications_processed,
+                poll_started_at,
+                Instant::now(),
+            ) {
+                // 不提前取出下一条：保留通道内的 FIFO 顺序，让输入、滚动和绘制先运行。
+                // 即使本批全是被过滤的通知，也要安排下一帧继续消费。
+                updated = true;
+                break;
+            }
             // Try ACP notification channel first (new path)
             let acp_result = self
                 .session_mgr
@@ -131,6 +165,7 @@ impl App {
                 .as_mut()
                 .map(|rx| rx.try_recv());
             if let Some(Ok(notif)) = acp_result {
+                notifications_processed += 1;
                 let (ev_updated, should_break, should_return) = self.handle_acp_notification(notif);
                 if ev_updated {
                     updated = true;
@@ -152,6 +187,12 @@ impl App {
             updated = true;
         }
         updated |= self.flush_tool_output_refresh();
+        updated |= self.flush_subagent_view_refresh();
+        updated |= self
+            .session_mgr
+            .current_mut()
+            .messages
+            .retry_render_rebuild();
         // 当 loading=true 时（如 compact 中），即使没有新事件也返回 true，
         // 确保 spinner 动画持续渲染而非冻结
         let loading = self.session_mgr.current_mut().ui.loading;
@@ -386,3 +427,7 @@ impl App {
             .poll_search_result()
     }
 }
+
+#[cfg(test)]
+#[path = "polling_test.rs"]
+mod tests;

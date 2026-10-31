@@ -10,8 +10,7 @@ impl App {
         } else {
             ui.scroll_offset.clamp(min_scroll, max_scroll)
         };
-        ui.scroll_offset = current.saturating_sub(3).max(min_scroll);
-        ui.scroll_follow = false;
+        ui.set_scroll_position(current.saturating_sub(3).max(min_scroll), false);
     }
 
     pub fn scroll_down(&mut self) {
@@ -24,33 +23,29 @@ impl App {
             ui.scroll_offset.clamp(min_scroll, max_scroll)
         };
         let next = current.saturating_add(3).min(max_scroll);
-        ui.scroll_offset = next;
-        ui.scroll_follow = next >= max_scroll;
+        ui.set_scroll_position(next, next >= max_scroll);
     }
 
     /// 滚动到底部（恢复 follow 模式）
     pub fn scroll_to_bottom(&mut self) {
-        self.session_mgr.current_mut().ui.scroll_offset = usize::MAX;
-        self.session_mgr.current_mut().ui.scroll_follow = true;
+        self.session_mgr
+            .current_mut()
+            .ui
+            .set_scroll_position(usize::MAX, true);
     }
 
     /// 滚动到顶部
     pub fn scroll_to_top(&mut self) {
         let ui = &mut self.session_mgr.current_mut().ui;
-        ui.scroll_offset = ui.scrollbar_min_offset.min(ui.scrollbar_max_offset);
-        ui.scroll_follow = false;
+        ui.set_scroll_position(ui.scrollbar_min_offset.min(ui.scrollbar_max_offset), false);
     }
 
     /// 展开/折叠所有工具调用消息
     pub fn toggle_collapsed_messages(&mut self) {
         self.session_mgr.current_mut().ui.show_tool_messages =
             !self.session_mgr.current_mut().ui.show_tool_messages;
-        let show_tool_messages = self.session_mgr.current().ui.show_tool_messages;
-        let _ = self
-            .session_mgr
-            .current_mut()
-            .messages
-            .send_render_event(RenderEvent::ToggleToolMessages(show_tool_messages));
+        self.session_mgr.current_mut().remember_viewport_display();
+        self.render_rebuild();
     }
 
     pub fn toggle_detail_mode(&mut self) {
@@ -59,12 +54,8 @@ impl App {
         let new_visible = !self.session_mgr.current_mut().ui.detail_mode;
         self.session_mgr.current_mut().ui.detail_mode = new_visible;
 
-        // ToggleDetail 会清空 hash 缓存并触发全量重渲染
-        let _ = self
-            .session_mgr
-            .current()
-            .messages
-            .send_render_event(RenderEvent::ToggleDetail(new_visible));
+        self.session_mgr.current_mut().remember_viewport_display();
+        self.render_rebuild();
     }
 
     /// 切换 Write/Edit 工具结果内联 diff 的显隐
@@ -74,12 +65,25 @@ impl App {
         let new_visible = !self.session_mgr.current_mut().ui.diff_visible;
         self.session_mgr.current_mut().ui.diff_visible = new_visible;
 
-        // ToggleDiff 会清空 hash 缓存并触发全量重渲染
+        self.session_mgr.current_mut().remember_viewport_display();
+        self.render_rebuild();
+    }
+
+    /// 切换 hook 执行结果行的显隐。
+    ///
+    /// 只翻渲染标志：hook 数据仍留在 `ToolBlock.hook_rows` / payload 的
+    /// `hook_results` 里，切回来历史行立即恢复。
+    pub fn toggle_hook_rows(&mut self) {
+        self.session_mgr.current_mut().ui.text_selection.clear();
+        self.session_mgr.current_mut().ui.screen_selection.clear();
+        let new_visible = !self.session_mgr.current_mut().ui.hook_rows_visible;
+        self.session_mgr.current_mut().ui.hook_rows_visible = new_visible;
+
+        // ToggleHookRows 会按渲染键复用/交换变体重渲带 hook 行的消息
         let _ = self
             .session_mgr
             .current()
-            .messages
-            .send_render_event(RenderEvent::ToggleDiff(new_visible));
+            .send_render_event(RenderEvent::ToggleHookRows(new_visible));
     }
 
     /// 添加一个图片附件到待发送列表
@@ -169,6 +173,13 @@ impl App {
             .current_mut()
             .agent
             .session_tool_stats
+            .clear();
+        // hook 失败去重集合按会话重置：/clear 后换了话题，同一条错误应重新提示一次，
+        // 不能被上一轮的去重记录静默掉。
+        self.session_mgr
+            .current_mut()
+            .agent
+            .seen_hook_failures
             .clear();
         self.session_mgr.current_mut().messages.last_submitted_text = None;
         self.session_mgr.current_mut().spinner_state.reset();
@@ -296,7 +307,7 @@ impl App {
             .as_ref()
             .and_then(|config| config.config.detail_render_strategy.clone())
             .unwrap_or_else(|| "auto".to_owned());
-        let _ = self.session_mgr.current_mut().messages.send_render_event(
+        let _ = self.session_mgr.current_mut().send_render_event(
             crate::ui::render_thread::RenderEvent::SetDetailStrategy(strategy),
         );
     }
@@ -486,11 +497,9 @@ impl App {
 
         // 通知渲染线程加载历史消息
         let vms = self.session_mgr.current().messages.view_messages.clone();
-        let _ = self
-            .session_mgr
+        self.session_mgr
             .current_mut()
-            .messages
-            .send_render_event(RenderEvent::Rebuild(vms));
+            .send_render_snapshot(RenderEvent::Rebuild(vms));
         true
     }
 
@@ -626,11 +635,9 @@ impl App {
         // 回收释放的内存给 OS
         crate::alloc_config::alloc_collect();
 
-        let _ = self
-            .session_mgr
+        self.session_mgr
             .current_mut()
-            .messages
-            .send_render_event(RenderEvent::Clear);
+            .send_render_snapshot(RenderEvent::Clear);
 
         // 归还已释放内存页给 OS
         crate::alloc_config::alloc_collect();

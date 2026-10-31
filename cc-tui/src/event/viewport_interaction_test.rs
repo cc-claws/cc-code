@@ -123,7 +123,18 @@ async fn wait_for_real_viewport(
         }
     })
     .await
-    .expect("真实渲染任务应发布所请求的窗口");
+    .unwrap_or_else(|_| {
+        let cache = cache.read();
+        panic!(
+            "真实渲染任务应发布所请求的窗口：期望={top}/{height}/{width}，实际版本={}，宽度={}，窗口={:?}",
+            cache.version,
+            cache.width,
+            cache
+                .virtual_layout
+                .as_ref()
+                .map(|layout| (layout.requested_top, layout.requested_height))
+        );
+    });
 }
 
 #[tokio::test]
@@ -268,7 +279,10 @@ async fn test_virtual_old_publish_does_not_override_new_scroll_request() {
     make_window(&mut app, 100);
     {
         let mut cache = app.session_mgr.current().messages.render_cache.write();
-        cache.scroll_anchor = Some(115);
+        cache.scroll_anchor = Some(crate::ui::render_thread::ScrollAnchor {
+            visual_row: 115,
+            ..Default::default()
+        });
         let layout = Arc::make_mut(cache.virtual_layout.as_mut().expect("旧窗口"));
         layout.requested_top = 115;
         layout.requested_height = 10;

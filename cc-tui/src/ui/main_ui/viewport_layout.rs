@@ -237,6 +237,14 @@ pub fn try_prepare_width(app: &mut App, width: u16, fullscreen: bool) -> bool {
     if width == 0 {
         return true;
     }
+    // 宽度屏障必须排在当前视图快照之后，否则拥塞切视图时会用旧内容高度钳掉保存位置。
+    let messages = &mut app.session_mgr.current_mut().messages;
+    if messages.render_updates_pending() {
+        messages.retry_render_rebuild();
+        if messages.render_updates_pending() {
+            return false;
+        }
+    }
     let size = app.global_ui.viewport.terminal_size;
     let session = app.session_mgr.current();
     let context = WidthContext {
@@ -318,15 +326,19 @@ pub fn try_prepare_width(app: &mut App, width: u16, fullscreen: bool) -> bool {
         return true;
     }
     let (reply, ready) = tokio::sync::oneshot::channel();
+    let event = app
+        .session_mgr
+        .current()
+        .with_render_viewport(RenderEvent::PrepareWidth {
+            request: context.request,
+            reply,
+        });
     if app
         .session_mgr
         .current()
         .messages
         .render_tx
-        .try_send(RenderEvent::PrepareWidth {
-            request: context.request,
-            reply,
-        })
+        .try_send(event)
         .is_ok()
     {
         state.pending = Some(PendingWidth { revision, ready });

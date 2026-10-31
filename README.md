@@ -74,6 +74,8 @@ Kimi K2.6 is an open-source, native multimodal agentic model from Moonshot AI, b
 
 No credentials configured? The deterministic layer still runs and an LLM classifier takes over as fallback; when there is no confirmation channel (sub-agents, `-p`) the call is denied. The session model is never involved — judging is offloaded to JEV, so safety checks don't spend your context tokens. `Shift+Tab` toggles between `Auto` and `Bypass`.
 
+> For deep-dive architecture, fallback classifiers, and troubleshooting, see the [Auto Mode & Permissions Guide](docs/auto-mode-guide.md).
+
 ---
 
 ## Core Capabilities
@@ -119,15 +121,17 @@ No credentials configured? The deterministic layer still runs and an LLM classif
 
 | Feature | Version | Description |
 |---------|---------|-------------|
+| **Live Thinking Char Count** | v0.6.220 | While the model is thinking, the header shows the live character count of the streamed reasoning (`∴ Thinking for 1247 chars…`) instead of a stopwatch, so you can tell it is still producing; the line freezes into `Thought for 16s, read 2 files` once the reply starts. Active and finished rows share one dim color (#836). |
+| **Reliable Long-Session Resume** | Unreleased | Restoring a long session avoids redundant history reads and full cache rewrites. Child sessions retain newly appended messages, and closing idle sessions releases their serialization locks (#813). |
+| **Responsive Sub-agent Views** | v0.6.212 | Streaming updates are coalesced so typing and scrolling remain responsive; hidden views defer conversion, including on completion. Completed history uses a bounded projection cache released when leaving the sub-agent view, and a full render queue retries the latest snapshot (#796). |
+| **Hooks Display Switch** | v0.6.212 | The `hooks_ui` setting (default on) adds a `Hooks display` row to `/config`: turning it off hides hook rows immediately while keeping the data, so toggling back restores them at once. Fold blocks no longer show hook rows, hook rows are forced to a single line, and duplicate failures are deduped per event (#808). |
+| **Hook Runs Reported in the UI** | v0.6.210 | Hook execution rows attach to their tool block with a summary in detailed mode; async hooks show a `running` placeholder replaced in place on completion, rows merge per event, and subagents inherit session hooks with real SubagentStart/Stop execution. Non-blocking failures report through `HookAction::Error`, with failure classification for invalid JSON and prompt/http/agent hooks (#804). |
+| **`/ps` Opens the Background Tasks Panel** | v0.6.210 | `/ps` opens the background tasks panel for past commands and live output at any time — even while the agent is running, it pops immediately instead of queueing or refusing (#806). |
 | **Compaction Spinner Animations** | v0.6.208 | Compaction no longer appends a permanent "Compacting context…" line: history keeps only the result notice. Progress is shown on the spinner instead — a runner (12-cell track, `🏃` every 150ms for the first 20s then a slower `🚶`, leaving `•` footprints) or a UFO (MiMo-Code's scanner algorithm: 14 cells, 40ms/frame, a 5-cell `· ∙ ˙` trail), picked at random per compaction. Both sweep out and back with end holds, reuse the tip row so no layout height is added, and degrade to `R`/`W`/`o` on ASCII-only consoles (#792). |
 | **`!` Commands Use Git Bash** | v0.6.207 | `!` commands now run through Git Bash like the Bash tool instead of `cmd /C`, so `sleep`, `ls` and `grep` work on Windows; the running state reads `Running… (Xs)` and the seconds keep ticking for silent commands (#790). |
 | **Untrusted Hooks Notice Keeps the Welcome Card** | v0.6.207 | The startup notice for untrusted project hooks no longer counts as conversation history, so the welcome card and mascot stay visible; the notice itself is rendered with warning semantics (`⚠` in amber) instead of plain grey (#788). |
 | **Approval Dialog Descriptions and Full-File Diffs** | v0.6.206 | Tool calls carrying a `description` show it on its own line under the dialog title; `Write`/`Edit` approvals preview the full before/after file diff (new files get a numbered, syntax-highlighted code preview), falling back to the fragment diff when the file can't be read or located (#785). |
-| **Hooks Trust List in JSONL** | v0.6.205 | The project trust list moves to `~/.cc-code/trusted_projects.jsonl` (one entry per line, bad lines skipped individually, legacy text list auto-migrated with a `.legacy.bak` kept); home-directory resolution no longer silently fails when `HOME` is unset, so project and plugin hooks stop being skipped on Windows, and TUI startup now visibly warns about untrusted project hooks (#783). |
-| **Grep / Glob Spec Alignment** | v0.6.202 | `Grep` gains a `context` alias for `-C`, documents ripgrep escaping and multi-line patterns, and integrates with clickable file links; `Glob` returns cwd-relative paths newest-first and reports `No files found` uniformly; both engines relativize paths and the system prompt steers Grep/Glob first (#773). |
-| **Background Notifications Preserve Drafts** | v0.6.203 | Background shell notifications no longer clear an unsent draft or consume its pasted text and images; the cursor and attachments remain available for editing and sending (#777). |
-| **Consistent Markdown Link Colors** | v0.6.203 | Markdown links retain their underline and use the existing terminal hyperlink blue instead of the theme's success color (#775). |
-> Older releases (v0.6.0 – v0.6.201) are listed in the [CHANGELOG](./CHANGELOG.md).
+> Older releases (v0.6.0 – v0.6.205) are listed in the [CHANGELOG](./CHANGELOG.md).
 
 ---
 

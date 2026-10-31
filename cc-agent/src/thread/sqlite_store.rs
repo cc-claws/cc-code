@@ -327,7 +327,7 @@ impl SqliteThreadStore {
         let cached = serde_json::to_string(messages)?;
         let now = Utc::now().to_rfc3339();
         sqlx::query("UPDATE threads SET cached_context = ?1, updated_at = ?2 WHERE id = ?3")
-            .bind(&cached)
+            .bind(cached)
             .bind(&now)
             .bind(thread_id.as_str())
             .execute(&self.pool)
@@ -679,13 +679,20 @@ impl ThreadStore for SqliteThreadStore {
 
         if let Some(json) = cached {
             let mut cached_msgs: Vec<BaseMessage> = serde_json::from_str(&json)?;
-            // 检查是否有新消息追加到缓存之后
-            let cached_count = cached_msgs.len();
+            drop(json);
+            // 物化顺序为祖先前缀 + 自身消息，尾消息若属于当前 thread，就是自身游标。
+            // 缓存仅含祖先或为空时从自身起点读取，不能把祖先条数当成自身 OFFSET。
+            let last_cached_id = cached_msgs
+                .last()
+                .map(|message| message.id().as_uuid().to_string());
             let rows: Vec<(String,)> = sqlx::query_as(
-                "SELECT content FROM messages WHERE thread_id = ?1 ORDER BY rowid LIMIT -1 OFFSET ?2"
+                "SELECT content FROM messages
+                 WHERE thread_id = ?1 AND rowid > COALESCE(
+                     (SELECT rowid FROM messages WHERE thread_id = ?1 AND message_id = ?2), 0
+                 ) ORDER BY rowid",
             )
             .bind(thread_id.as_str())
-            .bind(cached_count as i64)
+            .bind(last_cached_id)
             .fetch_all(&self.pool)
             .await?;
 
@@ -699,8 +706,7 @@ impl ThreadStore for SqliteThreadStore {
                 .collect::<Result<Vec<_>>>()?;
             cached_msgs.extend(new_msgs);
 
-            // 更新缓存
-            self.save_context_cache(thread_id, &cached_msgs).await?;
+            // 保留原物化基线；后续读取仍从同一自身游标加载增量，避免全量序列化回写。
             return Ok(cached_msgs);
         }
 
@@ -855,3 +861,7 @@ mod tests {
     include!("sqlite_store_test.rs");
     include!("sqlite_store_command_center_test.rs");
 }
+
+#[cfg(test)]
+#[path = "sqlite_store_context_cache_test.rs"]
+mod context_cache_tests;

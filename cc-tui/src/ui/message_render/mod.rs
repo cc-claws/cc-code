@@ -39,8 +39,8 @@ const HOOK_FAILURE_MAX_ROWS: usize = 3;
 /// hook 行语义色：成功汇总用 inactive，阻断用 warning，失败用 error。
 ///
 /// `Success` 当前没有被 `HookRow` 的构造器产出（汇总/异步行是 `Neutral`，
-/// 阻断/失败是 `Warning`/`Error`），但 `HookRow::failure()` 接受任意 `NoteTone`，
-/// 类型上仍可达；`NoteTone` 又是全 UI 共享枚举，此处保留穷举映射而不是 `_` 兜底，
+/// 阻断行是 `Warning`，自身失败行是 `Error`），但 `HookRow.tone` 类型上仍可达；
+/// `NoteTone` 又是全 UI 共享枚举，此处保留穷举映射而不是 `_` 兜底，
 /// 以免将来新增 tone 时被静默吞成 inactive。
 fn hook_row_color(tone: NoteTone) -> Color {
     match tone {
@@ -56,28 +56,22 @@ fn hook_row_color(tone: NoteTone) -> Color {
 /// 文本先经 `sanitize_display_text`：hook 的 reason 来自 stderr，可能带换行、
 /// 制表符与 ANSI 转义——直接塞进单个 Span 时 `\n` 宽度为 0，不会当换行，
 /// 会导致行内容错位，甚至把终端转义序列泄漏到屏幕上。
-/// 超宽时按内容宽度折行，续行用悬挂缩进，保证行宽不越视口。
+/// 超宽时按内容宽度**截断**（`…` 收尾）而不是折行——hook 行是状态提示，
+/// 折成多行会把正文挤出视口，而且 20 个 hook 时行数会翻倍。
 fn push_hook_line(lines: &mut Vec<Line<'static>>, text: &str, color: Color, width: usize) {
     let content_width = BranchPrefix::content_width(width);
-    let body = Line::from(Span::styled(
-        sanitize_display_text(text),
-        Style::default().fg(color),
-    ));
-    for (i, wrapped) in wrap_line_spans(body, content_width).into_iter().enumerate() {
-        let prefix = if i == 0 {
-            BranchPrefix::PREFIX
-        } else {
-            BranchPrefix::HANG
-        };
-        let mut spans = vec![Span::styled(prefix, Style::default().fg(color))];
-        spans.extend(wrapped.spans);
-        lines.push(Line::from(spans));
-    }
+    let body = truncate_to_display_width(&sanitize_display_text(text), content_width);
+    lines.push(Line::from(vec![
+        Span::styled(BranchPrefix::PREFIX, Style::default().fg(color)),
+        Span::styled(body, Style::default().fg(color)),
+    ]));
 }
 
 /// 追加该工具调用触发的 hook 行（规格见 spec/global/domains/hooks-display.md）。
 ///
-/// - 阻断/失败行两种模式都显示；汇总/异步完成行仅详细模式显示。
+/// - 阻断行两种模式都显示；hook 自身失败、汇总、异步完成行仅详细模式显示。
+/// - `hook_rows_visible` 为 false 时整段跳过（配置 `hooks_ui` / /config 面板开关）。
+///   数据本身保留在 `ToolBlock.hook_rows` 里，开关切回来历史行立即恢复。
 /// - 折叠口径：同步汇总最多 4 行（其余折成 `… +N events`），失败最多 3 行
 ///   （其余折成 `… +N more`）。异步完成行不参与折叠，每个异步 hook 各占一行。
 ///   行数不随 hook 数量线性增长。
@@ -85,39 +79,39 @@ fn append_hook_rows(
     lines: &mut Vec<Line<'static>>,
     hook_rows: &[HookRow],
     detail_mode: bool,
+    hook_rows_visible: bool,
     width: usize,
 ) {
-    if hook_rows.is_empty() {
+    if hook_rows.is_empty() || !hook_rows_visible {
         return;
     }
     let mut failures = 0usize;
     let mut summaries = 0usize;
     for row in hook_rows {
-        if row.detail_only {
-            if !detail_mode {
-                continue;
-            }
-            // 异步逐条行不参与汇总行折叠，只有同步汇总行受 4 行限额。
-            if !row.async_row {
-                if summaries >= HOOK_SUMMARY_MAX_ROWS {
-                    continue;
-                }
-                summaries += 1;
-            }
-        } else {
+        if row.detail_only() && !detail_mode {
+            continue;
+        }
+        // 失败类行（阻断 / 自身失败）走 3 行上限，各自按类别独立折叠；
+        // 异步逐条行不参与任何上限。
+        if row.kind.is_failure() {
             if failures >= HOOK_FAILURE_MAX_ROWS {
                 continue;
             }
             failures += 1;
+        } else if !row.async_row() {
+            if summaries >= HOOK_SUMMARY_MAX_ROWS {
+                continue;
+            }
+            summaries += 1;
         }
         push_hook_line(lines, &row.text, hook_row_color(row.tone), width);
     }
 
-    let hidden_failures = hook_rows
+    let visible_failures = hook_rows
         .iter()
-        .filter(|row| !row.detail_only)
-        .count()
-        .saturating_sub(HOOK_FAILURE_MAX_ROWS);
+        .filter(|row| row.kind.is_failure() && (!row.detail_only() || detail_mode))
+        .count();
+    let hidden_failures = visible_failures.saturating_sub(HOOK_FAILURE_MAX_ROWS);
     if hidden_failures > 0 {
         push_hook_line(
             lines,
@@ -129,7 +123,7 @@ fn append_hook_rows(
     let hidden_summaries = if detail_mode {
         hook_rows
             .iter()
-            .filter(|row| row.detail_only && !row.async_row)
+            .filter(|row| !row.kind.is_failure() && !row.async_row())
             .count()
             .saturating_sub(HOOK_SUMMARY_MAX_ROWS)
     } else {
@@ -481,6 +475,39 @@ pub(crate) fn wrap_line_spans(line: Line<'static>, max_width: usize) -> Vec<Line
         .into_iter()
         .map(|seg| seg.line)
         .collect()
+}
+
+/// 详细模式下渲染思考正文：markdown 解析 + DIM 压暗 + 折行，末尾补一行空行。
+///
+/// 正文为空（模型只回了耗时、没有可读思考）时不能只画一个孤零零的 `⎿`，
+/// 按 Bash 空输出 `(No output)` 的同款口径补 `(No content)`。
+fn push_thinking_body(lines: &mut Vec<Line<'static>>, text: &str, width: usize) {
+    let prefix_style = Style::default().fg(theme::cur().inactive);
+    if text.trim().is_empty() {
+        lines.push(Line::from(vec![
+            Span::styled(BranchPrefix::PREFIX, prefix_style),
+            Span::styled("(No content)", prefix_style),
+        ]));
+        lines.push(Line::from(""));
+        return;
+    }
+    let content_width = BranchPrefix::content_width(width);
+    let parsed = super::markdown::parse_markdown(text, content_width);
+    for (i, line) in dim_markdown_lines(parsed).into_iter().enumerate() {
+        // 折行：长段落按 content_width 切成多行，每行加分支前缀
+        // 后不会超过 width，避免 Paragraph::wrap 二次折行使续行缺少缩进
+        for (j, wline) in wrap_line_spans(line, content_width).into_iter().enumerate() {
+            let prefix = if i == 0 && j == 0 {
+                BranchPrefix::PREFIX
+            } else {
+                BranchPrefix::HANG
+            };
+            let mut spans = vec![Span::styled(prefix, prefix_style)];
+            spans.extend(wline.spans);
+            lines.push(Line::from(spans));
+        }
+    }
+    lines.push(Line::from(""));
 }
 
 /// 把逻辑行上的链接命中区映射到折行后的输出段，累加前缀宽度后推入 out
@@ -947,7 +974,7 @@ fn uppercase_first_char(s: &str) -> String {
 }
 
 /// 把已完成态的动作摘要改成进行时（`read 2 files` → `reading 2 files`），
-/// 用于运行中的 Thinking 行，对齐参考实现的 `Thinking for 1s, reading 2 files…`。
+/// 用于运行中的 Thinking 行（`Thinking for 3629 chars, reading 2 files…`）。
 fn present_tense_summary(summary: &str) -> String {
     const VERBS: [(&str, &str); 6] = [
         ("searched for ", "searching for "),
@@ -1404,6 +1431,24 @@ fn shell_output_lines(
     ));
 }
 
+/// 用 `user_message_background` 补空格到视口整宽，让底色铺满整行。
+///
+/// 用户消息、`!` 本机命令、排队消息与 sticky header 共用这一口径
+/// （TUI-STYLE：「用户消息底色 —— 所有行带底色」）。行尾补出的空格不参与选区与复制
+/// （`app::text_selection` 已对每行做 `trim_end`），因此不会污染剪贴板。
+fn push_bg_fill(spans: &mut Vec<Span<'static>>, width: usize) {
+    let used: usize = spans
+        .iter()
+        .map(|span| UnicodeWidthStr::width(span.content.as_ref()))
+        .sum();
+    if used < width {
+        spans.push(Span::styled(
+            " ".repeat(width - used),
+            Style::default().bg(theme::cur().user_message_background),
+        ));
+    }
+}
+
 /// 渲染用户 `!` 本机命令的标题行。
 ///
 /// 标题行使用整行背景和粉色 `!` 标记，保持与 CC 的本地命令块一致。
@@ -1583,22 +1628,25 @@ pub fn render_view_model_with_links(
     detail_mode: bool,
     tick: u64,
 ) -> (Vec<Line<'static>>, Vec<cc_widgets::markdown::LinkHit>) {
-    render_view_model_with_flags(vm, index, width, detail_mode, false, tick)
+    render_view_model_with_flags(vm, index, width, detail_mode, false, true, tick)
 }
 
 /// 带完整渲染标志的入口。
 ///
-/// 两个标志语义不同，必须分开传：
+/// 三个标志语义不同，必须分开传：
 /// - `detail_mode`（Ctrl+O 详细模式）：控制 shell 输出行数、粘贴内容、reasoning、
 ///   工具折叠状态等**整页展开**行为；
 /// - `diff_visible`（配置 `diff_enabled`）：只控制**普通页面**是否内联显示 Write/Edit
-///   的 diff 块，不影响上面任何一项（详细模式下 diff 恒可见）。
+///   的 diff 块，不影响上面任何一项（详细模式下 diff 恒可见）；
+/// - `hook_rows_visible`（配置 `hooks_ui`）：只控制 hook 结果行是否渲染，
+///   VM 里的 hook 数据始终保留（开关切回来历史行恢复）。
 pub fn render_view_model_with_flags(
     vm: &MessageViewModel,
     _index: Option<usize>,
     width: usize,
     detail_mode: bool,
     diff_visible: bool,
+    hook_rows_visible: bool,
     tick: u64,
 ) -> (Vec<Line<'static>>, Vec<cc_widgets::markdown::LinkHit>) {
     use unicode_segmentation::UnicodeSegmentation;
@@ -1663,6 +1711,11 @@ pub fn render_view_model_with_flags(
                         for span in &wline.spans {
                             spans.push(span.clone().patch_style(Style::default().bg(user_bg)));
                         }
+                        // 补空格到视口整宽，让底色铺满整行（与 `shell_command_header` /
+                        // `queued_messages` / `sticky_header` 的用户消息底色口径一致，
+                        // 见 TUI-STYLE「所有行带底色」）。行尾空白不参与选区复制
+                        // （`text_selection` 已 trim_end）。
+                        push_bg_fill(&mut spans, width);
                         lines.push(Line::from(spans));
                     } else {
                         // 后续行（含预折行产生的续行）：2 空格悬挂缩进，带底色
@@ -1670,6 +1723,7 @@ pub fn render_view_model_with_flags(
                         for span in &wline.spans {
                             spans.push(span.clone().patch_style(Style::default().bg(user_bg)));
                         }
+                        push_bg_fill(&mut spans, width);
                         lines.push(Line::from(spans));
                     }
                 }
@@ -1753,11 +1807,11 @@ pub fn render_view_model_with_flags(
                         action_summary,
                         text,
                         active: block_active,
-                        active_since,
                         ..
                     } => {
-                        // 运行中（本轮未结束且非详细模式）：对齐参考实现——
-                        // 行首圆点 + 现在时 + 省略号 + 走秒，**不吐思考正文**。
+                        // 运行中（本轮未结束且非详细模式）：行首圆点 + 现在时 + 字数，**不吐思考正文**。
+                        // 活跃态报本段已流式产出的思考字数（用户能看着数字涨），耗时只在冻结后
+                        // 落成 `Thought for Ns`——同一段思考不出现两种单位。
                         let active = *block_active && !detail_mode;
                         // Thought 标题：缩进 2 列对齐。活跃态没有可展开的正文，不给提示
                         let hint = if detail_mode || active {
@@ -1765,20 +1819,10 @@ pub fn render_view_model_with_flags(
                         } else {
                             " (ctrl+o to expand)"
                         };
-                        // 走秒口径同参考实现 Jc：已完成累计 + 距锚点（最后一段思考结束）的增量，
-                        // 至少显示 1s。
-                        let live_ms = active.then(|| {
-                            let base = duration_ms.unwrap_or(0);
-                            let extra = active_since
-                                .map(|anchor| anchor.elapsed().as_millis() as u64)
-                                .unwrap_or(0);
-                            base + extra
-                        });
-                        let live_secs = live_ms.map(|ms| ms.max(1000) / 1000);
-                        let (prefix, timing) = if let Some(secs) = live_secs {
+                        let (prefix, timing) = if active {
                             // 活跃态恒显 `∴ ` 前缀（不再做 500ms 显隐闪烁）
                             let dot = "∴ ".to_string();
-                            (dot, format!("Thinking for {secs}s"))
+                            (dot, format!("Thinking for {char_count} chars"))
                         } else {
                             // 有耗时 → `Thought for Ns`；无耗时（历史旧数据）→ 回退字数
                             // 冻结后不再带符号，只保留缩进（与活跃行对齐）
@@ -1805,50 +1849,17 @@ pub fn render_view_model_with_flags(
                             .unwrap_or_default();
                         let ellipsis = if active { "…" } else { "" };
                         let title = format!("{prefix}{timing}{actions}{ellipsis}{hint}");
-                        // 颜色对齐参考实现 `dimColor={!isActiveGroup}`：
-                        // 活跃用正常亮度（text_soft），结束后才压暗（inactive）。
-                        let title_color = if live_secs.is_some() {
-                            theme::cur().text_soft
-                        } else {
-                            theme::cur().inactive
-                        };
+                        // 活跃与冻结同色（统一压暗）：冻结瞬间不再有亮度跳变。
+                        // 活跃态靠行首 `∴ ` 与末尾省略号区分，不靠颜色。
+                        let title_color = theme::cur().inactive;
                         lines.push(Line::from(vec![Span::styled(
                             title,
                             Style::default().fg(title_color),
                         )]));
                         // 普通模式：只留这一行摘要，**不渲染任何思考正文**。
                         // 详细模式：显示完整 reasoning，走 markdown 解析 + DIM overlay
-                        let content = if detail_mode {
-                            Some(text.as_str())
-                        } else {
-                            None
-                        };
-                        if let Some(content_text) = content {
-                            let content_width = BranchPrefix::content_width(width);
-                            let parsed =
-                                super::markdown::parse_markdown(content_text, content_width);
-                            let dimmed = dim_markdown_lines(parsed);
-                            for (i, line) in dimmed.into_iter().enumerate() {
-                                // 折行：长段落按 content_width 切成多行，每行加分支前缀
-                                // 后不会超过 width，避免 Paragraph::wrap 二次折行使续行
-                                // 缺少缩进
-                                for (j, wline) in
-                                    wrap_line_spans(line, content_width).into_iter().enumerate()
-                                {
-                                    let prefix = if i == 0 && j == 0 {
-                                        BranchPrefix::PREFIX
-                                    } else {
-                                        BranchPrefix::HANG
-                                    };
-                                    let mut spans = vec![Span::styled(
-                                        prefix,
-                                        Style::default().fg(theme::cur().inactive),
-                                    )];
-                                    spans.extend(wline.spans);
-                                    lines.push(Line::from(spans));
-                                }
-                            }
-                            lines.push(Line::from(""));
+                        if detail_mode {
+                            push_thinking_body(&mut lines, text, width);
                         } else {
                             // 无 tail 预览时，摘要行后加空行分隔
                             lines.push(Line::from(""));
@@ -1884,7 +1895,7 @@ pub fn render_view_model_with_flags(
             if tool_name == "AskUserQuestion" {
                 // 与其余提前返回分支一致：hook 行挂在工具内容之后，否则整段丢失。
                 let mut lines = render_ask_user_block(content, *is_error, width);
-                append_hook_rows(&mut lines, hook_rows, detail_mode, width);
+                append_hook_rows(&mut lines, hook_rows, detail_mode, hook_rows_visible, width);
                 return (lines, link_hits);
             }
             if tool_name == "Skill" && *collapsed && !detail_mode {
@@ -1897,7 +1908,7 @@ pub fn render_view_model_with_flags(
                     tick,
                 );
                 // 折叠 Skill 分支在臂末尾之前提前返回：hook 失败/阻断行仍要跟上。
-                append_hook_rows(&mut lines, hook_rows, detail_mode, width);
+                append_hook_rows(&mut lines, hook_rows, detail_mode, hook_rows_visible, width);
                 return (lines, link_hits);
             }
             let skill_instruction = if tool_name == "Skill" && !*is_error {
@@ -2134,7 +2145,7 @@ pub fn render_view_model_with_flags(
                 // 不改 content，因此模型仍能使用完整的任务 ID 和输出路径。
                 // 转后台同样可能带阻断/失败行（PRD「与 Bash 执行结果的组合」），
                 // 必须在提前返回前追加，否则这些行会整段丢失。
-                append_hook_rows(&mut lines, hook_rows, detail_mode, width);
+                append_hook_rows(&mut lines, hook_rows, detail_mode, hook_rows_visible, width);
                 return (lines, link_hits);
             }
             if tool_name == "Bash"
@@ -2166,7 +2177,7 @@ pub fn render_view_model_with_flags(
                         ]));
                     }
                     // 运行中带实时输出的分支同样提前返回：hook 行必须挂在输出之后。
-                    append_hook_rows(&mut lines, hook_rows, detail_mode, width);
+                    append_hook_rows(&mut lines, hook_rows, detail_mode, hook_rows_visible, width);
                     return (lines, link_hits);
                 }
             }
@@ -2487,7 +2498,7 @@ pub fn render_view_model_with_flags(
                 }
             }
             // hook 行在工具输出/diff 之后，随工具块一起折叠与滚动。
-            append_hook_rows(&mut lines, hook_rows, detail_mode, width);
+            append_hook_rows(&mut lines, hook_rows, detail_mode, hook_rows_visible, width);
             (lines, link_hits)
         }
         MessageViewModel::ShellCommand {
@@ -2672,6 +2683,7 @@ pub fn render_view_model_with_flags(
                         width.saturating_sub(2),
                         detail_mode,
                         diff_visible,
+                        hook_rows_visible,
                         tick,
                     )
                     .0;
@@ -2716,13 +2728,40 @@ pub fn render_view_model_with_flags(
             detail_content,
             tone,
             body_tone,
+            detail_only,
+            branch_prefix,
             ..
         } => {
+            // 仅详细模式可见的提示（hook 成功汇总 / 异步完成 / hook 自身失败）：
+            // 普通模式整行不渲染。
+            if *detail_only && !detail_mode {
+                return (Vec::new(), link_hits);
+            }
             let active_content = if detail_mode && detail_content.is_some() {
                 detail_content.as_deref().unwrap()
             } else {
                 content.as_str()
             };
+            // 会话级 hook 结果行：行首 `⎿` 与工具结果同列，整行按语义色，无
+            // `●`/`·`/`⚠` 前缀（规格见 spec/global/domains/hooks-display.md）。
+            // hook 展示关闭时整行不渲染——VM 里的行数据不动，开关切回即恢复。
+            if *branch_prefix {
+                if !hook_rows_visible {
+                    return (Vec::new(), link_hits);
+                }
+                let color = match body_tone {
+                    Some(NoteTone::Neutral) | None => theme::cur().inactive,
+                    Some(tone) => note_tone_color(*tone),
+                };
+                let mut lines = Vec::new();
+                for line in active_content
+                    .lines()
+                    .filter(|line| !line.trim().is_empty())
+                {
+                    push_hook_line(&mut lines, line, color, width);
+                }
+                return (lines, link_hits);
+            }
             // 后台任务通知：`●` + 状态色，对齐参考实现的
             // `UserAgentNotificationMessage`——`<Text color={color}>●</Text> {summary}`，
             // **只有圆点着色**，正文用默认前景色。普通系统提示（tone 为 None）
@@ -2954,28 +2993,17 @@ pub fn render_view_model_with_flags(
             // 一等公民：组自带思考行（活跃 → Thinking，冻结 → Thought），不再依赖 AssistantBubble。
             if let Some(t) = thinking {
                 let active = t.active && !detail_mode;
-                // 普通模式只留摘要行：进行中走秒，结束后落成 `Thought for Ns`，不吐正文。
-                let live_ms = if active {
-                    let base = t.duration_ms.unwrap_or(0);
-                    let extra = t
-                        .active_since
-                        .map(|anchor| anchor.elapsed().as_millis() as u64)
-                        .unwrap_or(0);
-                    Some(base + extra)
-                } else {
-                    None
-                };
+                // 普通模式只留摘要行：进行中报本段字数，结束后落成 `Thought for Ns`，不吐正文。
                 // 活跃态没有可展开的正文，不给展开提示
                 let hint = if detail_mode || active {
                     ""
                 } else {
                     " (ctrl+o to expand)"
                 };
-                let (prefix, timing) = if let Some(ms) = live_ms {
-                    let secs = ms.max(1000) / 1000;
+                let (prefix, timing) = if active {
                     // 活跃态恒显 `∴ ` 前缀（不再做 500ms 显隐闪烁）
                     let dot = "∴ ".to_string();
-                    (dot, format!("Thinking for {secs}s"))
+                    (dot, format!("Thinking for {} chars", t.text.chars().count()))
                 } else {
                     // 冻结后不再带符号，只保留缩进（与活跃行对齐）
                     (
@@ -2998,38 +3026,17 @@ pub fn render_view_model_with_flags(
                         }
                     })
                     .unwrap_or_default();
-                let ellipsis = if live_ms.is_some() { "…" } else { "" };
-                let title_color = if live_ms.is_some() {
-                    theme::cur().text_soft
-                } else {
-                    theme::cur().inactive
-                };
+                let ellipsis = if active { "…" } else { "" };
+                // 活跃与冻结同色（统一压暗）：冻结瞬间不再有亮度跳变。
+                let title_color = theme::cur().inactive;
                 lines.push(Line::from(Span::styled(
                     format!("{prefix}{timing}{actions}{ellipsis}{hint}"),
                     Style::default().fg(title_color),
                 )));
                 // 详细模式：思考正文与 AssistantBubble 保持同一条渲染管线
                 // （markdown 解析 + DIM 压暗 + 折行），避免组内/组外观感不一致。
-                if detail_mode && !t.text.is_empty() {
-                    let content_width = BranchPrefix::content_width(width);
-                    let parsed = super::markdown::parse_markdown(&t.text, content_width);
-                    let dimmed = dim_markdown_lines(parsed);
-                    for (i, line) in dimmed.into_iter().enumerate() {
-                        for (j, wline) in wrap_line_spans(line, content_width).into_iter().enumerate() {
-                            let prefix = if i == 0 && j == 0 {
-                                BranchPrefix::PREFIX
-                            } else {
-                                BranchPrefix::HANG
-                            };
-                            let mut spans = vec![Span::styled(
-                                prefix,
-                                Style::default().fg(theme::cur().inactive),
-                            )];
-                            spans.extend(wline.spans);
-                            lines.push(Line::from(spans));
-                        }
-                    }
-                    lines.push(Line::from(""));
+                if detail_mode {
+                    push_thinking_body(&mut lines, &t.text, width);
                 }
             }
 

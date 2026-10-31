@@ -23,6 +23,10 @@ mod scrollbar_test;
 mod scrollbar_audit_test;
 
 #[cfg(test)]
+#[path = "scroll_anchor_test.rs"]
+mod scroll_anchor_test;
+
+#[cfg(test)]
 #[path = "viewport_interaction_test.rs"]
 mod viewport_interaction_test;
 
@@ -379,7 +383,8 @@ fn handle_message_scrollbar_down(app: &mut App, row: u16, column: u16) -> bool {
 
     if point_in_hit_bar(column, row, metrics.bar_area) && metrics.max_offset > 0 {
         // 抓住已有滑块时保留精确偏移；只有点击轨道空白处才跳转。
-        if row < metrics.thumb_area.y || row >= metrics.thumb_area.bottom() {
+        let grabbing_thumb = row >= metrics.thumb_area.y && row < metrics.thumb_area.bottom();
+        if !grabbing_thumb {
             let new_offset = message_scrollbar_offset_for_row(metrics, row);
             set_message_scroll_offset(app, new_offset);
         }
@@ -392,6 +397,13 @@ fn handle_message_scrollbar_down(app: &mut App, row: u16, column: u16) -> bool {
             .virtual_layout
             .is_some();
         let ui = &mut app.session_mgr.current_mut().ui;
+        // 抓取滑块也是一次用户定位：冻结当前位置，并使在途旧锚点失效。
+        let offset = if ui.scroll_follow {
+            ui.scrollbar_max_offset
+        } else {
+            ui.scroll_offset.min(ui.scrollbar_max_offset)
+        };
+        ui.set_scroll_position(offset, !grabbing_thumb && ui.scroll_follow);
         ui.message_scrollbar_dragging = true;
         let travel = metrics
             .bar_area
@@ -465,8 +477,7 @@ fn set_message_scroll_offset(app: &mut App, offset: usize) {
     let max_scroll = ui.scrollbar_max_offset;
     let min_scroll = ui.scrollbar_min_offset.min(max_scroll);
     let offset = offset.clamp(min_scroll, max_scroll);
-    ui.scroll_offset = offset;
-    ui.scroll_follow = offset >= max_scroll;
+    ui.set_scroll_position(offset, offset >= max_scroll);
 }
 
 fn message_selection_offset(app: &App) -> usize {
@@ -1183,18 +1194,28 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                                 let step = (1 + distance / 2).min(5) as usize;
                                 let max_scroll = ui.scrollbar_max_offset;
                                 let min_scroll = ui.scrollbar_min_offset.min(max_scroll);
-                                let next = ui.scroll_offset.saturating_add(step).min(max_scroll);
-                                ui.scroll_offset = next.max(min_scroll);
-                                ui.scroll_follow = next >= max_scroll;
+                                let current = if ui.scroll_follow {
+                                    max_scroll
+                                } else {
+                                    ui.scroll_offset.clamp(min_scroll, max_scroll)
+                                };
+                                let next = current.saturating_add(step).min(max_scroll);
+                                ui.set_scroll_position(next, next >= max_scroll);
                             } else if mouse.row < area.y {
                                 // 向上滚动：鼠标拖到消息区上方（区外）
                                 let distance = area.y.saturating_sub(mouse.row) as u32;
                                 let step = (1 + distance / 2).min(5) as usize;
                                 let max_scroll = ui.scrollbar_max_offset;
                                 let min_scroll = ui.scrollbar_min_offset.min(max_scroll);
-                                ui.scroll_offset =
-                                    ui.scroll_offset.saturating_sub(step).max(min_scroll);
-                                ui.scroll_follow = false;
+                                let current = if ui.scroll_follow {
+                                    max_scroll
+                                } else {
+                                    ui.scroll_offset.clamp(min_scroll, max_scroll)
+                                };
+                                ui.set_scroll_position(
+                                    current.saturating_sub(step).max(min_scroll),
+                                    false,
+                                );
                             }
                             // 坐标统一（#650/#629）：virtual 用 presented 偏移且把
                             // 鼠标行钳在消息区内（消息空间，不再扣前缀）；非 virtual

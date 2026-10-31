@@ -22,7 +22,8 @@ const RENDER_CHANNEL_CAPACITY: usize = 128;
 #[cfg(test)]
 use super::message_render::CONTROL_B_BACKGROUND_HINT;
 pub use super::render_layout::{
-    SelectionAnchor, ViewportAnchor, VirtualLayoutSnapshot, VirtualRenderStats,
+    SelectionAnchor, Viewport as RenderViewport, ViewportAnchor, VirtualLayoutSnapshot,
+    VirtualRenderStats,
 };
 use super::theme;
 use super::{
@@ -65,6 +66,15 @@ pub struct WrappedLineInfo {
     pub copy_prefix_graphemes: usize,
 }
 
+/// 一次重排恢复的位置及捕获它的用户滚动版本。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ScrollAnchor {
+    pub position: ViewportAnchor,
+    pub visual_row: usize,
+    /// 捕获位置时的用户滚动版本；重排不能覆盖后续的键鼠操作。
+    pub scroll_revision: u64,
+}
+
 /// 渲染缓存，由渲染线程写入、UI 线程读取
 pub struct RenderCache {
     /// 虚拟布局的全局元数据；lines/wrap_map/links 只持有当前物化窗口。
@@ -73,6 +83,8 @@ pub struct RenderCache {
     pub lines: Vec<Line<'static>>,
     /// 每条消息在 lines 中的起始行索引（用于定位）
     pub message_offsets: Vec<usize>,
+    /// 经典缓存去重后的每行对应的（消息索引，渲染逻辑行）。
+    pub line_origins: Vec<(usize, usize)>,
     /// 总行数（已考虑 wrap 换行后的真实视觉行数）
     pub total_lines: usize,
     /// 版本号，UI 线程比较是否有变化以决定是否重绘
@@ -83,7 +95,7 @@ pub struct RenderCache {
     /// 当前渲染使用的文本区域宽度
     pub width: u16,
     /// RebuildAll 后的滚动锚点（视觉行号），UI 线程读取后清除
-    pub scroll_anchor: Option<usize>,
+    pub scroll_anchor: Option<ScrollAnchor>,
 }
 
 impl Default for RenderCache {
@@ -98,6 +110,7 @@ impl RenderCache {
             virtual_layout: None,
             lines: Vec::new(),
             message_offsets: Vec::new(),
+            line_origins: Vec::new(),
             total_lines: 0,
             version: 0,
             wrap_map: Vec::new(),
@@ -125,8 +138,26 @@ pub struct PreparedWidth {
     pub measured_rows: usize,
 }
 
+/// 当前视口独立保存的显示选项，随消息快照一起提交。
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct DisplayFlags {
+    pub detail_mode: bool,
+    pub diff_visible: bool,
+    pub show_tool_messages: bool,
+}
+
 /// 渲染线程接收的事件
 pub enum RenderEvent {
+    /// 显示状态与目标消息不可分开入队，队列重试只保留最新完整快照。
+    WithDisplay {
+        display: DisplayFlags,
+        event: Box<RenderEvent>,
+    },
+    /// 重排与捕获时的阅读意图原子入队，不能等待下一帧才同步位置。
+    WithViewport {
+        viewport: RenderViewport,
+        event: Box<RenderEvent>,
+    },
     /// 仅影响本地渲染，不改变 Agent 或系统提示词。
     SetDetailStrategy(String),
     Viewport {
@@ -134,6 +165,7 @@ pub enum RenderEvent {
         height: usize,
         follow_tail: bool,
         anchor: Option<ViewportAnchor>,
+        scroll_revision: u64,
     },
     CopySelection {
         start: SelectionAnchor,
@@ -145,8 +177,8 @@ pub enum RenderEvent {
     /// 全量重建并设置滚动锚点（RebuildAll 后保持滚动位置）
     RebuildWithAnchor {
         messages: Vec<MessageViewModel>,
-        /// 锚点对应的消息在旧 view_messages 中的索引
-        anchor_message_idx: usize,
+        anchor: ViewportAnchor,
+        scroll_revision: u64,
     },
     /// 终端宽度变化，渲染线程自动用 last_messages 重建
     Resize(u16),
@@ -162,8 +194,48 @@ pub enum RenderEvent {
     ToggleToolMessages(bool),
     /// 切换内联 diff 显示状态（强制全量重渲染）
     ToggleDiff(bool),
+    /// 切换 hook 结果行的显示状态（数据保留，只影响渲染）
+    ToggleHookRows(bool),
     /// 切换详细模式（shell 输出、粘贴内容、reasoning 展开/折叠）
     ToggleDetail(bool),
+}
+
+impl RenderEvent {
+    #[cfg(test)]
+    pub(crate) fn into_payload(self) -> Self {
+        match self {
+            Self::WithViewport { event, .. } | Self::WithDisplay { event, .. } => {
+                event.into_payload()
+            }
+            event => event,
+        }
+    }
+
+    pub(crate) fn payload(&self) -> &Self {
+        match self {
+            Self::WithViewport { event, .. } | Self::WithDisplay { event, .. } => event.payload(),
+            event => event,
+        }
+    }
+
+    pub(crate) fn clone_mode(&self) -> Option<Self> {
+        Some(match self {
+            Self::WithDisplay { display, event } => Self::WithDisplay {
+                display: *display,
+                event: Box::new(event.clone_mode()?),
+            },
+            Self::WithViewport { viewport, event } => Self::WithViewport {
+                viewport: *viewport,
+                event: Box::new(event.clone_mode()?),
+            },
+            Self::SetDetailStrategy(value) => Self::SetDetailStrategy(value.clone()),
+            Self::ToggleDetail(value) => Self::ToggleDetail(*value),
+            Self::ToggleDiff(value) => Self::ToggleDiff(*value),
+            Self::ToggleHookRows(value) => Self::ToggleHookRows(*value),
+            Self::ToggleToolMessages(value) => Self::ToggleToolMessages(*value),
+            _ => return None,
+        })
+    }
 }
 
 /// #626：单条消息的 wrap 分段缓存。
@@ -206,6 +278,8 @@ pub(super) struct RenderTask {
     width: u16,
     show_tool_messages: bool,
     diff_visible: bool,
+    /// hook 结果行是否可见（配置 `hooks_ui`，缺省可见）
+    hook_rows_visible: bool,
     detail_mode: bool,
     /// 上次渲染时的主题指纹。主题切换后 markdown 的 `rendered` 快照与内容 hash
     /// 都不变，必须靠它强制放弃缓存行复用。
@@ -241,7 +315,11 @@ fn detail_sensitive(vm: &MessageViewModel) -> bool {
             .any(|b| matches!(b, super::message_view::ContentBlockView::Reasoning { .. })),
         MessageViewModel::ToolBlock { .. } => true,
         MessageViewModel::ShellCommand { .. } => true,
-        MessageViewModel::SystemNote { detail_content, .. } => detail_content.is_some(),
+        MessageViewModel::SystemNote {
+            detail_content,
+            detail_only,
+            ..
+        } => detail_content.is_some() || *detail_only,
         MessageViewModel::CacheWarning { .. } => false,
         MessageViewModel::ToolCallGroup { .. } => true,
         MessageViewModel::SubAgentGroup { .. } => true,
@@ -252,6 +330,20 @@ fn detail_sensitive(vm: &MessageViewModel) -> bool {
 fn diff_sensitive(vm: &MessageViewModel) -> bool {
     match vm {
         MessageViewModel::ToolBlock { diff_input, .. } => diff_input.is_some(),
+        MessageViewModel::ToolCallGroup { .. } => true,
+        MessageViewModel::SubAgentGroup { .. } => true,
+        _ => false,
+    }
+}
+
+/// 该消息的渲染结果是否随 `hook_rows_visible` 变化。
+///
+/// 工具有 hook 行时敏感；组（工具组 / 子 Agent）内嵌渲染子 VM，可能带 hook 行，一并视为敏感。
+fn hook_rows_sensitive(vm: &MessageViewModel) -> bool {
+    match vm {
+        MessageViewModel::ToolBlock { hook_rows, .. } => !hook_rows.is_empty(),
+        // 会话级 hook 行本身就是 SystemNote（`branch_prefix = true`）。
+        MessageViewModel::SystemNote { branch_prefix, .. } => *branch_prefix,
         MessageViewModel::ToolCallGroup { .. } => true,
         MessageViewModel::SubAgentGroup { .. } => true,
         _ => false,
@@ -299,7 +391,7 @@ fn live_thinking_elapsed_ms(vm: &MessageViewModel) -> Option<u64> {
     })
 }
 
-fn render_key(vm: &MessageViewModel, detail: bool, diff: bool) -> u64 {
+fn render_key(vm: &MessageViewModel, detail: bool, diff: bool, hook_rows: bool) -> u64 {
     let mut h = DefaultHasher::new();
     vm.content_hash().hash(&mut h);
     if let Some(ms) = live_thinking_elapsed_ms(vm) {
@@ -312,10 +404,27 @@ fn render_key(vm: &MessageViewModel, detail: bool, diff: bool) -> u64 {
     if diff_sensitive(vm) {
         diff.hash(&mut h);
     }
+    if hook_rows_sensitive(vm) {
+        hook_rows.hash(&mut h);
+    }
     h.finish()
 }
 
 impl RenderTask {
+    fn apply_display(&mut self, display: DisplayFlags) {
+        if self.detail_mode != display.detail_mode
+            || self.diff_visible != display.diff_visible
+            || self.show_tool_messages != display.show_tool_messages
+        {
+            // 与 Toggle 路径一致，禁止把旧 VM 的 cosmetic 判定用于新显示状态。
+            // 保留行、双变体与换行缓存，仍按完整渲染键复用有效成品。
+            self.last_messages.clear();
+        }
+        self.detail_mode = display.detail_mode;
+        self.diff_visible = display.diff_visible;
+        self.show_tool_messages = display.show_tool_messages;
+    }
+
     /// 根据 cache.lines 和当前宽度计算 wrap_map。
     /// 对每个逻辑行使用 ratatui 的 Paragraph::line_count 精确计算视觉行数，
     /// 与实际渲染的 WordWrapper 算法完全一致。
@@ -392,6 +501,7 @@ impl RenderTask {
         index: usize,
         width: usize,
         diff_visible: bool,
+        hook_rows_visible: bool,
         detail_mode: bool,
     ) -> (Vec<Line<'static>>, Vec<LinkHit>) {
         let tick = current_tool_indicator_tick();
@@ -429,9 +539,17 @@ impl RenderTask {
 
         // detail_mode 控制 shell 输出、粘贴内容、reasoning 的展开/折叠
         // diff_visible 只控制普通页面是否内联显示 Write/Edit 的 diff（详细模式下恒显示）
-        // 两者语义不同，必须分开传：并成一个标志会让「内联 Diff」顺带打开整页展开
-        let (mut lines, mut links) =
-            render_view_model_with_flags(vm, Some(index), width, detail_mode, diff_visible, tick);
+        // hook_rows_visible 只控制 hook 结果行是否渲染（数据保留，切回来即恢复）
+        // 三者语义不同，必须分开传：并成一个标志会让「内联 Diff」顺带打开整页展开
+        let (mut lines, mut links) = render_view_model_with_flags(
+            vm,
+            Some(index),
+            width,
+            detail_mode,
+            diff_visible,
+            hook_rows_visible,
+            tick,
+        );
         // 裸 URL 只对工具结果与 `!` 命令输出登记命中区：Markdown 正文/代码块里的
         // `http(s)://` 一律不扫描（与 CC 的 `OutputLine` 口径一致），用户输入更不参与。
         if matches!(
@@ -567,6 +685,14 @@ impl RenderTask {
     ///    仅真变化的消息重渲染（重渲染的旧成品存入 alt 备切换时复用）
     /// 4. 对 hash 不同但属于 cosmetic change 的消息也复用缓存
     fn rebuild(&mut self, messages: Vec<MessageViewModel>) {
+        self.rebuild_with_scroll_anchor(messages, None);
+    }
+
+    fn rebuild_with_scroll_anchor(
+        &mut self,
+        messages: Vec<MessageViewModel>,
+        scroll_anchor: Option<(ViewportAnchor, u64)>,
+    ) {
         let width = self.width as usize;
         let new_len = messages.len();
 
@@ -577,7 +703,14 @@ impl RenderTask {
         // 不敏感的消息切换标志时键不变，可直接复用缓存行。
         let new_keys: Vec<u64> = messages
             .iter()
-            .map(|vm| render_key(vm, self.detail_mode, self.diff_visible))
+            .map(|vm| {
+                render_key(
+                    vm,
+                    self.detail_mode,
+                    self.diff_visible,
+                    self.hook_rows_visible,
+                )
+            })
             .collect();
 
         // 主题切换：markdown 的 `rendered` 快照与内容 hash 都不变，但颜色已过期。
@@ -679,8 +812,14 @@ impl RenderTask {
                 old_message_links[i].clear();
                 self.alt_epochs[i] = 0;
             }
-            let (lines, links) =
-                Self::render_one(&mut vm, i + 1, width, self.diff_visible, self.detail_mode);
+            let (lines, links) = Self::render_one(
+                &mut vm,
+                i + 1,
+                width,
+                self.diff_visible,
+                self.hook_rows_visible,
+                self.detail_mode,
+            );
             self.message_lines[i] = lines;
             self.message_links[i] = links;
             // 新成品 = 新版本号：旧的 wrap 分段必然失效
@@ -696,13 +835,14 @@ impl RenderTask {
         // 修复：旧代码先构建 offsets（基于 all_lines），再做 dedup 生成 deduped，
         // 导致 offsets 和 wrap_map 处于不同索引空间。
         let mut deduped: Vec<Line<'static>> = Vec::new();
+        let mut line_origins = Vec::new();
         let mut offsets: Vec<usize> = Vec::new();
         let mut global_links: Vec<LinkHit> = Vec::new();
         let mut prev_empty = false;
         for (mi, lines) in self.message_lines.iter().enumerate() {
             offsets.push(deduped.len());
             let mut line_map: Vec<Option<usize>> = Vec::with_capacity(lines.len());
-            for line in lines {
+            for (logical_line, line) in lines.iter().enumerate() {
                 let is_empty = line.spans.is_empty()
                     || (line.spans.len() == 1 && line.spans[0].content.is_empty());
                 if is_empty && prev_empty {
@@ -712,6 +852,7 @@ impl RenderTask {
                 prev_empty = is_empty;
                 line_map.push(Some(deduped.len()));
                 deduped.push(line.clone());
+                line_origins.push((mi, logical_line));
             }
             if let Some(msg_links) = self.message_links.get(mi) {
                 for hit in msg_links {
@@ -730,6 +871,7 @@ impl RenderTask {
         }) {
             let dropped = deduped.len() - 1;
             deduped.pop();
+            line_origins.pop();
             global_links.retain(|hit| hit.line != dropped);
         }
 
@@ -800,6 +942,7 @@ impl RenderTask {
         let mut next = RenderCache {
             lines: deduped,
             message_offsets: offsets,
+            line_origins,
             total_lines,
             wrap_map,
             links: global_links,
@@ -809,7 +952,20 @@ impl RenderTask {
         let old = {
             let mut cache = self.cache.write();
             next.version = cache.version + 1;
-            next.scroll_anchor = cache.scroll_anchor;
+            // 未消费的锚点仍按语义位置重算，不能把旧宽度的视觉行复制到新布局。
+            let pending = scroll_anchor.or_else(|| {
+                cache
+                    .scroll_anchor
+                    .map(|anchor| (anchor.position, anchor.scroll_revision))
+            });
+            next.scroll_anchor = pending.and_then(|(position, scroll_revision)| {
+                next.visual_row_for_anchor(position)
+                    .map(|visual_row| ScrollAnchor {
+                        position,
+                        visual_row,
+                        scroll_revision,
+                    })
+            });
             std::mem::replace(&mut *cache, next)
         };
         // 全量旧成品的析构放在锁外，避免 UI 读缓存时等待历史行释放。
@@ -905,10 +1061,29 @@ impl RenderTask {
             && started_at.is_some_and(|t| t.elapsed() >= Duration::from_secs(2))
     }
 
+    #[cfg(test)]
     fn refresh_running_tool_indicators(&mut self, tick: u64) -> bool {
+        self.refresh_running_tool_indicators_with_scroll_anchor(tick, None)
+    }
+
+    fn refresh_running_tool_indicators_with_scroll_anchor(
+        &mut self,
+        tick: u64,
+        reading_anchor: Option<(ViewportAnchor, u64)>,
+    ) -> bool {
         if !self.has_running_tool_blocks() {
             return false;
         }
+        // tick 也会改变上方消息高度；旧锚点已被 UI 消费后，仍需恢复当前阅读位置。
+        // 未消费的锚点与视口快照取最新滚动版本，同版本优先使用当前视口。
+        let scroll_anchor = self
+            .cache
+            .read()
+            .scroll_anchor
+            .map(|anchor| (anchor.position, anchor.scroll_revision))
+            .into_iter()
+            .chain(reading_anchor)
+            .max_by_key(|(_, revision)| *revision);
 
         // 场景 A：有 Bash 首次跨越 2 秒阈值，但缓存仍是 1 行（未渲染 hint 行）。
         // 行数变化无法增量更新，需要重建——但只失效该条消息的 hash，
@@ -1026,7 +1201,7 @@ impl RenderTask {
         }
         if needs_rebuild {
             let messages = self.last_messages.clone();
-            self.rebuild_safe(messages);
+            self.rebuild_safe_with_anchor(messages, scroll_anchor);
             return true;
         }
 
@@ -1138,6 +1313,16 @@ impl RenderTask {
         }
 
         if changed {
+            // inline 秒数更新也可能跨 wrap 边界；旧视觉行不能直接沿用。
+            cache.scroll_anchor = scroll_anchor.and_then(|(position, scroll_revision)| {
+                cache
+                    .visual_row_for_anchor(position)
+                    .map(|visual_row| ScrollAnchor {
+                        position,
+                        visual_row,
+                        scroll_revision,
+                    })
+            });
             cache.version += 1;
         }
         changed
@@ -1253,6 +1438,14 @@ impl RenderTask {
     }
 
     fn resize(&mut self, new_width: u16) {
+        self.resize_with_scroll_anchor(new_width, None);
+    }
+
+    fn resize_with_scroll_anchor(
+        &mut self,
+        new_width: u16,
+        scroll_anchor: Option<(ViewportAnchor, u64)>,
+    ) {
         if self.width == new_width && self.cache.read().width == new_width {
             return;
         }
@@ -1268,7 +1461,7 @@ impl RenderTask {
         // 用 last_messages 重新渲染（宽度变化需要重新计算所有行的 wrap）
         if !self.last_messages.is_empty() {
             let messages = std::mem::take(&mut self.last_messages);
-            self.rebuild_safe(messages);
+            self.rebuild_safe_with_anchor(messages, scroll_anchor);
         }
         if self.last_messages.is_empty() {
             self.cache.write().width = new_width;
@@ -1276,8 +1469,28 @@ impl RenderTask {
     }
 
     fn handle_event(&mut self, event: RenderEvent, rx: &mut mpsc::Receiver<RenderEvent>) {
+        self.handle_event_with_scroll_anchor(event, rx, None);
+    }
+
+    fn handle_event_with_scroll_anchor(
+        &mut self,
+        event: RenderEvent,
+        rx: &mut mpsc::Receiver<RenderEvent>,
+        scroll_anchor: Option<(ViewportAnchor, u64)>,
+    ) {
         let _ = rx;
         match event {
+            RenderEvent::WithDisplay { display, event } => {
+                self.apply_display(display);
+                self.handle_event_with_scroll_anchor(*event, rx, scroll_anchor);
+            }
+            RenderEvent::WithViewport { viewport, event } => {
+                let anchor = (!viewport.follow_tail)
+                    .then_some(viewport.anchor)
+                    .flatten()
+                    .map(|anchor| (anchor, viewport.scroll_revision));
+                self.handle_event_with_scroll_anchor(*event, rx, anchor);
+            }
             RenderEvent::SetDetailStrategy(_) | RenderEvent::Viewport { .. } => {}
             RenderEvent::CopySelection { reply, .. } => {
                 let _ = reply.send(None);
@@ -1287,25 +1500,10 @@ impl RenderTask {
             }
             RenderEvent::RebuildWithAnchor {
                 messages,
-                anchor_message_idx,
+                anchor,
+                scroll_revision,
             } => {
-                self.rebuild_safe(messages);
-                // 计算锚点消息在新布局中的视觉行起始位置
-                let anchor_visual_row =
-                    if anchor_message_idx < self.cache.read().message_offsets.len() {
-                        let cache = self.cache.read();
-                        let line_idx = cache.message_offsets[anchor_message_idx];
-                        if line_idx < cache.wrap_map.len() {
-                            Some(cache.wrap_map[line_idx].visual_row_start)
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    };
-                if let Some(row) = anchor_visual_row {
-                    self.cache.write().scroll_anchor = Some(row);
-                }
+                self.rebuild_safe_with_anchor(messages, Some((anchor, scroll_revision)));
             }
             RenderEvent::Resize(new_width) => {
                 // 合并连续 Resize 由 RenderWorker 层统一处理（保序且不吞控制
@@ -1376,7 +1574,7 @@ impl RenderTask {
                 // 不再清空 message_hashes 强制全量重渲染。
                 if !self.last_messages.is_empty() {
                     let messages = std::mem::take(&mut self.last_messages);
-                    self.rebuild_safe(messages);
+                    self.rebuild_safe_with_anchor(messages, scroll_anchor);
                 }
             }
             RenderEvent::ToggleDetail(show) => {
@@ -1385,7 +1583,16 @@ impl RenderTask {
                 // 不再清空 message_hashes 强制全量重渲染。
                 if !self.last_messages.is_empty() {
                     let messages = std::mem::take(&mut self.last_messages);
-                    self.rebuild_safe(messages);
+                    self.rebuild_safe_with_anchor(messages, scroll_anchor);
+                }
+            }
+            RenderEvent::ToggleHookRows(show) => {
+                self.hook_rows_visible = show;
+                // 渲染键包含 hook 标志（仅对带 hook 行的消息敏感），切换后按
+                // 键复用/交换变体即可；历史行不入 VM 数据，只影响渲染。
+                if !self.last_messages.is_empty() {
+                    let messages = std::mem::take(&mut self.last_messages);
+                    self.rebuild_safe_with_anchor(messages, scroll_anchor);
                 }
             }
         }
@@ -1394,9 +1601,21 @@ impl RenderTask {
     /// rebuild 的安全包装：捕获 panic 防止渲染线程死亡。
     /// panic 信息通过全局 panic hook（main.rs）记录到日志并通知 TUI。
     fn rebuild_safe(&mut self, messages: Vec<MessageViewModel>) {
+        self.rebuild_safe_with_anchor(messages, None);
+    }
+
+    fn rebuild_safe_with_anchor(
+        &mut self,
+        messages: Vec<MessageViewModel>,
+        scroll_anchor: Option<(ViewportAnchor, u64)>,
+    ) {
         use std::panic::AssertUnwindSafe;
         let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
-            self.rebuild(messages);
+            if scroll_anchor.is_some() {
+                self.rebuild_with_scroll_anchor(messages, scroll_anchor);
+            } else {
+                self.rebuild(messages);
+            }
         }));
         if let Err(panic_payload) = result {
             // panic hook 已处理日志和通知，这里只需确保渲染线程存活
@@ -1438,6 +1657,7 @@ pub fn spawn_render_thread(
         width,
         show_tool_messages: false,
         diff_visible: false,
+        hook_rows_visible: true,
         detail_mode: false,
         theme_fingerprint: crate::ui::theme::fingerprint(),
         alt_lines: Vec::new(),
@@ -1461,3 +1681,11 @@ mod tests;
 #[cfg(test)]
 #[path = "cache_publish_test.rs"]
 mod cache_publish_tests;
+
+#[cfg(test)]
+#[path = "tick_scroll_anchor_test.rs"]
+mod tick_scroll_anchor_tests;
+
+#[cfg(test)]
+#[path = "render_display_test.rs"]
+mod display_tests;

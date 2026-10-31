@@ -745,3 +745,7 @@ fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 
 #[cfg(test)]
 #[path = "main_ui_test.rs"]
 mod main_ui_test;
+
+#[cfg(test)]
+#[path = "scroll_anchor_test.rs"]
+mod scroll_anchor_test;

@@ -118,30 +118,43 @@ cleanup_old_versions() {
     echo "  Total: ${total_human}"
     echo ""
 
-    # Read from /dev/tty to work with curl | bash pipe
-    if ! [[ -t 0 ]] && [[ -e /dev/tty ]]; then
-        exec 3< /dev/tty
+    # Self-update runs this script with no usable stdin, where `read` yields an
+    # empty answer and the cleanup would be skipped forever (#798);
+    # CC_CODE_NO_CLEANUP_PROMPT makes that path explicit.
+    local should_clean=0
+    if [[ "${CC_CODE_NO_CLEANUP_PROMPT:-0}" == "1" ]]; then
+        info "Non-interactive mode: cleaning up without confirmation."
+        should_clean=1
+    elif ! [[ -t 0 ]] && [[ ! -e /dev/tty ]]; then
+        info "Non-interactive mode: cleaning up without confirmation."
+        should_clean=1
     else
-        exec 3<&0
+        # Read from /dev/tty to work with curl | bash pipe
+        if ! [[ -t 0 ]] && [[ -e /dev/tty ]]; then
+            exec 3< /dev/tty
+        else
+            exec 3<&0
+        fi
+
+        echo -e "${YELLOW}[WARN]${NC}  Delete old versions? [y/N] " >&2
+        local answer=""
+        read -r answer <&3 || true
+        exec 3<&-
+
+        case "${answer}" in
+            [yY]|[yY][eE][sS]) should_clean=1 ;;
+        esac
     fi
 
-    echo -e "${YELLOW}[WARN]${NC}  Delete old versions? [y/N] " >&2
-    local answer
-    read -r answer <&3
-    exec 3<&-
-
-    case "${answer}" in
-        [yY]|[yY][eE][sS])
-            for d in "${old_dirs[@]}"; do
-                rm -rf "$d"
-                info "Removed: $(basename "$d")"
-            done
-            info "Cleaned up ${#old_dirs[@]} old version(s)."
-            ;;
-        *)
-            info "Skipped cleanup."
-            ;;
-    esac
+    if [[ ${should_clean} -eq 1 ]]; then
+        for d in "${old_dirs[@]}"; do
+            rm -rf "$d"
+            info "Removed: $(basename "$d")"
+        done
+        info "Cleaned up ${#old_dirs[@]} old version(s)."
+    else
+        info "Skipped cleanup."
+    fi
 }
 
 # --- SHA256 Verification ---

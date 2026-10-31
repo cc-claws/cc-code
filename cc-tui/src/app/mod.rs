@@ -305,6 +305,10 @@ impl App {
             .as_ref()
             .map(|c| c.config.diff_enabled)
             .unwrap_or(false);
+        let hook_rows_visible = peri_config
+            .as_ref()
+            .map(|c| c.config.hooks_ui_enabled())
+            .unwrap_or(true);
         let detail_enabled = false;
 
         let initial_session = ChatSession::new(
@@ -314,6 +318,7 @@ impl App {
             &lc,
             detail_enabled,
             diff_enabled,
+            hook_rows_visible,
             peri_config.as_ref().map(|config| &config.config),
         );
 
@@ -418,6 +423,7 @@ impl App {
         }
         let detail_mode = self.session_mgr.current_mut().ui.detail_mode;
         let diff_visible = self.session_mgr.current_mut().ui.diff_visible;
+        let hook_rows_visible = self.session_mgr.current_mut().ui.hook_rows_visible;
         let session = ChatSession::new(
             self.services.cwd.clone(),
             command_registry,
@@ -425,6 +431,7 @@ impl App {
             &self.services.lc,
             detail_mode,
             diff_visible,
+            hook_rows_visible,
             self.services
                 .peri_config
                 .as_ref()
@@ -557,17 +564,7 @@ impl App {
                     .retain(|(a, _)| *a < user_msg_idx);
                 {
                     self.session_mgr.current().messages.invalidate_layout();
-                    let remaining = self
-                        .session_mgr
-                        .current_mut()
-                        .messages
-                        .view_messages
-                        .clone();
-                    let _ = self
-                        .session_mgr
-                        .current_mut()
-                        .messages
-                        .send_render_event(RenderEvent::Rebuild(remaining));
+                    self.render_rebuild();
                 }
                 // 截断 origin_messages（回滚 StateSnapshot 扩展的内容）
                 let pre_len = self.session_mgr.current_mut().metadata.pre_submit_state_len;

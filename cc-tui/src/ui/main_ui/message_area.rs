@@ -207,15 +207,13 @@ pub(crate) fn render_messages(
             app.session_mgr.current_mut().messages.last_resize_width = Some(text_area_width);
             let _ = app
                 .session_mgr
-                .current_mut()
-                .messages
-                .render_tx
-                .try_send(RenderEvent::Resize(text_area_width));
+                .current()
+                .send_render_event(RenderEvent::Resize(text_area_width));
         }
     }
 
     // ── 从 RenderCache 读取并计算滚动参数 ──────────────────────────────────
-    let (min_scroll, max_scroll, offset) = {
+    let (min_scroll, max_scroll, offset, viewport_anchor) = {
         let mut cache = app.session_mgr.current().messages.render_cache.write();
 
         // 全屏 alternate screen 模式：无原生 scrollback，所有内容都在 TUI 视口内，
@@ -230,37 +228,40 @@ pub(crate) fn render_messages(
             .max(min_scroll);
         let scroll_follow = app.session_mgr.current().ui.scroll_follow;
         let scroll_offset = app.session_mgr.current().ui.scroll_offset;
-        let scroll_anchor = cache.scroll_anchor.take().filter(|_| {
-            cache.virtual_layout.as_ref().is_none_or(|layout| {
-                layout.requested_top == scroll_offset
-                    && layout.requested_height == visible_height as usize
-                    && cache.width == text_area.width
-            })
+        let scroll_revision = app.session_mgr.current().ui.scroll_revision;
+        // 切视图后的首帧尚未上报当前位置，缓存可能仍按旧视图的欢迎前缀计算。
+        let view_presented = app.session_mgr.current().messages.last_viewport.is_some();
+        let scroll_anchor = cache.scroll_anchor.take().filter(|anchor| {
+            view_presented
+                && anchor.scroll_revision == scroll_revision
+                && (cache.virtual_layout.is_none() || cache.width == text_area.width)
         });
         let dragging = app.session_mgr.current().ui.message_scrollbar_dragging;
         let (new_follow, off) = if dragging {
             // dragging 期间跳过 follow/anchor 优先级，强制使用用户拖拽的 offset
             let off = scroll_offset.clamp(min_scroll, max_scroll);
-            (off >= max_scroll, off)
+            (scroll_follow, off)
         } else if scroll_follow {
             (true, max_scroll)
         } else if scroll_offset < prefix_rows {
             // 消息锚点不包含欢迎卡；浏览前缀时重建不能把用户推到消息起点。
             let off = scroll_offset.min(max_scroll);
-            (off >= max_scroll, off)
+            (false, off)
         } else if let Some(anchor) = scroll_anchor {
             let off = anchor
+                .visual_row
                 .saturating_add(prefix_rows)
                 .clamp(min_scroll, max_scroll);
-            let new_follow = off >= max_scroll;
-            (new_follow, off)
+            (false, off)
         } else {
             let off = scroll_offset.clamp(min_scroll, max_scroll);
-            let new_follow = off >= max_scroll;
-            (new_follow, off)
+            // 布局缩短/估算校正只钳位坐标，不代表用户选择重新跟随最新。
+            (false, off)
         };
 
         let version = cache.version;
+        // 与本帧滚动位置从同一缓存取样，不能在 worker 发布下一布局后重新解释旧 off。
+        let viewport_anchor = cache.viewport_anchor_at(off.saturating_sub(prefix_rows));
         drop(cache);
 
         app.session_mgr.current_mut().messages.last_render_version = version;
@@ -269,7 +270,7 @@ pub(crate) fn render_messages(
         app.session_mgr.current_mut().ui.scrollbar_min_offset = min_scroll;
         app.session_mgr.current_mut().ui.scrollbar_max_offset = max_scroll;
 
-        (min_scroll, max_scroll, off)
+        (min_scroll, max_scroll, off, viewport_anchor)
     };
 
     // 欢迎前缀在本帧实际占用的高度（消息绘制与视口上报共用同一口径）
@@ -283,17 +284,14 @@ pub(crate) fn render_messages(
         let top_msg = offset.saturating_sub(prefix_rows);
         let body_height = text_area.height.saturating_sub(prefix_height) as usize;
         let session = app.session_mgr.current_mut();
-        let anchor = session
-            .messages
-            .render_cache
-            .read()
-            .viewport_anchor_at(top_msg);
+        let anchor = viewport_anchor;
         let request = (
             top_msg,
             body_height,
             session.ui.scroll_follow,
             text_area.width,
             anchor,
+            session.ui.scroll_revision,
         );
         if session.messages.last_viewport != Some(request)
             && session
@@ -304,6 +302,7 @@ pub(crate) fn render_messages(
                     height: body_height,
                     follow_tail: session.ui.scroll_follow,
                     anchor,
+                    scroll_revision: session.ui.scroll_revision,
                 })
                 .is_ok()
         {
@@ -828,10 +827,12 @@ pub(super) fn visible_tail(app: &App) -> Vec<Line<'static>> {
     supplementary_lines(app, &spinner_line)
 }
 
-/// 压缩进行中的「小人跑道」：固定 12 格，小人每 150ms 前进一格并回卷。
+/// 压缩进行中的「小人跑道」：固定 12 格，小人每 150ms 从右向左单向奔跑并穿墙回卷。
 ///
 /// 占的是 tip 那一行（不增加布局高度），压缩结束即消失。进度是假的，
 /// 这里只表达「还在跑」，所以不用进度条。
+/// Unicode 中 `🏃` / `🚶` 默认面朝左侧，因此采用从右向左单向奔跑动线，
+/// 使小人脸部与位移方向保持自然一致，避免双向折返时的太空步倒退违和。
 fn compact_runner_line(started_at: std::time::Instant) -> Line<'static> {
     const TRACK: usize = 12;
     /// 跑：每 150ms 一格。
@@ -840,9 +841,6 @@ fn compact_runner_line(started_at: std::time::Instant) -> Line<'static> {
     const WALK_STEP_MS: u128 = 420;
     /// 跑到这个时长就「累了」改走路。
     const TIRED_AFTER_SECS: u64 = 20;
-    /// 折返的两段停留（帧数），节奏与飞碟一致但更短，适合人的步频。
-    const HOLD_END: usize = 4;
-    const HOLD_START: usize = 4;
 
     let elapsed = started_at.elapsed();
     let tired = elapsed.as_secs() >= TIRED_AFTER_SECS;
@@ -851,7 +849,52 @@ fn compact_runner_line(started_at: std::time::Instant) -> Line<'static> {
     } else {
         ("🏃", RUN_STEP_MS, theme::cur().thinking)
     };
-    // 与飞碟同一套双向节奏：跑到头 → 终点停留 → 折返 → 起点停留。
+    let frame = (elapsed.as_millis() / step_ms) as usize;
+    let step = frame % TRACK;
+    // 从右端（TRACK - 1）向左端（0）单向奔跑
+    let pos = TRACK - 1 - step;
+
+    let mut spans = Vec::with_capacity(TRACK);
+    for cell in 0..TRACK {
+        if cell == pos {
+            spans.push(Span::styled(glyph, Style::default().fg(glyph_color)));
+        } else if cell > pos {
+            // 向左跑时，已经经过的格子落在小人身后（右侧）留下足迹
+            spans.push(Span::styled(
+                "• ",
+                Style::default().fg(theme::cur().inactive),
+            ));
+        } else {
+            spans.push(Span::styled("· ", Style::default().fg(theme::cur().subtle)));
+        }
+    }
+    Line::from(spans)
+}
+
+/// 压缩进行中的「螃蟹跑道」：固定 12 格，螃蟹每 160ms 横向爬行一格，到头折返。
+///
+/// 螃蟹天然侧身横向行走，双向折返跑没有任何脸部朝向违和感，同时呼应
+/// Rust 吉祥物 Ferris。
+fn compact_crab_line(started_at: std::time::Instant) -> Line<'static> {
+    const TRACK: usize = 12;
+    /// 爬：每 160ms 一格横行小碎步。
+    const RUN_STEP_MS: u128 = 160;
+    /// 慢爬：步子放慢。
+    const WALK_STEP_MS: u128 = 420;
+    /// 爬满这个时长就改慢爬。
+    const TIRED_AFTER_SECS: u64 = 20;
+    /// 折返的两段停留（帧数）。
+    const HOLD_END: usize = 4;
+    const HOLD_START: usize = 4;
+
+    let elapsed = started_at.elapsed();
+    let tired = elapsed.as_secs() >= TIRED_AFTER_SECS;
+    let (step_ms, glyph_color) = if tired {
+        (WALK_STEP_MS, theme::cur().inactive)
+    } else {
+        (RUN_STEP_MS, theme::cur().claude)
+    };
+    let glyph = "🦀";
     let frame = (elapsed.as_millis() / step_ms) as usize;
     let cycle = TRACK + HOLD_END + (TRACK - 1) + HOLD_START;
     let phase = frame % cycle;
@@ -957,10 +1000,11 @@ fn supplementary_lines(app: &App, spinner_line: &Option<Line<'static>>) -> Vec<L
             // tip 由调度器在轮次边界挑选/发布（见 App::set_loading），渲染只读当前已发布的
             // 一条；本轮运行 >30min 时被 /clear 时间覆盖 tip 顶替（对齐 CC，见 issue #511）
             let turn_elapsed = app.session_mgr.current().viewport_spinner().elapsed_ms();
-            // 压缩进行中：这一行让位给「小人跑道」动画（不额外占行、不改布局高度）。
+            // 压缩进行中：这一行让位给「压缩跑道」动画（不额外占行、不改布局高度）。
             if let Some(started_at) = app.session_mgr.current().agent.compact_started_at {
                 lines.push(match app.session_mgr.current().agent.compact_motion {
                     crate::app::CompactMotion::Runner => compact_runner_line(started_at),
+                    crate::app::CompactMotion::Crab => compact_crab_line(started_at),
                     crate::app::CompactMotion::Ufo => compact_ufo_line(started_at),
                 });
             } else if let Some((label, text)) = app.spinner_tip_display(turn_elapsed) {

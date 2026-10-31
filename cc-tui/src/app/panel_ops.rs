@@ -89,7 +89,7 @@ impl App {
             super::CommandSystem::new(crate::command::default_registry(), Vec::new(), &lc);
 
         let session = super::ChatSession {
-            ui: super::UiState::new(super::build_textarea(false), "/tmp", false, false),
+            ui: super::UiState::new(super::build_textarea(false), "/tmp", false, false, true),
             messages: super::MessageState::new(
                 "/tmp".to_string(),
                 render_tx.clone(),
@@ -112,6 +112,7 @@ impl App {
             approval_source_agent_id: None,
             main_scroll_position: (usize::MAX, true),
             main_input_draft: None,
+            main_display: Default::default(),
             spinner_state: cc_widgets::SpinnerState::new(cc_widgets::SpinnerMode::Idle),
             shell_pool: super::ShellCommandPool::default(),
             background_shells: Vec::new(),

@@ -1,9 +1,16 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+};
 
 use async_trait::async_trait;
 use cc_acp::provider::{format_model_selection_value, PeriConfig, ProviderConfig, ProviderModels};
 use cc_acp::transport::types::{AcpError, IncomingMessage, RequestId};
-use cc_agent::thread::FilesystemThreadStore;
+use cc_agent::messages::{BaseMessage, MessageId};
+use cc_agent::thread::{FilesystemThreadStore, ThreadStore};
 use cc_middlewares::hitl::shared_mode::{PermissionMode, SharedPermissionMode};
 use serde_json::{json, Value};
 
@@ -971,4 +978,241 @@ fn make_minimal_config(tmp: &tempfile::TempDir) -> AcpServerConfig {
     peri_config.config.active_provider_id = "a".to_string();
     let provider = LlmProvider::from_config(&peri_config).unwrap();
     make_server_config(peri_config, provider, tmp)
+}
+
+// 只允许恢复路径读取元数据和上下文，其他存储操作会使测试立即失败。
+struct MockContextThreadStore {
+    meta: parking_lot::RwLock<Option<ThreadMeta>>,
+    history: parking_lot::RwLock<Vec<BaseMessage>>,
+    context_reads: AtomicUsize,
+    meta_reads: AtomicUsize,
+}
+
+#[async_trait]
+impl ThreadStore for MockContextThreadStore {
+    async fn create_thread(&self, _meta: ThreadMeta) -> anyhow::Result<ThreadId> {
+        unreachable!("恢复历史不应创建线程")
+    }
+
+    async fn append_messages(&self, _id: &ThreadId, _msgs: &[BaseMessage]) -> anyhow::Result<()> {
+        unreachable!("恢复历史不应追加消息")
+    }
+
+    async fn load_messages(&self, _id: &ThreadId) -> anyhow::Result<Vec<BaseMessage>> {
+        unreachable!("恢复历史应通过 load_context 读取")
+    }
+
+    async fn load_meta(&self, id: &ThreadId) -> anyhow::Result<ThreadMeta> {
+        self.meta_reads.fetch_add(1, Ordering::Relaxed);
+        self.meta
+            .read()
+            .as_ref()
+            .filter(|meta| &meta.id == id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("测试线程不存在"))
+    }
+
+    async fn update_meta(&self, _id: &ThreadId, _meta: ThreadMeta) -> anyhow::Result<()> {
+        unreachable!("恢复历史不应更新元数据")
+    }
+
+    async fn list_threads(&self) -> anyhow::Result<Vec<ThreadMeta>> {
+        unreachable!("恢复历史不应列举线程")
+    }
+
+    async fn list_threads_paged(
+        &self,
+        _limit: usize,
+        _offset: usize,
+    ) -> anyhow::Result<Vec<ThreadMeta>> {
+        unreachable!("恢复历史不应分页列举线程")
+    }
+
+    async fn list_root_threads_paged(
+        &self,
+        _limit: usize,
+        _offset: usize,
+    ) -> anyhow::Result<Vec<ThreadMeta>> {
+        unreachable!("恢复历史不应分页列举根线程")
+    }
+
+    async fn list_threads_metadata(&self) -> anyhow::Result<Vec<ThreadMeta>> {
+        unreachable!("恢复历史不应列举元数据")
+    }
+
+    async fn delete_thread(&self, _id: &ThreadId) -> anyhow::Result<()> {
+        unreachable!("恢复历史不应删除线程")
+    }
+
+    async fn load_context(&self, _id: &ThreadId) -> anyhow::Result<Vec<BaseMessage>> {
+        self.context_reads.fetch_add(1, Ordering::Relaxed);
+        Ok(self.history.read().clone())
+    }
+
+    async fn list_child_threads(&self, _id: &ThreadId) -> anyhow::Result<Vec<ThreadMeta>> {
+        unreachable!("恢复历史不应列举子线程")
+    }
+
+    async fn list_session_threads(&self, _id: &ThreadId) -> anyhow::Result<Vec<ThreadMeta>> {
+        unreachable!("恢复历史不应列举会话线程")
+    }
+
+    async fn update_thread_status(&self, _id: &ThreadId, _status: &str) -> anyhow::Result<()> {
+        unreachable!("恢复历史不应更新线程状态")
+    }
+
+    async fn invalidate_context_cache(&self, _id: &ThreadId) -> anyhow::Result<()> {
+        unreachable!("恢复历史不应清除上下文缓存")
+    }
+
+    async fn delete_messages(&self, _id: &ThreadId, _ids: &[MessageId]) -> anyhow::Result<()> {
+        unreachable!("恢复历史不应删除消息")
+    }
+}
+
+fn make_context_thread_store(
+    meta: ThreadMeta,
+    history: Vec<BaseMessage>,
+) -> Arc<MockContextThreadStore> {
+    Arc::new(MockContextThreadStore {
+        meta: parking_lot::RwLock::new(Some(meta)),
+        history: parking_lot::RwLock::new(history),
+        context_reads: AtomicUsize::new(0),
+        meta_reads: AtomicUsize::new(0),
+    })
+}
+
+#[tokio::test]
+async fn test_session_load_reuses_nonempty_history_and_preserves_frozen_data() -> anyhow::Result<()>
+{
+    let (tmp, mut cfg) = make_minimal_cfg();
+    let meta = ThreadMeta::new(tmp.path().to_string_lossy().to_string());
+    let id = meta.id.clone();
+    let store = make_context_thread_store(meta, vec![BaseMessage::human("已恢复的历史")]);
+    cfg.thread_store = store.clone();
+    let params = json!({ "sessionId": id });
+    let mut sessions = HashMap::new();
+    handle_request("session/load", &params, &cfg, &mut sessions, &MockTransport).await?;
+    let frozen_prompt = sessions[&id]
+        .frozen
+        .as_ref()
+        .expect("首次恢复应冻结提示词")
+        .system_prompt
+        .clone();
+    sessions
+        .get_mut(&id)
+        .expect("会话应存在")
+        .history
+        .push(BaseMessage::ai("内存中的新回答"));
+    *store.history.write() = vec![BaseMessage::human("存储中的不同历史")];
+    handle_request("session/load", &params, &cfg, &mut sessions, &MockTransport).await?;
+    assert_eq!(
+        store.context_reads.load(Ordering::Relaxed),
+        1,
+        "非空历史重复恢复不应读取上下文"
+    );
+    assert_eq!(
+        store.meta_reads.load(Ordering::Relaxed),
+        2,
+        "重复恢复仍需确认线程存在"
+    );
+    assert_eq!(sessions[&id].history.len(), 2, "内存历史不能被存储快照覆盖");
+    assert_eq!(sessions[&id].history[1].content(), "内存中的新回答");
+    assert_eq!(
+        sessions[&id]
+            .frozen
+            .as_ref()
+            .expect("冻结信息应保留")
+            .system_prompt,
+        frozen_prompt
+    );
+    sessions.get_mut(&id).expect("会话应存在").frozen = None;
+    std::fs::write(
+        tmp.path().join("AGENTS.md"),
+        "Initialize missing frozen data",
+    )?;
+    handle_request("session/load", &params, &cfg, &mut sessions, &MockTransport).await?;
+    assert_eq!(
+        store.context_reads.load(Ordering::Relaxed),
+        1,
+        "补建冻结信息也不应重读非空历史"
+    );
+    assert!(sessions[&id]
+        .frozen
+        .as_ref()
+        .expect("缺失的冻结信息应补建")
+        .instructions
+        .as_deref()
+        .unwrap_or_default()
+        .contains("Initialize missing frozen data"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_session_load_reloads_empty_history() -> anyhow::Result<()> {
+    let (tmp, mut cfg) = make_minimal_cfg();
+    let meta = ThreadMeta::new(tmp.path().to_string_lossy().to_string());
+    let id = meta.id.clone();
+    let store = make_context_thread_store(meta, Vec::new());
+    cfg.thread_store = store.clone();
+    let params = json!({ "sessionId": id });
+    let mut sessions = HashMap::new();
+    handle_request("session/load", &params, &cfg, &mut sessions, &MockTransport).await?;
+    assert!(sessions[&id].history.is_empty(), "首次读取可以返回空历史");
+    *store.history.write() = vec![BaseMessage::human("稍后持久化的历史")];
+    handle_request("session/load", &params, &cfg, &mut sessions, &MockTransport).await?;
+    assert_eq!(
+        store.context_reads.load(Ordering::Relaxed),
+        2,
+        "空历史重复恢复必须再次读取上下文"
+    );
+    assert_eq!(sessions[&id].history[0].content(), "稍后持久化的历史");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_session_load_revalidates_missing_thread_with_nonempty_history() -> anyhow::Result<()>
+{
+    let (tmp, mut cfg) = make_minimal_cfg();
+    let meta = ThreadMeta::new(tmp.path().to_string_lossy().to_string());
+    let id = meta.id.clone();
+    let store = make_context_thread_store(meta, vec![BaseMessage::human("内存历史")]);
+    cfg.thread_store = store.clone();
+    let params = json!({ "sessionId": id });
+    let mut sessions = HashMap::new();
+    handle_request("session/load", &params, &cfg, &mut sessions, &MockTransport).await?;
+    *store.meta.write() = None;
+    let result = handle_request("session/load", &params, &cfg, &mut sessions, &MockTransport).await;
+    assert_eq!(result.expect_err("线程删除后必须拒绝重复恢复").code, -32001);
+    assert_eq!(
+        store.context_reads.load(Ordering::Relaxed),
+        1,
+        "元数据验证失败不应读取上下文"
+    );
+    assert_eq!(sessions[&id].history[0].content(), "内存历史");
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_session_load_revalidates_cwd_with_nonempty_history() -> anyhow::Result<()> {
+    let (tmp, mut cfg) = make_minimal_cfg();
+    let meta = ThreadMeta::new(tmp.path().to_string_lossy().to_string());
+    let id = meta.id.clone();
+    let store = make_context_thread_store(meta, vec![BaseMessage::human("内存历史")]);
+    cfg.thread_store = store.clone();
+    let params = json!({ "sessionId": id });
+    let mut sessions = HashMap::new();
+    handle_request("session/load", &params, &cfg, &mut sessions, &MockTransport).await?;
+    sessions.get_mut(&id).expect("会话应存在").cwd = "different-project".to_string();
+    let result = handle_request("session/load", &params, &cfg, &mut sessions, &MockTransport).await;
+    assert_eq!(
+        result.expect_err("目录不一致时必须拒绝重复恢复").code,
+        -32602
+    );
+    assert_eq!(
+        store.context_reads.load(Ordering::Relaxed),
+        1,
+        "目录校验不能导致非空历史重读"
+    );
+    Ok(())
 }

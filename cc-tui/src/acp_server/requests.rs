@@ -449,9 +449,15 @@ pub(crate) async fn handle_request(
             // 历史线程的目录是持久化事实，调用方的启动目录不能覆盖它。
             let cwd = meta.cwd.as_str();
 
-            // Load history from ThreadStore
-            let history =
-                dispatch::load_session_messages(cfg.thread_store.as_ref(), req_session_id).await;
+            // 已有非空历史会保留在内存中，不再读取随后会被丢弃的完整上下文。
+            let needs_history = sessions
+                .get(req_session_id)
+                .is_none_or(|state| state.history.is_empty());
+            let history = if needs_history {
+                dispatch::load_session_messages(cfg.thread_store.as_ref(), req_session_id).await
+            } else {
+                Vec::new()
+            };
 
             // Insert into sessions if not already present
             if let Some(state) = sessions.get_mut(req_session_id) {

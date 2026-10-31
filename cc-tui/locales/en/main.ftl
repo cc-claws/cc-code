@@ -253,6 +253,7 @@ config-field-persona = Persona
 config-field-tone = Tone
 config-field-proactiveness = Proactiveness
 config-field-diff = Inline Diff
+config-field-hooks-display = Hooks Display
 config-field-recap = Auto Recap
 config-value-on = ON
 config-value-off = OFF
@@ -270,6 +271,7 @@ config-desc-persona = Override system prompt persona (empty = default)
 config-desc-tone = Override system prompt tone (empty = default)
 config-desc-proactiveness = low / medium / high — agent initiative level
 config-desc-diff = (ON/OFF — show inline diff for Write/Edit tools)
+config-desc-hooks-display = (ON/OFF — show hook results below tool output)
 config-field-streaming = Streaming Mode
 config-field-detail-render-strategy = Detail Render
 config-desc-detail-render-strategy = auto adapts to long histories; cache keeps full rendering; virtual renders near the viewport. Applies immediately.

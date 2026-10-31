@@ -456,3 +456,35 @@ fn test_extract_snapshot_text_out_of_range() {
     let result = extract_snapshot_text(&snap, (5, 0), (5, 3));
     assert_eq!(result, None);
 }
+
+// ── 复制宽字符（CJK）不得插入空格 ──────────────────────────────────────────────
+// 真实 Buffer 里宽字符的占位 cell 是 `Cell::EMPTY`，而 `Cell::symbol()` 对无 symbol
+// 的 cell 返回 `" "`（单空格），不是 `""`。因此逐格拼 `cell_symbol()` 会在每个宽字符
+// 后多插一个空格。上面用 `make_screen_snapshot`（占位 cell 填 `""`）的用例无法暴露此
+// 问题，必须走真实 `from_buffer`。
+#[test]
+fn test_extract_snapshot_text_cjk_no_inserted_spaces_from_real_buffer() {
+    let mut buffer = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, 20, 1));
+    buffer.set_string(0, 0, "触发 Auto 发版", ratatui::style::Style::default());
+    let snapshot = ScreenSnapshot::from_buffer(&buffer);
+    let result = extract_snapshot_text(&snapshot, (0, 0), (0, 19));
+    assert_eq!(
+        result,
+        Some("触发 Auto 发版".to_string()),
+        "宽字符占位 cell 不应被读成空格"
+    );
+}
+
+#[test]
+fn test_extract_snapshot_text_cjk_mixed_line_from_real_buffer() {
+    let mut buffer = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, 30, 1));
+    buffer.set_string(
+        0,
+        0,
+        "中文 ok 混排 test",
+        ratatui::style::Style::default(),
+    );
+    let snapshot = ScreenSnapshot::from_buffer(&buffer);
+    let result = extract_snapshot_text(&snapshot, (0, 0), (0, 29));
+    assert_eq!(result, Some("中文 ok 混排 test".to_string()));
+}

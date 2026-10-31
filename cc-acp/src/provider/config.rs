@@ -174,6 +174,12 @@ pub struct AppConfig {
     /// Write/Edit 工具结果内联 diff 默认是否可见
     #[serde(default)]
     pub diff_enabled: bool,
+    /// hook 执行结果是否在 TUI 展示（缺省 = 展示）
+    ///
+    /// 只影响渲染：`ToolBlock.hook_rows` 与 payload 里的 hook 结果始终保留，
+    /// 开关切回来历史行能恢复。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hooks_ui: Option<bool>,
     /// 详情渲染策略：auto（默认）/ cache / virtual；未知值按 auto 处理
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail_render_strategy: Option<String>,
@@ -243,6 +249,11 @@ impl AppConfig {
         self.tool_output_streaming.unwrap_or(true)
     }
 
+    /// hook 执行结果是否在 TUI 展示（缺省 = 展示）。
+    pub fn hooks_ui_enabled(&self) -> bool {
+        self.hooks_ui.unwrap_or(true)
+    }
+
     /// 用 workspace 配置覆盖全局配置。
     /// workspace 中出现的字段替换全局对应字段，未出现的保留全局值。
     pub fn merge_overrides(&mut self, workspace: AppConfig) {
@@ -299,6 +310,9 @@ impl AppConfig {
         }
         // diff_enabled: bool 直接覆盖（无法区分"未写 false"和"写了 false"）
         self.diff_enabled = workspace.diff_enabled;
+        if workspace.hooks_ui.is_some() {
+            self.hooks_ui = workspace.hooks_ui;
+        }
         if workspace.detail_render_strategy.is_some() {
             self.detail_render_strategy = workspace.detail_render_strategy;
         }

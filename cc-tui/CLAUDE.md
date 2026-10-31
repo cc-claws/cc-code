@@ -52,7 +52,13 @@ TUI 输入 → AcpTuiClient.new_session() / .prompt()
 
 所有消息更新通过统一 `RebuildAll` 路径触发（无增量更新）。`MessagePipeline` 维护规范状态，`build_tail_vms()` 构建尾部 VMs，`messages_to_view_models()` 是唯一转换入口。流式文本通过 16ms 间隔 + 自适应分块策略触发 RebuildAll。独立 `RenderThread` 处理渲染，通过 `RenderCache(RwLock)` 与 UI 线程同步。
 
+`poll_agent()` 每批最多消费 128 条 ACP 通知或约 4ms（至少处理一条），未消费事件留在通道中保持 FIFO，随后交还键鼠与绘制。子线程只更新规范状态；隐藏视口在切入时构建，聚焦视口的文本/推理按 16ms 合并刷新，工具阶段与结束事件立即同步。流式子视口刷新不重建父时间线。历史基础 VM 按 completed revision、轮次起点与主题指纹复用，每条管线只留一份、估算上限 16MiB；动态工具、hook、shell 与聚合在副本上补齐，历史替换/新轮次/清空会失效，切离子视口时释放其投影缓存，主/子缓存均计入 `/gc` 的 VM 统计。渲染队列满时保留最新完整快照并在后续轮询重试，清空和切换视图必须走同一入口，避免丢失最终帧或重放旧视口。
+
 输入、后台更新与动画共用 33ms 绘制期限，连续请求不能推迟尾帧。`prepare_viewport` 通过 `try_prepare_width` 非阻塞投递/收取宽度确认，未就绪时保留旧屏并继续处理输入；同一内容布局的滚动不再投递宽度屏障。内容请求使用独立 revision，历史/模式/视图替换另推进 epoch，避免误收旧确认；虚拟窗口实测高度仅在是否可容纳的边界改变时重新准备宽度。缓存构造及旧成品析构在共享写锁外完成。拖选后的左键释放仍等最后一帧呈现，再从快照提取复制内容。
+
+渲染模式事件拥塞时按类型只保留最新值（最多五种），后续轮询先重试模式，再重试内容快照；成功发送新值或通道关闭时必须丢弃同类型旧值。hook 显隐与其他布局模式一样推进 layout epoch。
+
+历史阅读位置使用消息索引、渲染逻辑行和行内偏移组成的锚点，经典缓存与虚拟窗口共用同一语义。用户滚动、拖动和切换视口递增 scroll revision，异步结果只能恢复同版本位置；连续重建应沿用尚未消费的语义锚点。模式和宽度重排命令须原子携带当前视口，不能等下一帧才同步用户滚动。worker 仅在缓存发布成功后确认视口；同宽准备、同值策略仍须兑现待发布窗口，完成回复不能早于发布。内容收缩、重排、命令完成与后台续接只钳位当前位置，不能恢复自动跟随；主动滚到底或提交新消息才恢复跟随。保留的内容快照和模式更新必须先入队，再准备宽度，避免按旧视图高度钳位新视图。切视图首帧不采旧缓存锚点；Markdown 自身预折行尚无文本来源映射，跨宽度仅按渲染行恢复，不能保证同一字位置。
 
 **[TRAP]** Ephemeral VM（SystemNote/CacheWarning）依赖锚点机制：`ephemeral_notes: Vec<(usize, MessageViewModel)>` 记录插入时的 `view_messages.len()` 作为位置索引（非 MessageId）。RebuildAll 时通过 `(anchor - prefix_len).min(tail_len) + prefix_len` 计算插入位置。`retain()` 路径通过 `anchor >= prefix_len` 过滤过期锚点。新增 ephemeral VM 类型必须同步更新过滤逻辑。（详见 spec/global/domains/message-pipeline.md#issue_2026-05-12-systemnote-position-drift-on-rebuild）
 
@@ -122,6 +128,8 @@ TUI 输入 → AcpTuiClient.new_session() / .prompt()
 Command trait 的 `description()` 接收 `&LcRegistry` 参数并返回 `String`。`CommandRegistry::match_prefix()` 和 `list()` 均需 `&LcRegistry`。
 
 ## 状态管理
+
+**会话串行锁生命周期**：`acp_server::prompt_locks` 仅在会话已关闭、且锁表是该锁唯一 Arc 持有者时回收。运行中与排队请求结束后，先释放 prompt guard 和 Arc，再重试清理；同 ID 恢复期间保留原锁，避免新旧请求绕过串行。清理固定按 `sessions → prompt_locks` 顺序加锁。
 
 **`ServiceRegistry` 与 `GlobalUiState`**：`App` 状态拆分为 `ServiceRegistry`（跨会话共享：config/MCP/cron/provider）和 `GlobalUiState`（纯 UI 临时状态：高亮计时器/弹窗）。面板 dispatch 宏（`with_global_panels!`/`with_session_panels!`）位于 `event/macros.rs`。
 

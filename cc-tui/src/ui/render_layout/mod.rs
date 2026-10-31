@@ -1,7 +1,7 @@
 //! #629：消息成品按段物化；全局仅保留高度/版本，窗口之外按字节 LRU 淘汰。
 use super::{
     message_view::MessageViewModel,
-    render_thread::{RenderCache, RenderTask, WrappedLineInfo},
+    render_thread::{RenderCache, RenderTask, ScrollAnchor, WrappedLineInfo},
 };
 use cc_widgets::markdown::LinkHit;
 use ratatui::text::Line;
@@ -62,14 +62,16 @@ pub(super) struct LayoutMode {
     pub width: u16,
     pub detail: bool,
     pub diff: bool,
+    pub hook_rows: bool,
     pub theme: u64,
 }
-#[derive(Clone, Copy, Debug)]
-pub(super) struct Viewport {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Viewport {
     pub top: usize,
     pub height: usize,
     pub follow_tail: bool,
     pub anchor: Option<ViewportAnchor>,
+    pub scroll_revision: u64,
 }
 impl Default for Viewport {
     fn default() -> Self {
@@ -78,6 +80,7 @@ impl Default for Viewport {
             height: 40,
             follow_tail: true,
             anchor: None,
+            scroll_revision: 0,
         }
     }
 }
@@ -94,6 +97,7 @@ struct PayloadKey {
     version: u64,
     detail: bool,
     diff: bool,
+    hook_rows: bool,
     tick: u64,
     tail: bool,
 }
@@ -297,7 +301,7 @@ impl VirtualRenderer {
         }
         // 模式改变仅使布局代际失效；滚动不改变代际。
         self.history_epoch = self.history_epoch.wrapping_add(1);
-        // detail/diff 的成品由 key 区分，共用同一个字节预算；热切换无需重渲染。
+        // detail/diff/hook_rows 的成品由 key 区分，共用同一个字节预算；热切换无需重渲染。
         // 只有宽度/主题变化会使所有成品失效。
         if self
             .mode
@@ -318,6 +322,7 @@ impl VirtualRenderer {
             version: self.metadata[index].version,
             detail: mode.detail,
             diff: mode.diff,
+            hook_rows: mode.hook_rows,
             tick: if estimator::is_live(&messages[index]) {
                 tick
             } else {
@@ -384,8 +389,14 @@ impl VirtualRenderer {
         mode: LayoutMode,
         tail: usize,
     ) -> SegmentPayload {
-        let (raw, raw_links) =
-            RenderTask::render_one(vm, index + 1, mode.width as usize, mode.diff, mode.detail);
+        let (raw, raw_links) = RenderTask::render_one(
+            vm,
+            index + 1,
+            mode.width as usize,
+            mode.diff,
+            mode.hook_rows,
+            mode.detail,
+        );
         let mut lines = Vec::new();
         let mut origins = Vec::new();
         let mut previous_empty = index > 0;
@@ -594,7 +605,7 @@ impl VirtualRenderer {
         }
         self.evict(&pinned);
         output.total_lines = self.heights.total();
-        output.scroll_anchor = Some(top.min(output.total_lines.saturating_sub(height)));
+        let resolved_top = top.min(output.total_lines.saturating_sub(height));
         // 兼容字段仅含窗口局部下标，所有全局定位必须使用 snapshot 的视觉前缀。
         if self.offsets_dirty {
             let mut offset = 0usize;
@@ -632,6 +643,14 @@ impl VirtualRenderer {
                 largest_segment_bytes: self.largest_segment,
             },
         }));
+        output.scroll_anchor =
+            output
+                .viewport_anchor_at(resolved_top)
+                .map(|position| ScrollAnchor {
+                    position,
+                    visual_row: resolved_top,
+                    scroll_revision: viewport.scroll_revision,
+                });
         output
     }
     pub fn export_selection(

@@ -992,9 +992,11 @@ fn test_tool_block_inline_diff_switch_controls_normal_page_only() {
         source_agent_id: None,
     };
 
-    let off = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, false, 0).0);
-    let on = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, true, 0).0);
-    let detail = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, true, false, 0).0);
+    let off =
+        rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, false, true, 0).0);
+    let on = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, true, true, 0).0);
+    let detail =
+        rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, true, false, true, 0).0);
 
     assert!(!off.contains("new line"), "开关关闭时普通页面不显示 diff");
     assert!(
@@ -1044,7 +1046,8 @@ fn test_edit_diff_replaces_tool_result_line() {
         source_agent_id: None,
     };
 
-    let detail = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, true, false, 0).0);
+    let detail =
+        rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, true, false, true, 0).0);
     assert!(
         !detail.contains("Replaced text"),
         "diff 渲染时不应再显示工具结果文本行: {detail}"
@@ -1055,7 +1058,8 @@ fn test_edit_diff_replaces_tool_result_line() {
     );
 
     // diff 未渲染（普通模式 + 开关关闭）时，工具结果文本仍作为唯一信息保留
-    let off = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, false, 0).0);
+    let off =
+        rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, false, true, 0).0);
     assert!(
         off.contains("Replaced text"),
         "diff 未渲染时应保留工具结果文本: {off}"
@@ -1094,7 +1098,8 @@ fn test_write_create_keeps_tool_result_line() {
         source_agent_id: None,
     };
 
-    let detail = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, true, false, 0).0);
+    let detail =
+        rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, true, false, true, 0).0);
     assert!(
         detail.contains("Wrote 2 lines"),
         "新建文件应保留 Wrote N lines 结果行: {detail}"
@@ -1135,9 +1140,11 @@ fn test_inline_diff_switch_does_not_expand_other_blocks() {
         source_agent_id: None,
     };
 
-    let off = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, false, 0).0);
-    let on = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, true, 0).0);
-    let detail = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, true, false, 0).0);
+    let off =
+        rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, false, true, 0).0);
+    let on = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, true, true, 0).0);
+    let detail =
+        rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, true, false, true, 0).0);
 
     assert!(
         off.contains("… +3 lines (ctrl+o to expand)"),
@@ -1688,6 +1695,77 @@ fn test_render_normal_user_bubble_unchanged() {
     let first_text: String = lines[0].spans.iter().map(|s| s.content.clone()).collect();
     assert!(first_text.contains("\u{276f}"), "普通消息应有 ❯ 前缀");
     assert!(first_text.contains("Hello"), "应包含原始内容");
+}
+
+/// 用户消息底色铺满整行：短消息也要补空格到视口宽度，
+/// 与 `shell_command_header` / `queued_messages` / `sticky_header` 口径一致。
+#[test]
+fn test_user_bubble_background_fills_full_viewport_width() {
+    let vm = MessageViewModel::user("好".to_string());
+    let width = 80;
+
+    let lines = render_view_model(&vm, Some(1), width, false, 0);
+    let user_bg = crate::ui::theme::cur().user_message_background;
+    let line = &lines[0];
+
+    // 行尾 span 必须是补出的整行底色空格
+    let last = line.spans.last().expect("首行不应为空");
+    assert_eq!(
+        last.style.bg,
+        Some(user_bg),
+        "行尾必须是用户消息底色，实际: {:?}",
+        last.style.bg
+    );
+    let used: usize = line
+        .spans
+        .iter()
+        .map(|span| unicode_width::UnicodeWidthStr::width(span.content.as_ref()))
+        .sum();
+    assert_eq!(used, width, "底色应铺满整行视口宽度");
+    assert!(
+        last.content.chars().all(|c| c == ' '),
+        "补位 span 只能由空格组成，实际: {:?}",
+        last.content
+    );
+}
+
+/// 多行用户消息（含预折行续行）每一行都要铺满底色。
+#[test]
+fn test_user_bubble_background_fills_every_wrapped_line() {
+    let long = "这是一条足够长的用户消息，用来触发预折行并验证续行同样铺满底色。".repeat(3);
+    let vm = MessageViewModel::user(long);
+    let width = 40;
+    let user_bg = crate::ui::theme::cur().user_message_background;
+
+    let lines = render_view_model(&vm, Some(1), width, false, 0);
+    assert!(lines.len() > 1, "长消息应折成多行");
+    for (idx, line) in lines.iter().enumerate() {
+        let used: usize = line
+            .spans
+            .iter()
+            .map(|span| unicode_width::UnicodeWidthStr::width(span.content.as_ref()))
+            .sum();
+        assert_eq!(used, width, "第 {idx} 行应铺满整行宽度");
+        assert_eq!(
+            line.spans.last().unwrap().style.bg,
+            Some(user_bg),
+            "第 {idx} 行行尾必须是用户消息底色"
+        );
+    }
+}
+
+/// 行尾补出的空格不得进入选区复制文本（`text_selection` 逐行 `trim_end`）。
+#[test]
+fn test_user_bubble_padding_does_not_pollute_copy() {
+    let vm = MessageViewModel::user("好".to_string());
+    let lines = render_view_model(&vm, Some(1), 80, false, 0);
+    let raw: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
+    assert!(raw.len() > 2, "应当补出了尾部空格");
+    assert_eq!(
+        raw.trim_end(),
+        "\u{276f} 好",
+        "去掉行尾空白后应只剩前缀与正文"
+    );
 }
 
 #[test]
@@ -2859,6 +2937,8 @@ fn test_compact_done_rendering_no_bullet_prefix() {
         detail_content: None,
         tone: None,
         body_tone: None,
+        detail_only: false,
+        branch_prefix: false,
     };
     let text_lines: Vec<String> = render_view_model(&vm, None, 80, false, 0)
         .iter()
@@ -2929,6 +3009,8 @@ fn test_all_paths_preserve_width_no_overflow() {
         detail_content: None,
         tone: None,
         body_tone: None,
+        detail_only: false,
+        branch_prefix: false,
     };
     assert!(
         max_line_width(&render_view_model(&vm, None, width, false, 0)) <= width,
@@ -3897,6 +3979,8 @@ fn test_system_note_with_tone_renders_dot_prefix_in_status_color() {
             detail_content: None,
             tone: Some(tone),
             body_tone: None,
+            detail_only: false,
+            branch_prefix: false,
         };
         // Act
         let lines = render_view_model(&vm, None, 80, false, 0);
@@ -3924,6 +4008,8 @@ fn test_system_note_without_tone_keeps_plain_style() {
         detail_content: None,
         tone: None,
         body_tone: None,
+        detail_only: false,
+        branch_prefix: false,
     };
     // Act
     let lines = render_view_model(&vm, None, 80, false, 0);
@@ -3995,8 +4081,8 @@ fn test_normal_mode_hides_thinking_body() {
     let rendered = rendered_text(&render_view_model(&vm, None, 80, false, 0));
     // Assert：只有摘要行，正文一行都不出现
     assert!(
-        rendered.contains("Thinking for"),
-        "普通模式应保留走秒摘要行: {rendered}"
+        rendered.contains("Thinking for 51 chars"),
+        "普通模式应保留字数摘要行: {rendered}"
     );
     for hidden in ["n01", "n04", "n13"] {
         assert!(
@@ -4039,7 +4125,10 @@ fn test_group_thinking_hides_body_in_normal_mode() {
     // Act：普通模式
     let rendered = rendered_text(&render_view_model(&vm, None, 80, false, 0));
     // Assert
-    assert!(rendered.contains("Thinking for"), "应保留走秒思考行: {rendered}");
+    assert!(
+        rendered.contains("Thinking for 51 chars, reading 3 files…"),
+        "应保留字数 + 现在时动作的思考行: {rendered}"
+    );
     assert!(
         !rendered.contains("n13"),
         "普通模式下组内思考正文不应出现: {rendered}"
@@ -4049,7 +4138,147 @@ fn test_group_thinking_hides_body_in_normal_mode() {
     assert!(detail.contains("n13"), "详细模式应展示组内思考正文: {detail}");
 }
 
+// ─── 空思考正文（与 Bash 空输出 `(No output)` 同款兜底）────────────────────
+
+/// 断言没有任何一行只剩分支前缀 `⎿`（空正文没有占位时的症状）。
+fn assert_no_lone_branch_prefix(lines: &[Line<'static>], rendered: &str) {
+    for line in lines {
+        let text: String = line
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect();
+        assert_ne!(text.trim(), "⎿", "出现孤立分支前缀: {rendered}");
+    }
+}
+
+#[test]
+fn test_detail_mode_empty_reasoning_shows_placeholder() {
+    let mut vm = MessageViewModel::assistant();
+    if let MessageViewModel::AssistantBubble { blocks, .. } = &mut vm {
+        blocks.push(ContentBlockView::Reasoning {
+            char_count: 0,
+            duration_ms: Some(1000),
+            action_summary: None,
+            text: String::new(),
+            active: false,
+            active_since: None,
+            hint: None,
+        });
+    }
+    // Act：详细模式
+    let lines = render_view_model(&vm, None, 80, true, 0);
+    let rendered = rendered_text(&lines);
+    // Assert：耗时摘要保留，正文位给出占位，而不是孤立的 `⎿`
+    assert!(
+        rendered.contains("Thought for 1s"),
+        "应保留耗时摘要行: {rendered}"
+    );
+    assert!(
+        rendered.contains("(No content)"),
+        "空思考正文应有占位说明: {rendered}"
+    );
+    assert_no_lone_branch_prefix(&lines, &rendered);
+}
+
+#[test]
+fn test_detail_mode_whitespace_reasoning_shows_placeholder() {
+    let mut vm = MessageViewModel::assistant();
+    if let MessageViewModel::AssistantBubble { blocks, .. } = &mut vm {
+        blocks.push(ContentBlockView::Reasoning {
+            char_count: 3,
+            duration_ms: Some(2000),
+            action_summary: None,
+            text: " \n ".to_string(),
+            active: false,
+            active_since: None,
+            hint: None,
+        });
+    }
+    // Act
+    let lines = render_view_model(&vm, None, 80, true, 0);
+    let rendered = rendered_text(&lines);
+    // Assert：纯空白与空串同口径
+    assert!(
+        rendered.contains("(No content)"),
+        "纯空白思考正文应按空正文处理: {rendered}"
+    );
+    assert_no_lone_branch_prefix(&lines, &rendered);
+}
+
+#[test]
+fn test_detail_mode_empty_group_thinking_shows_placeholder() {
+    use crate::ui::message_view::{GroupThinking, ToolCategory};
+    let vm = MessageViewModel::ToolCallGroup {
+        category: ToolCategory::Read,
+        tools: Vec::new(),
+        thinking: Some(GroupThinking {
+            text: String::new(),
+            duration_ms: Some(1000),
+            action_summary: None,
+            hint: None,
+            active: false,
+            active_since: None,
+        }),
+        collapsed: false,
+        standalone_action: None,
+        content_hash: 0,
+    };
+    // Act
+    let lines = render_view_model(&vm, None, 80, true, 0);
+    let rendered = rendered_text(&lines);
+    // Assert：组内思考走同一条渲染管线，空正文同样有占位
+    assert!(
+        rendered.contains("Thought for 1s"),
+        "应保留耗时摘要行: {rendered}"
+    );
+    assert!(
+        rendered.contains("(No content)"),
+        "组内空思考正文应有占位说明: {rendered}"
+    );
+    assert_no_lone_branch_prefix(&lines, &rendered);
+}
+
 // ─── hook 执行行（spec/global/domains/hooks-display.md）────────────────────
+
+/// 会话级 hook 行（行首 `⎿`）：详细模式可见，普通模式整行不渲染；
+/// 阻断行两种模式都必须可见。
+#[test]
+fn test_system_hook_line_renders_branch_prefix() {
+    use crate::ui::message_view::NoteTone;
+    // Arrange：成功汇总只在详细模式出现
+    let summary = MessageViewModel::system_hook_line(
+        "2 UserPromptSubmit hooks ran · 8ms".to_string(),
+        NoteTone::Neutral,
+        true,
+    );
+    // Act
+    let normal = render_view_model(&summary, None, 80, false, 0);
+    let detail = render_view_model(&summary, None, 80, true, 0);
+    // Assert
+    assert!(normal.is_empty(), "详细模式专属的 hook 行在普通模式不渲染");
+    let text = rendered_text(&detail);
+    assert!(
+        text.contains("2 UserPromptSubmit hooks ran · 8ms"),
+        "详细模式应渲染汇总行: {text:?}"
+    );
+    assert_eq!(
+        detail[0].spans[0].content,
+        BranchPrefix::PREFIX,
+        "hook 行用 ⎿ 前缀，而非 ● / · / ⚠"
+    );
+
+    // 阻断行（工具真的没跑）普通模式必须可见
+    let blocked = MessageViewModel::system_hook_line(
+        "Stop hook blocked: denied".to_string(),
+        NoteTone::Warning,
+        false,
+    );
+    assert!(
+        !render_view_model(&blocked, None, 80, false, 0).is_empty(),
+        "阻断行普通模式必须可见"
+    );
+}
 
 /// 构造挂 hook 行的工具块（默认 Bash：一条输出 + 若干 hook 行）。
 fn make_hook_tool_block(hook_rows: Vec<crate::ui::message_view::HookRow>) -> MessageViewModel {
@@ -4149,10 +4378,9 @@ fn test_hook_summary_visible_in_detail_mode() {
 
 #[test]
 fn test_hook_block_row_uses_warning_color() {
-    use crate::ui::message_view::{HookRow, NoteTone};
-    let rows = vec![HookRow::failure(
+    use crate::ui::message_view::HookRow;
+    let rows = vec![HookRow::blocked(
         "PreToolUse hook blocked: matched \"rm -rf\" rule",
-        NoteTone::Warning,
     )];
     let lines = render_view_model(&make_hook_tool_block(rows), Some(1), 80, false, 0);
     let line = hook_line(&lines, "hook blocked");
@@ -4173,12 +4401,9 @@ fn test_hook_block_row_uses_warning_color() {
 
 #[test]
 fn test_hook_failure_row_uses_error_color() {
-    use crate::ui::message_view::{HookRow, NoteTone};
-    let rows = vec![HookRow::failure(
-        "PostToolUse hook failed: exit 1",
-        NoteTone::Error,
-    )];
-    let lines = render_view_model(&make_hook_tool_block(rows), Some(1), 80, false, 0);
+    use crate::ui::message_view::HookRow;
+    let rows = vec![HookRow::failed("PostToolUse hook failed: exit 1")];
+    let lines = render_view_model(&make_hook_tool_block(rows), Some(1), 80, true, 0);
     let line = hook_line(&lines, "hook failed");
     for span in &line.spans {
         assert_eq!(
@@ -4188,6 +4413,94 @@ fn test_hook_failure_row_uses_error_color() {
             span.content
         );
     }
+}
+
+/// hook 自身失败只是配置问题（脚本不存在 / 崩溃），不该在普通模式刷屏：
+/// 普通模式 0 行，详细模式 1 行。
+#[test]
+fn test_hook_failure_row_hidden_in_normal_mode() {
+    use crate::ui::message_view::HookRow;
+    let rows = vec![HookRow::failed("PostToolUse hook failed: exit 1")];
+    let baseline = render_view_model(&make_hook_tool_block(Vec::new()), Some(1), 80, false, 0);
+    let normal = render_view_model(&make_hook_tool_block(rows.clone()), Some(1), 80, false, 0);
+    let detail = render_view_model(&make_hook_tool_block(rows), Some(1), 80, true, 0);
+    assert_eq!(normal.len(), baseline.len(), "普通模式不应出现失败行");
+    assert!(
+        !rendered_text(&normal).contains("hook failed"),
+        "普通模式不应出现失败文案: {:?}",
+        rendered_text(&normal)
+    );
+    assert_eq!(detail.len(), baseline.len() + 1, "详细模式应恰好多一行");
+    assert!(
+        rendered_text(&detail).contains("PostToolUse hook failed: exit 1"),
+        "详细模式应保留失败行: {:?}",
+        rendered_text(&detail)
+    );
+}
+
+/// 阻断意味着工具真的没跑，普通模式必须提示。
+#[test]
+fn test_hook_block_row_visible_in_normal_mode() {
+    use crate::ui::message_view::HookRow;
+    let rows = vec![HookRow::blocked("PreToolUse hook blocked: policy")];
+    let baseline = render_view_model(&make_hook_tool_block(Vec::new()), Some(1), 80, false, 0);
+    let normal = render_view_model(&make_hook_tool_block(rows), Some(1), 80, false, 0);
+    assert_eq!(normal.len(), baseline.len() + 1, "普通模式应出现阻断行");
+    assert!(
+        rendered_text(&normal).contains("PreToolUse hook blocked: policy"),
+        "普通模式应显示阻断原因: {:?}",
+        rendered_text(&normal)
+    );
+}
+
+/// 配置 `hooks_ui = false`（/config 的 Hooks display 关闭）时 hook 行整段跳过；
+/// 数据仍挂在 `ToolBlock.hook_rows` 上，开关切回即恢复。
+#[test]
+fn test_hook_rows_hidden_when_hooks_display_disabled() {
+    use crate::ui::message_view::HookRow;
+    let rows = vec![HookRow::blocked("PreToolUse hook blocked: policy")];
+    let baseline = render_view_model_with_flags(
+        &make_hook_tool_block(Vec::new()),
+        Some(1),
+        80,
+        false,
+        false,
+        true,
+        0,
+    );
+    let hidden = render_view_model_with_flags(
+        &make_hook_tool_block(rows.clone()),
+        Some(1),
+        80,
+        false,
+        false,
+        false,
+        0,
+    );
+    let shown = render_view_model_with_flags(
+        &make_hook_tool_block(rows),
+        Some(1),
+        80,
+        false,
+        false,
+        true,
+        0,
+    );
+    assert_eq!(
+        hidden.0.len(),
+        baseline.0.len(),
+        "关闭时应与无 hook 行逐行一致"
+    );
+    assert!(
+        !rendered_text(&hidden.0).contains("policy"),
+        "关闭时不应出现 hook 行"
+    );
+    assert_eq!(shown.0.len(), baseline.0.len() + 1, "开启时阻断行应出现");
+    assert!(
+        rendered_text(&shown.0).contains("policy"),
+        "开启时应展示 hook 行: {:?}",
+        rendered_text(&shown.0)
+    );
 }
 
 #[test]
@@ -4214,17 +4527,12 @@ fn test_hook_rows_capped_at_four_events() {
 
 #[test]
 fn test_hook_rows_capped_at_three_failures() {
-    use crate::ui::message_view::{HookRow, NoteTone};
+    use crate::ui::message_view::HookRow;
     let rows: Vec<_> = (1..=4)
-        .map(|i| {
-            HookRow::failure(
-                format!("PostToolUse hook failed: exit {i}"),
-                NoteTone::Error,
-            )
-        })
+        .map(|i| HookRow::failed(format!("PostToolUse hook failed: exit {i}")))
         .collect();
-    let baseline = render_view_model(&make_hook_tool_block(Vec::new()), Some(1), 80, false, 0);
-    let lines = render_view_model(&make_hook_tool_block(rows), Some(1), 80, false, 0);
+    let baseline = render_view_model(&make_hook_tool_block(Vec::new()), Some(1), 80, true, 0);
+    let lines = render_view_model(&make_hook_tool_block(rows), Some(1), 80, true, 0);
     assert_eq!(
         lines.len(),
         baseline.len() + 4,
@@ -4236,8 +4544,8 @@ fn test_hook_rows_capped_at_three_failures() {
     assert!(text.contains("… +1 more"), "折叠文案应匹配 PRD: {text}");
 }
 
-/// 异步完成行不参与「汇总 4 行」限额：4 个同步事件 + 2 个异步完成，
-/// 详细模式应全部展示、且不出现 `… +N events`（PRD「每个异步 hook 完成各占一行」）。
+/// 异步占位行不参与「汇总 4 行」限额：4 个同步事件 + 2 个异步占位，
+/// 详细模式应全部展示、且不出现 `… +N events`。
 #[test]
 fn test_async_rows_not_folded_by_summary_cap() {
     use crate::ui::message_view::HookRow;
@@ -4245,9 +4553,11 @@ fn test_async_rows_not_folded_by_summary_cap() {
     let mut rows: Vec<_> = (1..=4)
         .map(|i| HookRow::summary(format!("{i} Event{i} hooks ran · 1ms")))
         .collect();
-    rows.push(HookRow::async_row_completed("Async hook PostToolUse completed"));
-    rows.push(HookRow::async_row_completed(
-        "Async hook UserPromptSubmit completed",
+    rows.push(HookRow::async_row_running(
+        "Async hook PostToolUse running…",
+    ));
+    rows.push(HookRow::async_row_running(
+        "Async hook UserPromptSubmit running…",
     ));
     let baseline = render_view_model(&make_hook_tool_block(Vec::new()), Some(1), 80, true, 0);
     // Act
@@ -4257,29 +4567,29 @@ fn test_async_rows_not_folded_by_summary_cap() {
     assert_eq!(
         detail.len(),
         baseline.len() + 6,
-        "4 行同步汇总 + 2 行异步完成应各占一行"
+        "4 行同步汇总 + 2 行异步占位应各占一行"
     );
     let detail_text = rendered_text(&detail);
     assert!(
         !detail_text.contains("… +"),
-        "异步完成行不应被折叠: {detail_text}"
+        "异步占位行不应被折叠: {detail_text}"
     );
     assert!(
-        detail_text.contains("Async hook PostToolUse completed"),
-        "异步完成行必须渲染: {detail_text}"
+        detail_text.contains("Async hook PostToolUse running…"),
+        "异步占位行必须渲染: {detail_text}"
     );
     assert!(
-        detail_text.contains("Async hook UserPromptSubmit completed"),
+        detail_text.contains("Async hook UserPromptSubmit running…"),
         "每个异步 hook 各占一行: {detail_text}"
     );
     assert!(
         !rendered_text(&normal).contains("Async hook"),
-        "普通模式仍不显示异步完成行: {:?}",
+        "普通模式仍不显示异步占位行: {:?}",
         rendered_text(&normal)
     );
 }
 
-/// 同步汇总行仍受 4 行上限：6 个同步 + 2 个异步完成 → 4 行 + `… +2 events` + 2 行异步。
+/// 同步汇总行仍受 4 行上限：6 个同步 + 2 个异步占位 → 4 行 + `… +2 events` + 2 行异步。
 #[test]
 fn test_sync_summary_fold_excludes_async_rows() {
     use crate::ui::message_view::HookRow;
@@ -4287,9 +4597,9 @@ fn test_sync_summary_fold_excludes_async_rows() {
     let mut rows: Vec<_> = (1..=6)
         .map(|i| HookRow::summary(format!("{i} Event{i} hooks ran · 1ms")))
         .collect();
-    rows.push(HookRow::async_row_completed("Async hook Stop completed"));
-    rows.push(HookRow::async_row_completed(
-        "Async hook SessionStart completed",
+    rows.push(HookRow::async_row_running("Async hook Stop running…"));
+    rows.push(HookRow::async_row_running(
+        "Async hook SessionStart running…",
     ));
     let baseline = render_view_model(&make_hook_tool_block(Vec::new()), Some(1), 80, true, 0);
     // Act
@@ -4298,7 +4608,7 @@ fn test_sync_summary_fold_excludes_async_rows() {
     assert_eq!(
         lines.len(),
         baseline.len() + 7,
-        "4 行同步汇总 + 1 行折叠提示 + 2 行异步完成"
+        "4 行同步汇总 + 1 行折叠提示 + 2 行异步占位"
     );
     let text = rendered_text(&lines);
     assert!(
@@ -4310,23 +4620,20 @@ fn test_sync_summary_fold_excludes_async_rows() {
         "第 6 个同步事件应被折叠: {text}"
     );
     assert!(
-        text.contains("Async hook Stop completed"),
-        "异步完成行不受折叠影响: {text}"
+        text.contains("Async hook Stop running…"),
+        "异步占位行不受折叠影响: {text}"
     );
     assert!(
-        text.contains("Async hook SessionStart completed"),
-        "异步完成行不受折叠影响: {text}"
+        text.contains("Async hook SessionStart running…"),
+        "异步占位行不受折叠影响: {text}"
     );
 }
 
 #[test]
 fn test_hook_rows_have_no_ascii_fallback_gap() {
-    use crate::ui::message_view::{HookRow, NoteTone};
+    use crate::ui::message_view::HookRow;
     let rows = vec![
-        HookRow::failure(
-            "PostToolUse hook failed: exit 1 with a long stderr tail that keeps going",
-            NoteTone::Error,
-        ),
+        HookRow::failed("PostToolUse hook failed: exit 1 with a long stderr tail that keeps going"),
         HookRow::summary("2 PostToolUse hooks ran · 34ms"),
     ];
     let width = 40;
@@ -4353,10 +4660,10 @@ fn test_hook_rows_have_no_ascii_fallback_gap() {
 /// （PRD「与 Bash 执行结果的组合」：命令转入后台也有汇总/失败行）。
 #[test]
 fn test_hook_rows_rendered_for_backgrounded_bash() {
-    use crate::ui::message_view::{HookRow, NoteTone};
+    use crate::ui::message_view::HookRow;
     // Arrange
     let mut vm = make_hook_tool_block(vec![
-        HookRow::failure("PostToolUse hook failed: exit 1", NoteTone::Error),
+        HookRow::failed("PostToolUse hook failed: exit 1"),
         HookRow::summary("1 PostToolUse hooks ran · 6ms"),
     ]);
     if let MessageViewModel::ToolBlock { content, .. } = &mut vm {
@@ -4366,8 +4673,8 @@ fn test_hook_rows_rendered_for_backgrounded_bash() {
     // Act
     let normal = render_view_model(&vm, Some(1), 80, false, 0);
     let detail = render_view_model(&vm, Some(1), 80, true, 0);
-    // Assert
-    let route_line = normal
+    // Assert：hook 行（详细模式）必须排在转后台提示之后
+    let route_line = detail
         .iter()
         .position(|line| {
             line.spans
@@ -4375,7 +4682,7 @@ fn test_hook_rows_rendered_for_backgrounded_bash() {
                 .any(|span| span.content.contains("bg-1.log") || span.content.contains("bg-1"))
         })
         .expect("转后台提示行应渲染");
-    let failure_line = normal
+    let failure_line = detail
         .iter()
         .position(|line| {
             line.spans
@@ -4393,6 +4700,11 @@ fn test_hook_rows_rendered_for_backgrounded_bash() {
         "详细模式应保留汇总行: {detail_text:?}"
     );
     assert!(
+        !rendered_text(&normal).contains("hook failed"),
+        "普通模式不应出现 hook 自身失败行: {:?}",
+        rendered_text(&normal)
+    );
+    assert!(
         !rendered_text(&normal).contains("hooks ran"),
         "普通模式不应出现汇总行: {:?}",
         rendered_text(&normal)
@@ -4403,10 +4715,10 @@ fn test_hook_rows_rendered_for_backgrounded_bash() {
 /// 否则这条路径上的阻断/失败提示整段丢失。
 #[test]
 fn test_hook_rows_rendered_for_ask_user_question() {
-    use crate::ui::message_view::{HookRow, NoteTone};
+    use crate::ui::message_view::HookRow;
     // Arrange
     let rows = vec![
-        HookRow::failure("PreToolUse hook blocked: policy", NoteTone::Warning),
+        HookRow::blocked("PreToolUse hook blocked: policy"),
         HookRow::summary("1 PreToolUse hooks ran · 8ms"),
     ];
     let vm = make_named_hook_tool_block(
@@ -4450,21 +4762,18 @@ fn test_hook_rows_rendered_for_ask_user_question() {
 /// 折叠 Skill 分支提前返回：hook 失败/阻断行必须接在 Skill 摘要之后。
 #[test]
 fn test_hook_rows_rendered_for_collapsed_skill() {
-    use crate::ui::message_view::{HookRow, NoteTone};
+    use crate::ui::message_view::HookRow;
     // Arrange
-    let rows = vec![HookRow::failure(
-        "PostToolUse hook failed: exit 1",
-        NoteTone::Error,
-    )];
+    let rows = vec![HookRow::failed("PostToolUse hook failed: exit 1")];
     let vm = make_named_hook_tool_block("Skill", "example-skill", r#"{"success":true}"#, rows);
     // Act
-    let normal = render_view_model(&vm, Some(1), 80, false, 0);
+    let lines = render_view_model(&vm, Some(1), 80, true, 0);
     // Assert
-    let skill_line = normal
+    let skill_line = lines
         .iter()
         .position(|line| line.spans.iter().any(|s| s.content.contains("Skill")))
         .expect("折叠 Skill 摘要行应渲染");
-    let hook_pos = normal
+    let hook_pos = lines
         .iter()
         .position(|line| line.spans.iter().any(|s| s.content.contains("hook failed")))
         .expect("折叠 Skill 路径不得吞掉 hook 行");
@@ -4478,14 +4787,13 @@ fn test_hook_rows_rendered_for_collapsed_skill() {
 /// 否则整段塞进单个 Span 时 `\n` 宽度为 0，会错位甚至把转义序列带到终端。
 #[test]
 fn test_hook_row_sanitizes_newlines_and_ansi() {
-    use crate::ui::message_view::{HookRow, NoteTone};
+    use crate::ui::message_view::HookRow;
     // Arrange
-    let rows = vec![HookRow::failure(
+    let rows = vec![HookRow::failed(
         "PostToolUse hook failed: \x1b[31mboom\x1b[0m\nsecond\tline",
-        NoteTone::Error,
     )];
     // Act
-    let lines = render_view_model(&make_hook_tool_block(rows), Some(1), 80, false, 0);
+    let lines = render_view_model(&make_hook_tool_block(rows), Some(1), 80, true, 0);
     let text = rendered_text(&lines);
     // Assert
     assert!(!text.contains('\x1b'), "不得残留 ANSI 转义: {text:?}");
@@ -4496,5 +4804,72 @@ fn test_hook_row_sanitizes_newlines_and_ansi() {
     assert!(
         text.contains("boom second line"),
         "清洗后应折叠成单行: {text:?}"
+    );
+}
+
+/// hook 行强制单行：超宽时截断成一行并以 `…` 收尾，绝不折行。
+#[test]
+fn test_hook_rows_never_wrap_to_multiple_lines() {
+    let long_reason = r"Cannot find module 'C:\Program Files\Clawd on Desk\resources\app.asar.unpacked\hooks\clawd-hook.js' at Module._resolveFilename (node:internal/modules/cjs/loader:1520)";
+    let vm = make_hook_tool_block(vec![crate::ui::message_view::HookRow::failed(format!(
+        "PreToolUse hook failed: {long_reason}"
+    ))]);
+    let lines = render_view_model(&vm, None, 80, true, 0);
+    let hook_lines: Vec<String> = lines
+        .iter()
+        .map(|line| {
+            line.spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>()
+        })
+        .filter(|text| text.contains("hook failed"))
+        .collect();
+    assert_eq!(hook_lines.len(), 1, "hook 行必须只有一行: {hook_lines:?}");
+    assert!(
+        hook_lines[0].ends_with('…'),
+        "超宽应截断并以 … 收尾: {}",
+        hook_lines[0]
+    );
+    assert!(
+        unicode_width::UnicodeWidthStr::width(hook_lines[0].as_str()) <= 80,
+        "行宽不得超出视口: {}",
+        hook_lines[0]
+    );
+}
+
+#[test]
+fn test_active_thinking_row_shows_char_count() {
+    let render = |chars: usize, active: bool| {
+        let mut vm = MessageViewModel::assistant();
+        if let MessageViewModel::AssistantBubble { blocks, .. } = &mut vm {
+            blocks.push(ContentBlockView::Reasoning {
+                char_count: chars,
+                duration_ms: Some(5000),
+                action_summary: Some("read 2 files".to_string()),
+                text: "x".repeat(chars),
+                active,
+                active_since: None,
+                hint: None,
+            });
+        }
+        rendered_text(&render_view_model(&vm, None, 120, false, 0))
+    };
+    // Act：同一段思考在流式推进时的两个时刻
+    let early = render(800, true);
+    let later = render(3649, true);
+    // Assert：活跃态报字数（随 chunk 增长），冻结后只剩耗时
+    assert!(
+        early.contains("Thinking for 800 chars, reading 2 files…"),
+        "活跃态应显示字数 + 现在时动作: {early}"
+    );
+    assert!(
+        later.contains("Thinking for 3649 chars, reading 2 files…"),
+        "字数增长后应更新显示: {later}"
+    );
+    let frozen = render(3649, false);
+    assert!(
+        frozen.contains("Thought for 5s, read 2 files"),
+        "冻结后应由耗时取代字数: {frozen}"
     );
 }

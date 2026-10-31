@@ -416,14 +416,14 @@ async fn test_agent_hook_wrong_type_returns_allow() {
     assert!(matches!(action, HookAction::Allow));
 }
 
-/// reason 最终渲染成单行：换行/制表符折叠成空格，ANSI 转义剥离。
+/// reason 最终渲染成单行：只取最后一条有意义的信息，ANSI 剥离、空白折叠。
 #[test]
-fn test_hook_error_reason_flattens_whitespace_and_ansi() {
+fn test_hook_error_reason_keeps_last_line_and_strips_ansi() {
     let reason = hook_error_reason(
         "hook exited with code 1",
-        "\x1b[31mboom\x1b[0m\nsecond\tline",
+        "boom\n\t\x1b[31msecond\t  line\x1b[0m\n",
     );
-    assert_eq!(reason, "hook exited with code 1: boom second line");
+    assert_eq!(reason, "hook exited with code 1: second line");
 }
 
 /// 只有空白（或全被剥掉）的 stderr 只保留前缀，不留悬空冒号。

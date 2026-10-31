@@ -15,7 +15,16 @@ use crate::theme::Theme;
 use super::{compute_diff, CacheStats, DiffInput, DiffLine, DiffWordType};
 
 #[cfg(feature = "markdown-highlight")]
-use crate::markdown::highlight::{SYNTAX_SET, THEME_SET};
+use crate::markdown::highlight::{syntect_color_to_ratatui, SYNTAX_SET, THEME_SET};
+
+/// 把用于背景的 `Color::Reset` 转为 None，其余原样包裹为 Some。
+fn opt_bg(c: Color) -> Option<Color> {
+    if c == Color::Reset {
+        None
+    } else {
+        Some(c)
+    }
+}
 
 /// 渲染缓存条数上限
 const RENDER_CACHE_CAPACITY: usize = 64;
@@ -357,8 +366,11 @@ fn highlight_line_spans(
         if text.is_empty() {
             continue;
         }
-        let fg = Color::Rgb(style.foreground.r, style.foreground.g, style.foreground.b);
-        spans.push(Span::styled(text.to_string(), Style::default().fg(fg)));
+        let mut span_style = Style::default();
+        if let Some(fg) = syntect_color_to_ratatui(style.foreground) {
+            span_style = span_style.fg(fg);
+        }
+        spans.push(Span::styled(text.to_string(), span_style));
     }
     Some(spans)
 }
@@ -367,14 +379,17 @@ fn highlight_line_spans(
 #[cfg(feature = "markdown-highlight")]
 fn highlight_line_spans_on_bg(
     line_text: &str,
-    bg: Color,
+    bg: Option<Color>,
     theme_name: &str,
     lang: &str,
 ) -> Option<Vec<Span<'static>>> {
     Some(
         highlight_line_spans(line_text, theme_name, lang)?
             .into_iter()
-            .map(|s| Span::styled(s.content, s.style.bg(bg)))
+            .map(|s| match bg {
+                Some(b) => Span::styled(s.content, s.style.bg(b)),
+                None => s,
+            })
             .collect(),
     )
 }
@@ -518,9 +533,9 @@ fn render_diff_uncached(input: &DiffInput, width: usize, theme: &dyn Theme) -> V
 
     // 标题行
     let (prefix, fg, bg) = if result.is_new_file {
-        ("+", theme.diff_add(), Some(theme.diff_add_bg()))
+        ("+", theme.diff_add(), opt_bg(theme.diff_add_bg()))
     } else if result.is_deleted_file {
-        ("-", theme.diff_remove(), Some(theme.diff_remove_bg()))
+        ("-", theme.diff_remove(), opt_bg(theme.diff_remove_bg()))
     } else {
         (" ", theme.muted(), None)
     };
@@ -657,12 +672,16 @@ fn render_diff_uncached(input: &DiffInput, width: usize, theme: &dyn Theme) -> V
                     // 代码正文用语法高亮/正文色，不再三处共用一个前景色。
                     let deco = theme.diff_add_decoration();
                     let fg = theme.diff_add();
-                    let bg = theme.diff_add_bg();
+                    let bg = opt_bg(theme.diff_add_bg());
+                    let mut gutter_style = Style::default().fg(deco);
+                    if let Some(bg_col) = bg {
+                        gutter_style = gutter_style.bg(bg_col);
+                    }
                     let gutter = GutterLayout::new(
                         format!("{} {:>n$} ", marker, line_num, n = n),
                         marker,
                         n,
-                        Style::default().fg(deco).bg(bg),
+                        gutter_style,
                     );
                     let content_width = width.saturating_sub(gutter_width);
                     let line_text = text.trim_end_matches('\n').to_string();
@@ -671,7 +690,7 @@ fn render_diff_uncached(input: &DiffInput, width: usize, theme: &dyn Theme) -> V
                     // 叠加为更深底色（前景保留语法色），两者并存而非二选一。
                     // 高亮不可用（语言未识别 / feature 关闭）时回退纯色词级渲染。
                     let spans = if let Some(wd) = word_diff {
-                        let word_bg = theme.diff_add_word_bg();
+                        let word_bg = opt_bg(theme.diff_add_word_bg());
                         #[cfg(feature = "markdown-highlight")]
                         let highlighted = syntax_lang.as_deref().and_then(|lang| {
                             let spans = highlight_line_spans_on_bg(
@@ -701,14 +720,15 @@ fn render_diff_uncached(input: &DiffInput, width: usize, theme: &dyn Theme) -> V
                         let highlighted: Option<Vec<Span<'static>>> = None;
 
                         highlighted.unwrap_or_else(|| {
-                            vec![Span::styled(
-                                line_text.clone(),
-                                Style::default().fg(fg).bg(bg),
-                            )]
+                            let mut style = Style::default().fg(fg);
+                            if let Some(bg_col) = bg {
+                                style = style.bg(bg_col);
+                            }
+                            vec![Span::styled(line_text.clone(), style)]
                         })
                     };
 
-                    push_wrapped_line(&mut lines, &gutter, spans, content_width, Some(bg));
+                    push_wrapped_line(&mut lines, &gutter, spans, content_width, bg);
                 }
                 DiffLine::Remove {
                     text,
@@ -718,37 +738,44 @@ fn render_diff_uncached(input: &DiffInput, width: usize, theme: &dyn Theme) -> V
                     let marker = "-";
                     // CC 单行号：marker + ' ' + 右对齐行号 + ' '
                     // 分层（CC color-diff `marker === '-'` 分支）：marker 与行号用
-                    // deleteDecoration 暗红，**代码正文用正文色（近白）**——之前三处
-                    // 共用 diff_remove 亮红，删除行代码整行发红，与 CC 不符。
+                    // deleteDecoration 暗红；在无整行底色（如 ANSI 模式）下代码正文用 dim，
+                    // 有整行暗红底时用 text 正文色。
                     let deco = theme.diff_remove_decoration();
-                    let bg = theme.diff_remove_bg();
-                    let fg = theme.text();
+                    let bg = opt_bg(theme.diff_remove_bg());
+                    let fg = if bg.is_none() {
+                        theme.dim()
+                    } else {
+                        theme.text()
+                    };
+                    let mut gutter_style = Style::default().fg(deco);
+                    if let Some(bg_col) = bg {
+                        gutter_style = gutter_style.bg(bg_col);
+                    }
                     let gutter = GutterLayout::new(
                         format!("{} {:>n$} ", marker, line_num, n = n),
                         marker,
                         n,
-                        Style::default().fg(deco).bg(bg),
+                        gutter_style,
                     );
                     let content_width = width.saturating_sub(gutter_width);
                     let line_text = text.trim_end_matches('\n').to_string();
 
                     // 删除行不做语法高亮，与 CC 一致
                     let spans = match word_diff {
-                        Some(wd) => render_word_diff_spans(
-                            wd,
-                            &line_text,
-                            fg,
-                            bg,
-                            theme.diff_remove_word_bg(),
-                            false,
-                        ),
-                        None => vec![Span::styled(
-                            line_text.clone(),
-                            Style::default().fg(fg).bg(bg),
-                        )],
+                        Some(wd) => {
+                            let word_bg = opt_bg(theme.diff_remove_word_bg());
+                            render_word_diff_spans(wd, &line_text, fg, bg, word_bg, false)
+                        }
+                        None => {
+                            let mut style = Style::default().fg(fg);
+                            if let Some(bg_col) = bg {
+                                style = style.bg(bg_col);
+                            }
+                            vec![Span::styled(line_text.clone(), style)]
+                        }
                     };
 
-                    push_wrapped_line(&mut lines, &gutter, spans, content_width, Some(bg));
+                    push_wrapped_line(&mut lines, &gutter, spans, content_width, bg);
                 }
             }
         }
@@ -789,8 +816,12 @@ fn word_diff_change_ranges(wd: &super::WordDiff) -> Vec<(usize, usize)> {
 fn apply_word_diff_bg(
     spans: Vec<Span<'static>>,
     ranges: &[(usize, usize)],
-    word_bg: Color,
+    word_bg: Option<Color>,
 ) -> Vec<Span<'static>> {
+    let word_bg = match word_bg {
+        Some(c) => c,
+        None => return spans,
+    };
     if ranges.is_empty() {
         return spans;
     }
@@ -837,8 +868,8 @@ fn render_word_diff_spans(
     wd: &super::WordDiff,
     full_text: &str,
     fg: Color,
-    bg: Color,
-    word_bg: Color,
+    bg: Option<Color>,
+    word_bg: Option<Color>,
     is_add: bool,
 ) -> Vec<Span<'static>> {
     // 先判断是否所有段都是 Unchanged
@@ -847,9 +878,13 @@ fn render_word_diff_spans(
         .iter()
         .any(|(_, t)| !matches!(t, DiffWordType::Unchanged));
     if !has_change {
+        let mut style = Style::default().fg(fg);
+        if let Some(b) = bg {
+            style = style.bg(b);
+        }
         return vec![Span::styled(
             full_text.trim_end_matches('\n').to_string(),
-            Style::default().fg(fg).bg(bg),
+            style,
         )];
     }
 
@@ -868,10 +903,11 @@ fn render_word_diff_spans(
 
         let is_changed = !matches!(word_type, DiffWordType::Unchanged);
         let span_bg = if is_changed { word_bg } else { bg };
-        spans.push(Span::styled(
-            text.clone(),
-            Style::default().fg(fg).bg(span_bg),
-        ));
+        let mut style = Style::default().fg(fg);
+        if let Some(b) = span_bg {
+            style = style.bg(b);
+        }
+        spans.push(Span::styled(text.clone(), style));
     }
 
     spans

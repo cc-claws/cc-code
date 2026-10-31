@@ -167,3 +167,50 @@ fn test_clear_system_notice_ignores_min_visible() {
     comm.clear_system_notice();
     assert!(comm.system_notice.is_none());
 }
+
+/// 构造一条 hook 失败项
+fn make_hook_failure(
+    kind: cc_agent::agent::events::HookFailureKind,
+    reason: &str,
+) -> cc_agent::agent::events::HookFailureInfo {
+    cc_agent::agent::events::HookFailureInfo {
+        kind,
+        reason: reason.to_string(),
+    }
+}
+
+#[test]
+fn test_dedup_hook_failures_keeps_only_first_occurrence() {
+    use cc_agent::agent::events::HookFailureKind;
+    let mut comm = AgentComm::default();
+    let failure = make_hook_failure(HookFailureKind::Error, "Cannot find module");
+    let first = comm.dedup_hook_failures("PreToolUse", vec![failure.clone()]);
+    let second = comm.dedup_hook_failures("PreToolUse", vec![failure]);
+    assert_eq!(first.len(), 1, "首次失败必须保留");
+    assert!(second.is_empty(), "同一失败第二次出现不应再产生行");
+}
+
+#[test]
+fn test_dedup_hook_failures_keeps_different_reason() {
+    use cc_agent::agent::events::HookFailureKind;
+    let mut comm = AgentComm::default();
+    let failure = make_hook_failure(HookFailureKind::Error, "first");
+    comm.dedup_hook_failures("PreToolUse", vec![failure]);
+    let changed = make_hook_failure(HookFailureKind::Error, "second");
+    let kept = comm.dedup_hook_failures("PreToolUse", vec![changed]);
+    assert_eq!(kept.len(), 1, "错误内容不同仍应各显示一次");
+    assert_eq!(kept[0].reason, "second");
+}
+
+#[test]
+fn test_dedup_hook_failures_separates_event_and_kind() {
+    use cc_agent::agent::events::HookFailureKind;
+    let mut comm = AgentComm::default();
+    let error = make_hook_failure(HookFailureKind::Error, "boom");
+    comm.dedup_hook_failures("PreToolUse", vec![error.clone()]);
+    let other_event = comm.dedup_hook_failures("PostToolUse", vec![error]);
+    let block = make_hook_failure(HookFailureKind::Block, "boom");
+    let other_kind = comm.dedup_hook_failures("PreToolUse", vec![block]);
+    assert_eq!(other_event.len(), 1, "不同 event 是不同失败");
+    assert_eq!(other_kind.len(), 1, "不同 kind 是不同失败");
+}

@@ -1035,7 +1035,7 @@ impl App {
                     .view_messages
                     .push(MessageViewModel::shell_command_completed(&record));
             }
-            self.scroll_to_bottom();
+            // 自动完成仅更新内容，保留用户当前的阅读位置和跟随选择。
             self.render_rebuild();
         }
 

@@ -1,6 +1,9 @@
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc,
+use std::{
+    cell::RefCell,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
 };
 
 use cc_agent::interaction::channel_types::ChannelNotification;
@@ -64,12 +67,18 @@ pub enum QueuedMessageAction {
 
 pub(crate) type SteeringResult = (uuid::Uuid, Result<(), String>);
 
+pub type RenderViewportRequest = (usize, usize, bool, u16, Option<ViewportAnchor>, u64);
+
 /// 消息状态：会话级的消息管线、渲染通道、消息列表。
 pub struct MessageState {
     pub view_messages: Vec<MessageViewModel>,
     pub round_start_vm_idx: usize,
     pub pipeline: MessagePipeline,
     pub render_tx: mpsc::Sender<RenderEvent>,
+    /// 渲染队列满时保留最新完整快照（重建、滚动锚点或清空），下一轮轮询重试。
+    pending_render_rebuild: Option<RenderEvent>,
+    /// 每种渲染模式仅保留最新值，最多五种；重试时先同步模式，再发送内容快照。
+    pending_render_modes: RefCell<Vec<RenderEvent>>,
     pub render_cache: Arc<RwLock<RenderCache>>,
     pub render_notify: Arc<Notify>,
     pub last_render_version: u64,
@@ -84,7 +93,7 @@ pub struct MessageState {
     /// 最近一次发送给渲染线程的 resize 宽度（用于去抖，避免每帧重复发送）
     pub last_resize_width: Option<u16>,
     /// 已成功投递的视口，通道满时保留旧值以便下一帧重试。
-    pub last_viewport: Option<(usize, usize, bool, u16, Option<ViewportAnchor>)>,
+    pub last_viewport: Option<RenderViewportRequest>,
     /// 内容布局请求独立于视口物化的 cache.version，普通滚动不推进此版本。
     layout_revision: AtomicU64,
     /// 历史替换/模式切换使旧的异步宽度确认失效。
@@ -107,6 +116,8 @@ impl MessageState {
             round_start_vm_idx: 0,
             pipeline: MessagePipeline::new(cwd),
             render_tx,
+            pending_render_rebuild: None,
+            pending_render_modes: RefCell::new(Vec::new()),
             render_cache,
             render_notify,
             last_render_version: 0,
@@ -142,19 +153,67 @@ impl MessageState {
         event: RenderEvent,
     ) -> Result<(), mpsc::error::TrySendError<RenderEvent>> {
         let replaces_layout = matches!(
-            event,
+            event.payload(),
             RenderEvent::Clear
                 | RenderEvent::ToggleDetail(_)
                 | RenderEvent::ToggleDiff(_)
+                | RenderEvent::ToggleHookRows(_)
                 | RenderEvent::ToggleToolMessages(_)
                 | RenderEvent::SetDetailStrategy(_)
         );
-        self.render_tx.try_send(event)?;
+        // 模式变更是绝对状态，队列满时同类型的新值覆盖旧值，避免开关永久失步。
+        let mode = event.clone_mode();
+        let result = self.render_tx.try_send(event);
+        if let Some(mode) = mode {
+            let mut pending = self.pending_render_modes.borrow_mut();
+            pending.retain(|old| {
+                std::mem::discriminant(old.payload()) != std::mem::discriminant(mode.payload())
+            });
+            if matches!(&result, Err(mpsc::error::TrySendError::Full(_))) {
+                pending.push(mode);
+            }
+        }
+        result?;
         self.layout_revision.fetch_add(1, Ordering::Relaxed);
         if replaces_layout {
             self.invalidate_layout();
         }
         Ok(())
+    }
+
+    pub(crate) fn send_render_snapshot(&mut self, event: RenderEvent) {
+        debug_assert!(matches!(
+            event.payload(),
+            RenderEvent::Rebuild(_) | RenderEvent::RebuildWithAnchor { .. } | RenderEvent::Clear
+        ));
+        if !self.pending_render_modes.borrow().is_empty() {
+            // 锚点必须在新模式下计算，不能越过仍未入队的布局变更。
+            self.pending_render_rebuild = Some(event);
+            return;
+        }
+        self.pending_render_rebuild = match self.send_render_event(event) {
+            Ok(()) | Err(mpsc::error::TrySendError::Closed(_)) => None,
+            Err(mpsc::error::TrySendError::Full(event)) => Some(event),
+        };
+    }
+
+    pub(crate) fn retry_render_rebuild(&mut self) -> bool {
+        let mut updated = false;
+        for event in self.pending_render_modes.take() {
+            updated |= self.send_render_event(event).is_ok();
+        }
+        if !self.pending_render_modes.borrow().is_empty() {
+            return updated;
+        }
+        let Some(event) = self.pending_render_rebuild.take() else {
+            return updated;
+        };
+        self.send_render_snapshot(event);
+        updated || (self.pending_render_rebuild.is_none() && !self.render_tx.is_closed())
+    }
+
+    pub(crate) fn render_updates_pending(&self) -> bool {
+        self.pending_render_rebuild.is_some() || !self.pending_render_modes.borrow().is_empty()
     }
 
     /// 添加系统通知并记录锚点位置。
@@ -182,4 +241,19 @@ impl MessageState {
         self.ephemeral_notes.push((anchor, vm.clone()));
         self.view_messages.push(vm);
     }
+
+    /// 添加会话级 hook 结果行（`⎿` 前缀、整行按 `tone` 着色）并记录锚点位置。
+    ///
+    /// `detail_only` 为真时只有详细模式可见：成功汇总、异步完成、hook 自身失败
+    /// 都不该在普通模式刷屏；阻断行（工具真的没跑）两种模式都要可见。
+    pub fn push_hook_system_note(&mut self, content: String, tone: NoteTone, detail_only: bool) {
+        let anchor = self.view_messages.len();
+        let vm = MessageViewModel::system_hook_line(content, tone, detail_only);
+        self.ephemeral_notes.push((anchor, vm.clone()));
+        self.view_messages.push(vm);
+    }
 }
+
+#[cfg(test)]
+#[path = "message_state_test.rs"]
+mod tests;

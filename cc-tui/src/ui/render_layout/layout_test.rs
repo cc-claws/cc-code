@@ -101,6 +101,7 @@ fn make_mode(detail: bool) -> LayoutMode {
         width: 80,
         detail,
         diff: false,
+        hook_rows: true,
         theme: crate::ui::theme::fingerprint(),
     }
 }
@@ -126,7 +127,7 @@ fn make_reference(
 ) -> (Vec<Line<'static>>, Vec<WrappedLineInfo>) {
     let mut lines = Vec::new();
     for (index, mut vm) in messages.iter().cloned().enumerate() {
-        for line in RenderTask::render_one(&mut vm, index + 1, 80, false, detail).0 {
+        for line in RenderTask::render_one(&mut vm, index + 1, 80, false, true, detail).0 {
             if super::super::render_thread::is_blank_line(&line)
                 && lines
                     .last()
@@ -158,6 +159,7 @@ async fn make_complete(
             &mut source,
             make_mode(detail),
             Viewport {
+                scroll_revision: 0,
                 height: 100_000,
                 ..Viewport::default()
             },
@@ -368,6 +370,7 @@ async fn test_virtual_hidden_tail_matches_reference_without_following() {
             &mut sources,
             make_mode(false),
             Viewport {
+                scroll_revision: 0,
                 height: 1000,
                 follow_tail: false,
                 ..Viewport::default()
@@ -427,6 +430,7 @@ async fn test_virtual_lru_budget_and_copy_after_actual_eviction() {
                 &mut sources,
                 make_mode(true),
                 Viewport {
+                    scroll_revision: 0,
                     top,
                     height: 12,
                     follow_tail: false,
@@ -491,6 +495,7 @@ async fn test_virtual_reading_head_does_not_materialize_offscreen_tail() {
             &mut sources,
             make_mode(true),
             Viewport {
+                scroll_revision: 0,
                 height: 8,
                 follow_tail: false,
                 ..Viewport::default()

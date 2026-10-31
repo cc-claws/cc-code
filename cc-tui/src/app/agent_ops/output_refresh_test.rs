@@ -33,7 +33,7 @@ fn make_output(id: &str, tail: &str, source: Option<&str>) -> AgentEvent {
 fn make_frames(receiver: &mut mpsc::Receiver<RenderEvent>) -> Vec<Vec<MessageViewModel>> {
     let mut frames = Vec::new();
     while let Ok(event) = receiver.try_recv() {
-        match event {
+        match event.into_payload() {
             RenderEvent::Rebuild(messages) | RenderEvent::RebuildWithAnchor { messages, .. } => {
                 frames.push(messages)
             }
