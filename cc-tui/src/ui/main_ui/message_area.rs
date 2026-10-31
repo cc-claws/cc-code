@@ -827,6 +827,14 @@ pub(super) fn visible_tail(app: &App) -> Vec<Line<'static>> {
     supplementary_lines(app, &spinner_line)
 }
 
+/// 压缩跑道相对行首的缩进（2 列）。
+///
+/// 对齐基准是上方 spinner 行的 `✻ ` 前缀——两列正好让跑道首格落在 spinner
+/// verb 首字与其下方 `⎿` 折角所在的同一列。压缩期间 tip 行本就被动画顶掉，
+/// 屏幕上没有 `⎿ Tip:` 可对齐，故不用 `BranchPrefix::PREFIX`（5 列）。
+/// 每格 2 列，跑道格点因此与 spinner 前缀共用同一套栅格。
+const COMPACT_TRACK_INDENT: &str = "  ";
+
 /// 压缩进行中的「小人跑道」：固定 12 格，小人每 150ms 从右向左单向奔跑并穿墙回卷。
 ///
 /// 占的是 tip 那一行（不增加布局高度），压缩结束即消失。进度是假的，
@@ -854,7 +862,8 @@ fn compact_runner_line(started_at: std::time::Instant) -> Line<'static> {
     // 从右端（TRACK - 1）向左端（0）单向奔跑
     let pos = TRACK - 1 - step;
 
-    let mut spans = Vec::with_capacity(TRACK);
+    let mut spans = Vec::with_capacity(TRACK + 1);
+    spans.push(Span::raw(COMPACT_TRACK_INDENT));
     for cell in 0..TRACK {
         if cell == pos {
             spans.push(Span::styled(glyph, Style::default().fg(glyph_color)));
@@ -908,7 +917,8 @@ fn compact_crab_line(started_at: std::time::Instant) -> Line<'static> {
         (0, false)
     };
 
-    let mut spans = Vec::with_capacity(TRACK);
+    let mut spans = Vec::with_capacity(TRACK + 1);
+    spans.push(Span::raw(COMPACT_TRACK_INDENT));
     for cell in 0..TRACK {
         if cell == pos {
             spans.push(Span::styled(glyph, Style::default().fg(glyph_color)));
@@ -959,7 +969,8 @@ fn compact_ufo_line(started_at: std::time::Instant) -> Line<'static> {
         (0, false)
     };
 
-    let mut spans = Vec::with_capacity(TRACK);
+    let mut spans = Vec::with_capacity(TRACK + 1);
+    spans.push(Span::raw(COMPACT_TRACK_INDENT));
     for cell in 0..TRACK {
         let dd = if moving_forward {
             active as isize - cell as isize

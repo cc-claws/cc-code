@@ -258,6 +258,11 @@ fn test_compact_runner_line_advances_along_fixed_track() {
         let started = std::time::Instant::now() - std::time::Duration::from_millis(offset_ms);
         let line = compact_runner_line(started);
         let text: String = line.spans.iter().map(|sp| sp.content.as_ref()).collect();
+        assert_eq!(
+            line.spans[0].content.as_ref(),
+            COMPACT_TRACK_INDENT,
+            "跑道首 span 应为缩进"
+        );
         let glyph = if text.contains('🚶') {
             '🚶'
         } else {
@@ -268,7 +273,8 @@ fn test_compact_runner_line_advances_along_fixed_track() {
             .iter()
             .position(|sp| sp.content.contains(glyph))
             .expect("应存在小人");
-        (text, pos)
+        // 减去缩进 span，换算成跑道格号
+        (text, pos - 1)
     }
 
     let (early, early_pos) = render(0);
@@ -318,12 +324,17 @@ fn test_compact_crab_line_follows_bidirectional_cycle() {
         let started = std::time::Instant::now() - std::time::Duration::from_millis(offset_ms);
         let line = compact_crab_line(started);
         let text: String = line.spans.iter().map(|sp| sp.content.as_ref()).collect();
+        assert_eq!(
+            line.spans[0].content.as_ref(),
+            COMPACT_TRACK_INDENT,
+            "跑道首 span 应为缩进"
+        );
         let pos = line
             .spans
             .iter()
             .position(|sp| sp.content.contains('🦀'))
             .expect("应存在螃蟹");
-        (text, pos)
+        (text, pos - 1)
     }
 
     let (early, early_pos) = render(0);
@@ -367,12 +378,17 @@ fn test_compact_ufo_line_follows_reference_cycle() {
         let started = std::time::Instant::now() - std::time::Duration::from_millis(offset_ms);
         let line = compact_ufo_line(started);
         let text: String = line.spans.iter().map(|sp| sp.content.as_ref()).collect();
+        assert_eq!(
+            line.spans[0].content.as_ref(),
+            COMPACT_TRACK_INDENT,
+            "跑道首 span 应为缩进"
+        );
         let pos = line
             .spans
             .iter()
             .position(|sp| sp.content.contains('🛸'))
             .expect("应存在飞碟");
-        (text, pos)
+        (text, pos - 1)
     }
 
     // 帧 13（520ms）：前进到最右；帧 15（600ms）：终点停留仍在最右

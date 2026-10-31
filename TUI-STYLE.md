@@ -291,6 +291,8 @@ read_file、search_files_rg、glob_files 等只读工具自动聚合：
 Verb 列表：128 个中文烹饪/动作动词随机选择。
 Spinner 下方附加 Tip 行：`  ⎿  Tip: ...`（5 列前缀，与工具结果行共享 `BranchPrefix` 规范；INACTIVE 色）。调度对齐参考实现（issue #511）：每轮挑选一条并扣留、轮结束才发布展示，挑选按会话冷却（内置 10 个会话）取「最久未展示」者，历史持久化于 `~/.cc-code/spinner-tips.json`；本轮运行 >30min 时被 /clear 覆盖 tip 顶替；可用配置 `spinner_tips_enabled` 关闭、`spinner_tips_override` 追加自定义条目。
 
+压缩进行中，tip 行让位给压缩跑道动画（小人 / 螃蟹 / 飞碟三选一，见 `message_area.rs` 的 `COMPACT_TRACK_INDENT`）。动画行缩进 **2 列**，与 spinner 行 `✻ ` 前缀同列——此时屏幕上没有 `⎿ Tip:` 可对齐，若套用 5 列前缀会让跑道悬空右移。跑道每格 2 列，格点因此与 spinner 前缀共用同一套栅格；格数固定（小人/螃蟹 12 格、飞碟 14 格，飞碟步频取自 MiMo-Code 参考实现），不随终端宽度伸缩。
+
 ## Todo 列表
 
 在 loading 状态时跟在 Spinner + Tip 之后显示：
