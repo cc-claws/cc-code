@@ -571,3 +571,40 @@ fn test_build_diff_input_write_append_uses_concatenated_content() {
     assert_eq!(di.old_content, "a\n");
     assert_eq!(di.new_content, "a\nb\n");
 }
+
+// ── issue #831：Agent(action="stop") 的展示 ──────────────────────────────────
+
+#[test]
+fn test_agent_stop_display_name() {
+    let stop = serde_json::json!({"action": "stop", "task_id": "bg-1234"});
+    assert_eq!(format_tool_name_with_input("Agent", Some(&stop)), "Stop Task");
+}
+
+#[test]
+fn test_agent_spawn_display_name_unchanged() {
+    let spawn = serde_json::json!({"description": "查天气", "prompt": "..."});
+    assert_eq!(format_tool_name_with_input("Agent", Some(&spawn)), "Agent");
+    assert_eq!(format_tool_name_with_input("Agent", None), "Agent");
+}
+
+#[test]
+fn test_agent_action_unknown_falls_back_to_agent() {
+    for input in [
+        serde_json::json!({"action": "Stop"}),          // 大小写敏感
+        serde_json::json!({"action": "unknown"}),       // 未知取值
+        serde_json::json!({"action": null}),            // 非字符串
+        serde_json::json!({}),                          // 缺失
+    ] {
+        assert!(!is_agent_stop("Agent", Some(&input)));
+        assert_eq!(format_tool_name_with_input("Agent", Some(&input)), "Agent");
+    }
+}
+
+#[test]
+fn test_agent_stop_args_falls_back_to_task_id() {
+    let stop = serde_json::json!({"action": "stop", "task_id": "bg-1234"});
+    assert_eq!(format_tool_args("Agent", &stop, None).as_deref(), Some("bg-1234"));
+    // description/prompt 存在时仍优先（兼容未来的 stop 带描述场景）
+    let stop_with_desc = serde_json::json!({"action": "stop", "task_id": "bg-1", "description": "停掉查天气"});
+    assert_eq!(format_tool_args("Agent", &stop_with_desc, None).as_deref(), Some("停掉查天气"));
+}

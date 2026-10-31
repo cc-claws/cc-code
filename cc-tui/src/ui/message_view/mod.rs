@@ -1108,6 +1108,10 @@ impl MessageViewModel {
                     build_diff_input(&tool_name, &input, cwd, Some(tool_call_id.as_str()))
                 };
                 let file_inspect = tools::is_file_inspect(&tool_name, &input);
+                // Agent(action="stop") 的结果行（「⎿ 任务摘要 · stopped」）默认展开，
+                // 否则停止操作完成后对用户不可见（issue #831）
+                let agent_stop =
+                    crate::app::tool_display::is_agent_stop(&tool_name, Some(&input));
                 let mut vm = MessageViewModel::ToolBlock {
                     tool_name,
                     tool_call_id: tool_call_id.clone(),
@@ -1115,7 +1119,7 @@ impl MessageViewModel {
                     args_display,
                     content: raw_content,
                     is_error: *is_error,
-                    collapsed: true,
+                    collapsed: !agent_stop,
                     color,
                     diff_input,
                     phase: ToolPhase::Finished,

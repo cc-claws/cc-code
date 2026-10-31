@@ -88,7 +88,20 @@ pub fn format_tool_name_for_stats(tool: &str) -> String {
 ///
 /// CC 的 Edit 工具按 `old_string` 区分：空字符串表示新建 → `Create`，
 /// 其余情况 → `Update`。无入参时回退到 [`format_tool_name`]（CC 的 `!input` 分支也是 `Update`）。
+/// 是否 `Agent(action="stop")` 调用——展示层特判（动作名、默认展开）共用，
+/// 避免以 `display_name == "Stop Task"` 这类展示产物作为判据（改文案即静默失效）。
+pub fn is_agent_stop(tool: &str, input: Option<&serde_json::Value>) -> bool {
+    tool == "Agent"
+        && input
+            .and_then(|v| v.get("action"))
+            .and_then(|v| v.as_str())
+            .is_some_and(|a| a == "stop")
+}
+
 pub fn format_tool_name_with_input(tool: &str, input: Option<&serde_json::Value>) -> String {
+    if is_agent_stop(tool, input) {
+        return "Stop Task".to_string();
+    }
     if tool == "Edit" {
         let is_create = input
             .and_then(|v| v.get("old_string"))
@@ -407,6 +420,14 @@ pub fn format_tool_args(
         "Agent" => input["description"]
             .as_str()
             .or_else(|| input["prompt"].as_str())
+            // stop 调用只有 action/task_id，回退展示 task_id 避免 header 为空（issue #831）
+            .or_else(|| {
+                if is_agent_stop("Agent", Some(input)) {
+                    input["task_id"].as_str()
+                } else {
+                    None
+                }
+            })
             .map(|s| truncate(s, 40)),
         "TodoWrite" => input["todos"].as_array().map(|todos| {
             crate::i18n::global().tr_args(
