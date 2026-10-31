@@ -282,7 +282,8 @@ impl MessagePipeline {
                     args_display: args,
                     content: ct.output.clone(),
                     is_error: ct.is_error,
-                    collapsed: true,
+                    // Agent(action="stop") 默认展开结果行（issue #831）
+                    collapsed: !tool_display::is_agent_stop(&ct.name, Some(&ct.input)),
                     color: if ct.is_error {
                         theme::cur().error
                     } else {
