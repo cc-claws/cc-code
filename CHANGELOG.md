@@ -6,6 +6,10 @@ Perihelion Agent 版本变更记录。
 
 ## Unreleased
 
+### Features
+
+- **终端色彩能力探测与输出降级（#601）**：此前所有主题与状态栏都直接输出 `Color::Rgb`（24-bit 序列），只支持 256 色/16 色的终端只能自行近似，设了 `NO_COLOR` 的环境也照样全彩。现按 `NO_COLOR`（存在且非空）/ `TERM=dumb` / `COLORTERM`·`TERM` 的真彩标识 / Apple Terminal 与 `*256*` 判定四档色深，在输出层统一降级：256 档量化到「6×6×6 色立方 + 24 级灰阶」两个候选中更近的一档（纯立方量化会把橙色压成灰扑扑的 salmon），16 档落到基础色，`NO_COLOR` 只清颜色、保留 bold/dim 等属性。对齐参考实现补两处环境修正：VS Code 的 xterm.js 从 256 提回真彩（code-server 常不设 `COLORTERM`），`TMUX` 内压到 256（默认配置不转发 `38;2` 背景，色块会整块丢失），`PERI_TMUX_TRUECOLOR=1` 可显式豁免。配色表、主题指纹与渲染缓存均不受影响，真彩终端输出与改动前逐字节一致。
+
 ## v0.6.208 — 2026-10-29
 
 ### Features

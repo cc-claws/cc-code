@@ -4,8 +4,11 @@ use ratatui::{
     backend::{Backend, ClearType, WindowSize},
     buffer::Cell,
     layout::{Position, Size},
+    style::Color,
 };
 use unicode_width::UnicodeWidthStr;
+
+use crate::terminal_color::ColorDepth;
 
 pub trait WidthProbe {
     fn width(&mut self, symbol: &str) -> Option<usize>;
@@ -26,17 +29,29 @@ pub struct WidthSafeBackend<B, P> {
     pub(super) inner: B,
     probe: P,
     symbols: HashMap<String, Option<String>>,
+    /// 输出侧颜色降级档位；`TrueColor` 时颜色原样写出（零成本）。
+    color_depth: ColorDepth,
+    /// `Color` 降级结果缓存：渲染热路径上每帧要处理上万 cell，
+    /// 而实际出现过的颜色只有调色板里的几十种。
+    adapted_colors: HashMap<Color, Color>,
     clear_owned_lines_only: bool,
     hyperlinks: super::hyperlink::Frame,
     pending_hyperlinks: Option<super::hyperlink::Frame>,
 }
 
 impl<B, P: WidthProbe> WidthSafeBackend<B, P> {
+    /// 不做颜色降级。测试与不关心色深的调用方用这个构造器。
     pub fn with_probe(inner: B, probe: P) -> Self {
+        Self::with_probe_and_depth(inner, probe, ColorDepth::TrueColor)
+    }
+
+    pub fn with_probe_and_depth(inner: B, probe: P, color_depth: ColorDepth) -> Self {
         Self {
             inner,
             probe,
             symbols: HashMap::new(),
+            color_depth,
+            adapted_colors: HashMap::new(),
             clear_owned_lines_only: false,
             hyperlinks: super::hyperlink::Frame::default(),
             pending_hyperlinks: None,
@@ -76,16 +91,49 @@ impl<B, P: WidthProbe> WidthSafeBackend<B, P> {
         }
     }
 
+    /// 把渲染颜色降到终端可表达的深度；无变化时零拷贝。
+    fn adapt_cell_colors<'a>(&mut self, cell: &'a Cell) -> Cow<'a, Cell> {
+        if self.color_depth == ColorDepth::TrueColor {
+            return Cow::Borrowed(cell);
+        }
+        let fg = self.adapt_color(cell.fg);
+        let bg = self.adapt_color(cell.bg);
+        let underline = self.adapt_color(cell.underline_color);
+        if fg == cell.fg && bg == cell.bg && underline == cell.underline_color {
+            return Cow::Borrowed(cell);
+        }
+        let mut adapted = cell.clone();
+        adapted.fg = fg;
+        adapted.bg = bg;
+        adapted.underline_color = underline;
+        Cow::Owned(adapted)
+    }
+
+    fn adapt_color(&mut self, color: Color) -> Color {
+        if let Some(cached) = self.adapted_colors.get(&color) {
+            return *cached;
+        }
+        let adapted = self.color_depth.adapt(color);
+        // 与 symbols 缓存同样设上限，防止长会话里颜色表无界增长。
+        if self.adapted_colors.len() >= 1024 {
+            self.adapted_colors.clear();
+        }
+        self.adapted_colors.insert(color, adapted);
+        adapted
+    }
+
     fn output_cell<'a>(&mut self, cell: &'a Cell) -> Cow<'a, Cell> {
+        let adapted = self.adapt_cell_colors(cell);
+        let cell = adapted.as_ref();
         let symbol = cell.symbol();
         if symbol.is_ascii() {
-            return Cow::Borrowed(cell);
+            return adapted;
         }
         // 含控制字符的 symbol 一定是终端转义序列（如 OSC 8 超链接的
         // `ESC ]8;;…`），不是可测量的字形。直接原样输出，否则会被当作
         // 宽字符去量列宽并替换成降级字形，链接失效且整行错位。
         if symbol.chars().any(char::is_control) {
-            return Cow::Borrowed(cell);
+            return adapted;
         }
         if !self.symbols.contains_key(symbol) {
             // Bound memory for long sessions containing many different graphemes.
@@ -108,11 +156,14 @@ impl<B, P: WidthProbe> WidthSafeBackend<B, P> {
         }
         match self.symbols.get(symbol).and_then(Option::as_deref) {
             Some(replacement) => {
-                let mut adapted = cell.clone();
-                adapted.set_symbol(replacement);
-                Cow::Owned(adapted)
+                let mut out = match adapted {
+                    Cow::Borrowed(borrowed) => borrowed.clone(),
+                    Cow::Owned(owned) => owned,
+                };
+                out.set_symbol(replacement);
+                Cow::Owned(out)
             }
-            None => Cow::Borrowed(cell),
+            None => adapted,
         }
     }
 }
