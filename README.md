@@ -121,6 +121,7 @@ No credentials configured? The deterministic layer still runs and an LLM classif
 
 | Feature | Version | Description |
 |---------|---------|-------------|
+| **Compact Threshold Input & Range Optimization** | v0.6.224 | The "Compact threshold" row in the `/config` panel is redesigned as a percentage option item (range 10-99%, allowing earlier auto-compaction down to 10%). It removes unrestricted free-form text input in favor of arrow-key stepping and strict numeric entry, with automatic normalization on blur to prevent arbitrary long strings (#844, #845). |
 | **Terminal Color Depth Detection** | v0.6.223 | Themes and the status bar used to emit `Color::Rgb` (24-bit) unconditionally, so terminals limited to 256/16 colors had to approximate it themselves and `NO_COLOR` was ignored. Color depth is now detected (`NO_COLOR`, `TERM=dumb`, `COLORTERM`/`TERM` truecolor signals, Apple Terminal and `*256*` → 256) and downgraded at the output layer: the 256-color step takes the nearer of the 6×6×6 cube and the 24-step gray ramp, the 16-color step quantizes to base colors, and `NO_COLOR` drops color while keeping bold/dim. Inside `TMUX` it clamps to 256 (default config drops `38;2` backgrounds); `PERI_TMUX_TRUECOLOR=1` opts out. Truecolor output is byte-identical to before (#601). |
 | **Reliable Long-Session Resume** | v0.6.223 | Restoring a long session avoids redundant history reads and full cache rewrites. Child sessions retain newly appended messages, and closing idle sessions releases their serialization locks (#813). |
 | **Live Thinking Char Count** | v0.6.220 | While the model is thinking, the header shows the live character count of the streamed reasoning (`∴ Thinking for 1247 chars…`) instead of a stopwatch, so you can tell it is still producing; the line freezes into `Thought for 16s, read 2 files` once the reply starts. Active and finished rows share one dim color (#836). |
@@ -130,8 +131,7 @@ No credentials configured? The deterministic layer still runs and an LLM classif
 | **`/ps` Opens the Background Tasks Panel** | v0.6.210 | `/ps` opens the background tasks panel for past commands and live output at any time — even while the agent is running, it pops immediately instead of queueing or refusing (#806). |
 | **Compaction Spinner Animations** | v0.6.208 | Compaction no longer appends a permanent "Compacting context…" line: history keeps only the result notice. Progress is shown on the spinner instead — a runner (12-cell track, `🏃` every 150ms for the first 20s then a slower `🚶`, leaving `•` footprints) or a UFO (MiMo-Code's scanner algorithm: 14 cells, 40ms/frame, a 5-cell `· ∙ ˙` trail), picked at random per compaction. Both sweep out and back with end holds, reuse the tip row so no layout height is added, and degrade to `R`/`W`/`o` on ASCII-only consoles (#792). |
 | **`!` Commands Use Git Bash** | v0.6.207 | `!` commands now run through Git Bash like the Bash tool instead of `cmd /C`, so `sleep`, `ls` and `grep` work on Windows; the running state reads `Running… (Xs)` and the seconds keep ticking for silent commands (#790). |
-| **Untrusted Hooks Notice Keeps the Welcome Card** | v0.6.207 | The startup notice for untrusted project hooks no longer counts as conversation history, so the welcome card and mascot stay visible; the notice itself is rendered with warning semantics (`⚠` in amber) instead of plain grey (#788). |
-> Older releases (v0.6.0 – v0.6.206) are listed in the [CHANGELOG](./CHANGELOG.md).
+> Older releases (v0.6.0 – v0.6.207) are listed in the [CHANGELOG](./CHANGELOG.md).
 
 ---
 
