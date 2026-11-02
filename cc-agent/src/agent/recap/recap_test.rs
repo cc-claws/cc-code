@@ -159,7 +159,7 @@ async fn test_generate_recap_empty_messages_returns_no_turn() {
 #[tokio::test]
 async fn test_generate_recap_success_returns_ok_with_trimmed_text() {
     // Arrange: 一条历史 + 返回带空白的文本
-    let msgs = vec![BaseMessage::human("排查订单 IM20260910361758")];
+    let msgs = vec![BaseMessage::human("排查订单 IM00000000000000")];
     let model =
         make_mock_model_ok("  正在排查订单出库仓问题。下一步：确认应走官方仓还是自发仓。  ");
     let cancel = AgentCancellationToken::new();

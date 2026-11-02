@@ -552,9 +552,9 @@ Bypass 与 Auto 共用同一套状态机；不人为延时、不强制插帧（�
 传了 `timeout` 时（真实形态，注意最后一行是独立 `⎿` 行）：
 
 ```
-● Bash(cd "D:/code/nt_order" && php storage/probes/probe_t57489_prodlog.php 2>&1 | head -25)
-  ⎿  order_status_history_000 总行数: 3323926
-     order_status_history_000 今日行数: 4015
+● Bash(cd "/work/project" && php scripts/probe_table.php 2>&1 | head -25)
+  ⎿  records_000 总行数: 3323926
+     records_000 今日行数: 4015
      … +11 lines (ctrl+o to expand)
   ⎿  (timeout 1m 30s)
 ```
