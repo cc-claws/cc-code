@@ -166,10 +166,117 @@ fn test_config_panel_apply_edit_invalid_threshold_clamps() {
     let lc = make_lc();
     let mut cfg = PeriConfig::default();
     let mut panel = ConfigPanel::from_config(&cfg);
+    panel.buf_threshold = "5".to_string();
+    panel.apply_edit(&mut cfg, &lc).unwrap();
+    let compact = cfg.config.compact.unwrap();
+    assert!((compact.auto_compact_threshold - 0.10).abs() < 0.001);
+}
+
+#[test]
+fn test_config_panel_apply_edit_low_threshold_30_allowed() {
+    let lc = make_lc();
+    let mut cfg = PeriConfig::default();
+    let mut panel = ConfigPanel::from_config(&cfg);
     panel.buf_threshold = "30".to_string();
     panel.apply_edit(&mut cfg, &lc).unwrap();
     let compact = cfg.config.compact.unwrap();
-    assert!((compact.auto_compact_threshold - 0.50).abs() < 0.001);
+    assert!((compact.auto_compact_threshold - 0.30).abs() < 0.001);
+}
+
+#[test]
+fn test_config_panel_step_threshold_increase_and_decrease() {
+    let mut panel = ConfigPanel::from_config(&PeriConfig::default());
+    assert_eq!(panel.buf_threshold, "85");
+    panel.step_threshold(true);
+    assert_eq!(panel.buf_threshold, "90");
+    panel.step_threshold(true);
+    assert_eq!(panel.buf_threshold, "95");
+    panel.step_threshold(true);
+    assert_eq!(panel.buf_threshold, "99", "增加上限应为 99");
+    panel.step_threshold(true);
+    assert_eq!(panel.buf_threshold, "99", "达到上限后继续增加保持 99");
+
+    panel.step_threshold(false);
+    assert_eq!(panel.buf_threshold, "95");
+    panel.step_threshold(false);
+    assert_eq!(panel.buf_threshold, "90");
+
+    panel.buf_threshold = "12".to_string();
+    panel.step_threshold(false);
+    assert_eq!(panel.buf_threshold, "10", "减少下限应为 10");
+    panel.step_threshold(false);
+    assert_eq!(panel.buf_threshold, "10", "达到下限后继续减少保持 10");
+}
+
+#[test]
+fn test_config_panel_cycle_threshold_wraps_around() {
+    let mut panel = ConfigPanel::from_config(&PeriConfig::default());
+    panel.buf_threshold = "99".to_string();
+    panel.cycle_threshold();
+    assert_eq!(panel.buf_threshold, "10", "达到 99 后循环回 10");
+    panel.cycle_threshold();
+    assert_eq!(panel.buf_threshold, "15");
+}
+
+#[test]
+fn test_config_panel_input_threshold_char_filters_non_digits_and_limits_length() {
+    let mut panel = ConfigPanel::from_config(&PeriConfig::default());
+    assert_eq!(panel.buf_threshold, "85");
+    // 输入非数字字符被忽略
+    panel.input_threshold_char('a');
+    assert_eq!(panel.buf_threshold, "85");
+    panel.input_threshold_char(' ');
+    assert_eq!(panel.buf_threshold, "85");
+
+    // 已有 2 位数字时输入新数字，重置为单字符
+    panel.input_threshold_char('7');
+    assert_eq!(panel.buf_threshold, "7");
+    // 输入第 2 位数字，追加并即时 clamp
+    panel.input_threshold_char('0');
+    assert_eq!(panel.buf_threshold, "70");
+
+    // 输入小于 10 的两位数字（如 05），两字符时 clamp 为 10
+    panel.input_threshold_char('0');
+    panel.input_threshold_char('5');
+    assert_eq!(panel.buf_threshold, "10");
+
+    // Backspace 删除一位
+    panel.backspace_threshold();
+    assert_eq!(panel.buf_threshold, "1");
+    // 离开时规范化
+    panel.normalize_threshold();
+    assert_eq!(panel.buf_threshold, "10");
+}
+
+#[tokio::test]
+async fn test_config_panel_threshold_keys_step_and_save() {
+    let (mut app, _handle) = App::new_headless(80, 30).await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    app.services.config_path_override = Some(path.clone());
+    app.services.peri_config = Some(PeriConfig::default());
+    let mut panel = ConfigPanel::from_config(&PeriConfig::default());
+    panel.cursor = ROW_THRESHOLD;
+    let mut ctx = PanelContext {
+        services: &mut app.services,
+        session_mgr: &mut app.session_mgr,
+        acp_client: None,
+    };
+    // 按 Right 步进增加 5%
+    panel.handle_key(
+        Input {
+            key: tui_textarea::Key::Right,
+            ctrl: false,
+            alt: false,
+            shift: false,
+        },
+        &mut ctx,
+    );
+    drop(ctx);
+    assert_eq!(panel.buf_threshold, "90", "Right 键应增加 5%");
+    let loaded = crate::config::load_from(&path).unwrap();
+    let compact = loaded.config.compact.expect("应写入 compact 配置");
+    assert!((compact.auto_compact_threshold - 0.90).abs() < 0.001);
 }
 
 #[test]

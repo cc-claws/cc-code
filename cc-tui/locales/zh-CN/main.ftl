@@ -263,7 +263,7 @@ config-group-prompt-overrides = 提示词覆盖
 
 # Config field descriptions
 config-desc-autocompact = （开/关 — 上下文满时自动压缩）
-config-desc-threshold = 50-99% — 自动压缩触发阈值
+config-desc-threshold = 10-99% — 自动压缩触发阈值
 config-desc-recap = （开/关 — 终端失焦60秒后自动生成会话回顾）
 config-desc-language = en, zh-CN，或留空为自动
 config-desc-persona = 覆盖系统提示词 persona（留空=默认）

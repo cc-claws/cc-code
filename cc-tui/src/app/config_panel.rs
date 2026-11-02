@@ -60,7 +60,7 @@ fn next_editable_row(current: usize, reverse: bool) -> usize {
 }
 
 fn is_text_row(row: usize) -> bool {
-    matches!(row, ROW_THRESHOLD | ROW_PERSONA | ROW_TONE)
+    matches!(row, ROW_PERSONA | ROW_TONE)
 }
 
 /// 屏幕行号 → 逻辑行号。
@@ -183,7 +183,12 @@ impl ConfigPanel {
             .map(|c| c.auto_compact_enabled)
             .unwrap_or(true);
         let threshold = compact_config
-            .map(|c| format!("{}", (c.auto_compact_threshold * 100.0) as u8))
+            .map(|c| {
+                format!(
+                    "{}",
+                    ((c.auto_compact_threshold * 100.0).round() as u8).clamp(10, 99)
+                )
+            })
             .unwrap_or_else(|| "85".to_string());
         let auto_recap = cfg.config.auto_recap.unwrap_or(true);
         let proactiveness = cfg
@@ -243,6 +248,65 @@ impl ConfigPanel {
 
     pub fn cycle_autocompact(&mut self) {
         self.buf_autocompact = !self.buf_autocompact;
+    }
+
+    /// 步进调节 Compact 阈值（10..=99，步进 5）
+    pub fn step_threshold(&mut self, increase: bool) {
+        let current: u8 = self.buf_threshold.parse().unwrap_or(85).clamp(10, 99);
+        let next = if increase {
+            if current >= 95 {
+                99
+            } else {
+                let rem = current % 5;
+                let step = if rem == 0 { 5 } else { 5 - rem };
+                (current + step).min(95)
+            }
+        } else if current <= 10 {
+            10
+        } else if current == 99 {
+            95
+        } else {
+            let rem = current % 5;
+            let step = if rem == 0 { 5 } else { rem };
+            current.saturating_sub(step).max(10)
+        };
+        self.buf_threshold = next.to_string();
+    }
+
+    /// 循环切换 Compact 阈值
+    pub fn cycle_threshold(&mut self) {
+        let current: u8 = self.buf_threshold.parse().unwrap_or(85).clamp(10, 99);
+        if current >= 99 {
+            self.buf_threshold = "10".to_string();
+        } else {
+            self.step_threshold(true);
+        }
+    }
+
+    /// 单字符数字输入（严格限制为 ASCII 数字，最多 2 位）
+    pub fn input_threshold_char(&mut self, c: char) {
+        if !c.is_ascii_digit() {
+            return;
+        }
+        if self.buf_threshold.len() >= 2 {
+            self.buf_threshold.clear();
+        }
+        self.buf_threshold.push(c);
+        if self.buf_threshold.len() == 2 {
+            let val: u8 = self.buf_threshold.parse().unwrap_or(85).clamp(10, 99);
+            self.buf_threshold = val.to_string();
+        }
+    }
+
+    /// 退格删除 threshold
+    pub fn backspace_threshold(&mut self) {
+        self.buf_threshold.pop();
+    }
+
+    /// 失焦或确认时规范化为有效范围 10..=99
+    pub fn normalize_threshold(&mut self) {
+        let val: u8 = self.buf_threshold.parse().unwrap_or(85).clamp(10, 99);
+        self.buf_threshold = val.to_string();
     }
 
     pub fn cycle_recap(&mut self) {
@@ -314,19 +378,15 @@ impl ConfigPanel {
         let text: String = text.chars().filter(|&c| c != '\n' && c != '\r').collect();
         match self.cursor {
             ROW_THRESHOLD => {
-                let buf = &mut self.buf_threshold;
-                let cursor = &mut self.cur_threshold;
-                let char_count = buf.chars().count();
-                if *cursor > char_count {
-                    *cursor = char_count;
+                let digits: String = text
+                    .chars()
+                    .filter(|c| c.is_ascii_digit())
+                    .take(2)
+                    .collect();
+                if !digits.is_empty() {
+                    let val: u8 = digits.parse().unwrap_or(85).clamp(10, 99);
+                    self.buf_threshold = val.to_string();
                 }
-                let byte_pos = buf
-                    .char_indices()
-                    .nth(*cursor)
-                    .map(|(i, _)| i)
-                    .unwrap_or(buf.len());
-                buf.insert_str(byte_pos, &text);
-                *cursor += text.chars().count();
             }
             ROW_PERSONA => {
                 let buf = &mut self.buf_persona;
@@ -373,7 +433,8 @@ impl ConfigPanel {
             .compact
             .get_or_insert_with(cc_agent::agent::CompactConfig::default);
         compact.auto_compact_enabled = self.buf_autocompact;
-        let threshold_val: u8 = self.buf_threshold.parse().unwrap_or(85).clamp(50, 99);
+        let threshold_val: u8 = self.buf_threshold.parse().unwrap_or(85).clamp(10, 99);
+        self.buf_threshold = threshold_val.to_string();
         compact.auto_compact_threshold = threshold_val as f64 / 100.0;
 
         // auto recap
@@ -427,20 +488,17 @@ impl ConfigPanel {
         Ok(())
     }
 
+    fn on_row_blur(&mut self, ctx: &mut PanelContext<'_>) {
+        if self.cursor == ROW_THRESHOLD {
+            self.normalize_threshold();
+            save_config_now(self, ctx);
+        } else if is_text_row(self.cursor) {
+            save_config_now(self, ctx);
+        }
+    }
+
     fn input_char(&mut self, c: char) {
         match self.cursor {
-            ROW_THRESHOLD => {
-                super::handle_edit_key(
-                    &mut self.buf_threshold,
-                    &mut self.cur_threshold,
-                    Input {
-                        key: tui_textarea::Key::Char(c),
-                        ctrl: false,
-                        alt: false,
-                        shift: false,
-                    },
-                );
-            }
             ROW_PERSONA => {
                 super::handle_edit_key(
                     &mut self.buf_persona,
@@ -471,9 +529,6 @@ impl ConfigPanel {
 
     fn handle_text_key(&mut self, input: Input) {
         match self.cursor {
-            ROW_THRESHOLD => {
-                super::handle_edit_key(&mut self.buf_threshold, &mut self.cur_threshold, input);
-            }
             ROW_PERSONA => {
                 super::handle_edit_key(&mut self.buf_persona, &mut self.cur_persona, input);
             }
@@ -494,28 +549,28 @@ impl PanelComponent for ConfigPanel {
         use tui_textarea::Key;
         match input {
             Input { key: Key::Esc, .. } => {
-                if is_text_row(self.cursor) {
-                    save_config_now(self, ctx);
-                }
+                self.on_row_blur(ctx);
                 EventResult::ClosePanel
             }
             Input { key: Key::Up, .. } => {
-                if is_text_row(self.cursor) {
-                    save_config_now(self, ctx);
-                }
+                self.on_row_blur(ctx);
                 self.cursor_up();
                 EventResult::Consumed
             }
             Input { key: Key::Down, .. } => {
-                if is_text_row(self.cursor) {
-                    save_config_now(self, ctx);
-                }
+                self.on_row_blur(ctx);
                 self.cursor_down();
                 EventResult::Consumed
             }
             Input {
                 key: Key::Enter, ..
-            } => EventResult::Consumed,
+            } => {
+                if self.cursor == ROW_THRESHOLD {
+                    self.normalize_threshold();
+                    save_config_now(self, ctx);
+                }
+                EventResult::Consumed
+            }
             Input {
                 key: Key::Char(' '),
                 ctrl: false,
@@ -523,6 +578,7 @@ impl PanelComponent for ConfigPanel {
             } => {
                 match self.cursor {
                     ROW_AUTOCOMPACT
+                    | ROW_THRESHOLD
                     | ROW_RECAP
                     | ROW_LANGUAGE
                     | ROW_PROACTIVENESS
@@ -532,6 +588,7 @@ impl PanelComponent for ConfigPanel {
                     | ROW_STREAMING => {
                         match self.cursor {
                             ROW_AUTOCOMPACT => self.cycle_autocompact(),
+                            ROW_THRESHOLD => self.cycle_threshold(),
                             ROW_RECAP => self.cycle_recap(),
                             ROW_LANGUAGE => self.cycle_language(false),
                             ROW_PROACTIVENESS => self.cycle_proactiveness(),
@@ -554,6 +611,7 @@ impl PanelComponent for ConfigPanel {
             } => {
                 match self.cursor {
                     ROW_AUTOCOMPACT
+                    | ROW_THRESHOLD
                     | ROW_RECAP
                     | ROW_LANGUAGE
                     | ROW_PROACTIVENESS
@@ -563,6 +621,7 @@ impl PanelComponent for ConfigPanel {
                     | ROW_STREAMING => {
                         match self.cursor {
                             ROW_AUTOCOMPACT => self.cycle_autocompact(),
+                            ROW_THRESHOLD => self.step_threshold(false),
                             ROW_RECAP => self.cycle_recap(),
                             ROW_LANGUAGE => self.cycle_language(true),
                             ROW_PROACTIVENESS => self.cycle_proactiveness(),
@@ -587,6 +646,7 @@ impl PanelComponent for ConfigPanel {
             } => {
                 match self.cursor {
                     ROW_AUTOCOMPACT
+                    | ROW_THRESHOLD
                     | ROW_RECAP
                     | ROW_LANGUAGE
                     | ROW_PROACTIVENESS
@@ -596,6 +656,7 @@ impl PanelComponent for ConfigPanel {
                     | ROW_STREAMING => {
                         match self.cursor {
                             ROW_AUTOCOMPACT => self.cycle_autocompact(),
+                            ROW_THRESHOLD => self.step_threshold(true),
                             ROW_RECAP => self.cycle_recap(),
                             ROW_LANGUAGE => self.cycle_language(false),
                             ROW_PROACTIVENESS => self.cycle_proactiveness(),
@@ -614,7 +675,29 @@ impl PanelComponent for ConfigPanel {
                 EventResult::Consumed
             }
             _ => {
-                self.handle_text_key(input);
+                if self.cursor == ROW_THRESHOLD {
+                    match input.key {
+                        Key::Char(c @ '0'..='9') => {
+                            self.input_threshold_char(c);
+                            save_config_now(self, ctx);
+                        }
+                        Key::Char('-') => {
+                            self.step_threshold(false);
+                            save_config_now(self, ctx);
+                        }
+                        Key::Char('+') | Key::Char('=') => {
+                            self.step_threshold(true);
+                            save_config_now(self, ctx);
+                        }
+                        Key::Backspace => {
+                            self.backspace_threshold();
+                            save_config_now(self, ctx);
+                        }
+                        _ => {}
+                    }
+                } else {
+                    self.handle_text_key(input);
+                }
                 EventResult::Consumed
             }
         }
@@ -657,8 +740,8 @@ impl PanelComponent for ConfigPanel {
                             | ROW_PERSONA
                             | ROW_TONE
                     ) {
-                        if is_text_row(self.cursor) && self.cursor != clicked {
-                            save_config_now(self, _ctx);
+                        if self.cursor != clicked {
+                            self.on_row_blur(_ctx);
                         }
                         self.cursor = clicked;
                         return EventResult::Consumed;
