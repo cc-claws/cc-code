@@ -350,3 +350,225 @@ async fn test_drawer_activity_refreshes_after_throttle_window() {
     sub.sync_activity_display();
     assert_eq!(sub.activity_shown, "句子二");
 }
+
+#[tokio::test]
+async fn test_subagent_cancel_then_restart_no_duplicate_render() {
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+
+    // ── 轮次 1：启动第一个子 Agent ──
+    app.submit_message("启动子agent 先sleep在查询武汉天气".into());
+    app.handle_session_update_peri(&json!({
+        "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {"type": "text", "text": "我将启动一个子 Agent，执行休眠后再查询武汉天气。"}
+        }
+    }));
+    app.handle_session_update_peri(&json!({
+        "update": {
+            "sessionUpdate": "tool_call",
+            "toolCallId": "tc_1",
+            "title": "Agent",
+            "rawInput": {"prompt": "休眠并查询武汉天气", "description": "休眠并查询武汉天气"}
+        }
+    }));
+    make_started(&mut app, "sub-1", "休眠并查询武汉天气");
+    app.handle_session_update_peri(&json!({
+        "update": {
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "tc_1",
+            "title": "Agent",
+            "status": "completed",
+            "rawOutput": "Background task bg-1 started (thread: sub-1)."
+        }
+    }));
+    app.handle_session_update_peri(&json!({
+        "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {"type": "text", "text": "子 Agent 已启动并在后台运行。"}
+        }
+    }));
+    app.handle_agent_event(AgentEvent::StateSnapshot(vec![
+        cc_agent::messages::BaseMessage::human("启动子agent 先sleep在查询武汉天气"),
+        cc_agent::messages::BaseMessage::ai_with_tool_calls(
+            "我将启动一个子 Agent，执行休眠后再查询武汉天气。",
+            vec![cc_agent::messages::ToolCallRequest::new(
+                "tc_1",
+                "Agent",
+                json!({"prompt": "休眠并查询武汉天气", "description": "休眠并查询武汉天气"}),
+            )],
+        ),
+        cc_agent::messages::BaseMessage::tool_result(
+            "tc_1",
+            "Background task bg-1 started (thread: sub-1).",
+        ),
+        cc_agent::messages::BaseMessage::ai("子 Agent 已启动并在后台运行。"),
+    ]));
+    app.handle_agent_event(AgentEvent::Done);
+
+    // ── 轮次 2：用户要求结束子 Agent ──
+    app.submit_message("结束agent".into());
+    app.handle_session_update_peri(&json!({
+        "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {"type": "text", "text": "我将停止正在运行的子 Agent 任务。"}
+        }
+    }));
+    app.handle_session_update_peri(&json!({
+        "update": {
+            "sessionUpdate": "tool_call",
+            "toolCallId": "tc_stop",
+            "title": "Agent",
+            "rawInput": {"action": "stop", "task_id": "bg-1"}
+        }
+    }));
+    // 停止子 Agent
+    app.handle_background_task_completed(crate::app::agent_events_bg::BackgroundTaskResult {
+        task_id: "bg-1".into(),
+        agent_name: "weather-agent".into(),
+        success: false,
+        output: "cancelled".into(),
+        tool_calls_count: 0,
+        duration_ms: 500,
+        child_thread_id: Some("sub-1".into()),
+    });
+    app.handle_session_update_peri(&json!({
+        "update": {
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "tc_stop",
+            "title": "Agent",
+            "status": "completed",
+            "rawOutput": "Stopped background task bg-1."
+        }
+    }));
+    app.handle_session_update_peri(&json!({
+        "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {"type": "text", "text": "已成功终止子 Agent 任务。"}
+        }
+    }));
+    app.handle_agent_event(AgentEvent::StateSnapshot(vec![
+        cc_agent::messages::BaseMessage::human("结束agent"),
+        cc_agent::messages::BaseMessage::ai_with_tool_calls(
+            "我将停止正在运行的子 Agent 任务。",
+            vec![cc_agent::messages::ToolCallRequest::new(
+                "tc_stop",
+                "Agent",
+                json!({"action": "stop", "task_id": "bg-1"}),
+            )],
+        ),
+        cc_agent::messages::BaseMessage::tool_result(
+            "tc_stop",
+            "Stopped background task bg-1.",
+        ),
+        cc_agent::messages::BaseMessage::ai("已成功终止子 Agent 任务。"),
+    ]));
+    app.handle_agent_event(AgentEvent::Done);
+
+    // ── 轮次 3：用户要求设定休眠 10 秒后重启 ──
+    app.submit_message("sleep时间需要10s啊".into());
+    app.handle_session_update_peri(&json!({
+        "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {"type": "text", "text": "我将重新启动子 Agent，设定休眠 10 秒后再查询武汉天气。"}
+        }
+    }));
+    app.handle_session_update_peri(&json!({
+        "update": {
+            "sessionUpdate": "tool_call",
+            "toolCallId": "tc_2",
+            "title": "Agent",
+            "rawInput": {"prompt": "休眠10秒并查天气", "description": "休眠10秒并查天气"}
+        }
+    }));
+    make_started(&mut app, "sub-2", "休眠10秒并查天气");
+    app.handle_session_update_peri(&json!({
+        "update": {
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "tc_2",
+            "title": "Agent",
+            "status": "completed",
+            "rawOutput": "Background task bg-2 started (thread: sub-2)."
+        }
+    }));
+    app.handle_session_update_peri(&json!({
+        "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {"type": "text", "text": "已重新启动子 Agent。"}
+        }
+    }));
+    // ReAct step 1 完成时发出的 StateSnapshot（本轮增量消息）
+    app.handle_agent_event(AgentEvent::StateSnapshot(vec![
+        cc_agent::messages::BaseMessage::human("sleep时间需要10s啊"),
+        cc_agent::messages::BaseMessage::ai_with_tool_calls(
+            "我将重新启动子 Agent，设定休眠 10 秒后再查询武汉天气。",
+            vec![cc_agent::messages::ToolCallRequest::new(
+                "tc_2",
+                "Agent",
+                json!({"prompt": "休眠10秒并查天气", "description": "休眠10秒并查天气"}),
+            )],
+        ),
+        cc_agent::messages::BaseMessage::tool_result(
+            "tc_2",
+            "Background task bg-2 started (thread: sub-2).",
+        ),
+        cc_agent::messages::BaseMessage::ai("已重新启动子 Agent。"),
+    ]));
+    app.handle_agent_event(AgentEvent::Done);
+
+    // 检查第三轮的消息与卡片
+    let session = app.session_mgr.current();
+    let cards = session
+        .messages
+        .view_messages
+        .iter()
+        .filter(|vm| {
+            matches!(
+                vm,
+                MessageViewModel::SystemNote { content, .. }
+                    if content.contains("background agents launched")
+            )
+        })
+        .count();
+    let ai_restart_texts = session
+        .messages
+        .view_messages
+        .iter()
+        .filter(|vm| {
+            if let MessageViewModel::AssistantBubble { blocks, .. } = vm {
+                blocks.iter().any(|b| {
+                    if let crate::ui::message_view::ContentBlockView::Text { raw, .. } = b {
+                        raw.contains("设定休眠 10 秒")
+                    } else {
+                        false
+                    }
+                })
+            } else {
+                false
+            }
+        })
+        .count();
+
+    let user_sleep_prompts = session
+        .messages
+        .view_messages
+        .iter()
+        .filter(|vm| {
+            matches!(
+                vm,
+                MessageViewModel::UserBubble { content, .. }
+                    if content.contains("sleep时间需要10s啊")
+            )
+        })
+        .count();
+
+    assert_eq!(
+        user_sleep_prompts, 1,
+        "用户 Prompt 不应重复: user_sleep_prompts={user_sleep_prompts}"
+    );
+    assert_eq!(
+        ai_restart_texts, 1,
+        "AI 文本不应重复渲染: ai_restart_texts={ai_restart_texts}"
+    );
+    // 轮次 1 有一个启动摘要，轮次 3 有一个启动摘要，两者各自独立保留在对应轮次
+    assert_eq!(cards, 2, "历史轮次与当前轮次各保留 1 个启动卡片: cards={cards}");
+}
