@@ -100,24 +100,36 @@ impl App {
             }
         }
         sub.is_background = is_background;
-        if is_background
-            && !self
+        if is_background {
+            if !self
+                .session_mgr
+                .current()
+                .round_launched_subagents
+                .contains(&instance_id)
+            {
+                self.session_mgr
+                    .current_mut()
+                    .round_launched_subagents
+                    .push(instance_id.clone());
+            }
+            if !self
                 .session_mgr
                 .current()
                 .background_agents
                 .iter()
                 .any(|a| a.instance_id == instance_id)
-        {
-            use super::super::chat_session::RunningBgAgent;
-            self.session_mgr
-                .current_mut()
-                .background_agents
-                .push(RunningBgAgent {
-                    agent_name: agent_id.clone(),
-                    instance_id: instance_id.clone(),
-                    started_at: std::time::Instant::now(),
-                    total_steps: 0,
-                });
+            {
+                use super::super::chat_session::RunningBgAgent;
+                self.session_mgr
+                    .current_mut()
+                    .background_agents
+                    .push(RunningBgAgent {
+                        agent_name: agent_id.clone(),
+                        instance_id: instance_id.clone(),
+                        started_at: std::time::Instant::now(),
+                        total_steps: 0,
+                    });
+            }
         }
         {
             let actions = self
@@ -144,9 +156,9 @@ impl App {
     fn update_subagent_launch_summary(&mut self) {
         let session = self.session_mgr.current_mut();
         let agents: Vec<_> = session
-            .background_agents
+            .round_launched_subagents
             .iter()
-            .filter_map(|agent| session.subagent_sessions.get(&agent.instance_id))
+            .filter_map(|id| session.subagent_sessions.get(id))
             .collect();
         if agents.is_empty() {
             return;
@@ -188,16 +200,32 @@ impl App {
             }
         }
 
-        // 摘要属于临时 UI 节点，规范历史仍由 Agent 工具调用及结果持久化。
-        session.messages.ephemeral_notes.retain(|(_, vm)| {
-            !matches!(vm, MessageViewModel::SystemNote { content, .. } if content.contains("background agents launched (↓ to manage)"))
+        let prefix_len = session.messages.round_start_vm_idx;
+        // 关键防护 1：仅在当前轮次范围（anchor >= prefix_len）清理旧摘要，严禁跨轮次删除历史消息破坏 round_start_vm_idx
+        session.messages.ephemeral_notes.retain(|(anchor, vm)| {
+            *anchor < prefix_len
+                || !matches!(vm, MessageViewModel::SystemNote { content, .. } if content.contains("background agents launched (↓ to manage)"))
         });
-        session.messages.view_messages.retain(|vm| {
-            !matches!(vm, MessageViewModel::SystemNote { content, .. } if content.contains("background agents launched (↓ to manage)"))
-        });
-        session
-            .messages
-            .push_system_note_with_detail(content, detail_content);
+
+        // 关键防护 2：在 view_messages 中，只在当前轮次（prefix_len 之后）查找并就地替换，避免删除产生位移
+        let existing_pos = if prefix_len < session.messages.view_messages.len() {
+            session.messages.view_messages[prefix_len..]
+                .iter()
+                .position(|vm| matches!(vm, MessageViewModel::SystemNote { content, .. } if content.contains("background agents launched (↓ to manage)")))
+        } else {
+            None
+        };
+
+        if let Some(rel_pos) = existing_pos {
+            let abs_pos = prefix_len + rel_pos;
+            let vm = MessageViewModel::system_with_detail(content, detail_content);
+            session.messages.view_messages[abs_pos] = vm.clone();
+            session.messages.ephemeral_notes.push((abs_pos, vm));
+        } else {
+            session
+                .messages
+                .push_system_note_with_detail(content, detail_content);
+        }
     }
 
     /// 刷新主视口的等待态计数行 `✻ Waiting for N background agents to finish`（PRD §4.4.2）。
@@ -206,13 +234,22 @@ impl App {
     /// **必须移除该行**：残留的「Waiting for 1 …」会让用户以为还有任务在跑。
     pub(crate) fn refresh_bg_waiting_note(&mut self) {
         let session = self.session_mgr.current_mut();
-        // 先清旧行，再按当前活跃数决定是否重建：数量变化时不会出现两行并存的中间态。
-        session.messages.ephemeral_notes.retain(|(_, vm)| {
-            !matches!(vm, MessageViewModel::SystemNote { content, .. } if content.starts_with(BG_WAITING_MARKER) && content.ends_with(BG_WAITING_SUFFIX))
+        let prefix_len = session.messages.round_start_vm_idx;
+        // 先清当前轮次的旧行，严禁跨轮次删除破坏历史前缀索引
+        session.messages.ephemeral_notes.retain(|(anchor, vm)| {
+            *anchor < prefix_len
+                || !matches!(vm, MessageViewModel::SystemNote { content, .. } if content.starts_with(BG_WAITING_MARKER) && content.ends_with(BG_WAITING_SUFFIX))
         });
-        session.messages.view_messages.retain(|vm| {
-            !matches!(vm, MessageViewModel::SystemNote { content, .. } if content.starts_with(BG_WAITING_MARKER) && content.ends_with(BG_WAITING_SUFFIX))
-        });
+        if prefix_len < session.messages.view_messages.len() {
+            let mut i = prefix_len;
+            while i < session.messages.view_messages.len() {
+                if matches!(&session.messages.view_messages[i], MessageViewModel::SystemNote { content, .. } if content.starts_with(BG_WAITING_MARKER) && content.ends_with(BG_WAITING_SUFFIX)) {
+                    session.messages.view_messages.remove(i);
+                } else {
+                    i += 1;
+                }
+            }
+        }
         let running = session
             .background_agents
             .iter()

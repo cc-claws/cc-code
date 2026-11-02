@@ -37,6 +37,8 @@ pub struct ChatSession {
     pub langfuse: LangfuseState,
     pub todo_items: Vec<TodoItem>,
     pub background_agents: Vec<RunningBgAgent>,
+    /// 本轮次内启动的后台子 Agent 的 instance_id 列表（新一轮开始时清空）
+    pub round_launched_subagents: Vec<String>,
     pub focused_instance_id: Option<String>,
     pub(crate) subagent_sessions:
         std::collections::HashMap<String, super::subagent_session::BackgroundAgentSession>,
@@ -219,6 +221,7 @@ impl ChatSession {
             langfuse: LangfuseState::default(),
             todo_items: Vec::new(),
             background_agents: Vec::new(),
+            round_launched_subagents: Vec::new(),
             focused_instance_id: None,
             subagent_sessions: std::collections::HashMap::new(),
             subagent_control_prefix: None,

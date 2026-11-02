@@ -104,6 +104,7 @@ impl App {
             current_thread_id: None,
             todo_items: Vec::new(),
             background_agents: Vec::new(),
+            round_launched_subagents: Vec::new(),
             focused_instance_id: None,
             subagent_sessions: std::collections::HashMap::new(),
             subagent_control_prefix: None,

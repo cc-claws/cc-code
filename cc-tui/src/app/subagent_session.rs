@@ -513,6 +513,7 @@ impl super::App {
         let session = self.session_mgr.current_mut();
         session.background_agents.clear();
         session.subagent_sessions.clear();
+        session.round_launched_subagents.clear();
         session.pending_thread_approvals.clear();
         session.approval_source_agent_id = None;
         session.subagent_interrupt_at = None;
