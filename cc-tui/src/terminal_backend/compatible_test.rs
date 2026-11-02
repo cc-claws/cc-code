@@ -604,3 +604,44 @@ fn test_ascii_fallback_covers_compact_animation_glyphs() {
     assert_eq!(super::fallback_symbol("🏃", 2), "R ");
     assert_eq!(super::fallback_symbol("🛸", 2), "o ");
 }
+
+/// 输出层必须把渲染侧的真彩色降到终端可表达的深度，且不影响字形。
+#[test]
+fn test_draw_degrades_rgb_colors_to_terminal_depth() {
+    use crate::terminal_color::ColorDepth;
+    let (probe, _) = make_probe(&[]);
+    let inner = TestBackend::new(4, 1);
+    let mut backend = WidthSafeBackend::with_probe_and_depth(inner, probe, ColorDepth::Ansi16);
+    let mut cell = Cell::new("A");
+    cell.fg = Color::Rgb(255, 0, 0);
+    cell.bg = Color::Rgb(128, 128, 128);
+    backend
+        .draw(std::iter::once((0u16, 0u16, &cell)))
+        .expect("写入宿主屏幕");
+    let buffer = backend.inner.buffer();
+    assert_eq!(buffer[(0, 0)].fg, Color::LightRed, "前景应降到基础 16 色");
+    assert_eq!(buffer[(0, 0)].bg, Color::DarkGray, "背景应降到基础 16 色");
+    assert_eq!(buffer[(0, 0)].symbol(), "A", "颜色降级不得改动字形");
+}
+
+/// `NO_COLOR` 档只清除颜色，bold 等属性必须保留。
+#[test]
+fn test_draw_no_color_resets_colors_but_keeps_modifiers() {
+    use crate::terminal_color::ColorDepth;
+    let (probe, _) = make_probe(&[]);
+    let inner = TestBackend::new(4, 1);
+    let mut backend = WidthSafeBackend::with_probe_and_depth(inner, probe, ColorDepth::NoColor);
+    let mut cell = Cell::new("A");
+    cell.fg = Color::Rgb(255, 0, 0);
+    cell.modifier = Modifier::BOLD;
+    backend
+        .draw(std::iter::once((0u16, 0u16, &cell)))
+        .expect("写入宿主屏幕");
+    let buffer = backend.inner.buffer();
+    assert_eq!(buffer[(0, 0)].fg, Color::Reset, "NO_COLOR 下前景应回到默认");
+    assert_eq!(
+        buffer[(0, 0)].modifier,
+        Modifier::BOLD,
+        "NO_COLOR 关的是颜色，不是样式"
+    );
+}

@@ -1,7 +1,8 @@
 //! 终端主题自动探测：`theme = "auto"` 时由本模块决定实际调色板。
 //!
 //! 两级判定：
-//! 1. **颜色能力**：`TERM_PROGRAM=Apple_Terminal` 不支持 24-bit 真彩色，选 `*-ansi` 调色板
+//! 1. **颜色能力**：由 [`crate::terminal_color`] 判定色深（`NO_COLOR`、`COLORTERM`/`TERM`、
+//!    Apple Terminal 与 256 色宿主的显式标识），非真彩一律选 `*-ansi` 调色板
 //! 2. **背景明暗**：先发 OSC 11 查询问终端自己的背景色（回 `rgb:RRRR/GGGG/BBBB` 后按
 //!    亮度判明暗）；终端不应答时，macOS 退回系统外观（`AppleInterfaceStyle`），其余按深色
 //!
@@ -63,24 +64,24 @@ pub fn preload() {
 
 /// 当前终端的颜色能力。
 pub fn capability() -> ColorSupport {
-    capability_from_env(env_var)
+    crate::terminal_color::depth().into()
 }
 
-fn env_var(name: &str) -> Option<String> {
-    std::env::var(name).ok()
-}
-
-/// 颜色能力判定（按 `TERM_PROGRAM` 注入 env 读取器，便于测试）。
+/// 颜色能力判定（按 env 注入读取器，便于测试）。
+///
+/// 与输出侧色深降级共用 [`crate::terminal_color`] 的同一套判定，
+/// 避免「主题选了 ansi 版、输出却仍写 24-bit」这类两套逻辑漂移。
 pub fn capability_from_env(get: impl Fn(&str) -> Option<String>) -> ColorSupport {
-    if is_apple_terminal(&get) {
-        ColorSupport::Ansi
-    } else {
-        ColorSupport::TrueColor
-    }
+    crate::terminal_color::detect_from_env(get).into()
 }
 
-fn is_apple_terminal(get: &impl Fn(&str) -> Option<String>) -> bool {
-    get("TERM_PROGRAM").is_some_and(|v| v.eq_ignore_ascii_case("Apple_Terminal"))
+impl From<crate::terminal_color::ColorDepth> for ColorSupport {
+    fn from(depth: crate::terminal_color::ColorDepth) -> Self {
+        match depth {
+            crate::terminal_color::ColorDepth::TrueColor => ColorSupport::TrueColor,
+            _ => ColorSupport::Ansi,
+        }
+    }
 }
 
 /// 能力 + 明暗 → 具体主题。`default` 与外向偏好（daltonized）不参与自动选择。
