@@ -326,17 +326,46 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
                     desc_style,
                 )));
             }
-            ROW_THRESHOLD | ROW_PERSONA | ROW_TONE => {
+            ROW_THRESHOLD => {
+                let is_active = panel.cursor == row;
+                let label_style = active_or_text(is_active);
+                let active_style = Style::default()
+                    .fg(theme::cur().thinking)
+                    .add_modifier(Modifier::BOLD);
+                let inactive_style = Style::default().fg(theme::cur().text);
+                let desc_style = Style::default().fg(theme::cur().inactive);
+
+                let display_val = if panel.buf_threshold.is_empty() {
+                    "-".to_string()
+                } else {
+                    format!("{}%", panel.buf_threshold)
+                };
+                let val_span = if is_active {
+                    Span::styled(format!("[{}]", display_val), active_style)
+                } else {
+                    Span::styled(display_val, inactive_style)
+                };
+
+                lines.push(Line::from(vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled(format!("{:<14}", lc.tr(field_label_key(row))), label_style),
+                    Span::styled(" ", Style::default()),
+                    val_span,
+                ]));
+                lines.push(Line::from(Span::styled(
+                    format!("      {}", lc.tr("config-desc-threshold")),
+                    desc_style,
+                )));
+            }
+            ROW_PERSONA | ROW_TONE => {
                 let is_active = panel.cursor == row;
                 let desc_key = match row {
-                    ROW_THRESHOLD => "config-desc-threshold",
                     ROW_PERSONA => "config-desc-persona",
                     ROW_TONE => "config-desc-tone",
                     _ => "",
                 };
 
                 let (buf, cursor) = match row {
-                    ROW_THRESHOLD => (&panel.buf_threshold, panel.cur_threshold),
                     ROW_PERSONA => (&panel.buf_persona, panel.cur_persona),
                     ROW_TONE => (&panel.buf_tone, panel.cur_tone),
                     _ => unreachable!(),

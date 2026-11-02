@@ -264,7 +264,7 @@ config-group-prompt-overrides = Prompt Overrides
 
 # Config field descriptions
 config-desc-autocompact = (ON/OFF — auto-compact context when full)
-config-desc-threshold = 50-99% — trigger threshold for auto-compact
+config-desc-threshold = 10-99% — trigger threshold for auto-compact
 config-desc-recap = (ON/OFF — auto-generate recap after terminal unfocused for 60s)
 config-desc-language = en, zh-CN, or leave empty for auto
 config-desc-persona = Override system prompt persona (empty = default)
