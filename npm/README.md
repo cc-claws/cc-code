@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.224：**Compact 阈值数值选项与范围优化**——配置面板中的「Compact 阈值」重构为带百分比标识的选项样式，阈值下限放宽至 10%（支持 10-99% 范围，允许更早触发自动压缩）；移出无限制自由文本框，支持按 ← / → 步进调节与纯数字输入，失焦自动规范化回写，彻底杜绝长字符串与非法字符回显（#844, #845）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.220：**思考行显示实时字数**——思考进行中消息区顶部改为 `∴ Thinking for 1247 chars, read 2 files…`，字数取流式推理的实时长度、随 chunk 增长，能看出推理是否还在推进；正文开始输出后落成 `Thought for 16s`。活跃与冻结统一为同一暗色，去掉冻结瞬间的亮度跳变（#836）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 Unreleased：**长会话恢复与子会话历史修复**——减少重复历史读取与整份缓存回写，避免祖先前缀使子会话新增消息被跳过；关闭空闲会话后安全释放串行锁，在途请求与同 ID 恢复继续保持串行（#813）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
