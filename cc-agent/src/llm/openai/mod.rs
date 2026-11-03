@@ -38,9 +38,15 @@ impl ChatOpenAI {
         }
     }
 
-    /// 设置 API Base URL。OpenAI Base URL 需要 `/v1` 后缀。
+    /// 设置 API Base URL。OpenAI Base URL 需要 `/v1` 后缀（若未提供将自动补齐）。
     pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
-        self.base_url = base_url.into();
+        let url = base_url.into();
+        let trimmed = url.trim();
+        self.base_url = if trimmed.is_empty() {
+            "https://api.openai.com/v1".to_string()
+        } else {
+            super::url_util::normalize_base_url(trimmed, "openai")
+        };
         self
     }
 

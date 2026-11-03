@@ -6,7 +6,7 @@
 pub mod config;
 pub mod store;
 
-use cc_agent::llm::{BaseModel, ChatAnthropic, ChatOpenAI};
+use cc_agent::llm::{normalize_base_url, BaseModel, ChatAnthropic, ChatOpenAI};
 pub use config::{AppConfig, PeriConfig, ProviderConfig, ProviderModels, ThinkingConfig};
 pub use store::{config_path, load, load_from, save, save_to, workspace_config_path};
 
@@ -59,7 +59,10 @@ impl LlmProvider {
                 let api_key = std::env::var("ANTHROPIC_API_KEY").ok()?;
                 let model = std::env::var("ANTHROPIC_MODEL")
                     .unwrap_or_else(|_| "claude-sonnet-4-6".to_string());
-                let base_url = std::env::var("ANTHROPIC_BASE_URL").ok();
+                let base_url = std::env::var("ANTHROPIC_BASE_URL")
+                    .ok()
+                    .map(|u| normalize_base_url(&u, "anthropic"))
+                    .filter(|u| !u.is_empty());
                 Some(Self::Anthropic {
                     api_key,
                     model,
@@ -72,7 +75,10 @@ impl LlmProvider {
                     if let Ok(api_key) = std::env::var("ANTHROPIC_API_KEY") {
                         let model = std::env::var("ANTHROPIC_MODEL")
                             .unwrap_or_else(|_| "claude-sonnet-4-6".to_string());
-                        let base_url = std::env::var("ANTHROPIC_BASE_URL").ok();
+                        let base_url = std::env::var("ANTHROPIC_BASE_URL")
+                            .ok()
+                            .map(|u| normalize_base_url(&u, "anthropic"))
+                            .filter(|u| !u.is_empty());
                         return Some(Self::Anthropic {
                             api_key,
                             model,
@@ -82,9 +88,10 @@ impl LlmProvider {
                     }
                 }
                 let api_key = std::env::var("OPENAI_API_KEY").ok()?;
-                let base_url = std::env::var("OPENAI_API_BASE")
+                let raw_base = std::env::var("OPENAI_API_BASE")
                     .or_else(|_| std::env::var("OPENAI_BASE_URL"))
                     .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
+                let base_url = normalize_base_url(&raw_base, "openai");
                 let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o".to_string());
                 Some(Self::OpenAi {
                     api_key,
@@ -95,9 +102,10 @@ impl LlmProvider {
             }
             _ => {
                 let api_key = std::env::var("OPENAI_API_KEY").ok()?;
-                let base_url = std::env::var("OPENAI_API_BASE")
+                let raw_base = std::env::var("OPENAI_API_BASE")
                     .or_else(|_| std::env::var("OPENAI_BASE_URL"))
                     .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
+                let base_url = normalize_base_url(&raw_base, "openai");
                 let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o".to_string());
                 Some(Self::OpenAi {
                     api_key,
@@ -138,19 +146,19 @@ impl LlmProvider {
             "anthropic" => Some(Self::Anthropic {
                 api_key: provider.api_key.clone(),
                 model,
-                base_url: if provider.base_url.is_empty() {
+                base_url: if provider.base_url.trim().is_empty() {
                     None
                 } else {
-                    Some(provider.base_url.clone())
+                    Some(normalize_base_url(&provider.base_url, "anthropic"))
                 },
                 thinking,
             }),
             _ => Some(Self::OpenAi {
                 api_key: provider.api_key.clone(),
-                base_url: if provider.base_url.is_empty() {
+                base_url: if provider.base_url.trim().is_empty() {
                     "https://api.openai.com/v1".to_string()
                 } else {
-                    provider.base_url.clone()
+                    normalize_base_url(&provider.base_url, "openai")
                 },
                 model,
                 thinking,
@@ -187,19 +195,19 @@ impl LlmProvider {
             "anthropic" => Some(Self::Anthropic {
                 api_key: provider.api_key.clone(),
                 model,
-                base_url: if provider.base_url.is_empty() {
+                base_url: if provider.base_url.trim().is_empty() {
                     None
                 } else {
-                    Some(provider.base_url.clone())
+                    Some(normalize_base_url(&provider.base_url, "anthropic"))
                 },
                 thinking,
             }),
             _ => Some(Self::OpenAi {
                 api_key: provider.api_key.clone(),
-                base_url: if provider.base_url.is_empty() {
+                base_url: if provider.base_url.trim().is_empty() {
                     "https://api.openai.com/v1".to_string()
                 } else {
-                    provider.base_url.clone()
+                    normalize_base_url(&provider.base_url, "openai")
                 },
                 model,
                 thinking,

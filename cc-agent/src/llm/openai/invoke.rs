@@ -450,7 +450,8 @@ impl BaseModel for ChatOpenAI {
 
         let body = build_request_body(self, &request, false);
 
-        let chat_url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
+        let norm = super::super::url_util::normalize_base_url(&self.base_url, "openai");
+        let chat_url = format!("{}/chat/completions", norm.trim_end_matches('/'));
 
         let resp = self
             .client
@@ -460,14 +461,15 @@ impl BaseModel for ChatOpenAI {
             .send()
             .await
             .map_err(|e| {
+                let msg = super::super::url_util::format_reqwest_error(&e, &chat_url);
                 tracing::error!(
                     provider = "openai",
                     model = %self.model,
                     elapsed_ms = start.elapsed().as_millis() as u64,
                     error = %e,
-                    "LLM 网络请求失败"
+                    "LLM 网络请求失败: {msg}"
                 );
-                AgentError::LlmError(e.to_string())
+                AgentError::LlmError(msg)
             })?;
 
         let status = resp.status();
