@@ -7,6 +7,12 @@
 
 ## 最近更新
 
+v0.6.227：**LLM baseUrl 容错规范化与友好错误提示**——自动补齐协议头（内网与 localhost 补 http://，公网域名补 https://）；剥除 Anthropic 适配器冗余的 /v1 与 /messages，避免拼接出 404；为 OpenAI 根域名补齐 /v1 并剥除 /chat/completions。优化 reqwest 底层错误提示，杜绝看不懂的 builder error（#856, #857）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
+v0.6.226：**Setup 向导自动检测外部配置**——启动向导自动继承系统语言，废弃强制语言选择弹窗；自动探测本机的 Anthropic/OpenAI/Codex 现有凭据并支持一键迁移（#852）。修复 Compact 后快照锚点错位（#850）与浮层下残留 OSC 8 超链接穿透（#854）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
+v0.6.225：**子 Agent 重启状态与渲染修复**——修复子 Agent 长任务取消后再启动时历史卡片重复渲染与索引漂移问题（#848）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.224：**Compact 阈值数值选项与范围优化**——配置面板中的「Compact 阈值」重构为带百分比标识的选项样式，阈值下限放宽至 10%（支持 10-99% 范围，允许更早触发自动压缩）；移出无限制自由文本框，支持按 ← / → 步进调节与纯数字输入，失焦自动规范化回写，彻底杜绝长字符串与非法字符回显（#844, #845）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.220：**思考行显示实时字数**——思考进行中消息区顶部改为 `∴ Thinking for 1247 chars, read 2 files…`，字数取流式推理的实时长度、随 chunk 增长，能看出推理是否还在推进；正文开始输出后落成 `Thought for 16s`。活跃与冻结统一为同一暗色，去掉冻结瞬间的亮度跳变（#836）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
