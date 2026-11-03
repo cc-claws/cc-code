@@ -364,6 +364,9 @@ pub(crate) fn render_messages(
     // ratatui 的 `Buffer::diff` 按 `symbol.width()` 决定跳过后续多少个 cell，
     // 序列载荷（URL）是可见字符，塞进 symbol 会让链接后面的整段文字不落笔。
     if !link_rows.is_empty() {
+        // 传当帧 buffer 供登记时记下字形：浮层/滚动条随后覆盖这些格子时字形变化，
+        // 链接身份会在 `prepare` 阶段作废，不会透到底上层的面板文字。
+        let buffer = f.buffer_mut();
         for (row_in_view, row_links) in link_rows {
             let y = body_area.y.saturating_add(row_in_view);
             if y >= body_area.bottom() {
@@ -375,7 +378,7 @@ pub(crate) fn render_messages(
             for ((x, y), url, recolor, id) in
                 crate::ui::osc8::link_cells(cells, &row_links, body_area)
             {
-                crate::terminal_backend::hyperlink::register(x, y, &url, recolor, id);
+                crate::terminal_backend::hyperlink::register(buffer, x, y, &url, recolor, id);
             }
         }
     }

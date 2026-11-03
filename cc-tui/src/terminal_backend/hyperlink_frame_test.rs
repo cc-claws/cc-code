@@ -154,6 +154,7 @@ fn make_draw(
             for link in links {
                 for column in link.columns.clone() {
                     hyperlink::register(
+                        frame.buffer_mut(),
                         area.x + column,
                         area.y,
                         link.target,
@@ -621,7 +622,7 @@ fn test_hyperlink_frame_does_not_consume_another_backend_prepared_frame() {
     buffer.set_string(0, 0, "open", Style::default().fg(Color::Gray));
     hyperlink::begin_frame(true);
     for x in 0..4 {
-        hyperlink::register(x, 0, "https://a.example", true, (0, 0, 4));
+        hyperlink::register(&buffer, x, 0, "https://a.example", true, (0, 0, 4));
     }
     links_frame.prepare(&mut buffer);
     second
@@ -695,7 +696,14 @@ fn test_hyperlink_frame_partial_clear_preserves_other_rows_metadata() {
             frame.render_widget(Paragraph::new("open\nopen").style(style), area);
             for y in 0..2 {
                 for x in 0..4 {
-                    hyperlink::register(x, y, "https://a.example", false, (usize::from(y), 0, 4));
+                    hyperlink::register(
+                        frame.buffer_mut(),
+                        x,
+                        y,
+                        "https://a.example",
+                        false,
+                        (usize::from(y), 0, 4),
+                    );
                 }
             }
             links_frame.prepare(frame.buffer_mut());
@@ -746,4 +754,36 @@ fn test_hyperlink_frame_retries_wide_character_covering_dirty_continuation() {
         drawn.iter().all(|(x, y, _)| *x != 1 || *y != 0),
         "重试不能单独输出续格并擦掉宽字右半"
     );
+}
+
+/// 回归：面板/浮层覆盖消息区后，被覆盖的格子不得再输出底下的 OSC 8 链接。
+///
+/// 真机表现：斜杠提示浮层打开时，浮层某一行的描述文字带着消息区同坐标链接的
+/// 蓝色下划线（链接「透」到面板上）。
+#[test]
+fn test_overlay_render_drops_covered_hyperlink() {
+    let mut terminal = make_terminal(Rect::new(0, 0, 40, 2));
+    let frame = terminal.backend().hyperlink_frame();
+    terminal
+        .draw(|f| {
+            hyperlink::begin_frame(true);
+            let row = Rect::new(0, 0, 40, 1);
+            f.render_widget(Paragraph::new("https://a.example"), row);
+            for x in 0..17 {
+                hyperlink::register(f.buffer_mut(), x, 0, "https://a.example", true, (0, 0, 17));
+            }
+            // 浮层渲染顺序与 BorderedPanel 一致：先 Clear 再写自己的文字。
+            f.render_widget(ratatui::widgets::Clear, row);
+            f.render_widget(Paragraph::new("/clear  清空消息列表"), row);
+            frame.prepare(f.buffer_mut());
+        })
+        .expect("绘制带浮层的帧");
+    let buffer = make_output_buffer(&terminal);
+    for x in 0..40 {
+        assert!(
+            !buffer[(x, 0)].symbol().contains("\x1b]8;"),
+            "浮层覆盖的格子不得残留 OSC 8: {x} -> {:?}",
+            buffer[(x, 0)].symbol()
+        );
+    }
 }
