@@ -202,6 +202,8 @@ tip-clear-override = 切换话题时用 /clear 重新开始，并释放上下文
 # ---- Setup Wizard ----
 
 setup-welcome-title =  ── CC Code 设置 ── 欢迎
+setup-detected-cc = 检测到已有的 .claude 配置（已发现：{ $providers }）
+setup-detected-cc-hint = 按 Enter 即可一键导入迁移凭据与模型，或选择手动配置：
 setup-choose-provider =  选择如何配置你的 Provider：
 setup-source-custom-api = 自定义 API
 setup-source-migrate = 从 .claude 配置迁移

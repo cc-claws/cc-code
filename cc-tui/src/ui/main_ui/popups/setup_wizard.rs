@@ -9,9 +9,7 @@ use ratatui::{
 use cc_widgets::BorderedPanel;
 
 use crate::{
-    app::setup_wizard::{
-        FormField, FormMode, SetupSource, SetupStep, SetupWizardPanel, LANGUAGE_OPTIONS,
-    },
+    app::setup_wizard::{FormField, FormMode, SetupSource, SetupStep, SetupWizardPanel},
     ui::theme,
 };
 
@@ -23,7 +21,6 @@ pub(crate) fn render_setup_wizard(f: &mut Frame, app: &crate::app::App) {
 
     match wizard.step {
         SetupStep::Choose => render_step_choose(f, wizard, lc, area),
-        SetupStep::Language => render_step_language(f, wizard, lc, area),
         SetupStep::Form => render_step_form(f, wizard, lc, area),
         SetupStep::Done => render_step_done(f, wizard, lc, area),
     }
@@ -44,14 +41,41 @@ fn render_step_choose(
     .border_style(Style::default().fg(theme::cur().claude))
     .render(f, area);
 
-    let mut lines: Vec<Line> = vec![
-        Line::from(""),
-        Line::from(Span::styled(
+    let mut lines: Vec<Line> = vec![Line::from("")];
+
+    if let Some(ref detected) = wizard.detected_external {
+        lines.push(Line::from(vec![
+            Span::styled(
+                "✓ ",
+                Style::default()
+                    .fg(theme::cur().claude)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                lc.tr_args(
+                    "setup-detected-cc",
+                    &[(
+                        "providers".into(),
+                        detected.provider_names.join(", ").into(),
+                    )],
+                ),
+                Style::default()
+                    .fg(theme::cur().claude)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
+        lines.push(Line::from(Span::styled(
+            lc.tr("setup-detected-cc-hint"),
+            Style::default().fg(theme::cur().inactive),
+        )));
+        lines.push(Line::from(""));
+    } else {
+        lines.push(Line::from(Span::styled(
             lc.tr("setup-choose-provider"),
             Style::default().fg(theme::cur().inactive),
-        )),
-        Line::from(""),
-    ];
+        )));
+        lines.push(Line::from(""));
+    }
 
     for (i, src) in SetupSource::ALL.iter().enumerate() {
         let is_cursor = i == wizard.choose_cursor;
@@ -87,57 +111,6 @@ fn render_step_choose(
         ("↑/↓".to_string(), lc.tr("setup-key-select")),
         ("Esc".to_string(), lc.tr("setup-key-quit")),
     ]));
-    f.render_widget(Paragraph::new(Text::from(lines)), inner);
-}
-
-fn render_step_language(
-    f: &mut Frame,
-    wizard: &SetupWizardPanel,
-    lc: &crate::i18n::LcRegistry,
-    area: Rect,
-) {
-    let inner = BorderedPanel::new(Span::styled(
-        lc.tr("setup-language-title"),
-        Style::default()
-            .fg(theme::cur().claude)
-            .add_modifier(Modifier::BOLD),
-    ))
-    .border_style(Style::default().fg(theme::cur().claude))
-    .render(f, area);
-
-    let mut lines: Vec<Line> = vec![
-        Line::from(""),
-        Line::from(Span::styled(
-            lc.tr("setup-language-prompt"),
-            Style::default().fg(theme::cur().inactive),
-        )),
-        Line::from(""),
-    ];
-
-    for (i, (_code, name)) in LANGUAGE_OPTIONS.iter().enumerate() {
-        let is_cursor = i == wizard.language_cursor;
-        let cursor_char = if is_cursor { theme::SYMBOL_CURSOR } else { " " };
-        let cursor_style = theme::cursor_style();
-        let name_style = if is_cursor {
-            Style::default()
-                .fg(theme::cur().thinking)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(theme::cur().text)
-        };
-        lines.push(Line::from(vec![
-            Span::styled(format!("{} ", cursor_char), cursor_style),
-            Span::styled(*name, name_style),
-        ]));
-    }
-
-    lines.push(Line::from(""));
-    lines.push(make_hint_line(vec![
-        ("Enter".to_string(), lc.tr("setup-key-confirm")),
-        ("\u{2191}/\u{2193}".to_string(), lc.tr("setup-key-select")),
-        ("Esc".to_string(), lc.tr("setup-key-quit")),
-    ]));
-
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
 

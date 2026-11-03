@@ -2,7 +2,7 @@ use tui_textarea::Input;
 
 use super::{
     test_connectivity, FormField, FormMode, MigratedProvider, ProviderType, SetupSource, SetupStep,
-    SetupWizardPanel, LANGUAGE_OPTIONS,
+    SetupWizardPanel,
 };
 
 /// 检测配置是否需要 Setup 向导
@@ -32,7 +32,6 @@ pub enum SetupWizardAction {
     Redraw,
     SaveAndClose,
     Skip,
-    SetLanguage(String),
 }
 
 /// Setup 向导按键分发
@@ -42,7 +41,6 @@ pub fn handle_setup_wizard_key(
 ) -> Option<SetupWizardAction> {
     match wizard.step {
         SetupStep::Choose => handle_step_choose(wizard, input),
-        SetupStep::Language => handle_step_language(wizard, input),
         SetupStep::Form => handle_step_form(wizard, input),
         SetupStep::Done => handle_step_done(wizard, input),
     }
@@ -73,10 +71,13 @@ fn handle_step_choose(wizard: &mut SetupWizardPanel, input: Input) -> Option<Set
             key: Key::Char(' '),
             ..
         } => {
-            if wizard.source == SetupSource::MigrateClaudeCode {
-                if !wizard.migrate_from_claude_code() {
+            if wizard.source == SetupSource::MigrateExternal {
+                if !wizard.migrate_from_external() {
                     wizard.source = SetupSource::CustomApi;
-                    wizard.choose_cursor = 0;
+                    wizard.choose_cursor = SetupSource::ALL
+                        .iter()
+                        .position(|&s| s == SetupSource::CustomApi)
+                        .unwrap_or(0);
                     return Some(SetupWizardAction::Redraw);
                 }
             } else {
@@ -88,43 +89,6 @@ fn handle_step_choose(wizard: &mut SetupWizardPanel, input: Input) -> Option<Set
             wizard.browse_cursor = 0;
             wizard.form_focus = FormField::ProviderType;
             Some(SetupWizardAction::Redraw)
-        }
-        Input { key: Key::Esc, .. } => {
-            wizard.step = SetupStep::Language;
-            Some(SetupWizardAction::Redraw)
-        }
-        _ => None,
-    }
-}
-
-fn handle_step_language(wizard: &mut SetupWizardPanel, input: Input) -> Option<SetupWizardAction> {
-    use tui_textarea::Key;
-    debug_assert!(
-        !LANGUAGE_OPTIONS.is_empty(),
-        "LANGUAGE_OPTIONS must not be empty"
-    );
-    match input {
-        Input { key: Key::Up, .. } => {
-            wizard.language_cursor =
-                (wizard.language_cursor + LANGUAGE_OPTIONS.len() - 1) % LANGUAGE_OPTIONS.len();
-            Some(SetupWizardAction::Redraw)
-        }
-        Input { key: Key::Down, .. } => {
-            wizard.language_cursor = (wizard.language_cursor + 1) % LANGUAGE_OPTIONS.len();
-            Some(SetupWizardAction::Redraw)
-        }
-        Input {
-            key: Key::Enter, ..
-        }
-        | Input {
-            key: Key::Char(' '),
-            ..
-        } => {
-            let lang = LANGUAGE_OPTIONS[wizard.language_cursor].0.to_string();
-            wizard.language = lang.clone();
-            wizard.step = SetupStep::Choose;
-            wizard.choose_cursor = 0;
-            Some(SetupWizardAction::SetLanguage(lang))
         }
         Input { key: Key::Esc, .. } => Some(SetupWizardAction::Skip),
         _ => None,
@@ -197,8 +161,12 @@ fn handle_browse(wizard: &mut SetupWizardPanel, input: Input) -> Option<SetupWiz
         }
         Input { key: Key::Esc, .. } => {
             wizard.submit_error = None;
-            wizard.step = SetupStep::Choose;
-            Some(SetupWizardAction::Redraw)
+            if wizard.detected_external.is_some() {
+                wizard.step = SetupStep::Choose;
+                Some(SetupWizardAction::Redraw)
+            } else {
+                Some(SetupWizardAction::Skip)
+            }
         }
         _ => None,
     }

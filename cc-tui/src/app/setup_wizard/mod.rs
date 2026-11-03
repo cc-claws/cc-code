@@ -3,8 +3,6 @@
 pub enum SetupStep {
     /// 选择来源
     Choose,
-    /// 选择语言
-    Language,
     /// 合并表单：多 Provider + API Key + Model Aliases
     Form,
     /// 确认完成
@@ -14,26 +12,26 @@ pub enum SetupStep {
 /// 配置来源选择
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SetupSource {
+    /// 从外部配置迁移
+    MigrateExternal,
     /// 手动输入 Custom API
     CustomApi,
-    /// 从 CC 迁移
-    MigrateClaudeCode,
 }
 
 impl SetupSource {
-    pub const ALL: [Self; 2] = [Self::CustomApi, Self::MigrateClaudeCode];
+    pub const ALL: [Self; 2] = [Self::MigrateExternal, Self::CustomApi];
 
     pub fn label(&self, lc: &crate::i18n::LcRegistry) -> String {
         match self {
             Self::CustomApi => lc.tr("setup-source-custom-api"),
-            Self::MigrateClaudeCode => lc.tr("setup-source-migrate"),
+            Self::MigrateExternal => lc.tr("setup-source-migrate"),
         }
     }
 
     pub fn description(&self, lc: &crate::i18n::LcRegistry) -> String {
         match self {
             Self::CustomApi => lc.tr("setup-source-custom-desc"),
-            Self::MigrateClaudeCode => lc.tr("setup-source-migrate-desc"),
+            Self::MigrateExternal => lc.tr("setup-source-migrate-desc"),
         }
     }
 }
@@ -231,16 +229,73 @@ impl FormField {
     }
 }
 
+/// 检测到的外部配置摘要
+#[derive(Debug, Clone, PartialEq)]
+pub struct DetectedExternalConfig {
+    pub provider_names: Vec<String>,
+}
+
+/// 探测外部工具配置目录中是否包含可用凭据
+pub fn detect_external_config() -> Option<DetectedExternalConfig> {
+    let claude_dir = dirs_next::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".claude");
+    let settings_path = claude_dir.join("settings.json");
+    if !settings_path.exists() {
+        return None;
+    }
+    let content = match std::fs::read_to_string(&settings_path) {
+        Ok(c) => c,
+        Err(_) => return None,
+    };
+    let val: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return None,
+    };
+    let env = match val.get("env").and_then(|e| e.as_object()) {
+        Some(e) => e,
+        None => return None,
+    };
+
+    let mut names = Vec::new();
+    let checks: &[(&str, &[&str])] = &[
+        (
+            "Anthropic",
+            &[
+                "ANTHROPIC_API_KEY",
+                "ANTHROPIC_AUTH_TOKEN",
+                "ANTHROPIC_BASE_URL",
+            ],
+        ),
+        ("OpenAI", &["OPENAI_API_KEY", "OPENAI_BASE_URL"]),
+        ("Codex", &["CODEX_API_KEY", "CODEX_BASE_URL"]),
+    ];
+    for (name, keys) in checks {
+        if keys.iter().any(|k| !env_get(env, k).trim().is_empty()) {
+            names.push(name.to_string());
+        }
+    }
+
+    if names.is_empty() {
+        None
+    } else {
+        Some(DetectedExternalConfig {
+            provider_names: names,
+        })
+    }
+}
+
 /// Setup Wizard 全屏面板状态
 pub struct SetupWizardPanel {
     pub step: SetupStep,
-    /// Step 1: 来源选择
+    /// 来源选择
     pub source: SetupSource,
     pub choose_cursor: usize,
-    /// Step 2: 语言选择
+    /// 自动检测到的外部配置摘要
+    pub detected_external: Option<DetectedExternalConfig>,
+    /// 界面语言（自动从系统环境继承）
     pub language: String,
-    pub language_cursor: usize,
-    /// Step 3: 多 provider 列表
+    /// 多 provider 列表
     pub providers: Vec<MigratedProvider>,
     /// 当前聚焦的 provider 索引（Edit 模式下使用）
     pub active_provider: usize,
@@ -266,12 +321,19 @@ impl Default for SetupWizardPanel {
 
 impl SetupWizardPanel {
     pub fn new() -> Self {
+        let detected = detect_external_config();
+        let (step, source, choose_cursor) = if detected.is_some() {
+            (SetupStep::Choose, SetupSource::MigrateExternal, 0)
+        } else {
+            (SetupStep::Form, SetupSource::CustomApi, 1)
+        };
+        let language = crate::i18n::global().current_lang().to_string();
         Self {
-            step: SetupStep::Language,
-            source: SetupSource::CustomApi,
-            choose_cursor: 0,
-            language: "en".to_string(),
-            language_cursor: 0,
+            step,
+            source,
+            choose_cursor,
+            detected_external: detected,
+            language,
             providers: vec![MigratedProvider::new(ProviderType::Anthropic)],
             active_provider: 0,
             form_mode: FormMode::Browse,
@@ -327,7 +389,7 @@ impl SetupWizardPanel {
         }
     }
 
-    /// 从 CC 配置迁移，生成多 provider 列表
+    /// 从外部参考实现配置迁移，生成多 provider 列表
     ///
     /// 读取 `~/.claude/settings.json` 的 `env` 字段，按前缀检测凭据：
     /// - `ANTHROPIC_` → Anthropic provider
@@ -336,7 +398,7 @@ impl SetupWizardPanel {
     /// 同步字段：API_KEY、BASE_URL、DEFAULT_OPUS/SONNET/HAIKU_MODEL
     ///
     /// CODEX 前缀使用与 OPENAI 相同的默认 provider_id（"openai"）和 key 名检测逻辑。
-    pub fn migrate_from_claude_code(&mut self) -> bool {
+    pub fn migrate_from_external(&mut self) -> bool {
         let claude_dir = dirs_next::home_dir()
             .unwrap_or_else(|| std::path::PathBuf::from("."))
             .join(".claude");

@@ -23,9 +23,7 @@ fn test_needs_setup_api_key_from_config() {
 #[test]
 fn test_setup_wizard_new_defaults() {
     let wizard = SetupWizardPanel::new();
-    assert_eq!(wizard.step, SetupStep::Language);
-    assert_eq!(wizard.language, "en");
-    assert_eq!(wizard.language_cursor, 0);
+    assert!(wizard.step == SetupStep::Choose || wizard.step == SetupStep::Form);
     assert_eq!(wizard.providers.len(), 1);
     assert_eq!(wizard.providers[0].provider_type, ProviderType::Anthropic);
     assert!(wizard.providers[0].api_key.is_empty());
@@ -61,11 +59,11 @@ fn test_migrated_provider_is_complete() {
 }
 
 #[test]
-fn test_migrate_from_claude_code_no_file() {
+fn test_migrate_from_external_no_file() {
     let mut wizard = SetupWizardPanel::new();
-    wizard.source = SetupSource::MigrateClaudeCode;
+    wizard.source = SetupSource::MigrateExternal;
     // 使用不存在的路径
-    let result = wizard.migrate_from_claude_code();
+    let result = wizard.migrate_from_external();
     // 不应该 panic，返回 false 或 true 取决于是否有 ~/.claude/settings.json
     // 只要不 panic 就行
     let _ = result;
@@ -258,16 +256,19 @@ fn type_text(wizard: &mut SetupWizardPanel, text: &str) {
 fn test_choose_arrow_cycles_source() {
     let mut wizard = SetupWizardPanel::new();
     wizard.step = SetupStep::Choose;
+    wizard.source = SetupSource::MigrateExternal;
+    wizard.choose_cursor = 0;
     let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Down));
-    assert_eq!(wizard.source, SetupSource::MigrateClaudeCode);
-    let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Up));
     assert_eq!(wizard.source, SetupSource::CustomApi);
+    let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Up));
+    assert_eq!(wizard.source, SetupSource::MigrateExternal);
 }
 
 #[test]
 fn test_choose_enter_custom_advances_to_form() {
     let mut wizard = SetupWizardPanel::new();
     wizard.step = SetupStep::Choose;
+    wizard.source = SetupSource::CustomApi;
     let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Enter));
     assert_eq!(wizard.step, SetupStep::Form);
     assert_eq!(wizard.form_mode, FormMode::Browse);
@@ -275,66 +276,11 @@ fn test_choose_enter_custom_advances_to_form() {
 }
 
 #[test]
-fn test_choose_esc_back_to_language() {
+fn test_choose_esc_skips() {
     let mut wizard = SetupWizardPanel::new();
     wizard.step = SetupStep::Choose;
-    let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Esc));
-    assert_eq!(wizard.step, SetupStep::Language);
-}
-
-// ── Step: Language ──
-
-#[test]
-fn test_language_arrow_navigates() {
-    let mut wizard = SetupWizardPanel::new();
-    assert_eq!(wizard.step, SetupStep::Language);
-    assert_eq!(wizard.language_cursor, 0);
-    let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Down));
-    assert_eq!(wizard.language_cursor, 1);
-    let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Down));
-    assert_eq!(wizard.language_cursor, 0); // wraps around
-    let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Up));
-    assert_eq!(wizard.language_cursor, 1); // wraps around
-}
-
-#[test]
-fn test_language_enter_selects_and_advances_to_choose() {
-    let mut wizard = SetupWizardPanel::new();
-    wizard.language_cursor = 1; // zh-CN
-    let action = handle_setup_wizard_key(&mut wizard, make_key(Key::Enter));
-    assert!(matches!(
-        action,
-        Some(SetupWizardAction::SetLanguage(ref s)) if s == "zh-CN"
-    ));
-    assert_eq!(wizard.language, "zh-CN");
-    assert_eq!(wizard.step, SetupStep::Choose);
-}
-
-#[test]
-fn test_language_space_selects_and_advances() {
-    let mut wizard = SetupWizardPanel::new();
-    let action = handle_setup_wizard_key(&mut wizard, make_char(' '));
-    assert!(matches!(
-        action,
-        Some(SetupWizardAction::SetLanguage(ref s)) if s == "en"
-    ));
-    assert_eq!(wizard.language, "en");
-    assert_eq!(wizard.step, SetupStep::Choose);
-}
-
-#[test]
-fn test_language_esc_quits() {
-    let mut wizard = SetupWizardPanel::new();
     let action = handle_setup_wizard_key(&mut wizard, make_key(Key::Esc));
     assert!(matches!(action, Some(SetupWizardAction::Skip)));
-}
-
-#[test]
-fn test_language_default_is_en() {
-    let wizard = SetupWizardPanel::new();
-    assert_eq!(wizard.language, "en");
-    assert_eq!(wizard.language_cursor, 0);
-    assert_eq!(wizard.step, SetupStep::Language);
 }
 
 // ── Step: Form (Browse mode) ──
@@ -393,6 +339,9 @@ fn test_browse_enter_submit_validates() {
 #[test]
 fn test_browse_esc_back_to_choose() {
     let mut wizard = SetupWizardPanel::new();
+    wizard.detected_external = Some(DetectedExternalConfig {
+        provider_names: vec!["Anthropic".into()],
+    });
     wizard.step = SetupStep::Form;
     wizard.form_mode = FormMode::Browse;
     let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Esc));
@@ -521,6 +470,7 @@ fn test_save_setup_writes_language() {
 
 fn advance_to_form(wizard: &mut SetupWizardPanel) {
     wizard.step = SetupStep::Choose;
+    wizard.source = SetupSource::CustomApi;
     let _ = handle_setup_wizard_key(wizard, make_key(Key::Enter));
     assert_eq!(wizard.step, SetupStep::Form);
     assert_eq!(wizard.form_mode, FormMode::Browse);
@@ -603,6 +553,9 @@ fn test_setup_wizard_full_flow_openai() {
 #[test]
 fn test_setup_wizard_esc_navigation() {
     let mut wizard = SetupWizardPanel::new();
+    wizard.detected_external = Some(DetectedExternalConfig {
+        provider_names: vec!["Anthropic".into()],
+    });
     advance_to_form(&mut wizard);
 
     // Browse → Submit → Enter (empty key, should stay)
@@ -621,9 +574,9 @@ fn test_setup_wizard_esc_navigation() {
     let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Esc));
     assert_eq!(wizard.step, SetupStep::Choose);
 
-    // Choose → Esc → Language
-    let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Esc));
-    assert_eq!(wizard.step, SetupStep::Language);
+    // Choose → Esc → Skip
+    let action = handle_setup_wizard_key(&mut wizard, make_key(Key::Esc));
+    assert!(matches!(action, Some(SetupWizardAction::Skip)));
 }
 
 #[test]
@@ -665,4 +618,27 @@ fn test_setup_wizard_saves_and_clears() {
     let cfg = save_setup_to(&wizard, &config_path).expect("save should succeed");
     assert!(!needs_setup(&cfg.config));
     let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_setup_wizard_auto_detect_step_initialization() {
+    let wizard = SetupWizardPanel::new();
+    if wizard.detected_external.is_some() {
+        assert_eq!(wizard.step, SetupStep::Choose);
+        assert_eq!(wizard.source, SetupSource::MigrateExternal);
+        assert_eq!(wizard.choose_cursor, 0);
+    } else {
+        assert_eq!(wizard.step, SetupStep::Form);
+        assert_eq!(wizard.source, SetupSource::CustomApi);
+    }
+}
+
+#[test]
+fn test_setup_wizard_form_esc_skips_when_no_detected_external() {
+    let mut wizard = SetupWizardPanel::new();
+    wizard.detected_external = None;
+    wizard.step = SetupStep::Form;
+    wizard.form_mode = FormMode::Browse;
+    let action = handle_setup_wizard_key(&mut wizard, make_key(Key::Esc));
+    assert!(matches!(action, Some(SetupWizardAction::Skip)));
 }
