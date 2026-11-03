@@ -62,9 +62,6 @@ pub(super) fn handle_setup_wizard(app: &mut App, input: &Input) -> Option<Action
                         return Some(Action::Quit);
                     }
                 }
-                crate::app::setup_wizard::SetupWizardAction::SetLanguage(lang) => {
-                    let _ = app.services.lc.switch(&lang);
-                }
                 crate::app::setup_wizard::SetupWizardAction::Redraw => {}
             }
         }

@@ -203,6 +203,8 @@ tip-clear-override = Use /clear to start fresh when switching topics and free up
 # ---- Setup Wizard ----
 
 setup-welcome-title =  ── CC Code Setup ── Welcome
+setup-detected-cc = Existing .claude configuration detected ({ $providers })
+setup-detected-cc-hint = Press Enter to migrate credentials & models with one click, or select manual setup:
 setup-choose-provider =  Choose how to configure your provider:
 setup-source-custom-api = Custom API
 setup-source-migrate = Migrate from .claude config
