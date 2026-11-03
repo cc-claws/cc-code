@@ -390,25 +390,132 @@ pub(super) fn build_request_body(
 
     // Extended Thinking 配置
     if adapter.extended_thinking {
-        body["thinking"] = json!({
-            "type": "enabled",
-            "budget_tokens": adapter.thinking_budget
-        });
-        body["output_config"] = json!({ "effort": adapter.thinking_effort });
+        match super::thinking_mode::resolve_thinking_mode(&adapter.model) {
+            super::thinking_mode::AnthropicThinkingMode::Adaptive => {
+                body["thinking"] = json!({
+                    "type": "adaptive"
+                });
+                body["output_config"] = json!({ "effort": adapter.thinking_effort });
+            }
+            super::thinking_mode::AnthropicThinkingMode::Budget => {
+                body["thinking"] = json!({
+                    "type": "enabled",
+                    "budget_tokens": adapter.thinking_budget
+                });
+                body["output_config"] = json!({ "effort": adapter.thinking_effort });
+            }
+        }
     }
 
     body
 }
 
-/// 处理 Anthropic HTTP 响应：读取、解析、错误处理、LlmResponse 构建
-///
-/// 从 `invoke` 提取以保持 ~130 行 → ~45 行。
-async fn handle_anthropic_response(
-    resp: reqwest::Response,
+/// 发送 Anthropic HTTP 请求（invoke 和 stream 共用）
+pub(super) async fn send_anthropic_request(
+    adapter: &super::ChatAnthropic,
+    body: &Value,
+    session_id: Option<&str>,
+    start: std::time::Instant,
+) -> AgentResult<reqwest::Response> {
+    let chat_url = match &adapter.base_url {
+        Some(base) => {
+            let norm = super::super::url_util::normalize_base_url(base, "anthropic");
+            format!("{}/v1/messages", norm.trim_end_matches('/'))
+        }
+        None => "https://api.anthropic.com/v1/messages".to_string(),
+    };
+
+    let mut req = adapter
+        .client
+        .post(&chat_url)
+        .header("x-api-key", &adapter.api_key)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json");
+
+    if adapter.enable_cache {
+        req = req.header("anthropic-beta", "prompt-caching-2024-07-31");
+    }
+    if let Some(sid) = session_id {
+        req = req.header("x-session-id", sid);
+    }
+
+    tracing::debug!(
+        provider = "anthropic",
+        model = %adapter.model,
+        messages_count = body["messages"].as_array().map(|a| a.len()).unwrap_or(0),
+        "LLM 请求发送"
+    );
+
+    req.json(body).send().await.map_err(|e| {
+        let msg = super::super::url_util::format_reqwest_error(&e, &chat_url);
+        tracing::error!(
+            provider = "anthropic",
+            model = %adapter.model,
+            elapsed_ms = start.elapsed().as_millis() as u64,
+            error = %e,
+            "LLM 网络请求失败: {msg}"
+        );
+        AgentError::LlmError(msg)
+    })
+}
+
+/// 处理 Anthropic 错误响应日志与 AgentError 构建
+pub(super) fn handle_anthropic_error(
+    status: reqwest::StatusCode,
+    resp_text: &str,
     model: &str,
     msg_count: usize,
     start: std::time::Instant,
     body: &Value,
+) -> AgentResult<LlmResponse> {
+    let resp_json: Option<Value> = serde_json::from_str(resp_text).ok();
+    let msg = resp_json
+        .as_ref()
+        .and_then(|v| v["error"]["message"].as_str())
+        .unwrap_or(resp_text)
+        .to_string();
+    let error_type = resp_json
+        .as_ref()
+        .and_then(|v| v["error"]["type"].as_str())
+        .unwrap_or("unknown");
+
+    if status.as_u16() == 500 {
+        tracing::error!(
+            provider = "anthropic",
+            model = %model,
+            status = %status,
+            error_type,
+            error_message = %msg,
+            elapsed_ms = start.elapsed().as_millis() as u64,
+            request_messages = %serde_json::to_string(&body["messages"]).unwrap_or_else(|_| "serialize failed".into()),
+            "LLM API 500 错误（服务端 bug），已记录请求体"
+        );
+    } else {
+        tracing::error!(
+            provider = "anthropic",
+            model = %model,
+            status = %status,
+            error_type,
+            error_message = %msg,
+            elapsed_ms = start.elapsed().as_millis() as u64,
+            msg_count,
+            "LLM API 错误"
+        );
+    }
+
+    Err(AgentError::LlmHttpError {
+        status: status.as_u16(),
+        message: format!("API 错误 {status}: {msg}"),
+    })
+}
+
+/// 处理 Anthropic HTTP 成功响应：读取、解析、LlmResponse 构建
+async fn handle_anthropic_success(
+    resp: reqwest::Response,
+    model: &str,
+    msg_count: usize,
+    start: std::time::Instant,
+    _body: &Value,
 ) -> AgentResult<LlmResponse> {
     let status = resp.status();
     let header_request_id = resp
@@ -475,42 +582,6 @@ async fn handle_anthropic_response(
     };
 
     let request_id = header_request_id.or_else(|| resp_json["id"].as_str().map(|s| s.to_string()));
-
-    if !status.is_success() {
-        let msg = resp_json["error"]["message"]
-            .as_str()
-            .unwrap_or("未知错误")
-            .to_string();
-        let error_type = resp_json["error"]["type"].as_str().unwrap_or("unknown");
-
-        if status.as_u16() == 500 {
-            tracing::error!(
-                provider = "anthropic",
-                model = %model,
-                status = %status,
-                error_type,
-                error_message = %msg,
-                elapsed_ms = start.elapsed().as_millis() as u64,
-                request_messages = %serde_json::to_string(&body["messages"]).unwrap_or_else(|_| "serialize failed".into()),
-                "LLM API 500 错误（服务端 bug），已记录请求体"
-            );
-        } else {
-            tracing::error!(
-                provider = "anthropic",
-                model = %model,
-                status = %status,
-                error_type,
-                error_message = %msg,
-                elapsed_ms = start.elapsed().as_millis() as u64,
-                msg_count,
-                "LLM API 错误"
-            );
-        }
-        return Err(AgentError::LlmHttpError {
-            status: status.as_u16(),
-            message: format!("API 错误 {status}: {msg}"),
-        });
-    }
 
     tracing::info!(
         provider = "anthropic",
@@ -682,51 +753,67 @@ impl BaseModel for super::ChatAnthropic {
     async fn invoke(&self, request: LlmRequest) -> AgentResult<LlmResponse> {
         let msg_count = request.messages.len();
         let start = std::time::Instant::now();
+        let mut retried_adaptive = false;
 
-        let body = build_request_body(self, &request, false);
+        loop {
+            let body = build_request_body(self, &request, false);
+            let resp =
+                send_anthropic_request(self, &body, request.session_id.as_deref(), start).await?;
+            let status = resp.status();
 
-        let chat_url = match &self.base_url {
-            Some(base) => {
-                let norm = super::super::url_util::normalize_base_url(base, "anthropic");
-                format!("{}/v1/messages", norm.trim_end_matches('/'))
+            if !status.is_success() {
+                let resp_text = resp.text().await.map_err(|e| {
+                    tracing::error!(
+                        provider = "anthropic",
+                        model = %self.model,
+                        status = %status,
+                        elapsed_ms = start.elapsed().as_millis() as u64,
+                        error = %e,
+                        "LLM 读取响应体失败"
+                    );
+                    AgentError::LlmError(format!("读取响应体失败: {e}"))
+                })?;
+
+                if !retried_adaptive {
+                    if let Some(correction) = super::thinking_mode::detect_thinking_mode_correction(
+                        status.as_u16(),
+                        &resp_text,
+                    ) {
+                        match correction {
+                            super::thinking_mode::ThinkingModeCorrection::SwitchToAdaptive => {
+                                tracing::info!(
+                                    provider = "anthropic",
+                                    model = %self.model,
+                                    "检测到上游要求 adaptive thinking 协议，已自动自愈切换并重试"
+                                );
+                                super::thinking_mode::mark_model_as_adaptive(&self.model);
+                            }
+                            super::thinking_mode::ThinkingModeCorrection::SwitchToBudget => {
+                                tracing::info!(
+                                    provider = "anthropic",
+                                    model = %self.model,
+                                    "检测到上游要求 legacy budget thinking 协议，已自动降级回退并重试"
+                                );
+                                super::thinking_mode::mark_model_as_budget(&self.model);
+                            }
+                        }
+                        retried_adaptive = true;
+                        continue;
+                    }
+                }
+
+                return handle_anthropic_error(
+                    status,
+                    &resp_text,
+                    &self.model,
+                    msg_count,
+                    start,
+                    &body,
+                );
             }
-            None => "https://api.anthropic.com/v1/messages".to_string(),
-        };
 
-        let mut req = self
-            .client
-            .post(&chat_url)
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", "2023-06-01")
-            .header("content-type", "application/json");
-
-        if self.enable_cache {
-            req = req.header("anthropic-beta", "prompt-caching-2024-07-31");
+            return handle_anthropic_success(resp, &self.model, msg_count, start, &body).await;
         }
-        if let Some(ref sid) = request.session_id {
-            req = req.header("x-session-id", sid.as_str());
-        }
-
-        tracing::debug!(
-            provider = "anthropic",
-            model = %self.model,
-            messages_count = body["messages"].as_array().map(|a| a.len()).unwrap_or(0),
-            "LLM 请求发送"
-        );
-
-        let resp = req.json(&body).send().await.map_err(|e| {
-            let msg = super::super::url_util::format_reqwest_error(&e, &chat_url);
-            tracing::error!(
-                provider = "anthropic",
-                model = %self.model,
-                elapsed_ms = start.elapsed().as_millis() as u64,
-                error = %e,
-                "LLM 网络请求失败: {msg}"
-            );
-            AgentError::LlmError(msg)
-        })?;
-
-        handle_anthropic_response(resp, &self.model, msg_count, start, &body).await
     }
 
     fn provider_name(&self) -> &str {
