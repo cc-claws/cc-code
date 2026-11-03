@@ -339,6 +339,9 @@ fn test_browse_enter_submit_validates() {
 #[test]
 fn test_browse_esc_back_to_choose() {
     let mut wizard = SetupWizardPanel::new();
+    wizard.detected_external = Some(DetectedExternalConfig {
+        provider_names: vec!["Anthropic".into()],
+    });
     wizard.step = SetupStep::Form;
     wizard.form_mode = FormMode::Browse;
     let _ = handle_setup_wizard_key(&mut wizard, make_key(Key::Esc));
