@@ -733,8 +733,7 @@ fn test_parse_and_reserialize_thinking_with_tool_use() {
 
 #[test]
 fn test_static_adaptive_model_resolution() {
-    use super::thinking_mode::{clear_learned_cache, resolve_thinking_mode, AnthropicThinkingMode};
-    clear_learned_cache();
+    use super::thinking_mode::{resolve_thinking_mode, AnthropicThinkingMode};
     assert_eq!(
         resolve_thinking_mode("claude-haiku-5-5"),
         AnthropicThinkingMode::Adaptive,
@@ -765,11 +764,11 @@ fn test_static_adaptive_model_resolution() {
 #[test]
 fn test_dynamic_adaptive_learning_and_bidirectional_fallback() {
     use super::thinking_mode::{
-        clear_learned_cache, mark_model_as_adaptive, mark_model_as_budget, resolve_thinking_mode,
+        mark_model_as_adaptive, mark_model_as_budget, remove_learned_model, resolve_thinking_mode,
         AnthropicThinkingMode,
     };
-    clear_learned_cache();
-    let model = "custom-gateway/hark4.4";
+    let model = "unit-test-isolated-gateway/hark4.4";
+    remove_learned_model(model);
     assert_eq!(
         resolve_thinking_mode(model),
         AnthropicThinkingMode::Budget,
@@ -788,7 +787,7 @@ fn test_dynamic_adaptive_learning_and_bidirectional_fallback() {
         "网关回退后可动态降级回 Budget"
     );
 
-    let static_model = "claude-haiku-5-5";
+    let static_model = "unit-test-isolated/haiku-5-override";
     assert_eq!(
         resolve_thinking_mode(static_model),
         AnthropicThinkingMode::Adaptive,
@@ -800,7 +799,8 @@ fn test_dynamic_adaptive_learning_and_bidirectional_fallback() {
         AnthropicThinkingMode::Budget,
         "动态降级缓存优先级高于静态预判"
     );
-    clear_learned_cache();
+    remove_learned_model(model);
+    remove_learned_model(static_model);
 }
 
 #[test]
@@ -844,13 +844,13 @@ fn test_detect_thinking_mode_correction_from_upstream_400() {
 #[test]
 fn test_adaptive_thinking_concurrent_learning() {
     use super::thinking_mode::{
-        clear_learned_cache, mark_model_as_adaptive, resolve_thinking_mode, AnthropicThinkingMode,
+        mark_model_as_adaptive, remove_learned_model, resolve_thinking_mode, AnthropicThinkingMode,
     };
     use std::sync::Arc;
     use std::thread;
 
-    clear_learned_cache();
-    let model = "concurrent-proxy/claude-unknown";
+    let model = "unit-concurrent-gateway/claude-unknown-isolated";
+    remove_learned_model(model);
     let model_arc = Arc::new(model.to_string());
     let mut handles = Vec::new();
 
@@ -871,17 +871,19 @@ fn test_adaptive_thinking_concurrent_learning() {
         AnthropicThinkingMode::Adaptive,
         "并发标记后模型应稳定为 Adaptive"
     );
-    clear_learned_cache();
+    remove_learned_model(model);
 }
 
 #[test]
 fn test_build_request_body_adaptive_versus_budget() {
     use super::invoke::build_request_body;
-    use super::thinking_mode::{clear_learned_cache, mark_model_as_adaptive, mark_model_as_budget};
+    use super::thinking_mode::{
+        mark_model_as_adaptive, mark_model_as_budget, remove_learned_model,
+    };
     use crate::llm::types::LlmRequest;
-    clear_learned_cache();
 
-    let model = "custom/any-claude";
+    let model = "unit-reqbody-gateway/any-claude-isolated";
+    remove_learned_model(model);
     let adapter = ChatAnthropic::new("dummy-key", model).with_extended_thinking(8000, "high");
     let req = LlmRequest::new(vec![BaseMessage::human("hi")]);
 
@@ -899,7 +901,7 @@ fn test_build_request_body_adaptive_versus_budget() {
         "adaptive 模式下必须移除 budget_tokens"
     );
     assert_eq!(body_adaptive["output_config"]["effort"], "high");
-    clear_learned_cache();
+    remove_learned_model(model);
 }
 
 /// 验证 AtMentionMiddleware/SkillPreloadMiddleware 注入的 fake Read 工具消息

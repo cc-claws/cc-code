@@ -103,6 +103,14 @@ pub fn mark_model_as_budget(model: &str) {
     budget_cache().write().insert(key);
 }
 
+/// 针对单测场景仅清理特定模型的学习状态，避免并发测试互相污染
+#[cfg(test)]
+pub fn remove_learned_model(model: &str) {
+    let key = normalize_model_key(model);
+    budget_cache().write().remove(&key);
+    adaptive_cache().write().remove(&key);
+}
+
 /// 针对单测或重置场景清空内存自学习缓存
 #[cfg(test)]
 pub fn clear_learned_cache() {
