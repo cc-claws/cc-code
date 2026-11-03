@@ -39,6 +39,7 @@
 |------|------|
 | 配置存储 | ~/.cc-code/settings.json，AppConfig 统一读写 |
 | Provider 数据结构 | ProviderConfig { id, type, baseUrl, apiKey, models: ProviderModels } |
+| baseUrl 规范化 | `cc_agent::llm::normalize_base_url` 自动容错：自动识别 localhost/127.0.0.1/内网IP补齐 http://，公网补齐 https://；Anthropic 剥离 /v1 与 /messages，OpenAI 补齐缺省 /v1 并剥离 /chat/completions |
 | 别名解析 | active_provider_id + active_alias 直接定位，无间接映射 |
 | 别名档位 | 四档 opus/sonnet/haiku/fable，`ProviderModels::ALL_ALIASES: [&str; 4]` |
 | 默认模型名 | DEFAULT_MODELS 常量表（每个 type 一组四档元组 (opus, sonnet, haiku, fable)，Type 切换时自动填充） |
@@ -46,6 +47,20 @@
 | 向后兼容 | model_aliases 被 serde 安全忽略 |
 
 ## Feature 附录
+
+### feature_20261103_F001_base-url-normalization
+
+**摘要:** LLM baseUrl 自动容错清洗与友好错误提示
+**关键决策:**
+
+- 新增 `normalize_base_url` 工具：
+  - 协议头防呆补齐：无 scheme 时，针对 `localhost`、`127.0.0.1`、`0.0.0.0`、`::1` 及私有内网 IP（`192.168.`、`10.`、`172.16-31.`）自动前插 `http://`；公网域名自动前插 `https://`
+  - Anthropic 路径清洗：适配器内部固定拼接 `{base_url}/v1/messages`，因此将用户填写的尾部 `/v1/messages`、`/messages` 或 `/v1` 剥除，彻底避免 `.../v1/v1/messages` 404
+  - OpenAI 路径清洗：适配器内部固定拼接 `{base_url}/chat/completions`，剥除尾部 `/chat/completions`，若 URL path 为空则补齐缺省的 `/v1`
+- 引入 `format_reqwest_error`：转译底层 reqwest 错误，当捕获到 `is_builder()` 时输出明确的中文提示（包含请求 URL 与修复建议），杜绝冷冰冰的 `builder error: relative URL without a base`
+- 全链路防呆：在适配器构造、`cc-acp` 配置解析、`cc-tui` 的 `/login` 面板与 Setup 向导保存入口处统一自动清洗规范化
+
+**归档日期:** 2026-11-03
 
 ### feature_20260427_F003_model-config-refactor
 
@@ -75,3 +90,7 @@
 ---
 
 ## 相关 Feature
+
+---
+*最后更新: 2026-11-03 — LLM baseUrl 自动容错清洗与友好错误提示（feature_20261103_F001_base-url-normalization）；此前: 2026-09-28 — fable 第四档模型别名（feature_20260924_F001_fable-fourth-alias）*
+
