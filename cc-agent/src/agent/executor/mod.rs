@@ -336,6 +336,19 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
             // 钩子: before_model — LLM 调用前（compact 检查点）
             self.chain.run_before_model(state).await?;
 
+            // [TRAP] compact 会整体替换消息（id 全新），旧快照锚点随之失效。
+            // `index_after_id` 找不到锚点会 fallback 到 0，把压缩后的整段历史当成
+            // 「新增消息」再发一遍——客户端已在 `CompactCompleted` 里收到这份历史，
+            // 重发会让摘要 Human 消息重新渲染（TUI 表现为「上下文已压缩」折叠行与
+            // 压缩通知同屏出现）。锚点失效时重挂到当前末尾，快照只发本轮新增消息。
+            if !state.messages().iter().any(|m| m.id() == snapshot_anchor) {
+                snapshot_anchor = state
+                    .messages()
+                    .last()
+                    .map(|m| m.id())
+                    .unwrap_or(snapshot_anchor);
+            }
+
             // compact 可能替换全部消息；在其完成后才插入，确保下一次模型调用看到原文。
             if let Some(queue) = &self.steering {
                 pending_steering.extend(queue.drain());
@@ -588,3 +601,7 @@ mod tests;
 #[cfg(test)]
 #[path = "steering_test.rs"]
 mod steering_tests;
+
+#[cfg(test)]
+#[path = "snapshot_anchor_test.rs"]
+mod snapshot_anchor_tests;
