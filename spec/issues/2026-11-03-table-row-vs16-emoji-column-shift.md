@@ -85,7 +85,7 @@ agent 输出的 markdown 表格里，只要某一行的单元格含 `⚠️`（`
 | 日期 | 从 | 到 | 操作人 | 说明 |
 |------|-----|-----|--------|------|
 | 2026-11-03 | — | Open | agent | 创建（附真实会话数据与逐列像素测量） |
-| 2026-11-03 | Open | Fixed | agent | 修复落在输出层，待验证 |
+| 2026-11-03 | Open | Fixed | agent | 修复落在输出层，待验证（GitHub #860 / PR #861） |
 
 ## 七、修复记录
 
@@ -97,7 +97,7 @@ agent 输出的 markdown 表格里，只要某一行的单元格含 `⚠️`（`
 - **改动文件**：
   - `cc-tui/src/terminal_backend/compatible.rs` —— 新增 `drop_covered_trailing_cells` 并在 `draw` 中应用
   - `cc-tui/src/terminal_backend/compatible_test.rs` —— 新增回归用例 `test_draw_drops_cells_covered_by_wide_vs16_symbol`（复刻 crossterm 语义断言物理列位）
-- **涉及 commit**：（待提交）
+- **涉及 commit**：`d02f9fbf`（PR #861）
 - **验证状态**：待验证
   - 回归用例在移除修复后必失败（实测 `left: 17, right: 16`），恢复修复后通过；
   - `cargo test -p cc-tui --lib -- terminal_backend` 61 passed / 2 ignored；
