@@ -2,8 +2,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use ratatui::backend::{Backend, TestBackend};
+use ratatui::backend::{Backend, ClearType, TestBackend, WindowSize};
 use ratatui::buffer::Cell;
+use ratatui::layout::{Position, Size};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::Paragraph;
 use ratatui::Terminal;
@@ -645,5 +646,129 @@ fn test_draw_no_color_resets_colors_but_keeps_modifiers() {
         buffer[(0, 0)].modifier,
         Modifier::BOLD,
         "NO_COLOR 关的是颜色，不是样式"
+    );
+}
+
+/// 复刻 crossterm 后端的行为：只有 `x == last.x + 1` 才算连续、跳过 MoveTo，
+/// 打印后按字形真实宽度推进物理光标。返回每个字形实际落笔的物理列。
+fn replay_like_crossterm<'a, I>(content: I) -> Vec<(u16, String)>
+where
+    I: Iterator<Item = (u16, u16, &'a Cell)>,
+{
+    let mut out = Vec::new();
+    let mut last_cell: Option<(u16, u16)> = None;
+    let mut cursor = (0u16, 0u16);
+    for (x, y, cell) in content {
+        let contiguous = matches!(last_cell, Some((cx, cy)) if x == cx + 1 && y == cy);
+        if !contiguous {
+            cursor = (x, y);
+        }
+        out.push((cursor.0, cell.symbol().to_string()));
+        cursor.0 += cell.symbol().width().max(1) as u16;
+        last_cell = Some((x, y));
+    }
+    out
+}
+
+/// 记录下发的 cell 流，供回归用例按 crossterm 语义重放。
+struct ReplayBackend {
+    recorded: Vec<(u16, u16, Cell)>,
+}
+
+impl Backend for ReplayBackend {
+    type Error = std::convert::Infallible;
+
+    fn draw<'a, I>(&mut self, content: I) -> Result<(), Self::Error>
+    where
+        I: Iterator<Item = (u16, u16, &'a Cell)>,
+    {
+        self.recorded = content.map(|(x, y, cell)| (x, y, cell.clone())).collect();
+        Ok(())
+    }
+
+    fn append_lines(&mut self, _n: u16) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn hide_cursor(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn show_cursor(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn get_cursor_position(&mut self) -> Result<Position, Self::Error> {
+        Ok(Position::new(0, 0))
+    }
+    fn set_cursor_position<P: Into<Position>>(&mut self, _p: P) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn clear(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn clear_region(&mut self, _clear_type: ClearType) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn size(&self) -> Result<Size, Self::Error> {
+        Ok(Size::new(80, 4))
+    }
+    fn window_size(&mut self) -> Result<WindowSize, Self::Error> {
+        Ok(WindowSize {
+            columns_rows: Size::new(80, 4),
+            pixels: Size::new(0, 0),
+        })
+    }
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+/// `⚠️`(U+26A0 U+FE0F) 是宽字形，`Buffer::diff` 会额外补画它的尾格。
+/// crossterm 后端按 cell 索引判断连续打印，尾格会被当成相邻格续写，
+/// 使该行后续内容整体右移 1 列 —— 表格右边框因此冲出表格。
+/// 输出层必须丢弃被宽字形覆盖的尾格。
+#[test]
+fn test_draw_drops_cells_covered_by_wide_vs16_symbol() {
+    use ratatui::layout::Rect;
+    use ratatui::TerminalOptions;
+    use ratatui::Viewport;
+
+    let (probe, _) = make_probe(&[]);
+    let mut terminal = Terminal::with_options(
+        WidthSafeBackend::with_probe(
+            ReplayBackend {
+                recorded: Vec::new(),
+            },
+            probe,
+        ),
+        TerminalOptions {
+            viewport: Viewport::Fixed(Rect::new(0, 0, 40, 2)),
+        },
+    )
+    .expect("构造测试终端");
+
+    let row = "| \u{26a0}\u{fe0f} cc-switch  |";
+    // 首帧写入棋盘格，制造「尾格内容变化」这一触发 diff 补画尾格的条件。
+    terminal
+        .draw(|frame| {
+            frame.render_widget(Paragraph::new("x".repeat(40)), Rect::new(0, 0, 40, 1));
+        })
+        .expect("写入旧帧");
+    terminal
+        .draw(|frame| {
+            frame.render_widget(Paragraph::new(row), Rect::new(0, 0, 40, 1));
+        })
+        .expect("写入新帧");
+
+    let recorded = terminal.backend().inner.recorded.clone();
+    let laid = replay_like_crossterm(recorded.iter().map(|(x, y, cell)| (*x, *y, cell)));
+    let tail = laid
+        .iter()
+        .filter(|(_, symbol)| symbol == "|")
+        .map(|(x, _)| *x)
+        .max()
+        .expect("应找到结尾竖线");
+    assert_eq!(
+        tail,
+        row.width() as u16 - 1,
+        "结尾竖线被 VS16 尾格挤到右边，表格右边框会冲出表格"
     );
 }
