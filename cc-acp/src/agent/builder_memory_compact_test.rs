@@ -175,6 +175,14 @@ async fn make_compacted_memory_requests(protocol: MockProvider, fail_after_compa
             messages.iter().all(|message| !message.is_system()),
             "状态快照不得泄漏系统规则或记忆索引"
         );
+        // 压缩后的历史已由 CompactCompleted 交付；快照再发一遍会让 TUI 重复渲染
+        // 摘要消息（「上下文已压缩」折叠行与压缩通知同屏）。
+        assert!(
+            messages
+                .iter()
+                .all(|message| !message.content().contains(SUMMARY_SENTINEL)),
+            "压缩后的快照不得重发摘要消息"
+        );
     }
     let next = tokio::time::timeout(
         Duration::from_secs(15),
