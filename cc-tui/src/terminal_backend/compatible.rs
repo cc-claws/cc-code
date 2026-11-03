@@ -168,6 +168,35 @@ impl<B, P: WidthProbe> WidthSafeBackend<B, P> {
     }
 }
 
+/// 宽字形（如 `⚠️` = `U+26A0 U+FE0F`）已占满的尾格不能单独输出。
+///
+/// `Buffer::diff` 会为含 VS16 的宽字形额外补画尾格，防止部分终端不清尾格留残影；
+/// 但 crossterm 后端判断「能否连续打印」只看 cell 索引（`x == last.x + 1`），
+/// 而宽字形打印后光标已按 2 列推进：尾格被当作相邻格直接续写，实际落到右边一格，
+/// 于是该行尾格之后的所有内容整体右移 1 列（表格右边框冲出表格）。
+/// 尾格本就被宽字形覆盖，同批次内直接丢弃，让后续内容重新触发定位。
+fn drop_covered_trailing_cells<'a>(
+    cells: Vec<(u16, u16, Cow<'a, Cell>)>,
+) -> Vec<(u16, u16, Cow<'a, Cell>)> {
+    let mut out: Vec<(u16, u16, Cow<'a, Cell>)> = Vec::with_capacity(cells.len());
+    // 当前行被前一个宽字形覆盖到的列（不含）。
+    let mut covered: Option<(u16, u16)> = None;
+    for (x, y, cell) in cells {
+        if let Some((row, end)) = covered {
+            if y == row && x < end {
+                continue;
+            }
+            covered = None;
+        }
+        let width = cell.symbol().width() as u16;
+        if width > 1 {
+            covered = Some((y, x.saturating_add(width)));
+        }
+        out.push((x, y, cell));
+    }
+    out
+}
+
 /// 定向 ASCII 降级表：宽度正常但字形可能缺失的字形。
 ///
 /// 表内字形分两类用途：
@@ -299,18 +328,24 @@ impl<B: Backend, P: WidthProbe> Backend for WidthSafeBackend<B, P> {
             cells.sort_by_key(|(x, y, _)| (*y, *x));
             cells.dedup_by_key(|(x, y, _)| (*y, *x));
         }
-        let adapted: Vec<_> = cells
+        // 先做定向降级，再丢弃被宽字形覆盖的尾格：判断依据必须是**实际下发的字形**
+        // 宽度，因为宽字形可能被降级成 1 列 ASCII（如 `⚠️` → `!`），这时尾格要照常输出。
+        let degraded: Vec<_> = cells
             .iter()
+            .map(|(x, y, cell)| (*x, *y, self.output_cell(cell.as_ref())))
+            .collect();
+        let degraded = drop_covered_trailing_cells(degraded);
+        let adapted: Vec<_> = degraded
+            .into_iter()
             .map(|(x, y, cell)| {
-                let adapted = self.output_cell(cell.as_ref());
                 // OSC 8 只能在这里包裹：`Buffer::diff` 会用 `symbol.width()` 决定
                 // 跳过后续多少 cell，把转义序列（其载荷是可见字符）写进 buffer
                 // 会让链接后面的整段文字不落笔（见 `hyperlink` 模块文档）。
-                let adapted = match frame.decorate(*x, *y, adapted.as_ref()) {
+                let adapted = match frame.decorate(x, y, cell.as_ref()) {
                     Some(decorated) => Cow::Owned(decorated),
-                    None => adapted,
+                    None => cell,
                 };
-                (*x, *y, adapted)
+                (x, y, adapted)
             })
             .collect();
         if let Err(error) = self
