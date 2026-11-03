@@ -35,10 +35,8 @@ pub(super) async fn do_invoke_streaming(
 
     let body = build_request_body(adapter, &request, true);
 
-    let chat_url = format!(
-        "{}/chat/completions",
-        adapter.base_url.trim_end_matches('/')
-    );
+    let norm = super::super::url_util::normalize_base_url(&adapter.base_url, "openai");
+    let chat_url = format!("{}/chat/completions", norm.trim_end_matches('/'));
 
     let resp = adapter
         .client
@@ -48,12 +46,13 @@ pub(super) async fn do_invoke_streaming(
         .send()
         .await
         .map_err(|e| {
+            let msg = super::super::url_util::format_reqwest_error(&e, &chat_url);
             tracing::error!(
                 provider = "openai", model = %adapter.model,
                 elapsed_ms = start.elapsed().as_millis() as u64, error = %e,
-                "LLM 流式网络请求失败"
+                "LLM 流式网络请求失败: {msg}"
             );
-            AgentError::LlmError(e.to_string())
+            AgentError::LlmError(msg)
         })?;
 
     let status = resp.status();

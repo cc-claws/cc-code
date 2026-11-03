@@ -320,11 +320,17 @@ pub fn build_wizard_config(wizard: &SetupWizardPanel) -> crate::config::PeriConf
         if mp.provider_id.trim().is_empty() || mp.api_key.trim().is_empty() {
             continue;
         }
+        let ptype = mp.provider_type.type_str();
+        let clean_base_url = if mp.base_url.trim().is_empty() {
+            String::new()
+        } else {
+            cc_agent::llm::normalize_base_url(&mp.base_url, ptype)
+        };
         let provider = crate::config::ProviderConfig {
-            id: mp.provider_id.clone(),
-            provider_type: mp.provider_type.type_str().to_string(),
-            api_key: mp.api_key.clone(),
-            base_url: mp.base_url.clone(),
+            id: mp.provider_id.trim().to_string(),
+            provider_type: ptype.to_string(),
+            api_key: mp.api_key.trim().to_string(),
+            base_url: clean_base_url,
             models: crate::config::ProviderModels {
                 opus: mp.aliases[0].model_id.clone(),
                 sonnet: mp.aliases[1].model_id.clone(),

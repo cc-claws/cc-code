@@ -28,13 +28,16 @@ pub(super) async fn do_invoke_streaming(
     let body = build_request_body(adapter, &request, true);
 
     let chat_url = match &adapter.base_url {
-        Some(base) => format!("{}/v1/messages", base.trim_end_matches('/')),
+        Some(base) => {
+            let norm = super::super::url_util::normalize_base_url(base, "anthropic");
+            format!("{}/v1/messages", norm.trim_end_matches('/'))
+        }
         None => "https://api.anthropic.com/v1/messages".to_string(),
     };
 
     let mut req = adapter
         .client
-        .post(chat_url)
+        .post(&chat_url)
         .header("x-api-key", &adapter.api_key)
         .header("anthropic-version", "2023-06-01")
         .header("content-type", "application/json");
@@ -48,12 +51,13 @@ pub(super) async fn do_invoke_streaming(
     }
 
     let resp = req.json(&body).send().await.map_err(|e| {
+        let msg = super::super::url_util::format_reqwest_error(&e, &chat_url);
         tracing::error!(
             provider = "anthropic", model = %adapter.model,
             elapsed_ms = start.elapsed().as_millis() as u64, error = %e,
-            "LLM 流式网络请求失败"
+            "LLM 流式网络请求失败: {msg}"
         );
-        AgentError::LlmError(e.to_string())
+        AgentError::LlmError(msg)
     })?;
 
     let status = resp.status();

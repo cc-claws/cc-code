@@ -4,6 +4,10 @@ pub mod repetition;
 pub mod retry;
 pub mod sse;
 pub mod types;
+pub mod url_util;
+
+#[cfg(test)]
+mod url_util_test;
 
 mod adapter;
 mod react_adapter;
@@ -45,6 +49,7 @@ pub trait BaseModel: Send + Sync {
 pub use adapter::MockLLM;
 pub use anthropic::ChatAnthropic;
 pub use openai::ChatOpenAI;
+pub use url_util::{format_reqwest_error, normalize_base_url};
 
 /// Build a reqwest client with connection pool limits to prevent TLS session
 /// accumulation. Default pool is unbounded — each idle connection holds

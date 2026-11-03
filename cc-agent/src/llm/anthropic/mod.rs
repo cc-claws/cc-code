@@ -37,7 +37,12 @@ impl ChatAnthropic {
     /// 设置自定义 base URL（用于代理或兼容 API）
     pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
         let url = base_url.into();
-        self.base_url = if url.is_empty() { None } else { Some(url) };
+        let trimmed = url.trim();
+        self.base_url = if trimmed.is_empty() {
+            None
+        } else {
+            Some(super::url_util::normalize_base_url(trimmed, "anthropic"))
+        };
         self
     }
 

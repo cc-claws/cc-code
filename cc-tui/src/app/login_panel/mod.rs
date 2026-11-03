@@ -344,11 +344,17 @@ impl LoginPanel {
             return false;
         }
 
+        let clean_base_url = if self.buf_base_url.trim().is_empty() {
+            String::new()
+        } else {
+            cc_agent::llm::normalize_base_url(&self.buf_base_url, &self.buf_type)
+        };
+
         let mut p = ProviderConfig {
             id: id.clone(),
             provider_type: self.buf_type.clone(),
-            api_key: self.buf_api_key.clone(),
-            base_url: self.buf_base_url.clone(),
+            api_key: self.buf_api_key.trim().to_string(),
+            base_url: clean_base_url,
             name: if self.buf_name.trim().is_empty() {
                 None
             } else {
