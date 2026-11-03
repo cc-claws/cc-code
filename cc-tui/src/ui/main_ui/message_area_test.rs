@@ -396,3 +396,88 @@ fn test_compact_ufo_line_follows_reference_cycle() {
         .count();
     assert_eq!(trail, 5, "终点处尾迹应为 5 格: {end_text}");
 }
+
+#[test]
+fn test_visible_tail_renders_success_summary_when_normal() {
+    let mut app = make_app();
+    let done_at = std::time::SystemTime::now();
+    app.session_mgr.current_mut().spinner_state.restore_summary(
+        "Brewed".to_string(),
+        15_000,
+        done_at,
+    );
+
+    let tail = visible_tail(&app);
+    let tail_text: String = tail
+        .iter()
+        .flat_map(|line| line.spans.iter().map(|s| s.content.as_ref()))
+        .collect();
+    assert!(
+        tail_text.contains("✻ Brewed for 15s"),
+        "成功态应展示 ✻ 和过去式动词: {tail_text}"
+    );
+    assert!(
+        tail_text.contains("done"),
+        "成功态应包含 done 标识: {tail_text}"
+    );
+}
+
+#[test]
+fn test_visible_tail_renders_failed_summary_when_error() {
+    let mut app = make_app();
+    let done_at = std::time::SystemTime::now();
+    app.session_mgr.current_mut().spinner_state.restore_summary(
+        "Failed".to_string(),
+        35_000,
+        done_at,
+    );
+
+    let tail = visible_tail(&app);
+    let tail_text: String = tail
+        .iter()
+        .flat_map(|line| line.spans.iter().map(|s| s.content.as_ref()))
+        .collect();
+    assert!(
+        tail_text.contains("✻ Failed after 35s"),
+        "失败态应展示 ✻ 和 Failed after: {tail_text}"
+    );
+    assert!(
+        !tail_text.contains("done"),
+        "失败态不应包含 done 标识: {tail_text}"
+    );
+}
+
+#[test]
+fn test_handle_error_retains_failed_summary_in_visible_tail() {
+    let mut app = make_app();
+    app.set_loading(true);
+    std::thread::sleep(std::time::Duration::from_millis(15));
+
+    app.handle_error("LLM HTTP 错误 (404): API 错误 404 Not Found");
+
+    assert!(
+        app.session_mgr
+            .current()
+            .spinner_state
+            .last_summary_is_error(),
+        "报错后应标记 is_error"
+    );
+    assert!(
+        app.session_mgr
+            .current()
+            .spinner_state
+            .last_summary_elapsed_ms()
+            >= 10,
+        "报错后应捕获耗时"
+    );
+
+    let tail = visible_tail(&app);
+    let tail_text: String = tail
+        .iter()
+        .flat_map(|line| line.spans.iter().map(|s| s.content.as_ref()))
+        .collect();
+    assert!(
+        tail_text.contains("✻ Failed after"),
+        "报错后 visible_tail 应渲染失败总结行: {tail_text}"
+    );
+}

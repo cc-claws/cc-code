@@ -807,22 +807,38 @@ pub(super) fn visible_tail(app: &App) -> Vec<Line<'static>> {
         let elapsed = cc_widgets::spinner::animation::format_elapsed(
             session.viewport_spinner().last_summary_elapsed_ms(),
         );
-        let verb = {
-            let v = session.viewport_spinner().last_summary_verb();
-            if v.is_empty() { "Brewed" } else { v }.to_string()
-        };
-        let done_str = session
-            .viewport_spinner()
-            .last_summary_done_at()
-            .map(|t| {
-                let dt: DateTime<Local> = t.into();
-                format!(" · done {}", dt.format("%H:%M"))
-            })
-            .unwrap_or_default();
-        Some(Line::from(Span::styled(
-            format!("✻ {verb} for {elapsed}{done_str}"),
-            Style::default().fg(theme::cur().inactive),
-        )))
+        let is_error = session.viewport_spinner().last_summary_is_error();
+        if is_error {
+            let done_str = session
+                .viewport_spinner()
+                .last_summary_done_at()
+                .map(|t| {
+                    let dt: DateTime<Local> = t.into();
+                    format!(" · {}", dt.format("%H:%M"))
+                })
+                .unwrap_or_default();
+            Some(Line::from(Span::styled(
+                format!("✻ Failed after {elapsed}{done_str}"),
+                Style::default().fg(theme::cur().inactive),
+            )))
+        } else {
+            let verb = {
+                let v = session.viewport_spinner().last_summary_verb();
+                if v.is_empty() { "Brewed" } else { v }.to_string()
+            };
+            let done_str = session
+                .viewport_spinner()
+                .last_summary_done_at()
+                .map(|t| {
+                    let dt: DateTime<Local> = t.into();
+                    format!(" · done {}", dt.format("%H:%M"))
+                })
+                .unwrap_or_default();
+            Some(Line::from(Span::styled(
+                format!("✻ {verb} for {elapsed}{done_str}"),
+                Style::default().fg(theme::cur().inactive),
+            )))
+        }
     } else {
         None
     };

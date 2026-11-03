@@ -40,12 +40,18 @@ impl App {
             }
         }
         self.set_loading(false);
-        // 异常终止（报错、中断、取消超时）清空总结行，避免失败/中断任务显示成功文案
-        if is_abnormal || self.session_mgr.current().agent.reconcile_already_done {
+        // 异常终止（报错、中断、取消超时）：
+        // 报错时记录失败总结行（包含耗时和时间戳），中断/取消时清空总结行
+        if langfuse_error.is_some() {
+            self.session_mgr
+                .current_mut()
+                .spinner_state
+                .finish_with_error();
+        } else if is_abnormal || self.session_mgr.current().agent.reconcile_already_done {
             self.session_mgr.current_mut().spinner_state.clear_summary();
         }
         // 持久化完成态总结行（须在 set_loading(false) 捕获 summary 之后），
-        // 支持 `-c`/`-r` 恢复会话时重现 `✻ ... for Ns · done HH:MM` 行。
+        // 支持 `-c`/`-r` 恢复会话时重现 `✻ ... for Ns · done HH:MM` 或 `✻ Failed after Ns · HH:MM` 行。
         self.persist_last_task_summary();
     }
 
@@ -316,7 +322,7 @@ impl App {
         (true, false, false)
     }
 
-    pub(super) fn handle_error(&mut self, error_msg: &str) -> (bool, bool, bool) {
+    pub(crate) fn handle_error(&mut self, error_msg: &str) -> (bool, bool, bool) {
         self.session_mgr.current_mut().agent.cancel_sent_at = None;
         // Child agent error during tool execution — ignore
         if self
@@ -382,8 +388,6 @@ impl App {
         }
         let err_label = format!("ERROR: {}", error_msg);
         self.cleanup_agent_state(Some(&err_label));
-        // 报错路径清空完成态总结行，避免显示成功文案
-        self.session_mgr.current_mut().spinner_state.clear_summary();
         // 检查缓冲消息，合并发送
         if !self
             .session_mgr

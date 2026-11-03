@@ -481,12 +481,10 @@ impl App {
                     // `✻ <verb> for Xs · done HH:MM` 总结行。此前该调用遗漏，导致
                     // `last_summary_elapsed_ms` 恒为 0，切入子视口后总结行空白。
                     sub.spinner.set_mode(cc_widgets::SpinnerMode::Idle);
-                    // 停止/失败属异常结束：清空总结行，避免显示成功文案（与主会话
-                    // lifecycle 的 `clear_summary` 对齐）。
-                    if matches!(
-                        sub.status,
-                        SubagentRunStatus::Stopped | SubagentRunStatus::Failed
-                    ) {
+                    // 停止属取消结束：清空总结行；失败属报错结束：记录失败总结行（保留耗时与完成时刻）
+                    if sub.status == SubagentRunStatus::Failed {
+                        sub.spinner.finish_with_error();
+                    } else if sub.status == SubagentRunStatus::Stopped {
                         sub.spinner.clear_summary();
                     }
                     // 结束态完整落在规范状态中；隐藏任务等切入时才构造最终视图。

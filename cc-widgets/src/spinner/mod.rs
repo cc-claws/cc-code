@@ -35,6 +35,8 @@ pub struct SpinnerState {
     last_summary_verb: String,
     /// 完成时刻（wall-clock），None 表示无记录
     last_summary_done_at: Option<std::time::SystemTime>,
+    /// 是否为失败/异常状态下的总结
+    last_summary_is_error: bool,
     /// 随机动词列表（按语言选择）
     verb_list: &'static [&'static str],
     /// 当前思考段起点。None = 不在思考段中
@@ -71,6 +73,7 @@ impl SpinnerState {
             last_summary_elapsed_ms: 0,
             last_summary_verb: String::new(),
             last_summary_done_at: None,
+            last_summary_is_error: false,
             verb_list,
             thinking_started_at: None,
             last_thought_ms: 0,
@@ -109,6 +112,7 @@ impl SpinnerState {
             self.last_summary_elapsed_ms = self.elapsed_ms();
             self.last_summary_verb = verb::pick_summary_verb();
             self.last_summary_done_at = Some(std::time::SystemTime::now());
+            self.last_summary_is_error = false;
         }
         // 从 Idle 切换到活跃状态时，重置计时器和总结记录
         if !was_active && self.mode != SpinnerMode::Idle {
@@ -116,6 +120,7 @@ impl SpinnerState {
             self.last_summary_elapsed_ms = 0;
             self.last_summary_verb = String::new();
             self.last_summary_done_at = None;
+            self.last_summary_is_error = false;
             self.last_token_at = Instant::now();
             self.stall_intensity = 0.0;
             self.stall_last_smooth_at = Instant::now();
@@ -302,11 +307,34 @@ impl SpinnerState {
         self.last_summary_done_at
     }
 
-    /// 清空完成态总结行（用于 error/interrupt 路径，避免失败任务显示成功文案）
+    pub fn last_summary_is_error(&self) -> bool {
+        self.last_summary_is_error
+    }
+
+    /// 结算失败/异常状态下的总结行。
+    ///
+    /// 捕获当前耗时与完成时刻，将总结标记为 error（动词固定为 "Failed"），
+    /// 使任务报错时能继续展示时间反馈（如 `✻ Failed after 35s · 17:43`），
+    /// 避免直接清空导致耗时反馈丢失。
+    pub fn finish_with_error(&mut self) {
+        if self.mode != SpinnerMode::Idle {
+            self.last_summary_elapsed_ms = self.elapsed_ms();
+            self.last_summary_done_at = Some(std::time::SystemTime::now());
+            self.mode = SpinnerMode::Idle;
+            self.verb = String::new();
+        } else if self.last_summary_done_at.is_none() {
+            self.last_summary_done_at = Some(std::time::SystemTime::now());
+        }
+        self.last_summary_is_error = true;
+        self.last_summary_verb = "Failed".to_string();
+    }
+
+    /// 清空完成态总结行（用于新回合重置或主动清除）
     pub fn clear_summary(&mut self) {
         self.last_summary_elapsed_ms = 0;
         self.last_summary_verb = String::new();
         self.last_summary_done_at = None;
+        self.last_summary_is_error = false;
     }
 
     /// 从持久化数据恢复完成态总结行（`-c`/`-r` 恢复会话时使用）。
@@ -318,6 +346,7 @@ impl SpinnerState {
         elapsed_ms: u64,
         done_at: std::time::SystemTime,
     ) {
+        self.last_summary_is_error = verb == "Failed";
         self.last_summary_elapsed_ms = elapsed_ms;
         self.last_summary_verb = verb;
         self.last_summary_done_at = Some(done_at);
@@ -339,6 +368,7 @@ impl SpinnerState {
         self.last_summary_elapsed_ms = 0;
         self.last_summary_verb = String::new();
         self.last_summary_done_at = None;
+        self.last_summary_is_error = false;
         self.thinking_started_at = None;
         self.last_thought_ms = 0;
         self.thinking_round = 0;
@@ -643,5 +673,34 @@ mod tests {
             crate::spinner::animation::spinner_frame(state.animation_elapsed_ms()),
             "渲染字形必须直接来自动画模块的同一套时钟"
         );
+    }
+
+    #[test]
+    fn test_finish_with_error_records_duration_and_failure_state() {
+        let mut state = SpinnerState::new(SpinnerMode::Responding);
+        std::thread::sleep(std::time::Duration::from_millis(15));
+        state.finish_with_error();
+
+        assert_eq!(*state.mode(), SpinnerMode::Idle);
+        assert!(state.last_summary_elapsed_ms() >= 10);
+        assert_eq!(state.last_summary_verb(), "Failed");
+        assert!(state.last_summary_done_at().is_some());
+        assert!(state.last_summary_is_error());
+
+        state.clear_summary();
+        assert_eq!(state.last_summary_elapsed_ms(), 0);
+        assert!(!state.last_summary_is_error());
+    }
+
+    #[test]
+    fn test_restore_summary_with_failed_verb() {
+        let mut state = SpinnerState::new(SpinnerMode::Idle);
+        let done_at = std::time::SystemTime::now();
+        state.restore_summary("Failed".to_string(), 12_000, done_at);
+
+        assert_eq!(state.last_summary_elapsed_ms(), 12_000);
+        assert_eq!(state.last_summary_verb(), "Failed");
+        assert_eq!(state.last_summary_done_at(), Some(done_at));
+        assert!(state.last_summary_is_error());
     }
 }
