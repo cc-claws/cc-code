@@ -1,7 +1,7 @@
 use futures::StreamExt;
 use serde_json::{json, Value};
 
-use super::invoke::{build_request_body, parse_content_blocks};
+use super::invoke::{build_request_body, parse_content_blocks, send_anthropic_request};
 use crate::{
     agent::events::AgentEvent,
     error::{AgentError, AgentResult},
@@ -25,59 +25,61 @@ pub(super) async fn do_invoke_streaming(
     let msg_count = request.messages.len();
     let start = std::time::Instant::now();
 
-    let body = build_request_body(adapter, &request, true);
+    let mut retried_adaptive = false;
+    let resp = loop {
+        let body = build_request_body(adapter, &request, true);
+        let resp =
+            send_anthropic_request(adapter, &body, request.session_id.as_deref(), start).await?;
+        let status = resp.status();
 
-    let chat_url = match &adapter.base_url {
-        Some(base) => {
-            let norm = super::super::url_util::normalize_base_url(base, "anthropic");
-            format!("{}/v1/messages", norm.trim_end_matches('/'))
+        if !status.is_success() {
+            let resp_text = resp.text().await.unwrap_or_default();
+            if !retried_adaptive {
+                if let Some(correction) = super::thinking_mode::detect_thinking_mode_correction(
+                    status.as_u16(),
+                    &resp_text,
+                ) {
+                    match correction {
+                        super::thinking_mode::ThinkingModeCorrection::SwitchToAdaptive => {
+                            tracing::info!(
+                                provider = "anthropic",
+                                model = %adapter.model,
+                                "检测到上游要求 adaptive thinking 协议，流式请求已自动自愈切换并重试"
+                            );
+                            super::thinking_mode::mark_model_as_adaptive(&adapter.model);
+                        }
+                        super::thinking_mode::ThinkingModeCorrection::SwitchToBudget => {
+                            tracing::info!(
+                                provider = "anthropic",
+                                model = %adapter.model,
+                                "检测到上游要求 legacy budget thinking 协议，流式请求已自动降级回退并重试"
+                            );
+                            super::thinking_mode::mark_model_as_budget(&adapter.model);
+                        }
+                    }
+                    retried_adaptive = true;
+                    continue;
+                }
+            }
+
+            let error_msg = serde_json::from_str::<Value>(&resp_text)
+                .ok()
+                .and_then(|v| v["error"]["message"].as_str().map(|s| s.to_string()))
+                .unwrap_or_else(|| "未知错误".to_string());
+            tracing::error!(
+                provider = "anthropic", model = %adapter.model, status = %status,
+                error_message = %error_msg,
+                elapsed_ms = start.elapsed().as_millis() as u64, msg_count,
+                "LLM 流式 API 错误"
+            );
+            return Err(AgentError::LlmHttpError {
+                status: status.as_u16(),
+                message: format!("API 错误 {status}: {error_msg}"),
+            });
         }
-        None => "https://api.anthropic.com/v1/messages".to_string(),
+
+        break resp;
     };
-
-    let mut req = adapter
-        .client
-        .post(&chat_url)
-        .header("x-api-key", &adapter.api_key)
-        .header("anthropic-version", "2023-06-01")
-        .header("content-type", "application/json");
-
-    if adapter.enable_cache {
-        req = req.header("anthropic-beta", "prompt-caching-2024-07-31");
-    }
-
-    if let Some(ref sid) = request.session_id {
-        req = req.header("x-session-id", sid.as_str());
-    }
-
-    let resp = req.json(&body).send().await.map_err(|e| {
-        let msg = super::super::url_util::format_reqwest_error(&e, &chat_url);
-        tracing::error!(
-            provider = "anthropic", model = %adapter.model,
-            elapsed_ms = start.elapsed().as_millis() as u64, error = %e,
-            "LLM 流式网络请求失败: {msg}"
-        );
-        AgentError::LlmError(msg)
-    })?;
-
-    let status = resp.status();
-    if !status.is_success() {
-        let resp_text = resp.text().await.unwrap_or_default();
-        let error_msg = serde_json::from_str::<Value>(&resp_text)
-            .ok()
-            .and_then(|v| v["error"]["message"].as_str().map(|s| s.to_string()))
-            .unwrap_or_else(|| "未知错误".to_string());
-        tracing::error!(
-            provider = "anthropic", model = %adapter.model, status = %status,
-            error_message = %error_msg,
-            elapsed_ms = start.elapsed().as_millis() as u64, msg_count,
-            "LLM 流式 API 错误"
-        );
-        return Err(AgentError::LlmHttpError {
-            status: status.as_u16(),
-            message: format!("API 错误 {status}: {error_msg}"),
-        });
-    }
 
     let mut stream = resp.bytes_stream();
     let mut parser = SseParser::new();

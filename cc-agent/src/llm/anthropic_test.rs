@@ -729,6 +729,181 @@ fn test_parse_and_reserialize_thinking_with_tool_use() {
     assert_eq!(content[0]["signature"], "sig_12345");
 }
 
+// ── Adaptive Thinking & Protocol Negotiation tests ──
+
+#[test]
+fn test_static_adaptive_model_resolution() {
+    use super::thinking_mode::{resolve_thinking_mode, AnthropicThinkingMode};
+    assert_eq!(
+        resolve_thinking_mode("claude-haiku-5-5"),
+        AnthropicThinkingMode::Adaptive,
+        "新代号模型应当静态预判为 Adaptive"
+    );
+    assert_eq!(
+        resolve_thinking_mode("claude-sonnet-4-6"),
+        AnthropicThinkingMode::Adaptive,
+        "Claude 4.6 模型应当静态预判为 Adaptive"
+    );
+    assert_eq!(
+        resolve_thinking_mode("claude-opus-4-7"),
+        AnthropicThinkingMode::Adaptive,
+        "Claude 4.7 模型应当静态预判为 Adaptive"
+    );
+    assert_eq!(
+        resolve_thinking_mode("claude-3-7-sonnet"),
+        AnthropicThinkingMode::Budget,
+        "Claude 3.7 模型应当预判为 Budget"
+    );
+    assert_eq!(
+        resolve_thinking_mode("custom-proxy/claude-3-5-sonnet"),
+        AnthropicThinkingMode::Budget,
+        "未知或旧模型默认应当为 Budget"
+    );
+}
+
+#[test]
+fn test_dynamic_adaptive_learning_and_bidirectional_fallback() {
+    use super::thinking_mode::{
+        mark_model_as_adaptive, mark_model_as_budget, remove_learned_model, resolve_thinking_mode,
+        AnthropicThinkingMode,
+    };
+    let model = "unit-test-isolated-gateway/hark4.4";
+    remove_learned_model(model);
+    assert_eq!(
+        resolve_thinking_mode(model),
+        AnthropicThinkingMode::Budget,
+        "初始未知模型默认走 Budget"
+    );
+    mark_model_as_adaptive(model);
+    assert_eq!(
+        resolve_thinking_mode(model),
+        AnthropicThinkingMode::Adaptive,
+        "学习后动态切换为 Adaptive"
+    );
+    mark_model_as_budget(model);
+    assert_eq!(
+        resolve_thinking_mode(model),
+        AnthropicThinkingMode::Budget,
+        "网关回退后可动态降级回 Budget"
+    );
+
+    let static_model = "unit-test-isolated/haiku-5-override";
+    assert_eq!(
+        resolve_thinking_mode(static_model),
+        AnthropicThinkingMode::Adaptive,
+        "静态判定原本为 Adaptive"
+    );
+    mark_model_as_budget(static_model);
+    assert_eq!(
+        resolve_thinking_mode(static_model),
+        AnthropicThinkingMode::Budget,
+        "动态降级缓存优先级高于静态预判"
+    );
+    remove_learned_model(model);
+    remove_learned_model(static_model);
+}
+
+#[test]
+fn test_detect_thinking_mode_correction_from_upstream_400() {
+    use super::thinking_mode::{detect_thinking_mode_correction, ThinkingModeCorrection};
+    let err_msg_user = r#"Upstream request failed: [invalid_request_error] "thinking.type.enabled" is not supported for this model. Use "thinking.type.adaptive" and "output_config.effort" to control thinking behavior."#;
+    assert_eq!(
+        detect_thinking_mode_correction(400, err_msg_user),
+        Some(ThinkingModeCorrection::SwitchToAdaptive),
+        "应准确识别真实 400 要求切换到 adaptive"
+    );
+
+    let err_msg_backticks = r#"error: `thinking.type.enabled` is not supported for this model. Use `thinking.type.adaptive` and `output_config.effort` to control thinking behavior."#;
+    assert_eq!(
+        detect_thinking_mode_correction(400, err_msg_backticks),
+        Some(ThinkingModeCorrection::SwitchToAdaptive),
+        "应准确识别反引号格式的 adaptive 提示"
+    );
+
+    let err_msg_fallback = r#"Upstream request failed: [invalid_request_error] "thinking.type.adaptive" is not supported for this model. Use "thinking.type.enabled" and "budget_tokens" to control thinking behavior."#;
+    assert_eq!(
+        detect_thinking_mode_correction(400, err_msg_fallback),
+        Some(ThinkingModeCorrection::SwitchToBudget),
+        "应准确识别回退到 budget 的错误提示"
+    );
+
+    let other_err = r#"{"error":{"message":"Invalid API Key","type":"authentication_error"}}"#;
+    assert_eq!(
+        detect_thinking_mode_correction(400, other_err),
+        None,
+        "其他 400 错误不应误判为 thinking 协议切换"
+    );
+
+    assert_eq!(
+        detect_thinking_mode_correction(500, err_msg_user),
+        None,
+        "非 400 状态码不应触发 thinking 协议自愈"
+    );
+}
+
+#[test]
+fn test_adaptive_thinking_concurrent_learning() {
+    use super::thinking_mode::{
+        mark_model_as_adaptive, remove_learned_model, resolve_thinking_mode, AnthropicThinkingMode,
+    };
+    use std::sync::Arc;
+    use std::thread;
+
+    let model = "unit-concurrent-gateway/claude-unknown-isolated";
+    remove_learned_model(model);
+    let model_arc = Arc::new(model.to_string());
+    let mut handles = Vec::new();
+
+    for _ in 0..10 {
+        let m = Arc::clone(&model_arc);
+        handles.push(thread::spawn(move || {
+            mark_model_as_adaptive(&m);
+            assert_eq!(resolve_thinking_mode(&m), AnthropicThinkingMode::Adaptive);
+        }));
+    }
+
+    for h in handles {
+        h.join().expect("线程应当正常结束无 panic");
+    }
+
+    assert_eq!(
+        resolve_thinking_mode(model),
+        AnthropicThinkingMode::Adaptive,
+        "并发标记后模型应稳定为 Adaptive"
+    );
+    remove_learned_model(model);
+}
+
+#[test]
+fn test_build_request_body_adaptive_versus_budget() {
+    use super::invoke::build_request_body;
+    use super::thinking_mode::{
+        mark_model_as_adaptive, mark_model_as_budget, remove_learned_model,
+    };
+    use crate::llm::types::LlmRequest;
+
+    let model = "unit-reqbody-gateway/any-claude-isolated";
+    remove_learned_model(model);
+    let adapter = ChatAnthropic::new("dummy-key", model).with_extended_thinking(8000, "high");
+    let req = LlmRequest::new(vec![BaseMessage::human("hi")]);
+
+    mark_model_as_budget(model);
+    let body_budget = build_request_body(&adapter, &req, false);
+    assert_eq!(body_budget["thinking"]["type"], "enabled");
+    assert_eq!(body_budget["thinking"]["budget_tokens"], 8000);
+    assert_eq!(body_budget["output_config"]["effort"], "high");
+
+    mark_model_as_adaptive(model);
+    let body_adaptive = build_request_body(&adapter, &req, false);
+    assert_eq!(body_adaptive["thinking"]["type"], "adaptive");
+    assert!(
+        body_adaptive["thinking"].get("budget_tokens").is_none(),
+        "adaptive 模式下必须移除 budget_tokens"
+    );
+    assert_eq!(body_adaptive["output_config"]["effort"], "high");
+    remove_learned_model(model);
+}
+
 /// 验证 AtMentionMiddleware/SkillPreloadMiddleware 注入的 fake Read 工具消息
 /// 经过 messages_to_anthropic 后格式正确（不会导致 API 400）
 #[test]

@@ -1,6 +1,9 @@
 mod cache;
 mod invoke;
 mod stream;
+pub mod thinking_mode;
+
+pub use thinking_mode::AnthropicThinkingMode;
 
 /// ChatAnthropic - Anthropic Messages API 实现
 pub struct ChatAnthropic {
