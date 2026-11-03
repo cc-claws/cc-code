@@ -835,6 +835,17 @@ launch_agent 工具调用
 
 批量 `before_tool` 钩子包含人工审批等待，直接 `.await` 会推迟取消检查。`collect_tool_results()` 对该等待使用取消优先的 `tokio::select!`，取消时返回 `AgentError::Interrupted`；尚未写入 state，继续保持工具消息延迟写入约束。TUI 同时回应并关闭待处理交互，详见 [Ctrl+C 交互取消](./tui.md#issue_2026-10-10-ctrl-c-interaction-exits-tui)。
 
+### issue_2026-11-03-llm-builder-error-base-url
+
+**摘要:** baseUrl 缺少 http/https 协议头或路径重复引发 reqwest builder error 报错冷酷且难以排查
+**状态:** Fixed
+**归档日期:** 2026-11-03
+**关键词:** baseUrl, builder error, normalize_base_url, format_reqwest_error, relative URL without a base
+**问题本质:** 用户配置中漏写协议头（如 `127.0.0.1:20128`）或 Anthropic 配置自带 `/v1`（如 `http://localhost:20128/v1`），底层拼接缺少协议或重复路径引发 404/reqwest builder error；代码直接裸露 `e.to_string()` 导致前端仅展示冷酷的 `LLM error: builder error`
+**通用模式:** 在所有配置加载、用户输入保存和请求发起前做严格的 URL 规范化清洗，并在网络层捕获底层 reqwest builder / connect / timeout 错误，转译为具体带排查指引的友好提示
+**涉及文件:** `cc-agent/src/llm/url_util.rs`, `cc-agent/src/llm/anthropic/invoke.rs`, `cc-agent/src/llm/openai/invoke.rs`, `cc-acp/src/provider/mod.rs`
+**CLAUDE.md 链接:** false
+
 ## 相关 Feature
 
 - → [langfuse.md#feature_20260325_F003_langfuse-observation-types](./langfuse.md#feature_20260325_F003_langfuse-observation-types) — Langfuse 观测依赖 AgentEvent LlmCallStart/End 钩子
@@ -848,4 +859,4 @@ launch_agent 工具调用
 - → [message-pipeline.md](./message-pipeline.md) — MessagePipeline 统一管线
 - → [code-architecture.md](./code-architecture.md) — Relay Server 移除
 
-最后更新：2026-10-26
+最后更新：2026-11-03
