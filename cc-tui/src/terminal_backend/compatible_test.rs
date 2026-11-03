@@ -557,14 +557,16 @@ fn test_hyperlink_decoration_stays_out_of_buffer() {
     terminal
         .draw(|f| {
             crate::terminal_backend::hyperlink::begin_frame(true);
+            f.render_widget(Paragraph::new("ab"), f.area());
+            // 登记必须在文字落笔之后：登记会记下当帧字形，供 prepare 判断该格是否被覆盖。
             crate::terminal_backend::hyperlink::register(
+                f.buffer_mut(),
                 0,
                 0,
                 "https://a.example",
                 true,
                 (0, 0, 1),
             );
-            f.render_widget(Paragraph::new("ab"), f.area());
             hyperlink_frame.prepare(f.buffer_mut());
             buffer_symbol = f.buffer_mut()[(0, 0)].symbol().to_string();
         })

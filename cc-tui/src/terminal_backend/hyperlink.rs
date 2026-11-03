@@ -31,6 +31,8 @@ struct Link {
     url: String,
     recolor: bool,
     id: LinkId,
+    /// 登记时该格的字形。浮层/滚动条后来改写这一格时字形变化，链接身份随之作废。
+    glyph: String,
 }
 
 thread_local! {
@@ -72,7 +74,14 @@ impl Frame {
     /// 不改 symbol；补画只复制可落笔的 grapheme 首格，不能擦写宽字续格。
     pub fn prepare(&self, buffer: &mut Buffer) {
         let mut links = LINKS.with(|table| table.take());
-        links.retain(|&(x, y), _| buffer.area.contains((x, y).into()));
+        // 登记只对「当帧由消息区画出的那一格」有效：字形被后续组件（浮层、滚动条）
+        // 改写后，这格已不属于消息区，链接身份必须作废。否则浮层/面板文字会带着
+        // 底下的 OSC 8 链接显示（链接色 + 终端下划线 + 可点击），表现为「链接透过面板」。
+        links.retain(|&(x, y), link| {
+            buffer.area.contains((x, y).into())
+                && !buffer[(x, y)].skip
+                && buffer[(x, y)].symbol() == link.glyph.as_str()
+        });
         let mut redraws = Vec::new();
         if !links.is_empty() || !self.links.is_empty() || !self.invalidated.is_empty() {
             for y in buffer.area.top()..buffer.area.bottom() {
@@ -168,12 +177,19 @@ pub fn begin_frame(enabled: bool) {
 
 /// 登记一个链接 cell。未启用时什么也不做，避免白白攒一张不会被读的表。
 ///
+/// `buffer` 必须是**已经画好该行**的帧缓冲：这里记下当帧字形，供
+/// [`Frame::prepare`] 判断这一格后来是否被别的组件（浮层、滚动条）覆盖。
+///
 /// `recolor` 为 `false` 时只包 OSC 8、保留 cell 自身前景色（附件引用行等
 /// 由正文色承载的链接）；颜色在 [`Frame::prepare`] 中处理。
-pub fn register(x: u16, y: u16, url: &str, recolor: bool, id: LinkId) {
+pub fn register(buffer: &Buffer, x: u16, y: u16, url: &str, recolor: bool, id: LinkId) {
     if !ENABLED.with(FlagCell::get) {
         return;
     }
+    if !buffer.area.contains((x, y).into()) {
+        return;
+    }
+    let glyph = buffer[(x, y)].symbol().to_string();
     LINKS.with(|table| {
         table.borrow_mut().insert(
             (x, y),
@@ -181,6 +197,7 @@ pub fn register(x: u16, y: u16, url: &str, recolor: bool, id: LinkId) {
                 url: url.to_string(),
                 recolor,
                 id,
+                glyph,
             },
         )
     });
