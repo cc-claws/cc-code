@@ -18,7 +18,7 @@ fn test_hyperlink_registry_wraps_registered_cells_only() {
     let baseline = Frame::default();
     let mut buffer = make_buffer(3, 1, "h", Style::default());
     begin_frame(false);
-    register(3, 1, "https://a.example/x", true, (0, 0, 1));
+    register(&buffer, 3, 1, "https://a.example/x", true, (0, 0, 1));
     let frame = make_prepared_frame(&baseline, &mut buffer);
     assert_eq!(
         frame.decorate(3, 1, &buffer[(3, 1)]),
@@ -26,7 +26,7 @@ fn test_hyperlink_registry_wraps_registered_cells_only() {
         "未启用时不得注入 OSC 8"
     );
     begin_frame(true);
-    register(3, 1, "https://a.example/x", true, (0, 0, 1));
+    register(&buffer, 3, 1, "https://a.example/x", true, (0, 0, 1));
     let frame = make_prepared_frame(&baseline, &mut buffer);
     assert_eq!(buffer[(3, 1)].symbol(), "h", "差分 buffer 必须保持纯文本");
     assert_eq!(
@@ -76,6 +76,7 @@ fn test_hyperlink_url_control_chars_are_stripped() {
     let mut buffer = make_buffer(0, 0, "x", Style::default());
     begin_frame(true);
     register(
+        &buffer,
         0,
         0,
         "https://a.example/\u{7}evil\u{1b}\\\n",
@@ -113,7 +114,7 @@ fn test_hyperlink_preserves_cell_color_when_recolor_disabled() {
         Style::default().fg(own_color).bg(Color::DarkGray),
     );
     begin_frame(true);
-    register(2, 0, "file:///tmp/a.png", false, (0, 2, 3));
+    register(&buffer, 2, 0, "file:///tmp/a.png", false, (0, 2, 3));
     let frame = make_prepared_frame(&baseline, &mut buffer);
     let decorated = frame
         .decorate(2, 0, &buffer[(2, 0)])
@@ -140,9 +141,9 @@ fn test_hyperlink_space_within_link_is_colored_and_decorated() {
     begin_frame(true);
     let url = "https://a.example/space";
     let id = (0, 0, 3);
-    register(0, 0, url, true, id);
-    register(1, 0, url, true, id);
-    register(2, 0, url, true, id);
+    register(&buffer, 0, 0, url, true, id);
+    register(&buffer, 1, 0, url, true, id);
+    register(&buffer, 2, 0, url, true, id);
     let frame = make_prepared_frame(&baseline, &mut buffer);
 
     // 空格 cell 也应染成链接色
