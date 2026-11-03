@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.228：**含 VS16 宽字形的表格行不再错位**——表格某行含 `⚠️`（`U+26A0 U+FE0F`）时，该行竖线分隔符与右侧边框曾整体右移 1 格、右边框冲出表格边界，滚动重绘后还会残留悬空竖线。根因在输出层：`Buffer::diff` 为宽字形补画的尾格被后端当作相邻格续写，不认宽字形已把光标推进 2 列。现在下发前丢弃被宽字形覆盖的尾格，判断依据取实际下发的字形宽度，表格渲染算法未改动（#860）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.227：**LLM baseUrl 容错规范化与友好错误提示**——自动补齐协议头（内网与 localhost 补 http://，公网域名补 https://）；剥除 Anthropic 适配器冗余的 /v1 与 /messages，避免拼接出 404；为 OpenAI 根域名补齐 /v1 并剥除 /chat/completions。优化 reqwest 底层错误提示，杜绝看不懂的 builder error（#856, #857）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.226：**Setup 向导自动检测外部配置**——启动向导自动继承系统语言，废弃强制语言选择弹窗；自动探测本机的 Anthropic/OpenAI/Codex 现有凭据并支持一键迁移（#852）。修复 Compact 后快照锚点错位（#850）与浮层下残留 OSC 8 超链接穿透（#854）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
