@@ -35,7 +35,7 @@ pub mod mcp;
 pub mod memory;
 pub mod middleware;
 pub mod plugin;
-pub mod process;
+pub use cc_tools::process;
 pub use plugin::{
     AvailablePlugin, ClaudeSettings, CommandEntry, CommandProvider, CommandSource, InstallScope,
     InstalledPlugin, InstalledPlugins, KnownMarketplace, LoadedPlugin, LoaderError,

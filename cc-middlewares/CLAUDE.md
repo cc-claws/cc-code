@@ -1,6 +1,8 @@
 # cc-middlewares
 
-中间件实现 crate，依赖 `cc-agent` 和 `cc-lsp`。宿主的 18 个中间件按固定顺序组成链（含条件注册中间件）。
+中间件实现 crate，依赖 `cc-agent`、`cc-tools` 和 `cc-lsp`。宿主的 18 个中间件按固定顺序组成链（含条件注册中间件）。
+
+**已迁出的模块**：基础工具实现 `src/tools/filesystem/`、`src/tools/output_*`、`src/tools/todo*`、`src/process/` 与 `middleware/terminal.rs` 中的 `BashTool` / `InlineShellExecutor` 已下沉到 `cc-tools`。本 crate 通过 `pub use cc_tools::process;`、`pub use cc_tools::tools::{filesystem, output_filter, output_persist, todo};` 与 `middleware/terminal.rs` 的重导出垫片保持 `crate::process::*` / `crate::tools::*` / `crate::middleware::terminal::BashTool` 路径不变。改文件工具或进程执行逻辑请去 `cc-tools`；本 crate 只保留中间件链、HITL/SubAgent/Hooks/Plugin/MCP/Skills 与复合工具（`SkillTool`、`AskUserTool`、`SubAgentTool`、`ToolSearch`）。
 
 ## 中间件链执行顺序
 

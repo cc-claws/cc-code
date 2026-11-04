@@ -5,6 +5,9 @@
 //! Langfuse tracing. Serves both TUI (via in-memory transport) and IDE (via stdio
 //! transport) frontends.
 
+// acp_server 从 cc-tui 迁入后仍需以 `cc_acp::` 绝对路径引用本 crate 的模块。
+extern crate self as cc_acp;
+
 pub mod agent;
 pub mod broker;
 pub mod dispatch;

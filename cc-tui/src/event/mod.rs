@@ -403,7 +403,8 @@ fn handle_message_scrollbar_down(app: &mut App, row: u16, column: u16) -> bool {
         } else {
             ui.scroll_offset.min(ui.scrollbar_max_offset)
         };
-        ui.set_scroll_position(offset, !grabbing_thumb && ui.scroll_follow);
+        let follow = ui.scroll_follow;
+        ui.set_scroll_position(offset, !grabbing_thumb && follow);
         ui.message_scrollbar_dragging = true;
         let travel = metrics
             .bar_area

@@ -514,6 +514,7 @@ dependencies = [
  "base64 0.22.1",
  "cc-agent",
  "cc-lsp",
+ "cc-tools",
  "chrono",
  "croner",
  "dirs-next",
@@ -551,6 +552,61 @@ dependencies = [
 ]
 
 [[package]]
+name = "cc-terminal"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "arboard",
+ "base64 0.22.1",
+ "cc-agent",
+ "cc-tools",
+ "image",
+ "libc",
+ "png",
+ "ratatui",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "unicode-segmentation",
+ "unicode-width",
+ "url",
+ "uuid",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "cc-tools"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "cc-agent",
+ "dirs-next",
+ "encoding_rs",
+ "filetime",
+ "glob",
+ "grep",
+ "ignore",
+ "libc",
+ "num_cpus",
+ "process-wrap 9.1.0",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "windows",
+]
+
+[[package]]
 name = "cc-tui"
 version = "0.2.0"
 dependencies = [
@@ -565,6 +621,8 @@ dependencies = [
  "cc-agent",
  "cc-lsp",
  "cc-middlewares",
+ "cc-terminal",
+ "cc-tui-core",
  "cc-widgets",
  "chrono",
  "clap",
@@ -602,6 +660,33 @@ dependencies = [
  "walkdir",
  "windows-sys 0.59.0",
  "winresource",
+]
+
+[[package]]
+name = "cc-tui-core"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "cc-acp",
+ "cc-agent",
+ "cc-terminal",
+ "cc-widgets",
+ "chrono",
+ "dirs-next",
+ "fluent",
+ "fluent-bundle",
+ "libc",
+ "parking_lot",
+ "ratatui",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "unic-langid",
+ "unicode-segmentation",
+ "unicode-width",
+ "uuid",
 ]
 
 [[package]]

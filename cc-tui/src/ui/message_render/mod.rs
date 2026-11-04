@@ -2,7 +2,7 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
 };
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_width::UnicodeWidthStr;
 
 pub mod decorators;
 mod image_references;
@@ -934,31 +934,7 @@ fn tool_entry_is_error(entry: &ToolEntry) -> bool {
             && parse_exit_code(&entry.content).is_some_and(|code| code != 0))
 }
 
-/// 按显示列宽（unicode-width）截断字符串。
-/// 若超出 max_width，则截断并追加 '…'（占 1 列宽），确保结果总显示列宽不超过 max_width。
-pub(crate) fn truncate_to_display_width(s: &str, max_width: usize) -> String {
-    if max_width == 0 {
-        return String::new();
-    }
-    let total_width: usize = s.chars().map(|c| c.width().unwrap_or(0)).sum();
-    if total_width <= max_width {
-        return s.to_string();
-    }
-
-    let target_width = max_width.saturating_sub(1);
-    let mut cur_width = 0;
-    let mut result = String::new();
-    for c in s.chars() {
-        let cw = c.width().unwrap_or(0);
-        if cur_width + cw > target_width {
-            break;
-        }
-        cur_width += cw;
-        result.push(c);
-    }
-    result.push('…');
-    result
-}
+pub(crate) use cc_tui_core::text_width::truncate_to_display_width;
 
 /// 把字符串首字符转大写，其余保持不变。
 ///
