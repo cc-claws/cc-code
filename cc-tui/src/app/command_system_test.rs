@@ -159,3 +159,76 @@
             }
         );
     }
+
+    #[test]
+    fn test_looks_like_command_syntax_rules() {
+        use crate::app::command_system::looks_like_command;
+        // 合法语态
+        assert!(looks_like_command("help"));
+        assert!(looks_like_command("git-commit"));
+        assert!(looks_like_command("my_custom_cmd"));
+        assert!(looks_like_command("plugin:install"));
+        assert!(looks_like_command("v2"));
+
+        // 非合法语态（路径、URL、符号、空串、中文等）
+        assert!(!looks_like_command(""));
+        assert!(!looks_like_command("api/v1/items"));
+        assert!(!looks_like_command("query_data?"));
+        assert!(!looks_like_command("var/log/app.log"));
+        assert!(!looks_like_command("test.py"));
+        assert!(!looks_like_command("用户接口"));
+        assert!(!looks_like_command("/"));
+    }
+
+    #[test]
+    fn test_resolve_api_and_file_paths_fall_back_to_prompt() {
+        let cs = make_system(&[], &[]);
+
+        // 路径形态输入与自然语言提问（通用占位路径）
+        let api_input = "/api/v1/resource/query_items?page=1 参数怎么传";
+        assert_eq!(
+            cs.resolve(api_input),
+            InputResolution::Prompt,
+            "API 地址与多级路径不应被拦截为未知命令，应降级为普通 Prompt"
+        );
+
+        // 纯 API 路径无空格
+        assert_eq!(
+            cs.resolve("/api/v1/resource/query_items"),
+            InputResolution::Prompt,
+            "纯多级路径应降级为普通 Prompt"
+        );
+
+        // 带查询参数的路径
+        assert_eq!(
+            cs.resolve("/search?q=rust&limit=10"),
+            InputResolution::Prompt,
+            "带 URL 查询参数的输入应降级为普通 Prompt"
+        );
+
+        // 绝对文件路径
+        assert_eq!(
+            cs.resolve("/var/log/syslog 帮我排查下错误"),
+            InputResolution::Prompt,
+            "文件绝对路径应降级为普通 Prompt"
+        );
+
+        // 单斜杠或代码注释
+        assert_eq!(
+            cs.resolve("// this is a comment"),
+            InputResolution::Prompt,
+            "双斜杠注释应降级为普通 Prompt"
+        );
+        assert_eq!(
+            cs.resolve("/"),
+            InputResolution::Prompt,
+            "单斜杠应降级为普通 Prompt"
+        );
+
+        // 正常拼错的命令依然走 Unknown 报错提示
+        let typo_cmd = cs.resolve("/hlp");
+        assert!(
+            matches!(typo_cmd, InputResolution::Unknown { .. }),
+            "纯字母拼错的命令应被识别为 Unknown 并提示"
+        );
+    }

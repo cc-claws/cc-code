@@ -153,11 +153,33 @@ impl CommandSystem {
                     immediate_while_busy,
                 }
             }
-            NameKind::Unknown => InputResolution::Unknown {
-                matches: self.command_registry.prefix_names(name),
-            },
+            NameKind::Unknown => {
+                // 若名称不符合命令命名形态（如包含多级路径 `/`、URL 查询 `?`、扩展名 `.`、中文等），
+                // 说明属于 API 地址、文件路径或自然语言输入，不作为命令拦截，直接作为普通 Prompt 发送给模型。
+                if !looks_like_command(name) {
+                    InputResolution::Prompt
+                } else {
+                    InputResolution::Unknown {
+                        matches: self.command_registry.prefix_names(name),
+                    }
+                }
+            }
         }
     }
+}
+
+/// 判断一个字符串是否具有 Slash 命令名称的合法形态。
+///
+/// 对齐参考实现 `looksLikeCommand`：
+/// 合法命令名非空且仅由 ASCII 字母、数字、冒号、连字符和下划线组成（`[a-zA-Z0-9:\-_]`）。
+/// 若包含 `/`（路径层级）、`?`（URL query）、`=`、`&`、句点、空格或中文等非命令字符，
+/// 则属于文件路径、API 端点或自然语言提问，不应作为命令拦截，应作为普通 Prompt 放行给模型。
+pub fn looks_like_command(name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    name.chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == ':' || c == '-' || c == '_')
 }
 
 #[cfg(test)]
