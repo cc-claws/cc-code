@@ -41,10 +41,11 @@ pub enum SelectPhase {
     Effort,
 }
 
-/// 与 /config 面板高度（`SCREEN_LAYOUT.len() + 2` = 27）对齐。
+/// 命令面板高度上限，与 /config 面板（`SCREEN_LAYOUT.len() + 2` = 27）对齐。
 ///
-/// 原实现用 `rows.len() + 5`，模型/provider 越多面板越高，会把上方消息区压得越来越小；
-/// 改为固定高度后，超出部分由 render 侧 `ensure_visible` 在面板内滚动。
+/// 面板按 `rows.len() + 5` 自适应：模型少时保持紧凑、不留大片空白；
+/// 模型多时封顶 27，避免把上方消息区压得过小。超出部分由 render 侧
+/// `ensure_visible` 在面板内滚动。
 pub const PANEL_HEIGHT: u16 = 27;
 
 pub const EFFORT_OPTIONS: &[(&str, &str)] = &[
@@ -348,7 +349,7 @@ impl PanelComponent for CommandPalettePanel {
         let needed = if self.phase == SelectPhase::Effort {
             10
         } else {
-            PANEL_HEIGHT
+            (self.rows.len() as u16 + 5).min(PANEL_HEIGHT)
         };
         needed.min(max).max(10)
     }
