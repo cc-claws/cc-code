@@ -382,16 +382,17 @@ impl ModelPanel {
             _ => "Medium",
         };
 
+        let toast_msg = ctx.services.lc.tr_args(
+            "app-model-switched",
+            &[
+                ("alias".into(), alias_label.into()),
+                ("effort".into(), effort_display.into()),
+            ],
+        );
         ctx.session_mgr
             .current_mut()
-            .messages
-            .push_system_note(ctx.services.lc.tr_args(
-                "app-model-switched",
-                &[
-                    ("alias".into(), alias_label.into()),
-                    ("effort".into(), effort_display.into()),
-                ],
-            ));
+            .ui
+            .set_toast(toast_msg, std::time::Duration::from_millis(2500));
 
         if let Err(e) = App::save_config(cfg, ctx.services.config_path_override.as_deref()) {
             ctx.session_mgr

@@ -2179,16 +2179,17 @@ async fn test_model_panel_confirm_shows_feedback() {
 
     app.model_panel_confirm();
 
-    let last_msg = app.session_mgr.current_mut().messages.view_messages.last();
-    assert!(last_msg.is_some(), "Model 面板确认后应有反馈消息");
-    let msg_text = match last_msg.unwrap() {
-        MessageViewModel::SystemNote { content, .. } => content.clone(),
-        _ => String::new(),
-    };
+    let toast = app.session_mgr.current().ui.active_toast(&app.services.lc);
+    assert!(toast.is_some(), "Model 面板确认后应有浮动 Toast 反馈");
+    let toast_text = toast.unwrap();
     assert!(
-        msg_text.contains("Sonnet"),
-        "反馈消息应包含模型名 'Sonnet'，实际: {}",
-        msg_text
+        toast_text.contains("Sonnet"),
+        "Toast 反馈应包含模型名 'Sonnet'，实际: {}",
+        toast_text
+    );
+    assert!(
+        app.session_mgr.current().messages.view_messages.is_empty(),
+        "Model 切换提示应落入浮动 Toast 而不污染对话历史"
     );
     assert!(
         !app.session_mgr

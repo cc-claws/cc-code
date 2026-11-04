@@ -419,16 +419,24 @@ fn apply_selection(entry: &ProviderModelEntry, effort: &str, ctx: &mut PanelCont
         }
     }
 
+    let effort_display = match effort {
+        "low" => "Low",
+        "high" => "High",
+        "xhigh" => "XHigh",
+        "max" => "Max",
+        _ => "Medium",
+    };
+    let toast_msg = ctx.services.lc.tr_args(
+        "app-model-switched",
+        &[
+            ("alias".into(), entry.alias.clone().into()),
+            ("effort".into(), effort_display.into()),
+        ],
+    );
     ctx.session_mgr
         .current_mut()
-        .messages
-        .push_system_note(ctx.services.lc.tr_args(
-            "app-model-switched",
-            &[
-                ("alias".into(), entry.alias.clone().into()),
-                ("effort".into(), effort.into()),
-            ],
-        ));
+        .ui
+        .set_toast(toast_msg, std::time::Duration::from_millis(2500));
 
     ctx.sync_acp_config();
 }
