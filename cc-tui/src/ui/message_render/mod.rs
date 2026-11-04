@@ -1613,12 +1613,13 @@ fn note_tone_color(tone: crate::ui::message_view::NoteTone) -> ratatui::style::C
 
 /// 语义提示的行首符号。
 ///
-/// 警告/错误/成功各用自己的符号，用户不必读正文就能分辨严重程度；
+/// 警告统一用 `●`（与后台通知同一字形，靠 warning 色区分严重程度），
+/// 错误/成功各用自己的符号，用户不必读正文就能分辨；
 /// 中性语义没有专门符号，沿用普通系统提示的 `·`（它本身不表达状态）。
 fn note_tone_prefix(tone: Option<crate::ui::message_view::NoteTone>) -> &'static str {
     use crate::ui::message_view::NoteTone;
     match tone {
-        Some(NoteTone::Warning) => "⚠ ",
+        Some(NoteTone::Warning) => "● ",
         Some(NoteTone::Error) => "✗ ",
         Some(NoteTone::Success) => "✓ ",
         Some(NoteTone::Neutral) | None => "· ",
