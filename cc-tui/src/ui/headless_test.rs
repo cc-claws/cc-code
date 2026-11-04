@@ -3483,3 +3483,61 @@ async fn test_bg_agent_subagent_progress_updates_steps() {
         "多次工具调用后步数应更新为 3"
     );
 }
+
+#[tokio::test]
+async fn test_command_palette_renders_compact_with_few_models() {
+    let (mut app, mut handle) = App::new_headless(120, 40).await;
+
+    let mut cfg = crate::config::PeriConfig::default();
+    cfg.config.providers.push(crate::config::ProviderConfig {
+        id: "test".into(),
+        models: crate::config::ProviderModels {
+            opus: "claude-opus-4-6".into(),
+            sonnet: "claude-sonnet-4-6".into(),
+            haiku: "claude-haiku-4-5".into(),
+            fable: "claude-fable-5".into(),
+        },
+        ..Default::default()
+    });
+    app.services.peri_config = Some(cfg);
+
+    app.open_command_palette();
+    handle
+        .terminal
+        .draw(|f| main_ui::render(f, &mut app))
+        .unwrap();
+
+    let snap = handle.snapshot();
+    let title_idx = snap
+        .iter()
+        .position(|line| line.contains("Switch Provider & Model"))
+        .expect("命令面板标题应出现");
+
+    let bottom_idx = snap[title_idx..]
+        .iter()
+        .position(|line| {
+            let trimmed = line.trim();
+            !trimmed.is_empty() && trimmed.chars().all(|c| c == '\u{2500}')
+        })
+        .map(|offset| title_idx + offset)
+        .expect("命令面板应有下边框");
+
+    let panel_rows = bottom_idx - title_idx + 1;
+    assert!(
+        panel_rows <= 16,
+        "4 个模型时命令面板应紧凑（<=16 行），实际 {panel_rows} 行:\n{}",
+        snap.join("\n")
+    );
+}
+
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_clear_keeps_fullscreen_latch_by_design() {
+    let (mut app, _handle) = App::new_headless(120, 30).await;
+    app.global_ui.viewport.fullscreen_latched = true;
+    app.new_thread();
+    assert!(
+        app.global_ui.viewport.fullscreen_latched,
+        "/clear 当前设计不解除全屏锁定（cc-tui/CLAUDE.md:45）"
+    );
+}
