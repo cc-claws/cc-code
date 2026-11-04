@@ -131,37 +131,34 @@ pub fn detect_thinking_mode_correction(
         return None;
     }
 
-    let lower = error_text.to_ascii_lowercase();
+    // 归一化：转小写，彻底剥离反斜杠转义与各类引号（双引号、单引号、反引号），
+    // 消除因上游错误被包裹在转义 JSON 字符串中（如 \"thinking.type.enabled\"）导致的失配。
+    let clean = error_text
+        .to_ascii_lowercase()
+        .replace('\\', "")
+        .replace(['`', '\'', '"'], "");
 
-    // 1. 检查是否明确说明 adaptive 不受支持（降级回退）
-    let adaptive_unsupported = lower.contains("adaptive\" is not supported")
-        || lower.contains("adaptive` is not supported")
-        || lower.contains("adaptive' is not supported")
-        || lower.contains("adaptive is not supported")
-        || lower.contains("adaptive is not a valid");
+    // 1. 检查是否明确说明 adaptive 不受支持，或要求使用 enabled（降级回退）
+    let adaptive_unsupported = clean.contains("adaptive is not supported")
+        || clean.contains("adaptive is not a valid");
 
-    let requests_budget = lower.contains("use \"thinking.type.enabled\"")
-        || lower.contains("use `thinking.type.enabled`")
-        || lower.contains("should be 'enabled'")
-        || lower.contains("input should be 'enabled'");
+    let requests_budget = clean.contains("use thinking.type.enabled")
+        || clean.contains("should be enabled")
+        || clean.contains("input should be enabled");
 
     if adaptive_unsupported || requests_budget {
         return Some(ThinkingModeCorrection::SwitchToBudget);
     }
 
     // 2. 检查是否明确说明 enabled 不受支持，或要求使用 adaptive（自愈升级）
-    let enabled_unsupported = lower.contains("enabled\" is not supported")
-        || lower.contains("enabled` is not supported")
-        || lower.contains("enabled' is not supported")
-        || lower.contains("enabled is not supported")
-        || lower.contains("budget_tokens in thinking configuration")
-        || lower.contains("unknown field: budget_tokens")
-        || lower.contains("unknown field `budget_tokens`");
+    let enabled_unsupported = clean.contains("enabled is not supported")
+        || clean.contains("budget_tokens in thinking configuration")
+        || clean.contains("unknown field: budget_tokens")
+        || clean.contains("unknown field budget_tokens");
 
-    let requests_adaptive = lower.contains("use \"thinking.type.adaptive\"")
-        || lower.contains("use `thinking.type.adaptive`")
-        || lower.contains("should be 'adaptive'")
-        || lower.contains("input should be 'adaptive'");
+    let requests_adaptive = clean.contains("use thinking.type.adaptive")
+        || clean.contains("should be adaptive")
+        || clean.contains("input should be adaptive");
 
     if enabled_unsupported || requests_adaptive {
         return Some(ThinkingModeCorrection::SwitchToAdaptive);

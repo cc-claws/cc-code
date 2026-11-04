@@ -813,6 +813,14 @@ fn test_detect_thinking_mode_correction_from_upstream_400() {
         "应准确识别真实 400 要求切换到 adaptive"
     );
 
+    // 真实网关/代理返回的转义 JSON 原文字符串（含反斜杠 \" 转义与 [400]: 前缀）
+    let err_msg_escaped_json = r#"[400]: {"type":"error","error":{"type":"invalid_request_error","message":"Upstream request failed: [invalid_request_error] \"thinking.type.enabled\" is not supported for this model. Use \"thinking.type.adaptive\" and \"output_config.effort\" to control thinking behavior."}}"#;
+    assert_eq!(
+        detect_thinking_mode_correction(400, err_msg_escaped_json),
+        Some(ThinkingModeCorrection::SwitchToAdaptive),
+        "应准确穿透转义 JSON 字符串识别出 adaptive 自愈指示"
+    );
+
     let err_msg_backticks = r#"error: `thinking.type.enabled` is not supported for this model. Use `thinking.type.adaptive` and `output_config.effort` to control thinking behavior."#;
     assert_eq!(
         detect_thinking_mode_correction(400, err_msg_backticks),
@@ -825,6 +833,13 @@ fn test_detect_thinking_mode_correction_from_upstream_400() {
         detect_thinking_mode_correction(400, err_msg_fallback),
         Some(ThinkingModeCorrection::SwitchToBudget),
         "应准确识别回退到 budget 的错误提示"
+    );
+
+    let err_msg_fallback_escaped = r#"[400]: {"type":"error","error":{"type":"invalid_request_error","message":"Upstream request failed: [invalid_request_error] \"thinking.type.adaptive\" is not supported for this model. Use \"thinking.type.enabled\" and \"budget_tokens\" to control thinking behavior."}}"#;
+    assert_eq!(
+        detect_thinking_mode_correction(400, err_msg_fallback_escaped),
+        Some(ThinkingModeCorrection::SwitchToBudget),
+        "应准确穿透转义 JSON 字符串识别出降级到 budget 指示"
     );
 
     let other_err = r#"{"error":{"message":"Invalid API Key","type":"authentication_error"}}"#;
