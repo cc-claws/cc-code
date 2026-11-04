@@ -195,9 +195,15 @@ irm https://raw.githubusercontent.com/cc-claws/cc-code/main/scripts/install.ps1 
 cc-code/
 ├── cc-agent/                # 核心：Agent loop、工具系统、持久化、遥测
 │   └── README.md              # Agent 框架使用指南
-├── cc-middlewares/           # 中间件：文件系统、终端、MCP、Hooks 等
+├── cc-tools/                # 叶子工具 crate：无状态核心工具与跨平台进程包装
+│   └── README.md              # 工具清单与契约
+├── cc-terminal/             # 跨平台终端底层：终端后端、视口、剪贴板、ConPTY
+│   └── README.md              # 终端后端与能力说明
+├── cc-middlewares/           # 中间件：HITL、SubAgent、Skills、MCP、Hooks（文件/终端工具已下沉至 cc-tools / cc-terminal）
 │   ├── README.md              # 中间件概览
 │   └── CLAUDE.md              # 开发指南和陷阱记录
+├── cc-tui-core/             # 会话核心与展示模型：i18n、主题、markdown 解析、MessageViewModel
+│   └── README.md              # 展示模型与核心状态
 ├── cc-tui/                  # TUI 应用 (Ratatui)
 │   ├── README.md              # TUI 使用指南
 │   └── CLAUDE.md              # 开发指南和陷阱记录

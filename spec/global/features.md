@@ -23,12 +23,35 @@
 - **核心工具描述对齐参考实现（v0.6.138）:** Bash / WebFetch 改为 **NOT 反向枚举**（读用 `Read` NOT `cat`、内容检索用 `Grep` NOT `grep`/`rg` 等），补齐 `Grep`/`Read`/`TodoWrite`/`AskUserQuestion` 边界句；**`Write` 改为 NEVER 语义**——默认不再主动创建 `.md`/README，仅用户明确要求时创建（行为语义变更）。详见 [domains/tools.md](domains/tools.md)
 - **系统提示词静态段落对齐参考实现（v0.6.139，#504）:** `01_intro` 补「信息足够即行动」与 Corrections；`03_doing_tasks` 补 Scope discipline（不超范围加功能/抽象、优先编辑现有文件、不做投机抽象）；`04_actions` 补授权与影响判定框架（破坏性/难逆/影响共享状态/上传第三方需确认）；`06_tone_style` 明确「用户只看文本输出」与结果诚实性。详见 [domains/system-prompt.md](domains/system-prompt.md)
 
+## 工具库（cc-tools）
+
+- **FilesystemMiddleware（2026-11 下沉自 cc-middlewares）：** 提供 `Read`、`Write`、`Edit`、`Glob`、`Grep` 五个文件工具；只读工具无需 HITL
+- **TerminalMiddleware / BashTool（2026-11 下沉自 cc-middlewares）：** `Bash` 工具，120 秒超时，跨平台（Windows `cmd /C`，其他 `bash -c`）；Windows 下 `cmd /C` 失败且 stderr 匹配"命令未识别"时自动 fallback 到 Git Bash，多语言 stderr 匹配（English/中文/法语/德语）+ 兜底模式，`MSYS_NO_PATHCONV=1` 防路径转换，剩余超时继承
+- **跨平台进程包装：** shell 命令构造、输出捕获、Windows 作业对象、RTK 改写预测
+- **输出处理：** 输出过滤、截断落盘、Todo 解析
+- **边界：** 仅依赖 `cc-agent`；复合工具（Skill/AskUser/SubAgent/ToolSearch）依赖上层状态，仍保留在 cc-middlewares
+
+## 终端底层（cc-terminal）
+
+- **终端后端与视口：** 双缓冲、字形列宽探测、视口兼容、OSC 8 超链接注册
+- **剪贴板：** arboard / OSC 52 / 图片粘贴 / stderr 抑制
+- **Windows 伪控制台：** `conpty.rs` / `conpty_host.rs`
+- **终端能力：** 色深探测、OSC 0 标题、键盘增强模式
+- **shell 执行：** shell 命令执行与流式输出
+- **边界：** 依赖 `cc-agent`、`cc-tools`，不得依赖 `cc-tui` / `cc-tui-core`
+
+## 会话核心与展示模型（cc-tui-core）
+
+- **配置与国际化：** 配置类型、i18n、会话导出、输入/shell 历史
+- **展示模型：** 主题/调色板、markdown 解析、`MessageViewModel`、终端主题跟随
+- **工具展示与通知：** 工具参数格式化、后台通知展示、显示列宽截断
+- **UI 状态核心：** `DisplayFlags`、`UiStateCore`（约 40 个纯状态字段）
+- **边界：** 不得依赖 `cc-tui`，否则循环依赖
+
 ## 中间件（cc-middlewares）
 
 - **后台任务管理：** 子 Agent 恒后台执行（无前台同步模式），会话级任务注册表（并发上限 3）、下一次模型调用前消费的定向 mailbox、显式超时预算 `timeout_secs`（省略/零无限制）、独立持久化子线程；结果经完成通知回流并自动续接。
 
-- **FilesystemMiddleware:** 提供 `Read`、`Write`、`Edit`、`Glob`、`Grep` 五个工具；只读工具无需 HITL
-- **TerminalMiddleware:** 提供 `Bash` 工具，120 秒超时，跨平台（Windows: `cmd /C`，其他: `bash -c`）；Windows 下 `cmd /C` 失败且 stderr 匹配"命令未识别"时自动 fallback 到 Git Bash（`bash -c`），多语言 stderr 匹配（English/中文/法语/德语）+ 兜底模式，`MSYS_NO_PATHCONV=1` 防路径转换，剩余超时继承
 - **HitlMiddleware:** `before_tool` 拦截敏感操作（bash/write/edit/delete/rm），四种决策：Approve / Edit / Reject / Respond；oneshot channel 异步等待用户决策
 - **项目 hooks 与信任（v0.6.199，#765；v0.6.205，#783）:** 项目 `.claude/settings.json` 的 hooks 与全局 hooks 一并加载，但须显式信任后才执行（`cc-code trust-project` 或 `CC_CODE_TRUST_PROJECT_HOOKS=1`）；信任清单为 `~/.cc-code/trusted_projects.jsonl`（一行一条，坏行只跳过该行，旧纯文本清单自动迁移并留 `.legacy.bak`）；home 解析统一走系统 home 目录，HOME 未设置时不再静默跳过项目/插件 hooks，未信任时 TUI 启动显式提示；v0.6.210 起 hook 执行结果上报到 UI（详细模式展示汇总，异步 hook 先占位 running、完成时就地替换，子代理继承会话 hooks）；v0.6.212 起 `hooks_ui` 配置（缺省 `true`）可在 `/config` 面板关闭 hook 行展示，切换即时生效、数据保留
 - **SubAgentMiddleware:** 提供 `Agent` 工具，读取 `.claude/agents/{id}.md`，工具集过滤（tools 白名单 + disallowedTools 黑名单），防递归（始终排除 `Agent` 自身），返回格式含工具调用摘要；定义查找顺序为项目级 > 用户级（`~/.claude/agents/`）> 插件 > 内置（v0.6.199，#759）
@@ -158,4 +181,4 @@
 - **终端色彩能力探测与输出降级（v0.6.223，#601）:** 自动根据 `NO_COLOR` 与终端环境变量四档降级色深输出
 
 ---
-*最后更新: 2026-11-03 — LLM baseUrl 自动容错清洗与友好提示（v0.6.227，#856, #857）；此前：2026-11-02 — 终端色彩能力探测与输出降级（v0.6.223，#601）*
+*最后更新: 2026-11-04 — 补充 cc-tools / cc-terminal / cc-tui-core 拆分后的 crate 分组；此前：2026-11-03 — LLM baseUrl 自动容错清洗与友好提示（v0.6.227，#856, #857）*
