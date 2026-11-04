@@ -16,10 +16,9 @@ const BASH_DESCRIPTION: &str = r#"Executes one command using Bash (Git Bash on W
 Usage:
 - Each invocation starts in the configured working directory. Changes made with cd, environment assignments, and shell state do not persist across calls. Commands use bash -c, not a login shell
 - Prefer a dedicated tool over Bash for read-only work, unless none can accomplish the task; use Bash for commands, builds, scripts, and operations that need shell execution. Mapping: read files → Read (NOT cat/head/tail); edit files → Edit (NOT sed/awk); write files → Write (NOT echo >/cat <<EOF); search contents → Grep (NOT grep/rg, Grep integrates with permissions and clickable links); find files → Glob (NOT find/ls); reply to the user → return text directly (NOT echo/printf).
-- You can specify an optional timeout in milliseconds (up to 600000ms / 10 minutes). Default is 120000ms (2 minutes)
+- You can specify an optional timeout in milliseconds (default is 120000ms / 2 minutes). In hosts with background support, timeout limits foreground waiting and the command continues in the background; without background support, timeout cancels the command
 - Keep dependent commands ordered; use && when a later command should run only after success. Independent operations may run separately.
-- In hosts with background support, timeout limits foreground waiting and the command continues in the background; without background support, timeout cancels the command
-- execution_timeout is a separate hard runtime limit in milliseconds (default and maximum 600000). It applies from process start, including after manual or automatic backgrounding
+- execution_timeout is a hard runtime limit in milliseconds (default 600000ms / 10 minutes, or matches timeout if longer). It applies from process start, including after manual or automatic backgrounding. The process is terminated at this deadline
 - run_in_background requires host support. When a task handle is returned, reuse that task/output path and await its completion notification; do not rerun the command to retrieve output
 
 Platform behavior:
@@ -34,6 +33,37 @@ Output handling:
 - If omitted output is needed, use the Read tool on the saved file path rather than rerunning the command
 - Non-zero exit codes are reported
 - Both stdout and stderr are captured"#;
+
+/// 获取前台默认超时（毫秒），支持 BASH_DEFAULT_TIMEOUT_MS 环境变量覆盖，缺省 120,000ms（2分钟）
+pub fn get_default_bash_timeout_ms() -> u64 {
+    if let Ok(val) = std::env::var("BASH_DEFAULT_TIMEOUT_MS") {
+        if let Ok(ms) = val.parse::<u64>() {
+            if ms > 0 {
+                return ms;
+            }
+        }
+    }
+    120_000
+}
+
+/// 获取执行硬超时上限（毫秒），支持 BASH_MAX_TIMEOUT_MS 环境变量覆盖，缺省 600,000ms（10分钟）
+pub fn get_max_bash_timeout_ms() -> u64 {
+    let default_timeout = get_default_bash_timeout_ms();
+    let max_timeout = if let Ok(val) = std::env::var("BASH_MAX_TIMEOUT_MS") {
+        if let Ok(ms) = val.parse::<u64>() {
+            if ms > 0 {
+                ms
+            } else {
+                600_000
+            }
+        } else {
+            600_000
+        }
+    } else {
+        600_000
+    };
+    max_timeout.max(default_timeout)
+}
 pub struct BashTool {
     pub cwd: String,
     /// Shell 执行器：把命令委托给应用层（cc-tui shell 池）以支持 Ctrl+B 后台化。
@@ -184,13 +214,12 @@ impl BaseTool for BashTool {
                 },
                 "timeout": {
                     "type": "number",
-                    "description": "Optional timeout in milliseconds (default 120000, max 600000). In the TUI host, foreground commands that exceed this continue in the background; in hosts without background support they are killed and a timeout error is returned"
+                    "description": "Optional timeout in milliseconds (default 120000ms / 2 minutes). In hosts with background support, foreground commands that exceed this continue in the background; without background support they are killed and a timeout error is returned"
                 },
                 "execution_timeout": {
                     "type": "integer",
                     "minimum": 1,
-                    "maximum": 600000,
-                    "description": "Hard execution limit in milliseconds (default 600000, max 600000). Starts when the process starts and never resets after backgrounding. The process is terminated at this deadline"
+                    "description": "Hard execution limit in milliseconds (default 600000ms / 10 minutes, or matches timeout if longer). Starts when the process starts and never resets after backgrounding. The process is terminated at this deadline"
                 },
                 "description": {
                     "type": "string",
@@ -213,10 +242,10 @@ impl BaseTool for BashTool {
             .as_str()
             .ok_or("Missing command parameter")?;
 
-        let timeout_ms = input["timeout"]
-            .as_u64()
-            .unwrap_or(120_000)
-            .clamp(1, 600_000);
+        let timeout_ms = match input.get("timeout").and_then(Value::as_u64) {
+            Some(ms) => ms.max(1),
+            None => get_default_bash_timeout_ms(),
+        };
         // 模型给的用途描述：仅作为通知/展示的人读标识，不参与执行。
         // 空串与纯空白视同未提供，避免通知里出现 `Background shell completed:  ()`。
         let description = input["description"]
@@ -225,11 +254,19 @@ impl BaseTool for BashTool {
             .filter(|d| !d.is_empty())
             .map(str::to_string);
         let execution_timeout_ms = match input.get("execution_timeout") {
-            None => 600_000,
-            Some(value) => value
-                .as_u64()
-                .filter(|ms| (1..=600_000).contains(ms))
-                .ok_or("execution_timeout must be an integer between 1 and 600000 milliseconds")?,
+            None => get_max_bash_timeout_ms().max(timeout_ms),
+            Some(value) => {
+                if value.is_null() {
+                    return Err(
+                        "execution_timeout must be a positive integer in milliseconds".into(),
+                    );
+                }
+                value
+                    .as_i64()
+                    .filter(|&ms| ms > 0)
+                    .ok_or("execution_timeout must be a positive integer in milliseconds")?
+                    as u64
+            }
         };
         let run_in_background = input["run_in_background"].as_bool().unwrap_or(false);
 

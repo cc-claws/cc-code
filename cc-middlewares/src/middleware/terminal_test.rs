@@ -107,7 +107,7 @@ async fn test_bash_execution_timeout_rejects_invalid_values_before_execution() {
     for invalid in [
         serde_json::json!(0),
         serde_json::json!(-1),
-        serde_json::json!(600001),
+        serde_json::json!(-500),
         serde_json::json!(1.5),
         serde_json::json!("100"),
         serde_json::Value::Null,
@@ -134,7 +134,7 @@ async fn test_bash_execution_timeout_rejects_invalid_values_before_execution() {
 
 #[tokio::test]
 async fn test_bash_execution_timeout_is_independent_of_foreground_wait() {
-    for hard_limit in [None, Some(1), Some(300000), Some(600000)] {
+    for hard_limit in [None, Some(1), Some(300000), Some(600000), Some(1_800_000)] {
         let executor = make_completed_executor("", "", 0);
         let tool = BashTool::with_executor(".", executor.clone());
         let mut input = serde_json::json!({"command": "printf done", "timeout": 100});
@@ -558,18 +558,25 @@ async fn test_bash_timeout_clamped_to_minimum() {
     assert_eq!(requests[0].timeout_ms, 1, "零超时应 clamp 为 1 毫秒");
 }
 
-/// 显式超时 600000 毫秒应被允许（上限）
+/// 显式超时（包括超过 10 分钟的长任务）应被允许且不被截断
 #[tokio::test]
 async fn test_bash_timeout_maximum_accepted() {
-    let tool = BashTool::new(std::env::temp_dir().to_str().unwrap());
+    let executor = make_completed_executor("ok", "", 0);
+    let tool = BashTool::with_executor(".", executor.clone());
     let result = tool
         .invoke(serde_json::json!({
             "command": "echo ok",
-            "timeout": 600000
+            "timeout": 1_800_000 // 30 分钟长任务
         }))
         .await
         .unwrap();
     assert!(result.contains("ok"));
+    let requests = executor.requests.lock().await;
+    assert_eq!(requests[0].timeout_ms, 1_800_000, "30 分钟超时应完全保留");
+    assert_eq!(
+        requests[0].execution_timeout_ms, 1_800_000,
+        "未显式设置 execution_timeout 时，硬杀期限应自动同步放大到至少与 timeout 一致"
+    );
 }
 
 #[test]
@@ -588,6 +595,29 @@ async fn test_bash_default_timeout_is_120_seconds() {
         .await
         .unwrap();
     assert!(result.contains("ok"));
+}
+
+#[tokio::test]
+async fn test_bash_timeout_env_vars_override_defaults() {
+    std::env::set_var("BASH_DEFAULT_TIMEOUT_MS", "300000");
+    std::env::set_var("BASH_MAX_TIMEOUT_MS", "1800000");
+
+    let executor = make_completed_executor("ok", "", 0);
+    let tool = BashTool::with_executor(".", executor.clone());
+    let _ = tool.invoke(serde_json::json!({"command": "echo ok"})).await;
+    let requests = executor.requests.lock().await;
+
+    std::env::remove_var("BASH_DEFAULT_TIMEOUT_MS");
+    std::env::remove_var("BASH_MAX_TIMEOUT_MS");
+
+    assert_eq!(
+        requests[0].timeout_ms, 300_000,
+        "BASH_DEFAULT_TIMEOUT_MS 生效"
+    );
+    assert_eq!(
+        requests[0].execution_timeout_ms, 1_800_000,
+        "BASH_MAX_TIMEOUT_MS 生效"
+    );
 }
 
 #[tokio::test]
