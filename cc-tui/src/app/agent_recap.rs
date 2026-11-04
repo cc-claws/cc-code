@@ -8,6 +8,7 @@ impl App {
     /// 处理 [`AgentEvent::RecapCompleted`]，渲染 recap 摘要文本。
     pub(crate) fn handle_recap_completed(&mut self, text: String) -> (bool, bool, bool) {
         self.set_loading(false);
+        self.auto_recap.auto_triggered = false;
         self.auto_recap.on_recap_done();
         self.session_mgr.current_mut().latest_recap = Some(text.clone());
         // 持久化以支持 `-c`/`-r` 恢复（recap 不进 message history，无法从历史重建）
@@ -19,6 +20,9 @@ impl App {
     /// 处理 [`AgentEvent::RecapError`]，渲染错误消息。
     pub(crate) fn handle_recap_error(&mut self, msg: String) -> (bool, bool, bool) {
         self.set_loading(false);
+        let is_auto = self.auto_recap.auto_triggered;
+        self.auto_recap.auto_triggered = false;
+
         // 区分正常终止与真正失败：NoTurn（无历史）和 Aborted（取消）不重试
         let is_normal_end = msg.contains("no history") || msg.contains("cancelled");
         if is_normal_end {
@@ -26,12 +30,22 @@ impl App {
         } else {
             self.auto_recap.on_recap_failed();
         }
-        let vm = MessageViewModel::system(
-            self.services
-                .lc
-                .tr_args("app-recap-failed", &[("error".into(), msg.into())]),
-        );
-        self.apply_pipeline_action(PipelineAction::AddMessage(Box::new(vm)));
+
+        // 核心修复：后台自动触发的会话回顾失败时静默处理，绝不向对话消息流插入红字刷屏！
+        // 仅在用户主动输入 /recap 命令执行失败时，才在界面呈现报错提示。
+        if !is_auto {
+            let vm = MessageViewModel::system(
+                self.services
+                    .lc
+                    .tr_args("app-recap-failed", &[("error".into(), msg.into())]),
+            );
+            self.apply_pipeline_action(PipelineAction::AddMessage(Box::new(vm)));
+        } else {
+            tracing::warn!(
+                error = %msg,
+                "auto_recap: 自动回顾后台生成失败（已静默忽略，不污染对话界面）"
+            );
+        }
         (true, false, false)
     }
 
@@ -48,6 +62,7 @@ impl App {
         }
 
         tracing::info!(revision = revision, "auto_recap: 触发自动会话回顾");
+        self.auto_recap.auto_triggered = true;
         if let Some(ref client) = self.acp_client {
             let client = client.clone();
             tokio::spawn(async move {

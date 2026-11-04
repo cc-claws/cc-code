@@ -60,6 +60,10 @@ pub struct AutoRecapState {
     scheduled: bool,
     /// 失败重试时间
     retry_at: Option<Instant>,
+    /// 连续失败次数（用于限制自动重试次数，防死循环）
+    pub failure_count: usize,
+    /// 当前在途请求是否由系统自动触发（而非用户主动执行 /recap）
+    pub auto_triggered: bool,
     /// 上次已记录的阻塞原因签名，用于日志去重（避免 50ms 轮询刷屏）
     last_diag: Option<(&'static str, usize)>,
     /// 时间源（注入便于测试）
@@ -78,6 +82,8 @@ impl AutoRecapState {
             in_flight_revision: None,
             scheduled: false,
             retry_at: None,
+            failure_count: 0,
+            auto_triggered: false,
             last_diag: None,
             now_fn: Instant::now,
         }
@@ -123,6 +129,9 @@ impl AutoRecapState {
         }
         if self.in_flight_revision.is_some() {
             return Some("recap 请求在途（in-flight）");
+        }
+        if self.failure_count > Self::MAX_AUTO_RETRY_COUNT {
+            return Some("自动回顾连续失败已达上限，等待新轮次对话");
         }
 
         // 重试路径：不要求失焦，只检查时间
@@ -222,27 +231,41 @@ impl AutoRecapState {
         );
     }
 
-    /// 一轮对话完成：累加轮次、记录完成时刻、bump revision
+    /// 一轮对话完成：累加轮次、记录完成时刻、bump revision、重置失败计数
     pub fn on_turn_finished(&mut self) {
         self.completed_turns += 1;
         self.last_turn_finished_at = Some(self.now());
         self.turn_revision += 1;
+        self.failure_count = 0;
         tracing::debug!(
             completed_turns = self.completed_turns,
             "auto_recap: 轮次完成"
         );
     }
 
-    /// recap 成功完成：记录轮次计数、清除调度状态
+    /// recap 成功完成：记录轮次计数、清除调度状态、重置失败计数
     pub fn on_recap_done(&mut self) {
         self.last_recapped_turn_count = self.completed_turns;
         self.scheduled = false;
         self.in_flight_revision = None;
+        self.failure_count = 0;
     }
 
-    /// recap 失败：30 秒后重试
+    /// 自动回顾最多重试次数：连续失败 1 次后即停止重试，避免在接口异常时死循环打爆请求并刷屏
+    pub const MAX_AUTO_RETRY_COUNT: usize = 1;
+
+    /// recap 失败：记录失败，在未超限时 30 秒后重试一次，超限则放弃本次自动回顾
     pub fn on_recap_failed(&mut self) {
-        self.retry_at = Some(self.now() + RECAP_RETRY_DELAY);
+        self.failure_count += 1;
+        if self.failure_count <= Self::MAX_AUTO_RETRY_COUNT {
+            self.retry_at = Some(self.now() + RECAP_RETRY_DELAY);
+        } else {
+            tracing::warn!(
+                failures = self.failure_count,
+                "auto_recap: 连续失败已达上限，放弃重试，等待下一轮新对话"
+            );
+            self.retry_at = None;
+        }
         self.scheduled = false;
         self.in_flight_revision = None;
     }
@@ -438,6 +461,27 @@ mod tests {
         // 30 秒后重试
         advance_mock_time(Duration::from_secs(1));
         assert!(state.maybe_trigger().is_some(), "30 秒后应重试");
+    }
+
+    #[test]
+    fn test_retry_stops_after_max_failures() {
+        let mut state = make_state(true);
+        state.on_focus_lost();
+        for _ in 0..3 {
+            state.on_turn_finished();
+        }
+        advance_mock_time(Duration::from_secs(61));
+        assert!(state.maybe_trigger().is_some());
+
+        // 第一次失败，允许重试一次
+        state.on_recap_failed();
+        advance_mock_time(Duration::from_secs(31));
+        assert!(state.maybe_trigger().is_some(), "第 1 次失败允许重试");
+
+        // 第二次失败，达到 MAX_AUTO_RETRY_COUNT 上限，停止无限死循环重试
+        state.on_recap_failed();
+        advance_mock_time(Duration::from_secs(31));
+        assert!(state.maybe_trigger().is_none(), "达到失败上限后不应再重试");
     }
 
     #[test]
