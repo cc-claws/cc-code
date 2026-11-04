@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.232：**轻量模型 thinking 400 修复与多级降级自愈**——针对 Haiku 3.x/4.x 系列等轻量模型原生不开放 Extended Thinking，修复全局开启 thinking 时请求直接报错的问题。静态预判轻量系列天生无 thinking 并彻底不传相关字段；协议自适应嗅探机制新增 `DisableThinking` 指示，当检测到模型或网关不支持思考时，自适应重试最多 2 级平滑降级（`Budget → Adaptive → Disabled`），自动关闭 thinking 并重试成功，彻底杜绝 400 报错（#875, #876）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.231：**Bash 输出 git diff 智能高亮渲染与 PHP 纯源码高亮修复**——终端输入 `!git diff` 或 Agent 执行 `git diff` 时，输出自动接入内置 Diff 渲染管线，呈现带代码语法着色、单侧行号 Gutter 与词级对比（Word-diff）的高颜值视图；同时修复 syntect 将 `.php` 绑定到 HTML 嵌入语法导致脱离 `<?php` 后单行高亮全变白字的问题，优先使用纯源码语法 `"PHP Source"` 稳定高亮（#872, #873）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.229：**任务报错与失败场景下保留雪花总结行**——遇到 LLM HTTP 404/550 报错或 Agent 异常终止时，此前在清理阶段会盲目清空 Spinner 总结行（clear_summary），导致报错信息下方完全空白、丢失了本次任务运行的耗时与完成时刻反馈。现在改进为：遇错时记录失败态总结行，保留耗时与时间戳打点，统一展示为雪花前缀的失败总结行（`✻ Failed after Xs · HH:MM`），既保留关键时间反馈，又消除了成功动词与报错混杂的认知冲突（#863, #864）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。

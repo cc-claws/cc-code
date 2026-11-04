@@ -4,6 +4,12 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.232 — 2026-11-04
+
+### Fixes
+
+- **修复轻量模型 thinking 400 报错未自动降级禁用（#875, #876）**：针对 Haiku 3.x / 4.x 系列等轻量模型原生不开放 Extended Thinking 的特性，修复当全局开启 thinking 时请求遭遇上游网关报错直接中断的问题。Thinking 模式枚举新增 `Disabled` 状态，静态预判轻量系列天生无 thinking 并彻底不传 `thinking` 与 `output_config` 字段；协议自适应嗅探机制新增 `DisableThinking` 指示，当检测到模型或网关不支持思考时，自适应重试最多 2 级平滑降级（`Budget → Adaptive → Disabled`），自动关闭 thinking 并重试成功，同时严密限定仅包含相关错误特征时触发，防止普通业务 400 错误被误拦截。
+
 ## v0.6.231 — 2026-11-04
 
 ### Features
