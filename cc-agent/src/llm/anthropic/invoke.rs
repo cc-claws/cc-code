@@ -404,6 +404,9 @@ pub(super) fn build_request_body(
                 });
                 body["output_config"] = json!({ "effort": adapter.thinking_effort });
             }
+            super::thinking_mode::AnthropicThinkingMode::Disabled => {
+                // 模型不支持 thinking，不附加 thinking 和 output_config 字段，安全平滑调用
+            }
         }
     }
 
@@ -753,7 +756,7 @@ impl BaseModel for super::ChatAnthropic {
     async fn invoke(&self, request: LlmRequest) -> AgentResult<LlmResponse> {
         let msg_count = request.messages.len();
         let start = std::time::Instant::now();
-        let mut retried_adaptive = false;
+        let mut retry_count = 0usize;
 
         loop {
             let body = build_request_body(self, &request, false);
@@ -774,10 +777,12 @@ impl BaseModel for super::ChatAnthropic {
                     AgentError::LlmError(format!("读取响应体失败: {e}"))
                 })?;
 
-                if !retried_adaptive {
+                if retry_count < 2 {
+                    let current_mode = super::thinking_mode::resolve_thinking_mode(&self.model);
                     if let Some(correction) = super::thinking_mode::detect_thinking_mode_correction(
                         status.as_u16(),
                         &resp_text,
+                        current_mode,
                     ) {
                         match correction {
                             super::thinking_mode::ThinkingModeCorrection::SwitchToAdaptive => {
@@ -796,8 +801,16 @@ impl BaseModel for super::ChatAnthropic {
                                 );
                                 super::thinking_mode::mark_model_as_budget(&self.model);
                             }
+                            super::thinking_mode::ThinkingModeCorrection::DisableThinking => {
+                                tracing::info!(
+                                    provider = "anthropic",
+                                    model = %self.model,
+                                    "检测到上游或模型不支持 thinking 协议，已自动彻底关闭 thinking 并重试"
+                                );
+                                super::thinking_mode::mark_model_as_disabled(&self.model);
+                            }
                         }
-                        retried_adaptive = true;
+                        retry_count += 1;
                         continue;
                     }
                 }

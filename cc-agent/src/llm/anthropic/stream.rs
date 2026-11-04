@@ -25,7 +25,7 @@ pub(super) async fn do_invoke_streaming(
     let msg_count = request.messages.len();
     let start = std::time::Instant::now();
 
-    let mut retried_adaptive = false;
+    let mut retry_count = 0usize;
     let resp = loop {
         let body = build_request_body(adapter, &request, true);
         let resp =
@@ -34,10 +34,12 @@ pub(super) async fn do_invoke_streaming(
 
         if !status.is_success() {
             let resp_text = resp.text().await.unwrap_or_default();
-            if !retried_adaptive {
+            if retry_count < 2 {
+                let current_mode = super::thinking_mode::resolve_thinking_mode(&adapter.model);
                 if let Some(correction) = super::thinking_mode::detect_thinking_mode_correction(
                     status.as_u16(),
                     &resp_text,
+                    current_mode,
                 ) {
                     match correction {
                         super::thinking_mode::ThinkingModeCorrection::SwitchToAdaptive => {
@@ -56,8 +58,16 @@ pub(super) async fn do_invoke_streaming(
                             );
                             super::thinking_mode::mark_model_as_budget(&adapter.model);
                         }
+                        super::thinking_mode::ThinkingModeCorrection::DisableThinking => {
+                            tracing::info!(
+                                provider = "anthropic",
+                                model = %adapter.model,
+                                "检测到上游或模型不支持 thinking 协议，流式请求已自动彻底关闭 thinking 并重试"
+                            );
+                            super::thinking_mode::mark_model_as_disabled(&adapter.model);
+                        }
                     }
-                    retried_adaptive = true;
+                    retry_count += 1;
                     continue;
                 }
             }
