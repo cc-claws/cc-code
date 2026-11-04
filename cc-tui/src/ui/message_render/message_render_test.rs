@@ -4024,7 +4024,7 @@ fn test_system_note_without_tone_keeps_plain_style() {
 /// 正文语义色（`body_tone`）：行首给语义符号、整行用语义色，用于需要用户
 /// 一眼认出严重程度的提示（如「本项目 hooks 未加载」）。
 #[test]
-fn test_system_note_body_tone_uses_warning_symbol() {
+fn test_system_note_body_tone_uses_warning_dot() {
     use crate::ui::message_view::NoteTone;
     // Arrange
     let vm = MessageViewModel::system_toned(
@@ -4036,12 +4036,8 @@ fn test_system_note_body_tone_uses_warning_symbol() {
     // Assert
     let rendered: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
     assert!(
-        rendered.starts_with("⚠ "),
-        "警告提示应以 ⚠ 开头（不读正文也能认出）: {rendered}"
-    );
-    assert!(
-        !rendered.starts_with('●'),
-        "语义提示不与后台通知的 ● 圆点混用: {rendered}"
+        rendered.starts_with("● "),
+        "警告提示应以 ● 开头（靠 warning 色区分严重程度）: {rendered}"
     );
     assert!(
         rendered.contains("hooks 未加载"),
