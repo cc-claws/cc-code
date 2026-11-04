@@ -48,20 +48,14 @@ fn block_to_anthropic(block: &ContentBlock) -> Option<Value> {
             "input": input
         })),
         ContentBlock::ToolResult {
-            id,
             tool_use_id,
             content,
             is_error,
+            ..
         } => {
             let content_val: Vec<Value> = content.iter().filter_map(block_to_anthropic).collect();
-            // 部分 provider（如 GLM Anthropic 兼容端口）要求 tool_result block 含 id 字段。
-            // 无显式 id 时，生成一个以保证兼容性。
-            let block_id = id
-                .clone()
-                .unwrap_or_else(|| format!("toolu_{}", uuid::Uuid::now_v7()));
             Some(json!({
                 "type": "tool_result",
-                "id": block_id,
                 "tool_use_id": tool_use_id,
                 "content": content_val,
                 "is_error": is_error
@@ -164,17 +158,13 @@ pub(super) fn messages_to_anthropic(
                 }
             }
             BaseMessage::Tool {
-                id: msg_id,
                 tool_call_id,
                 content,
                 is_error,
+                ..
             } => {
-                // GLM 等第三方 Anthropic 兼容端口要求 tool_result block 含 id 字段。
-                // 使用 Tool 消息自身的 MessageId（UUID v7）作为 block id。
-                let block_id = msg_id.as_uuid().to_string();
                 let tool_result_block = json!({
                     "type": "tool_result",
-                    "id": block_id,
                     "tool_use_id": tool_call_id,
                     "content": content_to_anthropic(content),
                     "is_error": is_error

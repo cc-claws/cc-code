@@ -45,12 +45,6 @@ fn normalize_model_key(model: &str) -> String {
     model.trim().to_ascii_lowercase()
 }
 
-/// 静态规则预判：判断模型是否已知天生不支持 thinking（如所有轻量快速的 Haiku 3.x / 4.x 系列）
-pub fn is_statically_disabled_model(model: &str) -> bool {
-    let m = normalize_model_key(model);
-    m.contains("haiku") && !m.contains("haiku-5")
-}
-
 /// 静态规则预判：判断模型名称是否已知原生采用 adaptive thinking
 pub fn is_statically_adaptive_model(model: &str) -> bool {
     let m = normalize_model_key(model);
@@ -67,7 +61,7 @@ pub fn is_statically_adaptive_model(model: &str) -> bool {
         return false;
     }
 
-    // Claude 4.6+, 4.7+, 4.8 及 5.x 全系新模型
+    // Claude 4.6+, 4.7+, 4.8 及 5.x 全系新模型（含 haiku-5 系列）
     m.contains("-4-6")
         || m.contains("-4.6")
         || m.contains("-4-7")
@@ -103,12 +97,7 @@ pub fn resolve_thinking_mode(model: &str) -> AnthropicThinkingMode {
         return AnthropicThinkingMode::Adaptive;
     }
 
-    // 2. 静态规则：Haiku 系列天生无 thinking
-    if is_statically_disabled_model(&key) {
-        return AnthropicThinkingMode::Disabled;
-    }
-
-    // 3. 静态规则预判
+    // 2. 静态规则预判（新模型走 Adaptive，旧模型走 Budget，完全通过错误嗅探自适应切换）
     if is_statically_adaptive_model(&key) {
         AnthropicThinkingMode::Adaptive
     } else {

@@ -882,17 +882,40 @@ fn test_detect_thinking_mode_correction_from_upstream_400() {
 }
 
 #[test]
-fn test_haiku_statically_resolves_to_disabled_thinking() {
-    use super::thinking_mode::{resolve_thinking_mode, AnthropicThinkingMode};
+fn test_messages_to_anthropic_tool_result_has_no_id_field() {
+    let tool_msg = BaseMessage::tool_result("toolu_test_123", "output content");
+    let (msgs, _) = ChatAnthropic::messages_to_anthropic(&[tool_msg]);
+    assert_eq!(msgs.len(), 1);
+    let content = msgs[0]["content"].as_array().expect("content 应为数组");
+    let tr_block = &content[0];
+    assert_eq!(tr_block["type"], "tool_result");
+    assert_eq!(tr_block["tool_use_id"], "toolu_test_123");
+    assert!(
+        tr_block.get("id").is_none(),
+        "tool_result 块严禁携带 id 字段，否则触发 Extra inputs are not permitted 400 报错"
+    );
+}
+
+#[test]
+fn test_haiku_model_resolves_and_adapts_dynamically() {
+    use super::thinking_mode::{
+        detect_thinking_mode_correction, resolve_thinking_mode, AnthropicThinkingMode,
+        ThinkingModeCorrection,
+    };
+    // 静态预判：4.6/5.x 命名的新模型默认按照 Adaptive 尝试
     assert_eq!(
         resolve_thinking_mode("claude-haiku-4-6[1M]"),
-        AnthropicThinkingMode::Disabled,
-        "Haiku 系列应静态预判为 Disabled，彻底不发送 thinking 字段"
+        AnthropicThinkingMode::Adaptive,
+        "新模型默认作为 Adaptive 尝试"
     );
+
+    // 当上游网关报错时，基于检测到的错误自愈为 Disabled
+    let err_msg = r#"Upstream request failed: [invalid_request_error] "thinking.type.enabled" is not supported for this model. Use "thinking.type.adaptive" and "output_config.effort" to control thinking behavior."#;
+    let correction = detect_thinking_mode_correction(400, err_msg, AnthropicThinkingMode::Adaptive);
     assert_eq!(
-        resolve_thinking_mode("claude-3-5-haiku-20241022"),
-        AnthropicThinkingMode::Disabled,
-        "3.5 Haiku 同样应预判为 Disabled"
+        correction,
+        Some(ThinkingModeCorrection::DisableThinking),
+        "Adaptive 模式仍报不支持时应动态自愈彻底关闭 thinking"
     );
 }
 
