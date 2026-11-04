@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.233：**移除 tool_result 非标准 id 字段与国产端点双向自适应**——修复 `tool_result` 携带非标准 `id` 属性导致经严格校验的上游代理网关报错 `Extra inputs are not permitted` 的问题。默认遵循官方标准不发送 `id` 字段；同时新增 `detect_tool_result_id_requirement` 动态嗅探器，遇到特殊非标国产网关明确要求 `id` 时自动补齐重试，实现官方标准端点与非标国产端点双向兼容（#878, #879）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.232：**轻量模型 thinking 400 修复与多级降级自愈**——针对 Haiku 3.x/4.x 系列等轻量模型原生不开放 Extended Thinking，修复全局开启 thinking 时请求直接报错的问题。静态预判轻量系列天生无 thinking 并彻底不传相关字段；协议自适应嗅探机制新增 `DisableThinking` 指示，当检测到模型或网关不支持思考时，自适应重试最多 2 级平滑降级（`Budget → Adaptive → Disabled`），自动关闭 thinking 并重试成功，彻底杜绝 400 报错（#875, #876）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.231：**Bash 输出 git diff 智能高亮渲染与 PHP 纯源码高亮修复**——终端输入 `!git diff` 或 Agent 执行 `git diff` 时，输出自动接入内置 Diff 渲染管线，呈现带代码语法着色、单侧行号 Gutter 与词级对比（Word-diff）的高颜值视图；同时修复 syntect 将 `.php` 绑定到 HTML 嵌入语法导致脱离 `<?php` 后单行高亮全变白字的问题，优先使用纯源码语法 `"PHP Source"` 稳定高亮（#872, #873）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
