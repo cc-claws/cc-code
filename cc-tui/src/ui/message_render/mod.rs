@@ -1482,6 +1482,46 @@ fn render_shell_command(
     let mut lines = Vec::new();
     lines.push(shell_command_header(command, width));
 
+    // 成功执行的 patch 命令（如 `git diff`）：直接渲染为带语法高亮与行号 Gutter 的精美 diff
+    if exit_code == Some(0) && stderr.trim().is_empty() && cc_widgets::diff::is_patch_text(stdout) {
+        let diff_width = width.saturating_sub(BranchPrefix::WIDTH);
+        let widget_theme = theme::widgets_theme();
+        if let Some(rendered) = cc_widgets::diff::render_patch(stdout, diff_width, &widget_theme) {
+            let max_lines = if detail_mode {
+                usize::MAX
+            } else {
+                SHELL_OUTPUT_COLLAPSED_LINES
+            };
+            let prefix_style = Style::default().fg(theme::cur().inactive);
+            let total = rendered.len();
+            let shown = total.min(max_lines);
+            for (i, line) in rendered.into_iter().take(shown).enumerate() {
+                let prefix = if i == 0 {
+                    BranchPrefix::PREFIX
+                } else {
+                    BranchPrefix::HANG
+                };
+                let mut prefixed = line;
+                prefixed.spans.insert(0, Span::styled(prefix, prefix_style));
+                lines.push(prefixed);
+            }
+            if shown < total {
+                let hidden = total - shown;
+                lines.push(Line::from(vec![
+                    Span::styled(BranchPrefix::HANG, prefix_style),
+                    Span::styled(
+                        format!(
+                            "… +{hidden} line{} (ctrl+o to expand)",
+                            if hidden == 1 { "" } else { "s" }
+                        ),
+                        Style::default().fg(theme::cur().inactive),
+                    ),
+                ]));
+            }
+            return lines;
+        }
+    }
+
     let mut output_lines: Vec<(String, bool)> = Vec::new();
     for input in stdin {
         output_lines.push((format!("< {}", sanitize_display_text(input)), false));
@@ -2227,18 +2267,61 @@ pub fn render_view_model_with_flags(
                     }
                 }
                 let mut error_header = String::new();
-                let bash_display_lines: Option<Vec<ToolDisplayLine>> = if tool_name == "Bash" {
-                    Some(transform_bash_output_lines(
-                        content,
-                        parse_exit_code(content),
-                        &mut error_header,
-                    ))
+                let bash_patch_rendered: Option<Vec<Line<'static>>> = if tool_name == "Bash"
+                    && !state.is_error
+                    && cc_widgets::diff::is_patch_text(content)
+                {
+                    let diff_width = width.saturating_sub(BranchPrefix::WIDTH);
+                    let widget_theme = theme::widgets_theme();
+                    cc_widgets::diff::render_patch(content, diff_width, &widget_theme)
                 } else {
                     None
                 };
 
+                let bash_display_lines: Option<Vec<ToolDisplayLine>> =
+                    if bash_patch_rendered.is_some() {
+                        None
+                    } else if tool_name == "Bash" {
+                        Some(transform_bash_output_lines(
+                            content,
+                            parse_exit_code(content),
+                            &mut error_header,
+                        ))
+                    } else {
+                        None
+                    };
+
                 let content_width = BranchPrefix::content_width(width);
-                if let Some(ref b_lines) = bash_display_lines {
+                if let Some(rendered) = bash_patch_rendered {
+                    let patch_max_lines = if detail_mode { usize::MAX } else { 15 };
+                    let total = rendered.len();
+                    let shown = total.min(patch_max_lines);
+                    for (i, line) in rendered.into_iter().take(shown).enumerate() {
+                        let prefix = if i == 0 {
+                            BranchPrefix::PREFIX
+                        } else {
+                            BranchPrefix::HANG
+                        };
+                        let mut prefixed = line;
+                        prefixed
+                            .spans
+                            .insert(0, Span::styled(prefix, Style::default().fg(border_color)));
+                        lines.push(prefixed);
+                    }
+                    if shown < total {
+                        let hidden = total - shown;
+                        lines.push(Line::from(vec![
+                            Span::styled(BranchPrefix::HANG, Style::default().fg(border_color)),
+                            Span::styled(
+                                format!(
+                                    "… +{hidden} line{} (ctrl+o to expand)",
+                                    if hidden == 1 { "" } else { "s" }
+                                ),
+                                Style::default().fg(theme::cur().inactive),
+                            ),
+                        ]));
+                    }
+                } else if let Some(ref b_lines) = bash_display_lines {
                     push_visual_capped_output(
                         &mut lines,
                         b_lines,
@@ -3003,7 +3086,10 @@ pub fn render_view_model_with_flags(
                 let (prefix, timing) = if active {
                     // 活跃态恒显 `∴ ` 前缀（不再做 500ms 显隐闪烁）
                     let dot = "∴ ".to_string();
-                    (dot, format!("Thinking for {} chars", t.text.chars().count()))
+                    (
+                        dot,
+                        format!("Thinking for {} chars", t.text.chars().count()),
+                    )
                 } else {
                     // 冻结后不再带符号，只保留缩进（与活跃行对齐）
                     (
@@ -3281,7 +3367,7 @@ pub fn render_view_model_with_flags(
                 // 折叠态：显示**纯动作行**（PRD §2.3，仅前面无 thinking bubble 的独立只读组）
                 // 以及出错工具的错误摘要。
                 // 组已自带思考行时，摘要已在标题里，折叠态不再重复一行
-            if let Some(summary) = standalone_action.as_ref().filter(|_| thinking.is_none()) {
+                if let Some(summary) = standalone_action.as_ref().filter(|_| thinking.is_none()) {
                     // 该行独立成行、行首无符号，首字母必须大写才与同族的
                     // `Thought for 3s` / `Brewed for 1m` 摘要行一致；
                     // 文案层因续写场景需要仍是小写 `read N file`，故在此处转换。
