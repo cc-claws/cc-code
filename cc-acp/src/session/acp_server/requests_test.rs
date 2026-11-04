@@ -14,7 +14,7 @@ use cc_agent::thread::{FilesystemThreadStore, ThreadStore};
 use cc_middlewares::hitl::shared_mode::{PermissionMode, SharedPermissionMode};
 use serde_json::{json, Value};
 
-use crate::app::agent::LlmProvider;
+use crate::provider::LlmProvider;
 
 use super::*;
 

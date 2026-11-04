@@ -8,6 +8,7 @@ authors.workspace = true
 
 [dependencies]
 cc-agent = { path = "../cc-agent" }
+cc-tools = { path = "../cc-tools" }
 anyhow.workspace = true
 async-trait.workspace = true
 serde.workspace = true

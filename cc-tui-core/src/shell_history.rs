@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
 
-use crate::thread::ThreadId;
+use cc_agent::thread::ThreadId;
 
 const SHELL_HISTORY_FILE: &str = "shell-commands.jsonl";
 

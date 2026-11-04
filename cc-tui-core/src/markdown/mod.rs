@@ -15,14 +15,14 @@ pub const DEFAULT_MARKDOWN_WIDTH: usize = 80;
 
 /// 解析 markdown 文本为 ratatui Text
 pub fn parse_markdown(input: &str, max_width: usize) -> Text<'static> {
-    let widgets = crate::ui::theme::widgets_theme();
+    let widgets = crate::theme::widgets_theme();
     let theme = ThemeMarkdownAdapter(&widgets);
     cc_widgets::markdown::parse_markdown(input, &theme, max_width)
 }
 
 /// 解析 markdown 文本（含超链接命中区）
 pub fn parse_markdown_rich(input: &str, max_width: usize) -> MarkdownDoc {
-    let widgets = crate::ui::theme::widgets_theme();
+    let widgets = crate::theme::widgets_theme();
     let theme = ThemeMarkdownAdapter(&widgets);
     cc_widgets::markdown::parse_markdown_with_links(input, &theme, max_width)
 }

@@ -14,7 +14,7 @@
 
 use std::sync::OnceLock;
 
-use crate::ui::theme::ThemeName;
+use crate::theme::ThemeName;
 
 /// 探测结果缓存。
 static RESOLVED: OnceLock<ThemeName> = OnceLock::new();

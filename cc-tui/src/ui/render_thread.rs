@@ -138,13 +138,7 @@ pub struct PreparedWidth {
     pub measured_rows: usize,
 }
 
-/// 当前视口独立保存的显示选项，随消息快照一起提交。
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct DisplayFlags {
-    pub detail_mode: bool,
-    pub diff_visible: bool,
-    pub show_tool_messages: bool,
-}
+pub use cc_tui_core::display_flags::DisplayFlags;
 
 /// 渲染线程接收的事件
 pub enum RenderEvent {

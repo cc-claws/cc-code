@@ -11,7 +11,7 @@ use std::sync::OnceLock;
 
 mod capture;
 pub use capture::ManagedChild;
-pub(crate) use capture::{
+pub use capture::{
     output_with_input_timeout, output_with_input_timeout_observed, OutputObserver,
 };
 

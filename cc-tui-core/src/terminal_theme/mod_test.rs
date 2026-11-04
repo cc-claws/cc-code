@@ -1,5 +1,5 @@
 use super::*;
-use crate::ui::theme::ThemeName;
+use crate::theme::ThemeName;
 
 #[test]
 fn test_theme_for_apple_terminal_dark_selects_dark_ansi() {

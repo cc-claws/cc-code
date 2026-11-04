@@ -11,13 +11,13 @@
 //! NSPasteboard 初始化 stderr 污染。
 
 pub mod copy;
-pub(crate) mod image_file;
+pub mod image_file;
 pub mod image_placeholder;
 pub mod paste;
 pub mod path_normalize;
 
 mod stderr_suppress;
-pub(crate) use stderr_suppress::SuppressStderr;
+pub use stderr_suppress::SuppressStderr;
 
 /// 平台剪贴板所有权持有。
 ///
@@ -31,14 +31,14 @@ pub struct ClipboardLease {
 
 impl ClipboardLease {
     #[cfg(target_os = "linux")]
-    pub(crate) fn native_linux(clipboard: arboard::Clipboard) -> Self {
+    pub fn native_linux(clipboard: arboard::Clipboard) -> Self {
         Self {
             _clipboard: Some(clipboard),
         }
     }
 
     #[allow(dead_code)]
-    pub(crate) fn empty() -> Self {
+    pub fn empty() -> Self {
         Self {
             #[cfg(target_os = "linux")]
             _clipboard: None,

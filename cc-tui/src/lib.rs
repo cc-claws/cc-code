@@ -12,44 +12,43 @@
 )]
 
 pub mod acp_client;
-pub mod acp_server;
 pub mod alloc_config;
 pub mod app;
-pub mod clipboard;
 pub mod command;
-pub mod config;
-pub mod conpty;
 pub mod event;
-pub mod export;
-pub mod i18n;
-pub mod keyboard_modes;
-pub mod shell_exec;
-pub mod shell_history;
-pub mod terminal_backend;
-pub mod terminal_color;
-pub mod terminal_theme;
-pub mod terminal_title;
+pub use cc_tui_core::shell_history;
+pub use cc_tui_core::terminal_theme;
 pub mod thread;
 pub mod ui;
 pub mod update;
 
+// 内嵌 ACP 服务运行时已收敛至 cc-acp，此处重导出保持 main.rs 的 cc_tui::acp_server 路径。
+pub use cc_acp::session::acp_server;
+
+// 零耦合通用基建已下沉到 cc-tui-core，此处重导出保持 crate 内路径零改动。
+pub use cc_tui_core::{config, export, i18n};
+
+// 终端底层已下沉到 cc-terminal，此处以同名重导出保持 crate 内路径零改动。
+pub use cc_terminal::clipboard;
+pub use cc_terminal::conpty;
+pub use cc_terminal::keyboard_modes;
+pub use cc_terminal::shell_exec;
+pub use cc_terminal::terminal_backend;
+pub use cc_terminal::terminal_color;
+pub mod terminal_title;
+
 #[cfg(test)]
 mod alloc_config_test;
 
-/// process-heavy 测试的共享串行锁与等待预算。
+/// process-heavy 测试的等待预算。
 ///
 /// 这些用例会真起 `cmd` / git-bash / powershell 子进程，或以固定墙钟预算等待
-/// 后台 IO 就绪。libtest 默认多线程并发执行，多个用例同时抢进程与 IO，在慢机器
-/// （CI 的 4 核 windows runner）上会把启动与调度延迟放大到超出等待窗口，造成偶发
-/// 超时（见 issue #451）。这把全局异步锁只做序列化，不改变任何用例语义。
+/// 后台 IO 就绪。CI 的 4 核 windows runner 上启动与调度延迟可能比本机慢一个
+/// 数量级，原先 5s/10s 的窗口不足以覆盖最坏情况（见 issue #451）。
+/// 串行锁随 shell_exec 相关用例一同迁至 cc-terminal::test_lock。
 #[cfg(test)]
 pub(crate) mod test_lock {
     use std::time::Duration;
 
-    /// process-heavy 用例串行锁。
-    pub(crate) static PROCESS_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
-    /// process-heavy 用例的等待预算：CI windows runner 在并发下，子进程启动与
-    /// 输出到达可能比本机慢一个数量级，原先 5s/10s 的窗口不足以覆盖最坏情况。
     pub(crate) const PROCESS_TEST_TIMEOUT: Duration = Duration::from_secs(30);
 }

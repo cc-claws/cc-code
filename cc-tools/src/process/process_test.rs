@@ -154,8 +154,8 @@ async fn test_shell_command_windows_preserves_quoted_absolute_path() {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("cc-middlewares"),
-        "应读取 cc-middlewares Cargo.toml，实际输出: {stdout}"
+        stdout.contains("[package]"),
+        "应读取当前 crate 的 Cargo.toml，实际输出: {stdout}"
     );
 }
 

@@ -483,7 +483,7 @@ pub fn sanitize_display_text(s: &str) -> String {
 }
 
 /// 审批正文保留脚本换行和缩进，同时复用完整控制序列扫描器。
-pub(crate) fn sanitize_display_text_preserving_newlines(s: &str) -> String {
+pub fn sanitize_display_text_preserving_newlines(s: &str) -> String {
     sanitize_display_text_inner(s, true)
 }
 

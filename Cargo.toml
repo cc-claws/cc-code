@@ -1,6 +1,9 @@
 [workspace]
 members = [
     "cc-agent",
+    "cc-tools",
+    "cc-terminal",
+    "cc-tui-core",
     "cc-middlewares",
     "cc-tui",
     "cc-acp",

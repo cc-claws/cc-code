@@ -18,7 +18,7 @@ use agent_client_protocol::schema::{
 
 use cc_acp::dispatch::config_update::make_config_options;
 
-use crate::{app::agent::LlmProvider, config::save_to};
+use crate::provider::{LlmProvider, save_to};
 
 use super::{
     apply_thinking_effort, build_mode_state, build_model_state,
@@ -44,7 +44,7 @@ fn project_config(cfg: &AcpServerConfig, cwd: &str) -> cc_acp::provider::AppConf
 }
 
 async fn persist_session_snapshot(cfg: &AcpServerConfig, session_id: &str, cwd: &str) {
-    let config = crate::config::PeriConfig {
+    let config = crate::provider::PeriConfig {
         config: project_config(cfg, cwd),
         ..Default::default()
     };
@@ -692,7 +692,7 @@ pub(crate) async fn handle_request(
 
         "session/update_config" => {
             let session_id = extract_session_id(params, "");
-            let new_cfg: crate::config::PeriConfig =
+            let new_cfg: crate::provider::PeriConfig =
                 serde_json::from_value(params.get("config").cloned().unwrap_or_default())
                     .map_err(|e| AcpError::new(-32602, format!("Invalid config: {e}")))?;
 

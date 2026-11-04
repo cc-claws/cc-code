@@ -1,15 +1,15 @@
-use crate::ui::theme;
+use crate::theme;
 use ratatui::style::Color;
 
 /// 用户侧技能元消息的展示信息；只投影界面，不制造 Assistant/Tool 历史。
-pub(crate) struct SkillInvocationDisplay<'a> {
+pub struct SkillInvocationDisplay<'a> {
     pub command_name: String,
     pub success: bool,
     pub display: bool,
     pub payload: &'a str,
 }
 
-pub(crate) fn skill_invocation_display(content: &str) -> Option<SkillInvocationDisplay<'_>> {
+pub fn skill_invocation_display(content: &str) -> Option<SkillInvocationDisplay<'_>> {
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct Metadata {
@@ -36,7 +36,7 @@ pub(crate) fn skill_invocation_display(content: &str) -> Option<SkillInvocationD
 
 /// 旧版 Bash 后台句柄的展示投影；原始 tool_result 保留给模型和历史。
 /// 只识别完整 envelope，不删除普通输出里提到的标签或错误文本。
-pub(crate) struct BackgroundTaskStarted<'a> {
+pub struct BackgroundTaskStarted<'a> {
     pub task_id: &'a str,
     pub output: &'a str,
 }
@@ -229,7 +229,7 @@ pub struct AgentSummary {
 /// 支持英文格式 `[Sub-agent executed N tool calls: ...]`
 /// 或中文版 `[子 agent 执行了 N 个工具调用: ...]`。
 /// 解析失败时返回 0（优雅降级）。
-pub(crate) fn parse_subagent_tool_count(content: &str) -> usize {
+pub fn parse_subagent_tool_count(content: &str) -> usize {
     if let Some(rest) = content.strip_prefix("[Sub-agent executed ") {
         if let Some(n_str) = rest.split(' ').next() {
             if let Ok(n) = n_str.parse::<usize>() {

@@ -1,0 +1,42 @@
+[package]
+name = "cc-terminal"
+version.workspace = true
+edition.workspace = true
+description = "Cross-platform terminal backend, clipboard, PTY/ConPTY and color primitives"
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+cc-agent = { path = "../cc-agent" }
+cc-tools = { path = "../cc-tools" }
+ratatui = { version = ">=0.30", features = ["unstable-rendered-line-info", "unstable-widget-ref"] }
+tokio.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+url.workspace = true
+uuid.workspace = true
+tempfile.workspace = true
+arboard = "3"
+base64 = { version = "0.22", features = ["alloc"] }
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
+png = "0.18"
+unicode-width = "0.2"
+unicode-segmentation = "1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Security",
+    "Win32_System_Console",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Storage_FileSystem",
+] }
+
+[dev-dependencies]
+serde_json.workspace = true
+tracing-subscriber.workspace = true

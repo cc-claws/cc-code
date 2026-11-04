@@ -112,7 +112,7 @@ pub mod events;
 pub mod message_pipeline;
 mod provider;
 pub mod text_selection;
-pub mod tool_display;
+pub use cc_tui_core::tool_display;
 
 // Re-exports
 pub use events::AgentEvent;

@@ -332,7 +332,7 @@ fn test_md_inline_styles() {
 
 #[test]
 fn test_md_inline_code() {
-    let widgets = crate::ui::theme::widgets_theme();
+    let widgets = crate::theme::widgets_theme();
 
     let text = parse_markdown_default("`hello`");
     let has_code = text

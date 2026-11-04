@@ -3,6 +3,7 @@
 //! Manages ACP session creation, loading, resumption, and closure.
 //! Each session owns a ThreadStore entry, an Agent instance, and associated state.
 
+pub mod acp_server;
 pub mod agent_pool;
 pub mod agent_runtime;
 pub mod command;

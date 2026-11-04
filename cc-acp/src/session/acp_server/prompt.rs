@@ -18,7 +18,7 @@ use cc_middlewares::prelude::*;
 
 use agent_client_protocol::schema::{PromptResponse, StopReason};
 
-use crate::{app::agent::LlmProvider, config::PeriConfig};
+use crate::provider::{LlmProvider, PeriConfig};
 
 use super::SharedSessions;
 

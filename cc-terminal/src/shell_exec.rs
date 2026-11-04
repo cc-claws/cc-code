@@ -4,7 +4,7 @@ use std::{process::Stdio, time::Duration, time::Instant};
 use anyhow::{Context, Result};
 use cc_agent::encoding::decode_output_bytes;
 use cc_agent::shell::{ShellAbortHandle, ShellDialect};
-use cc_middlewares::process::ManagedChild;
+use cc_tools::process::ManagedChild;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, oneshot};
 
@@ -46,7 +46,7 @@ pub async fn execute_shell_command_with_stdin(
     cwd: &str,
     stdin_rx: Option<mpsc::Receiver<String>>,
 ) -> Result<CommandOutput> {
-    let mut cmd = cc_middlewares::process::shell_command(command, &[]);
+    let mut cmd = cc_tools::process::shell_command(command, &[]);
     if !cwd.trim().is_empty() {
         cmd.current_dir(cwd);
     }
@@ -255,7 +255,7 @@ fn spawn_streaming_child(
     shell: ShellDialect,
 ) -> Result<(ManagedChild, Instant)> {
     let command = streaming_command_with_unbuffered_interpreters(command);
-    let mut cmd = cc_middlewares::process::managed_shell_command(&command, shell)?;
+    let mut cmd = cc_tools::process::managed_shell_command(&command, shell)?;
     apply_streaming_unbuffered_env(&mut cmd);
     if !cwd.trim().is_empty() {
         cmd.current_dir(cwd);

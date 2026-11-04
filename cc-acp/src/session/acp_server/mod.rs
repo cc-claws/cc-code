@@ -20,7 +20,7 @@ use cc_agent::{agent::AgentCancellationToken, interaction::ChannelState, message
 use cc_middlewares::prelude::*;
 use serde_json::{json, Value};
 
-use crate::{app::agent::LlmProvider, config::PeriConfig};
+use crate::provider::{LlmProvider, PeriConfig};
 
 mod notify;
 mod prompt;

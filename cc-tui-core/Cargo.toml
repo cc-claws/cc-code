@@ -1,0 +1,34 @@
+[package]
+name = "cc-tui-core"
+version.workspace = true
+edition.workspace = true
+description = "Pure session/domain logic and shared primitives for cc-tui"
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+cc-agent = { path = "../cc-agent" }
+cc-acp = { path = "../cc-acp" }
+cc-terminal = { path = "../cc-terminal" }
+cc-widgets = { path = "../cc-widgets", features = ["markdown-highlight"] }
+ratatui = { version = ">=0.30", features = ["unstable-rendered-line-info", "unstable-widget-ref"] }
+dirs-next.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+unicode-width = "0.2"
+unicode-segmentation = "1"
+parking_lot.workspace = true
+fluent = "0.17"
+fluent-bundle = "0.16"
+unic-langid = { version = "0.9", features = ["macros"] }
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile.workspace = true

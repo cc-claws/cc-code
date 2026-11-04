@@ -32,6 +32,8 @@ winresource = "0.1"
 serde.workspace = true
 cc-agent = { path = "../cc-agent" }
 cc-middlewares = { path = "../cc-middlewares" }
+cc-terminal = { path = "../cc-terminal" }
+cc-tui-core = { path = "../cc-tui-core" }
 cc-lsp = { path = "../cc-lsp" }
 ratatui = { version = ">=0.30", features = ["unstable-rendered-line-info", "unstable-widget-ref"] }
 tokio.workspace = true

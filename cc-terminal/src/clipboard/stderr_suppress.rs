@@ -2,13 +2,13 @@
 //! 通过 RAII 临时把 fd 2 重定向到 /dev/null 抑制。其他平台为空操作。
 
 #[cfg(target_os = "macos")]
-pub(crate) struct SuppressStderr {
+pub struct SuppressStderr {
     saved_fd: Option<libc::c_int>,
 }
 
 #[cfg(target_os = "macos")]
 impl SuppressStderr {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         unsafe {
             // 备份当前 stderr fd
             let saved = libc::dup(2);
@@ -47,11 +47,11 @@ impl Drop for SuppressStderr {
 }
 
 #[cfg(not(target_os = "macos"))]
-pub(crate) struct SuppressStderr;
+pub struct SuppressStderr;
 
 #[cfg(not(target_os = "macos"))]
 impl SuppressStderr {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self
     }
 }

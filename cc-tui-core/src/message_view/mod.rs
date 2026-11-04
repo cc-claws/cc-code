@@ -1,7 +1,7 @@
 use std::hash::{Hash, Hasher};
 
-use crate::app::tool_display::build_diff_input;
-use crate::ui::theme;
+use crate::tool_display::build_diff_input;
+use crate::theme;
 use cc_agent::messages::{BaseMessage, ContentBlock, MessageContent};
 use ratatui::{style::Color, text::Text};
 
@@ -13,14 +13,14 @@ mod tools;
 mod utils;
 
 pub use aggregate::{aggregate_batch_groups, aggregate_tail_tool_groups, aggregate_tool_groups};
-pub(crate) use tools::{
+pub use tools::{
     is_file_inspect, parse_subagent_tool_count, skill_invocation_display, BackgroundTaskStarted,
 };
 pub use tools::{tool_color, AgentSummary, ToolCategory, ToolEntry};
-pub(crate) use utils::{instance_hash, parse_bg_hash};
+pub use utils::{instance_hash, parse_bg_hash};
 
 // 从工具名和入参构造 DiffInput（仅 Write/Edit 工具），实现见
-// [`crate::app::tool_display::build_diff_input`]（Edit 基于完整文件重建全文 diff）。
+// [`crate::tool_display::build_diff_input`]（Edit 基于完整文件重建全文 diff）。
 // 实际的 `render_diff` 渲染由 message_render 在 detail_mode 下按当前终端 width 进行。
 
 /// 工具从排队到完成的显式阶段，与输出是否为空相互独立。
@@ -42,7 +42,7 @@ pub struct ToolOutputPreview {
 }
 
 impl ToolOutputPreview {
-    pub(crate) fn new(
+    pub fn new(
         tail: String,
         total_lines: usize,
         total_bytes: usize,
@@ -760,7 +760,7 @@ pub enum ContentBlockView {
         /// 修复初始 80 宽渲染在宽终端下表格挤压/右侧留白的问题。
         rendered_width: usize,
         /// 流式表格 holdback 扫描器
-        holdback_scanner: crate::ui::markdown::TableHoldbackScanner,
+        holdback_scanner: crate::markdown::TableHoldbackScanner,
     },
     /// 推理/思考过程（显示耗时摘要 `Thought for Ns`；无耗时时回退字数）
     Reasoning {
@@ -895,7 +895,7 @@ impl MessageViewModel {
                         format!("skill-invocation-{}", msg.id().as_uuid()),
                         "Skill".to_string(),
                         "Skill".to_string(),
-                        Some(crate::app::tool_display::sanitize_display_text(
+                        Some(crate::tool_display::sanitize_display_text(
                             &invocation.command_name,
                         )),
                         !invocation.success,
@@ -906,7 +906,7 @@ impl MessageViewModel {
                     vm.recompute_hash();
                     return vm;
                 }
-                if let Some(display) = crate::app::shell_notification_display_text(&raw) {
+                if let Some(display) = crate::shell_notification::shell_notification_display_text(&raw) {
                     let mut vm = MessageViewModel::SystemNote {
                         content: display.text,
                         content_hash: 0,
@@ -937,7 +937,7 @@ impl MessageViewModel {
                             .filter(|block| matches!(block, ContentBlock::Image { .. }))
                             .count();
                         let mut ids =
-                            crate::clipboard::image_placeholder::parse_placeholders(&display_text);
+                            cc_terminal::clipboard::image_placeholder::parse_placeholders(&display_text);
                         ids.sort_unstable();
                         ids.dedup();
                         // 旧消息没有独立编号元数据，引用与图片块数量不一致时只显示降级行。
@@ -984,7 +984,7 @@ impl MessageViewModel {
                                 dirty: false,
                                 rendered_prefix_len: text.len(),
                                 rendered_prefix_lines,
-                                rendered_width: crate::ui::markdown::DEFAULT_MARKDOWN_WIDTH,
+                                rendered_width: crate::markdown::DEFAULT_MARKDOWN_WIDTH,
                                 holdback_scanner: Default::default(),
                             }
                         }
@@ -1007,7 +1007,7 @@ impl MessageViewModel {
                             dirty: false,
                             rendered_prefix_len: 7,
                             rendered_prefix_lines: 1,
-                            rendered_width: crate::ui::markdown::DEFAULT_MARKDOWN_WIDTH,
+                            rendered_width: crate::markdown::DEFAULT_MARKDOWN_WIDTH,
                             holdback_scanner: Default::default(),
                         },
                         ContentBlock::Document { title, .. } => {
@@ -1021,7 +1021,7 @@ impl MessageViewModel {
                                 dirty: false,
                                 rendered_prefix_len: len,
                                 rendered_prefix_lines: 1,
-                                rendered_width: crate::ui::markdown::DEFAULT_MARKDOWN_WIDTH,
+                                rendered_width: crate::markdown::DEFAULT_MARKDOWN_WIDTH,
                                 holdback_scanner: Default::default(),
                             }
                         }
@@ -1037,7 +1037,7 @@ impl MessageViewModel {
                                 dirty: false,
                                 rendered_prefix_len: len,
                                 rendered_prefix_lines: 1,
-                                rendered_width: crate::ui::markdown::DEFAULT_MARKDOWN_WIDTH,
+                                rendered_width: crate::markdown::DEFAULT_MARKDOWN_WIDTH,
                                 holdback_scanner: Default::default(),
                             }
                         }
@@ -1049,7 +1049,7 @@ impl MessageViewModel {
                             dirty: false,
                             rendered_prefix_len: 0,
                             rendered_prefix_lines: 0,
-                            rendered_width: crate::ui::markdown::DEFAULT_MARKDOWN_WIDTH,
+                            rendered_width: crate::markdown::DEFAULT_MARKDOWN_WIDTH,
                             holdback_scanner: Default::default(),
                         },
                     })
@@ -1152,9 +1152,9 @@ impl MessageViewModel {
                 // 使用统一格式化函数生成 display_name 和 args_display
                 // cwd 参数确保流式和恢复路径产生一致的路径显示
                 let display_name =
-                    crate::app::tool_display::format_tool_name_with_input(&tool_name, Some(&input));
+                    crate::tool_display::format_tool_name_with_input(&tool_name, Some(&input));
                 let args_display =
-                    crate::app::tool_display::format_tool_args(&tool_name, &input, cwd);
+                    crate::tool_display::format_tool_args(&tool_name, &input, cwd);
                 let color = if *is_error {
                     theme::cur().error
                 } else {
@@ -1170,7 +1170,7 @@ impl MessageViewModel {
                 // Agent(action="stop") 的结果行（「⎿ 任务摘要 · stopped」）默认展开，
                 // 否则停止操作完成后对用户不可见（issue #831）
                 let agent_stop =
-                    crate::app::tool_display::is_agent_stop(&tool_name, Some(&input));
+                    crate::tool_display::is_agent_stop(&tool_name, Some(&input));
                 let mut vm = MessageViewModel::ToolBlock {
                     tool_name,
                     tool_call_id: tool_call_id.clone(),
@@ -1262,7 +1262,7 @@ impl MessageViewModel {
     /// 安装该工具调用触发的 hook 执行行（仅 UI 展示，不进 history）。
     ///
     /// 内容确实变化时才重算 hash，避免同一 id 的重复安装打乱渲染缓存。
-    pub(crate) fn set_hook_rows(&mut self, rows: Vec<HookRow>) {
+    pub fn set_hook_rows(&mut self, rows: Vec<HookRow>) {
         if let MessageViewModel::ToolBlock { hook_rows, .. } = self {
             if *hook_rows != rows {
                 *hook_rows = rows;
@@ -1314,7 +1314,7 @@ impl MessageViewModel {
 
     /// 创建用户消息
     pub fn user(content: String) -> Self {
-        if let Some(display) = crate::app::shell_notification_display_text(&content) {
+        if let Some(display) = crate::shell_notification::shell_notification_display_text(&content) {
             // 通知消息保留状态色，不能走 `system()`（它只能从文本里再猜 tone）。
             let mut vm = MessageViewModel::SystemNote {
                 content: display.text,
@@ -1345,7 +1345,7 @@ impl MessageViewModel {
 
     /// 创建带展开内容的用户消息（用于粘贴内容的详细模式显示）
     pub fn user_with_expanded(content: String, expanded: String) -> Self {
-        if let Some(display) = crate::app::shell_notification_display_text(&content) {
+        if let Some(display) = crate::shell_notification::shell_notification_display_text(&content) {
             let mut vm = MessageViewModel::SystemNote {
                 content: display.text,
                 content_hash: 0,
@@ -1373,7 +1373,7 @@ impl MessageViewModel {
         vm
     }
 
-    pub(crate) fn set_image_ids(&mut self, mut ids: Vec<usize>) {
+    pub fn set_image_ids(&mut self, mut ids: Vec<usize>) {
         if let Self::UserBubble { image_ids, .. } = self {
             ids.sort_unstable();
             ids.dedup();
@@ -1383,7 +1383,7 @@ impl MessageViewModel {
     }
 
     /// 把会话内路径映射为当前用户消息的渲染快照，重建后仍可复用本地链接。
-    pub(crate) fn set_image_paths(
+    pub fn set_image_paths(
         &mut self,
         paths: &std::collections::HashMap<usize, std::path::PathBuf>,
     ) {
@@ -1504,7 +1504,7 @@ impl MessageViewModel {
     /// 创建系统消息
     pub fn system(content: String) -> Self {
         // 后台任务通知走强调色渲染；其它系统提示保持原有灰色单行样式。
-        let (content, tone) = match crate::app::shell_notification_display_text(&content) {
+        let (content, tone) = match crate::shell_notification::shell_notification_display_text(&content) {
             Some(display) => (display.text, Some(display.tone)),
             None => (content, None),
         };
@@ -1524,7 +1524,7 @@ impl MessageViewModel {
     /// 创建带详细模式内容的系统消息（如子 Agent 启动摘要在详细模式下展开显示每个任务的 Prompt）
     pub fn system_with_detail(content: String, detail_content: String) -> Self {
         // 详细内容只用于展开态，通知正文仍按统一规则解析出文案与状态色。
-        let (content, tone) = match crate::app::shell_notification_display_text(&content) {
+        let (content, tone) = match crate::shell_notification::shell_notification_display_text(&content) {
             Some(display) => (display.text, Some(display.tone)),
             None => (content, None),
         };

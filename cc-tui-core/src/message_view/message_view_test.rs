@@ -1,6 +1,6 @@
 use super::*;
-use crate::ui::message_view::tools::is_readonly_shell_command;
-use crate::ui::message_view::ContentBlockView;
+use crate::message_view::tools::is_readonly_shell_command;
+use crate::message_view::ContentBlockView;
 use cc_agent::messages::{MessageContent, ToolCallRequest};
 use serde_json::json;
 

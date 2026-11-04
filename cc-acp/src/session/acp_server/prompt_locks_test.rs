@@ -1,5 +1,5 @@
 use super::*;
-use crate::acp_server::SessionState;
+use crate::session::acp_server::SessionState;
 
 fn make_session(session_id: &str) -> SessionState {
     SessionState {

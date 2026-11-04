@@ -37,7 +37,8 @@ impl App {
     /// 滚动到顶部
     pub fn scroll_to_top(&mut self) {
         let ui = &mut self.session_mgr.current_mut().ui;
-        ui.set_scroll_position(ui.scrollbar_min_offset.min(ui.scrollbar_max_offset), false);
+        let min_offset = ui.scrollbar_min_offset.min(ui.scrollbar_max_offset);
+        ui.set_scroll_position(min_offset, false);
     }
 
     /// 展开/折叠所有工具调用消息

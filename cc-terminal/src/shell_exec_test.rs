@@ -95,8 +95,8 @@ async fn test_execute_shell_command_streaming_preserves_quoted_absolute_path() {
         .expect("带引号绝对路径命令应执行成功");
     assert_eq!(output.exit_code, 0, "命令应成功执行: {output:?}");
     assert!(
-        output.stdout.contains("cc-tui"),
-        "应读取 cc-tui Cargo.toml，实际输出: {:?}",
+        output.stdout.contains("[package]"),
+        "应读取当前 crate 的 Cargo.toml，实际输出: {:?}",
         output.stdout
     );
 }
@@ -187,7 +187,7 @@ async fn test_drain_pipe_task_normal_completion_is_immediate() {
 #[tokio::test]
 async fn test_streaming_shell_uses_bash_dialect() {
     let _guard = PROCESS_TEST_LOCK.lock().await;
-    if cfg!(windows) && cc_middlewares::process::git_bash_path().is_none() {
+    if cfg!(windows) && cc_tools::process::git_bash_path().is_none() {
         // 与 Bash 工具同一前置条件：缺少 Git Bash 时不执行，避免环境相关失败。
         return;
     }

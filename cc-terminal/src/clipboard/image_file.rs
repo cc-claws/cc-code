@@ -7,7 +7,7 @@ use super::paste::{encode_base64, encode_rgba_to_png, PasteImageError};
 const MAX_FILE_BYTES: u64 = 20 * 1024 * 1024;
 const MAX_RGBA_BYTES: u64 = 64 * 1024 * 1024;
 
-pub(crate) fn is_image_path(path: &Path) -> bool {
+pub fn is_image_path(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| {
@@ -18,7 +18,7 @@ pub(crate) fn is_image_path(path: &Path) -> bool {
         })
 }
 
-pub(crate) fn image_file_as_png_base64(
+pub fn image_file_as_png_base64(
     path: &Path,
 ) -> Result<(String, usize, u32, u32), PasteImageError> {
     let (bytes, width, height) = decode_image_file(path)?;

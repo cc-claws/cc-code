@@ -5,7 +5,7 @@ use tokio::{
     process::{ChildStderr, ChildStdin, ChildStdout, Command},
 };
 
-pub(crate) type OutputObserver = std::sync::Arc<dyn Fn(&[u8]) + Send + Sync>;
+pub type OutputObserver = std::sync::Arc<dyn Fn(&[u8]) + Send + Sync>;
 
 #[cfg(windows)]
 mod windows_job;
@@ -113,7 +113,7 @@ impl Drop for ManagedChild {
 /// draining. Dropping this future kills the whole process group on Unix
 /// (via `ManagedChild`'s Drop → killpg) and the entire job on Windows.
 /// This deliberately does not retry failed commands, which may have side effects.
-pub(crate) async fn output_with_input_timeout(
+pub async fn output_with_input_timeout(
     command: Command,
     input: &[u8],
     execution_timeout: Duration,
@@ -122,7 +122,7 @@ pub(crate) async fn output_with_input_timeout(
 }
 
 /// 与普通捕获共用进程/管道生命周期；观察者只接收到达的字节，不改变最终结果。
-pub(crate) async fn output_with_input_timeout_observed(
+pub async fn output_with_input_timeout_observed(
     mut command: Command,
     input: &[u8],
     execution_timeout: Duration,

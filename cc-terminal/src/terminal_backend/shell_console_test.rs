@@ -48,7 +48,7 @@ async fn test_shell_console_php_isolation() -> anyhow::Result<()> {
     let mut cases = Vec::new();
     for shell in [None, Some("powershell"), Some("bash")] {
         for isolated in [false, true] {
-            let mut cmd = cc_middlewares::process::shell_command_with_shell(command, &[], shell);
+            let mut cmd = cc_tools::process::shell_command_with_shell(command, &[], shell);
             if !isolated {
                 // 仅在专属控制台恢复旧的共享模式，证明修复前的实际触发条件。
                 cmd.creation_flags(0);
