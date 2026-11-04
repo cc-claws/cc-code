@@ -805,54 +805,94 @@ fn test_dynamic_adaptive_learning_and_bidirectional_fallback() {
 
 #[test]
 fn test_detect_thinking_mode_correction_from_upstream_400() {
-    use super::thinking_mode::{detect_thinking_mode_correction, ThinkingModeCorrection};
+    use super::thinking_mode::{
+        detect_thinking_mode_correction, AnthropicThinkingMode, ThinkingModeCorrection,
+    };
     let err_msg_user = r#"Upstream request failed: [invalid_request_error] "thinking.type.enabled" is not supported for this model. Use "thinking.type.adaptive" and "output_config.effort" to control thinking behavior."#;
     assert_eq!(
-        detect_thinking_mode_correction(400, err_msg_user),
+        detect_thinking_mode_correction(400, err_msg_user, AnthropicThinkingMode::Budget),
         Some(ThinkingModeCorrection::SwitchToAdaptive),
         "应准确识别真实 400 要求切换到 adaptive"
+    );
+
+    // 当已经处于 Adaptive 模式且依然报错时，应彻底禁用 Thinking
+    assert_eq!(
+        detect_thinking_mode_correction(400, err_msg_user, AnthropicThinkingMode::Adaptive),
+        Some(ThinkingModeCorrection::DisableThinking),
+        "Adaptive 模式仍报不支持时应降级彻底关闭 thinking"
     );
 
     // 真实网关/代理返回的转义 JSON 原文字符串（含反斜杠 \" 转义与 [400]: 前缀）
     let err_msg_escaped_json = r#"[400]: {"type":"error","error":{"type":"invalid_request_error","message":"Upstream request failed: [invalid_request_error] \"thinking.type.enabled\" is not supported for this model. Use \"thinking.type.adaptive\" and \"output_config.effort\" to control thinking behavior."}}"#;
     assert_eq!(
-        detect_thinking_mode_correction(400, err_msg_escaped_json),
+        detect_thinking_mode_correction(400, err_msg_escaped_json, AnthropicThinkingMode::Budget),
         Some(ThinkingModeCorrection::SwitchToAdaptive),
         "应准确穿透转义 JSON 字符串识别出 adaptive 自愈指示"
     );
 
     let err_msg_backticks = r#"error: `thinking.type.enabled` is not supported for this model. Use `thinking.type.adaptive` and `output_config.effort` to control thinking behavior."#;
     assert_eq!(
-        detect_thinking_mode_correction(400, err_msg_backticks),
+        detect_thinking_mode_correction(400, err_msg_backticks, AnthropicThinkingMode::Budget),
         Some(ThinkingModeCorrection::SwitchToAdaptive),
         "应准确识别反引号格式的 adaptive 提示"
     );
 
     let err_msg_fallback = r#"Upstream request failed: [invalid_request_error] "thinking.type.adaptive" is not supported for this model. Use "thinking.type.enabled" and "budget_tokens" to control thinking behavior."#;
     assert_eq!(
-        detect_thinking_mode_correction(400, err_msg_fallback),
+        detect_thinking_mode_correction(400, err_msg_fallback, AnthropicThinkingMode::Adaptive),
         Some(ThinkingModeCorrection::SwitchToBudget),
         "应准确识别回退到 budget 的错误提示"
     );
 
     let err_msg_fallback_escaped = r#"[400]: {"type":"error","error":{"type":"invalid_request_error","message":"Upstream request failed: [invalid_request_error] \"thinking.type.adaptive\" is not supported for this model. Use \"thinking.type.enabled\" and \"budget_tokens\" to control thinking behavior."}}"#;
     assert_eq!(
-        detect_thinking_mode_correction(400, err_msg_fallback_escaped),
+        detect_thinking_mode_correction(
+            400,
+            err_msg_fallback_escaped,
+            AnthropicThinkingMode::Adaptive
+        ),
         Some(ThinkingModeCorrection::SwitchToBudget),
         "应准确穿透转义 JSON 字符串识别出降级到 budget 指示"
     );
 
+    let err_msg_field_req = r#"[400]: {"type":"error","error":{"type":"invalid_request_error","message":"Upstream request failed: [invalid_request_error] thinking.enabled.budget_tokens: Field required"}}"#;
+    assert_eq!(
+        detect_thinking_mode_correction(400, err_msg_field_req, AnthropicThinkingMode::Adaptive),
+        Some(ThinkingModeCorrection::DisableThinking),
+        "网关缺失 budget_tokens 报错应降级关闭 thinking"
+    );
+
     let other_err = r#"{"error":{"message":"Invalid API Key","type":"authentication_error"}}"#;
     assert_eq!(
-        detect_thinking_mode_correction(400, other_err),
+        detect_thinking_mode_correction(400, other_err, AnthropicThinkingMode::Budget),
         None,
         "其他 400 错误不应误判为 thinking 协议切换"
     );
+    assert_eq!(
+        detect_thinking_mode_correction(400, other_err, AnthropicThinkingMode::Adaptive),
+        None,
+        "Adaptive 模式下其他非 thinking 400 错误也不应误判为 thinking 协议切换"
+    );
 
     assert_eq!(
-        detect_thinking_mode_correction(500, err_msg_user),
+        detect_thinking_mode_correction(500, err_msg_user, AnthropicThinkingMode::Budget),
         None,
         "非 400 状态码不应触发 thinking 协议自愈"
+    );
+}
+
+#[test]
+fn test_haiku_statically_resolves_to_disabled_thinking() {
+    use super::thinking_mode::{resolve_thinking_mode, AnthropicThinkingMode};
+    assert_eq!(
+        resolve_thinking_mode("claude-haiku-4-6[1M]"),
+        AnthropicThinkingMode::Disabled,
+        "Haiku 系列应静态预判为 Disabled，彻底不发送 thinking 字段"
+    );
+    assert_eq!(
+        resolve_thinking_mode("claude-3-5-haiku-20241022"),
+        AnthropicThinkingMode::Disabled,
+        "3.5 Haiku 同样应预判为 Disabled"
     );
 }
 
