@@ -121,6 +121,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **移除 tool_result 非标准 id 字段与国产端点双向自适应** | v0.6.233 | 修复 `tool_result` 携带非标准 `id` 属性导致经严格校验的上游代理网关报错 `Extra inputs are not permitted` 的问题。默认遵循官方标准不发送 `id` 字段；同时新增 `detect_tool_result_id_requirement` 动态嗅探器，遇到特殊非标国产网关明确要求 `id` 时自动补齐重试，实现官方标准端点与非标国产端点双向兼容（#878, #879）。 |
 | **轻量模型 thinking 400 修复与多级降级自愈** | v0.6.232 | 针对 Haiku 3.x/4.x 系列等轻量模型原生不开放 Extended Thinking，修复全局开启 thinking 时请求直接报错的问题。静态预判轻量系列天生无 thinking 并彻底不传相关字段；协议自适应嗅探机制新增 `DisableThinking` 指示，当检测到模型或网关不支持思考时，自适应重试最多 2 级平滑降级（`Budget → Adaptive → Disabled`），自动关闭 thinking 并重试成功，彻底杜绝 400 报错（#875, #876）。 |
 | **Bash 输出 git diff 智能高亮渲染与 PHP 纯源码高亮修复** | v0.6.231 | 终端输入 `!git diff` 或 Agent 执行 `git diff` 时，输出自动接入内置 Diff 渲染管线，呈现带代码语法着色、单侧行号 Gutter 与词级对比（Word-diff）的高颜值视图；同时修复 syntect 将 `.php` 绑定到 HTML 嵌入语法导致脱离 `<?php` 后单行高亮全变白字的问题，优先使用纯源码语法 `"PHP Source"` 稳定高亮（#872, #873）。 |
 | **含 VS16 宽字形的表格行不再错位** | v0.6.228 | markdown 表格某行单元格含 `⚠️`（`U+26A0 U+FE0F`）时，该行的竖线分隔符与右侧边框曾整体右移 1 格、右边框冲出表格边界，滚动重绘后右侧残留悬空竖线。根因在输出层而非表格渲染：`Buffer::diff` 为宽字形额外补画的尾格，被 crossterm 后端按 cell 索引当作相邻格续写（不认宽字形已把光标推进 2 列）。现在下发 cell 前丢弃被宽字形覆盖的尾格，判断依据取实际下发的字形宽度（宽字形若被降级成 1 列 ASCII 则保留尾格）（#860）。 |
@@ -130,8 +131,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **思考行实时字数** | v0.6.220 | 思考进行中消息区显示流式推理的实时字数（`∴ Thinking for 1247 chars, read 2 files…`），能看出推理是否仍在推进；正文开始输出后落成 `Thought for 16s`。活跃与冻结统一为同一暗色，去掉冻结瞬间的亮度跳变（#836）。 |
 | **子 Agent 视口响应优化** | v0.6.212 | 流式更新合并刷新，输入和滚动继续响应；隐藏视口延后转换，完成时也不提前构建。已完成历史采用有界投影缓存，切离子视口即释放；渲染队列满时重试最新快照（#796）。 |
 | **Hook 行展示开关** | v0.6.212 | 配置新增 `hooks_ui`（缺省开启），`/config` 面板新增 `Hooks display` 一行，保存即生效；关闭后 TUI 不展示 hook 行、数据保留，切回立即恢复。折叠块不再展示 hook 行，hook 行强制单行，同事件失败去重降噪（#808）。 |
-| **Hook 执行结果上报到 UI** | v0.6.210 | Hook 执行行挂进工具块，详细模式展示汇总；异步 hook 先占位 running、完成时就地替换，hook 行按事件合并，子代理继承会话 hooks 且 SubagentStart/Stop 真正执行。非阻断失败经 `HookAction::Error` 上报，非法 JSON 与 prompt/http/agent hook 的失败分类补全（#804）。 |
-> 更早版本（v0.6.0 – v0.6.210）见 [CHANGELOG](./CHANGELOG.md)。
+> 更早版本（v0.6.0 – v0.6.212）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---
 

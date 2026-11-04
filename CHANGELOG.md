@@ -4,6 +4,13 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.233 — 2026-11-04
+
+### Fixes
+
+- **移除 tool_result 非标准 id 字段与国产端点双向自适应（#878, #879）**：在 Anthropic 官方规范中，`tool_result` 块的属性仅包括 `type`、`tool_use_id`、`content` 与 `is_error`。修复历史遗留实现塞入非标准 `id` 属性导致经严格校验的上游代理网关报错 `messages.2.content.0.tool_result.id: Extra inputs are not permitted` 的问题。默认严格遵循官方标准不发送 `id` 字段；同时新增 `detect_tool_result_id_requirement` 嗅探器，当且仅当遇到特殊非标国产网关明确报错提示缺少 `id` 时，系统自动学习并补齐 `id` 原地自愈重试，实现官方标准端点与非标国产端点双向兼容。
+- **思考协议自愈检测优化（#878, #879）**：移除针对模型的死板静态拦截，完全由基于错误特征的运行时动态嗅探自愈（检测到未支持时平滑降级为 `Disabled`），保持对新老模型的完整平滑兼容。
+
 ## v0.6.232 — 2026-11-04
 
 ### Fixes
