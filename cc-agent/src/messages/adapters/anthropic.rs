@@ -40,22 +40,17 @@ impl AnthropicAdapter {
                 "input": input
             })),
             ContentBlock::ToolResult {
-                id: block_id,
                 tool_use_id,
                 content,
                 is_error,
+                ..
             } => {
                 let content_val: Vec<Value> = content
                     .iter()
                     .filter_map(Self::block_to_anthropic)
                     .collect();
-                // 部分 provider（如 GLM Anthropic 兼容端口）要求 tool_result block 含 id 字段
-                let bid = block_id
-                    .clone()
-                    .unwrap_or_else(|| format!("toolu_{}", uuid::Uuid::now_v7()));
                 Some(json!({
                     "type": "tool_result",
-                    "id": bid,
                     "tool_use_id": tool_use_id,
                     "content": content_val,
                     "is_error": is_error
@@ -229,15 +224,13 @@ impl AnthropicAdapter {
                     }
                 }
                 BaseMessage::Tool {
-                    id: msg_id,
                     tool_call_id,
                     content,
                     is_error,
+                    ..
                 } => {
-                    let block_id = msg_id.as_uuid().to_string();
                     let tool_result_block = json!({
                         "type": "tool_result",
-                        "id": block_id,
                         "tool_use_id": tool_call_id,
                         "content": Self::content_to_anthropic(content),
                         "is_error": is_error
