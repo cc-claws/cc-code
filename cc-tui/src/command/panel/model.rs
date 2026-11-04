@@ -49,6 +49,30 @@ impl Command for ModelCommand {
                     app.services.provider_name = p.display_name().to_string();
                     app.services.model_name = p.model_name().to_string();
                 }
+                let effort_raw = cfg
+                    .config
+                    .thinking
+                    .as_ref()
+                    .map(|t| t.effort.as_str())
+                    .unwrap_or("medium");
+                let effort_display = match effort_raw {
+                    "low" => "Low",
+                    "high" => "High",
+                    "xhigh" => "XHigh",
+                    "max" => "Max",
+                    _ => "Medium",
+                };
+                let toast_msg = app.services.lc.tr_args(
+                    "app-model-switched",
+                    &[
+                        ("alias".into(), alias.clone().into()),
+                        ("effort".into(), effort_display.into()),
+                    ],
+                );
+                app.session_mgr
+                    .current_mut()
+                    .ui
+                    .set_toast(toast_msg, std::time::Duration::from_millis(2500));
                 if let Some(ref acp_client) = app.acp_client {
                     let acp = acp_client.clone();
                     let alias_val = alias.clone();

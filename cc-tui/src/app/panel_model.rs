@@ -46,16 +46,17 @@ impl App {
             "max" => "Max",
             _ => "Medium",
         };
+        let toast_msg = self.services.lc.tr_args(
+            "app-model-switched",
+            &[
+                ("alias".into(), alias_label.clone().into()),
+                ("effort".into(), effort_display.into()),
+            ],
+        );
         self.session_mgr
             .current_mut()
-            .messages
-            .push_system_note(self.services.lc.tr_args(
-                "app-model-switched",
-                &[
-                    ("alias".into(), alias_label.clone().into()),
-                    ("effort".into(), effort_display.into()),
-                ],
-            ));
+            .ui
+            .set_toast(toast_msg, std::time::Duration::from_millis(2500));
         {
             let cfg = self.services.peri_config.as_ref().unwrap();
             if let Err(e) = Self::save_config(cfg, self.services.config_path_override.as_deref()) {

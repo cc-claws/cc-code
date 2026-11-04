@@ -85,6 +85,8 @@ pub struct UiState {
     pub queued_message_actions: Vec<(ratatui::layout::Rect, super::QueuedMessageAction)>,
     pub copy_message_until: Option<std::time::Instant>,
     pub copy_char_count: usize,
+    /// 浮动提示（如模型切换、复制成功等），紧贴输入框上方右下角显示
+    pub toast: Option<(String, std::time::Instant)>,
     pub panel_selection: PanelTextSelection,
     pub panel_area: Option<ratatui::layout::Rect>,
     pub panel_plain_lines: Vec<String>,
@@ -200,6 +202,7 @@ impl UiState {
             queued_message_actions: Vec::new(),
             copy_message_until: None,
             copy_char_count: 0,
+            toast: None,
             panel_selection: PanelTextSelection::new(),
             panel_area: None,
             panel_plain_lines: Vec::new(),
@@ -255,4 +258,32 @@ impl UiState {
     pub fn take_terminal_clear_redraw(&mut self) -> bool {
         std::mem::take(&mut self.force_terminal_clear_redraw)
     }
+
+    /// 设置浮动 Toast 提示
+    pub fn set_toast(&mut self, text: impl Into<String>, duration: std::time::Duration) {
+        self.toast = Some((text.into(), std::time::Instant::now() + duration));
+    }
+
+    /// 获取当前未过期的浮动 Toast 提示文本
+    pub fn active_toast(&self, lc: &crate::i18n::LcRegistry) -> Option<String> {
+        let now = std::time::Instant::now();
+        if let Some((ref text, until)) = self.toast {
+            if now < until {
+                return Some(text.clone());
+            }
+        }
+        if let Some(until) = self.copy_message_until {
+            if now < until {
+                return Some(lc.tr_args(
+                    "statusbar-copied",
+                    &[("count".into(), (self.copy_char_count as i64).into())],
+                ));
+            }
+        }
+        None
+    }
 }
+
+#[cfg(test)]
+#[path = "ui_state_test.rs"]
+mod tests;
