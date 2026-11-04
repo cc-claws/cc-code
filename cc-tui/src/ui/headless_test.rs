@@ -3489,15 +3489,16 @@ async fn test_command_palette_renders_compact_with_few_models() {
     let (mut app, mut handle) = App::new_headless(120, 40).await;
 
     let mut cfg = crate::config::PeriConfig::default();
-    let mut provider = crate::config::ProviderConfig::default();
-    provider.id = "test".into();
-    provider.models = crate::config::ProviderModels {
-        opus: "claude-opus-4-6".into(),
-        sonnet: "claude-sonnet-4-6".into(),
-        haiku: "claude-haiku-4-5".into(),
-        fable: "claude-fable-5".into(),
-    };
-    cfg.config.providers.push(provider);
+    cfg.config.providers.push(crate::config::ProviderConfig {
+        id: "test".into(),
+        models: crate::config::ProviderModels {
+            opus: "claude-opus-4-6".into(),
+            sonnet: "claude-sonnet-4-6".into(),
+            haiku: "claude-haiku-4-5".into(),
+            fable: "claude-fable-5".into(),
+        },
+        ..Default::default()
+    });
     app.services.peri_config = Some(cfg);
 
     app.open_command_palette();
