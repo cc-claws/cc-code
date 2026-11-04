@@ -897,6 +897,34 @@ fn test_messages_to_anthropic_tool_result_has_no_id_field() {
 }
 
 #[test]
+fn test_detect_tool_result_id_requirement_and_adaptation() {
+    use super::invoke::{
+        detect_tool_result_id_requirement, mark_model_requires_tool_result_id,
+        messages_to_anthropic_internal, model_requires_tool_result_id,
+    };
+
+    let model = "test-legacy-compat-model";
+    assert!(!model_requires_tool_result_id(model), "默认不携带 id");
+
+    let err_msg = r#"{"type":"error","error":{"type":"invalid_request_error","message":"tool_result: missing required field id"}}"#;
+    assert!(
+        detect_tool_result_id_requirement(400, err_msg),
+        "应识别提示缺少 id 的非标网关错误"
+    );
+
+    mark_model_requires_tool_result_id(model);
+    assert!(model_requires_tool_result_id(model), "学习后应标记需要 id");
+
+    let tool_msg = BaseMessage::tool_result("toolu_test_123", "output content");
+    let (msgs, _) = messages_to_anthropic_internal(&[tool_msg], true);
+    let tr_block = &msgs[0]["content"][0];
+    assert!(
+        tr_block.get("id").is_some(),
+        "非标网关要求 id 时，应自动补齐 id 字段兼容"
+    );
+}
+
+#[test]
 fn test_haiku_model_resolves_and_adapts_dynamically() {
     use super::thinking_mode::{
         detect_thinking_mode_correction, resolve_thinking_mode, AnthropicThinkingMode,

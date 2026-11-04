@@ -1,4 +1,8 @@
+use std::collections::HashSet;
+use std::sync::OnceLock;
+
 use async_trait::async_trait;
+use parking_lot::RwLock;
 use serde_json::{json, Value};
 
 use super::{
@@ -14,9 +18,43 @@ use crate::{
     messages::{BaseMessage, ContentBlock, ImageSource, MessageContent, ToolCallRequest},
 };
 
+// ─── tool_result 兼容性嗅探自愈 ──────────────────────────────────────────
+
+static TOOL_RESULT_REQUIRE_ID_MODELS: OnceLock<RwLock<HashSet<String>>> = OnceLock::new();
+
+fn tool_result_require_id_cache() -> &'static RwLock<HashSet<String>> {
+    TOOL_RESULT_REQUIRE_ID_MODELS.get_or_init(|| RwLock::new(HashSet::new()))
+}
+
+pub fn model_requires_tool_result_id(model: &str) -> bool {
+    tool_result_require_id_cache()
+        .read()
+        .contains(&model.trim().to_ascii_lowercase())
+}
+
+pub fn mark_model_requires_tool_result_id(model: &str) {
+    tool_result_require_id_cache()
+        .write()
+        .insert(model.trim().to_ascii_lowercase());
+}
+
+pub fn detect_tool_result_id_requirement(status: u16, error_text: &str) -> bool {
+    if status != 400 {
+        return false;
+    }
+    let clean = error_text.to_ascii_lowercase();
+    let mentions_tool_result = clean.contains("tool_result") || clean.contains("tool-result");
+    let mentions_id_required = clean.contains("field required")
+        || clean.contains("required: id")
+        || clean.contains("missing field: id")
+        || clean.contains("id: field required")
+        || clean.contains("missing required field id");
+    mentions_tool_result && mentions_id_required
+}
+
 // ─── ContentBlock → Anthropic content part ────────────────────────────────
 
-fn block_to_anthropic(block: &ContentBlock) -> Option<Value> {
+fn block_to_anthropic(block: &ContentBlock, require_id: bool) -> Option<Value> {
     match block {
         ContentBlock::Text { text } => Some(json!({ "type": "text", "text": text })),
         ContentBlock::Image { source } => match source {
@@ -48,18 +86,30 @@ fn block_to_anthropic(block: &ContentBlock) -> Option<Value> {
             "input": input
         })),
         ContentBlock::ToolResult {
+            id,
             tool_use_id,
             content,
             is_error,
-            ..
         } => {
-            let content_val: Vec<Value> = content.iter().filter_map(block_to_anthropic).collect();
-            Some(json!({
+            let content_val: Vec<Value> = content
+                .iter()
+                .filter_map(|b| block_to_anthropic(b, require_id))
+                .collect();
+            let mut obj = json!({
                 "type": "tool_result",
                 "tool_use_id": tool_use_id,
                 "content": content_val,
                 "is_error": is_error
-            }))
+            });
+            // 遵循 Anthropic 规范默认不发 id（防 Extra inputs are not permitted）；
+            // 仅对上游报错明确要求 id 的特殊非标国产网关才动态补齐 id
+            if require_id {
+                let block_id = id
+                    .clone()
+                    .unwrap_or_else(|| format!("toolu_{}", uuid::Uuid::now_v7()));
+                obj["id"] = json!(block_id);
+            }
+            Some(obj)
         }
         // thinking block 在 assistant 消息中由 Anthropic 生成，发送时透传
         ContentBlock::Reasoning {
@@ -75,11 +125,14 @@ fn block_to_anthropic(block: &ContentBlock) -> Option<Value> {
     }
 }
 
-fn content_to_anthropic(content: &MessageContent) -> Value {
+fn content_to_anthropic(content: &MessageContent, require_id: bool) -> Value {
     match content {
         MessageContent::Text(s) => json!([{"type": "text", "text": s}]),
         MessageContent::Blocks(blocks) => {
-            let parts: Vec<Value> = blocks.iter().filter_map(block_to_anthropic).collect();
+            let parts: Vec<Value> = blocks
+                .iter()
+                .filter_map(|b| block_to_anthropic(b, require_id))
+                .collect();
             Value::Array(parts)
         }
         MessageContent::Raw(values) => Value::Array(values.clone()),
@@ -87,15 +140,16 @@ fn content_to_anthropic(content: &MessageContent) -> Value {
 }
 
 /// 将 BaseMessage 列表转为 Anthropic messages 格式
-///
-/// - System 消息提取到顶层 system 字段
-/// - Tool 消息合并为 user content blocks
-///
-/// **缓存前缀稳定性**：含边界标记的 System 消息（来自 build_system_prompt）
-/// 排在最前面，不含边界标记的 middleware 注入内容排在边界之后，
-/// 确保 middleware 内容变化不会破坏 Anthropic prompt cache 前缀。
+#[allow(dead_code)]
 pub(super) fn messages_to_anthropic(
     messages: &[BaseMessage],
+) -> (Vec<Value>, Vec<SystemPromptBlock>) {
+    messages_to_anthropic_internal(messages, false)
+}
+
+pub(super) fn messages_to_anthropic_internal(
+    messages: &[BaseMessage],
+    require_id: bool,
 ) -> (Vec<Value>, Vec<SystemPromptBlock>) {
     let mut system_parts_with_boundary: Vec<String> = Vec::new();
     let mut system_parts_no_boundary: Vec<String> = Vec::new();
@@ -118,7 +172,7 @@ pub(super) fn messages_to_anthropic(
             BaseMessage::Human { content, .. } => {
                 result.push(json!({
                     "role": "user",
-                    "content": content_to_anthropic(content)
+                    "content": content_to_anthropic(content, require_id)
                 }));
             }
             BaseMessage::Ai {
@@ -129,14 +183,14 @@ pub(super) fn messages_to_anthropic(
                 if tool_calls.is_empty() {
                     result.push(json!({
                         "role": "assistant",
-                        "content": content_to_anthropic(content)
+                        "content": content_to_anthropic(content, require_id)
                     }));
                 } else {
                     // 若 content 已经是 Blocks（含 ToolUse），直接序列化
                     // 否则构造 text + tool_use blocks
                     let content_val = match content {
                         MessageContent::Blocks(_) | MessageContent::Raw(_) => {
-                            content_to_anthropic(content)
+                            content_to_anthropic(content, require_id)
                         }
                         MessageContent::Text(t) => {
                             let mut blocks: Vec<Value> = Vec::new();
@@ -158,17 +212,20 @@ pub(super) fn messages_to_anthropic(
                 }
             }
             BaseMessage::Tool {
+                id: msg_id,
                 tool_call_id,
                 content,
                 is_error,
-                ..
             } => {
-                let tool_result_block = json!({
+                let mut tool_result_block = json!({
                     "type": "tool_result",
                     "tool_use_id": tool_call_id,
-                    "content": content_to_anthropic(content),
+                    "content": content_to_anthropic(content, require_id),
                     "is_error": is_error
                 });
+                if require_id {
+                    tool_result_block["id"] = json!(msg_id.as_uuid().to_string());
+                }
 
                 // Anthropic 要求 tool_result blocks 必须在 user content 数组开头
                 let appended = if let Some(last) = result.last_mut() {
@@ -308,7 +365,9 @@ pub(super) fn build_request_body(
         })
         .collect();
 
-    let (mut messages, system_from_msgs) = messages_to_anthropic(&request.messages);
+    let require_id = model_requires_tool_result_id(&adapter.model);
+    let (mut messages, system_from_msgs) =
+        messages_to_anthropic_internal(&request.messages, require_id);
 
     // 确保所有 assistant 消息都包含 thinking block。
     //
@@ -800,6 +859,17 @@ impl BaseModel for super::ChatAnthropic {
                                 super::thinking_mode::mark_model_as_disabled(&self.model);
                             }
                         }
+                        retry_count += 1;
+                        continue;
+                    }
+
+                    if detect_tool_result_id_requirement(status.as_u16(), &resp_text) {
+                        tracing::info!(
+                            provider = "anthropic",
+                            model = %self.model,
+                            "检测到上游网关要求 tool_result 必须包含 id 字段，已自动适配开启并重试"
+                        );
+                        mark_model_requires_tool_result_id(&self.model);
                         retry_count += 1;
                         continue;
                     }

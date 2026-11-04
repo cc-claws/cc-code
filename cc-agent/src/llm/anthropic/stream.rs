@@ -1,7 +1,10 @@
 use futures::StreamExt;
 use serde_json::{json, Value};
 
-use super::invoke::{build_request_body, parse_content_blocks, send_anthropic_request};
+use super::invoke::{
+    build_request_body, detect_tool_result_id_requirement, mark_model_requires_tool_result_id,
+    parse_content_blocks, send_anthropic_request,
+};
 use crate::{
     agent::events::AgentEvent,
     error::{AgentError, AgentResult},
@@ -67,6 +70,17 @@ pub(super) async fn do_invoke_streaming(
                             super::thinking_mode::mark_model_as_disabled(&adapter.model);
                         }
                     }
+                    retry_count += 1;
+                    continue;
+                }
+
+                if detect_tool_result_id_requirement(status.as_u16(), &resp_text) {
+                    tracing::info!(
+                        provider = "anthropic",
+                        model = %adapter.model,
+                        "检测到上游网关要求 tool_result 必须包含 id 字段，流式请求已自动适配开启并重试"
+                    );
+                    mark_model_requires_tool_result_id(&adapter.model);
                     retry_count += 1;
                     continue;
                 }
