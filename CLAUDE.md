@@ -2,15 +2,18 @@
 
 ## 项目概述
 
-Rust Agent 框架，7 个 Workspace Crate。
+Rust Agent 框架，10 个 Workspace Crate。
 
 | Crate | 职责 |
 |-------|------|
 | `cc-agent` | 核心：ReAct 循环、Middleware trait、LLM 适配器、工具系统、持久化（SQLite）、遥测 |
-| `cc-middlewares` | 中间件：文件系统、终端、HITL、SubAgent、Skills、Todo、Cron、MCP、Hooks、Plugin、LSP |
+| `cc-tools` | **叶子工具库**：Read/Write/Edit/Glob/Grep、进程执行、`BashTool`、输出截断与落盘、Todo；仅依赖 `cc-agent` |
+| `cc-terminal` | **跨平台终端底层**：终端后端/视口、剪贴板、ConPTY、色深、终端标题底层、键盘增强模式、shell 执行 |
+| `cc-tui-core` | **会话核心与展示模型**：i18n、导出、配置类型、主题/调色板、markdown 解析、`MessageViewModel`、shell 历史、工具参数格式化、`UiStateCore` |
+| `cc-middlewares` | 中间件：HITL、SubAgent、Skills、Cron、MCP、Hooks、Plugin、LSP（基础工具实现已下沉 `cc-tools`） |
 | `cc-widgets` | Widget 组件库，仅依赖 ratatui + pulldown-cmark |
-| `cc-acp` | **ACP 服务层**：Agent Client Protocol 实现，通过 MpscTransport/StdioTransport 桥接 TUI/IDE 与 Agent |
-| `cc-tui` | TUI 应用，依赖 cc-acp（通过 ACP 协议与 Agent 通信）+ cc-widgets |
+| `cc-acp` | **ACP 服务层**：Agent Client Protocol 实现 + 内嵌 `acp_server` 会话执行运行时 |
+| `cc-tui` | **纯表现层**：Frame 渲染、事件泵、面板 render、Slash 命令、`UiState` 表现层侧车 |
 | `langfuse-client` | Langfuse 遥测客户端（独立） |
 | `cc-lsp` | LSP 客户端库（独立，被 middlewares 使用） |
 
@@ -23,11 +26,40 @@ Rust Agent 框架，7 个 Workspace Crate。
 依赖关系（A → B 表示 A 依赖 B）：
 
 - `cc-widgets`、`cc-lsp`、`langfuse-client` → 无 workspace 内部依赖（独立基础库）
-- `cc-middlewares` → `cc-agent`、`cc-lsp`
+- `cc-tools` → `cc-agent`（唯一上游，叶子 crate）
+- `cc-terminal` → `cc-agent`、`cc-tools`
+- `cc-middlewares` → `cc-agent`、`cc-tools`、`cc-lsp`
 - `cc-acp` → `cc-agent`、`cc-middlewares`、`cc-lsp`、`langfuse-client`
-- `cc-tui` → `cc-acp`（运行时通信）+ `cc-agent`、`cc-middlewares`、`cc-lsp`、`langfuse-client`、`cc-widgets`（类型依赖，用于 UI 渲染的类型如 `BaseMessage`/`ContentBlock`）
+- `cc-tui-core` → `cc-agent`、`cc-acp`、`cc-terminal`、`cc-tools`、`cc-widgets`
+- `cc-tui` → `cc-acp`、`cc-agent`、`cc-middlewares`、`cc-lsp`、`langfuse-client`、`cc-widgets`、`cc-terminal`、`cc-tui-core`
+
+严格单向 DAG，禁止下层依赖上层：`cc-tools` / `cc-terminal` / `cc-tui-core` / `cc-acp` / `cc-middlewares` 均不得反向依赖 `cc-tui`。
 
 **TUI→ACP 通信**: TUI 运行时仅通过 `cc-acp` 的 `MpscTransport`（in-memory channel pair）与 ACP Server 通信。ACP Server 持有 Agent 构建和执行逻辑，TUI 作为纯 ACP client 前端消费 `AcpNotification` 事件。
+
+## 模块归属速查（2026-11 crate 拆分后）
+
+**[TRAP] 路径 ≠ 物理位置**：`cc-tui` / `cc-middlewares` 侧大量使用同名 `pub use` 垫片重导出
+（`pub use cc_tui_core::{config, export, i18n};`、`pub use cc_terminal::terminal_backend;`、
+`pub use cc_tools::process;` 等），因此 `crate::ui::message_view::*`、`crate::app::tool_display::*`、
+`crate::terminal_backend::*` 等路径仍然有效，但源码已不在 `cc-tui/src/`。改文件前先按下表定位物理位置，
+不要只按 `crate::` 路径去找文件。
+
+| 要改的东西 | 物理位置 |
+| :--- | :--- |
+| Read/Write/Edit/Glob/Grep、进程执行、`BashTool`、输出截断/落盘、Todo | `cc-tools/src/tools/filesystem/`、`cc-tools/src/process/`、`cc-tools/src/bash/` |
+| HITL、SubAgent、Hooks、Plugin、MCP、Skills、AskUserTool、SubAgentTool | `cc-middlewares/src/`（保留，未下沉） |
+| 终端后端/视口、剪贴板、ConPTY、色深、终端标题底层、键盘模式、shell 执行 | `cc-terminal/src/terminal_backend/`、`src/clipboard/`、`src/conpty.rs` 等 |
+| i18n、导出、配置类型、主题/调色板、markdown 解析、`MessageViewModel`、shell 历史、工具参数格式化、`UiStateCore` | `cc-tui-core/src/i18n/`、`src/theme/`、`src/message_view/`、`src/ui_state.rs` |
+| ACP 服务、session 执行、内嵌 `acp_server` | `cc-acp/src/session/`（含 `acp_server/`） |
+| Frame 渲染、事件泵、面板 render、`UiState` 表现层侧车、输入框 `TextArea`、Slash 命令 | `cc-tui/src/ui/`、`src/event/`、`src/command/`、`src/app/` 剩余部分 |
+
+判断口诀：纯数据/纯算法 → `cc-tools` 或 `cc-tui-core`；依赖 ratatui 但不碰 `App` → `cc-terminal`（底层）
+或 `cc-tui-core`（展示模型）；需要 `&mut App` 或 `Frame` → 只能留在 `cc-tui`。
+`UiState` 已拆为 `cc-tui-core::UiStateCore`（约 40 个纯状态字段）+ `cc-tui::UiState` 表现层侧车
+（`TextArea`、`Rect` 命中几何、选区快照），通过 `Deref`/`DerefMut` 委托，`ui.scroll_offset` 等访问保持原样。
+
+拆分边界、垫片清单与验收细节见 `docs/designs/2026-11-04-rust-crate-architecture-split-plan.md` §9。
 
 ## 开发命令
 

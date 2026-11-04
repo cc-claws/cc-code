@@ -6,12 +6,14 @@ TUI 应用，纯 ACP client 前端。运行时仅通过 `cc-acp` 的 `MpscTransp
 
 `Cargo.toml` 保留 `cc-agent`/`cc-middlewares` 作为**类型依赖**（UI 渲染所需的 `BaseMessage`/`ContentBlock` 等类型），运行时通信仅通过 `cc-acp`。
 
+拆分后新增两类依赖：`cc-terminal`（终端底层）与 `cc-tui-core`（会话核心/展示模型）。两者在 `src/lib.rs` 中以同名 `pub use` 垫片重导出，因此 `crate::terminal_backend::*`、`crate::ui::message_view::*`、`crate::i18n::*` 等路径仍有效，但源码已不在本 crate。改文件前先按根目录 `CLAUDE.md` 的「模块归属速查」定位物理位置。
+
 ## 核心文件
 
 | 文件 | 职责 |
 |------|------|
 | `src/acp_client/client.rs` | ACP client 封装，`AcpNotification` 变体定义 |
-| `src/acp_server/requests.rs` | ACP 请求路由 |
+| `cc-acp/src/session/acp_server/requests.rs` | ACP 请求路由（已从 cc-tui 迁入 cc-acp） |
 | `src/app/agent.rs` | `ExecutorEvent → AgentEvent` 映射（`map_executor_event`） |
 | `src/app/agent_ops/acp_bridge.rs` | `AcpNotification → AgentEvent` 桥接 |
 | `src/app/agent_ops/lifecycle.rs` | Agent 生命周期处理 |
@@ -19,7 +21,7 @@ TUI 应用，纯 ACP client 前端。运行时仅通过 `cc-acp` 的 `MpscTransp
 | `src/app/agent_compact.rs` | Compact 事件处理：pipeline 清理 + UI 通知 |
 | `src/app/message_pipeline/mod.rs` | `MessagePipeline`：规范状态维护 + `messages_to_view_models()` |
 | `src/ui/main_ui/mod.rs` | 主布局 |
-| `src/i18n/` | 国际化模块（`LcRegistry` + Fluent） |
+| `cc-tui-core/src/i18n/` | 国际化模块（`LcRegistry` + Fluent，已迁入 cc-tui-core） |
 
 ## ACP 数据流
 
@@ -38,7 +40,7 @@ TUI 输入 → AcpTuiClient.new_session() / .prompt()
 
 ## 终端模式
 
-交互模式先在正常屏中使用固定区域视口，从 shell 当前输出下方显示紧凑欢迎卡；`terminal_backend/viewport.rs` 的 `ViewportState` 记录真实起点、已占用行数与全屏锁定状态。首帧靠近底部时仅滚动必要行数；正常屏只绘制和清理应用拥有的区域，不能逐帧全屏 Clear。
+交互模式先在正常屏中使用固定区域视口，从 shell 当前输出下方显示紧凑欢迎卡；`cc-terminal/src/terminal_backend/viewport.rs` 的 `ViewportState` 记录真实起点、已占用行数与全屏锁定状态。首帧靠近底部时仅滚动必要行数；正常屏只绘制和清理应用拥有的区域，不能逐帧全屏 Clear。
 
 内容超过既有占用高度时向下扩展；每次下方空间不足都原生滚动必要行数并上移 `origin_row`，只有 `max(required_rows, allocated_rows)` 达到整个宿主高度才锁定全屏，不能按起点以下的 `available_rows` 提前切换。全屏锁定是本次终端运行级状态，不写会话，不因折叠、`/clear`、恢复历史或切换子视口解除。全屏消息滚动由 TUI 自渲染滚动条接管，`base_visual` 恒为 0。切换前先等待目标宽度重排，再同步输出切屏、resize 与首帧，并合并重复清屏。
 
@@ -129,7 +131,7 @@ Command trait 的 `description()` 接收 `&LcRegistry` 参数并返回 `String`�
 
 ## 状态管理
 
-**会话串行锁生命周期**：`acp_server::prompt_locks` 仅在会话已关闭、且锁表是该锁唯一 Arc 持有者时回收。运行中与排队请求结束后，先释放 prompt guard 和 Arc，再重试清理；同 ID 恢复期间保留原锁，避免新旧请求绕过串行。清理固定按 `sessions → prompt_locks` 顺序加锁。
+**会话串行锁生命周期**：`cc_acp::session::acp_server::prompt_locks` 仅在会话已关闭、且锁表是该锁唯一 Arc 持有者时回收。运行中与排队请求结束后，先释放 prompt guard 和 Arc，再重试清理；同 ID 恢复期间保留原锁，避免新旧请求绕过串行。清理固定按 `sessions → prompt_locks` 顺序加锁。
 
 **`ServiceRegistry` 与 `GlobalUiState`**：`App` 状态拆分为 `ServiceRegistry`（跨会话共享：config/MCP/cron/provider）和 `GlobalUiState`（纯 UI 临时状态：高亮计时器/弹窗）。面板 dispatch 宏（`with_global_panels!`/`with_session_panels!`）位于 `event/macros.rs`。
 

@@ -54,16 +54,19 @@ lefthook run pre-commit
 ```
 cc-code/
 ├── cc-agent/        # 核心 Agent 框架
-├── cc-middlewares/   # 中间件实现
-├── cc-tui/          # TUI 应用
+├── cc-tools/        # 叶子工具库（文件工具 / 进程 / BashTool）
+├── cc-terminal/     # 跨平台终端底层
+├── cc-tui-core/     # 会话核心与展示模型
+├── cc-middlewares/  # 中间件实现
+├── cc-tui/          # TUI 表现层
 ├── cc-acp/          # ACP 服务层
 ├── cc-widgets/      # Widget 组件库
 ├── cc-lsp/          # LSP 客户端
-├── langfuse-client/   # 遥测客户端
-└── spec/              # 设计文档
+├── langfuse-client/ # 遥测客户端
+└── spec/            # 设计文档
 ```
 
-详细说明请参考各 crate 的 README.md。
+详细说明请参考各 crate 的 README.md；**模块归属（改哪个 crate）以根目录 `CLAUDE.md` 的「模块归属速查」为准**——拆分后大量 `crate::` 路径由同名 `pub use` 垫片重导出，路径不等于物理位置。
 
 ## 编码规范
 
