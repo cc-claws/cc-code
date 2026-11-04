@@ -606,6 +606,49 @@ fn test_render_new_file_code_applies_syntax_highlight() {
     );
 }
 
+/// 新建 PHP 文件预览：无状态单行应仍能正确识别 PHP 语法关键字并着色
+#[cfg(feature = "markdown-highlight")]
+#[test]
+fn test_render_new_file_code_php_applies_syntax_highlight() {
+    let theme = MonokaiTestTheme;
+    let content = "<?php\ntry {\n  $pdo = new PDO();\n}\n";
+    let lines = crate::diff::render_new_file_code("app.php", content, 80, &theme, 10);
+    // 第 2 行是 "try {"
+    let try_line = &lines[1];
+    let try_span = try_line
+        .spans
+        .iter()
+        .find(|s| s.content.contains("try"))
+        .expect("应找到 try token");
+    assert_eq!(
+        try_span.style.fg,
+        Some(ratatui::style::Color::Rgb(249, 38, 114)),
+        "`try` 关键字应为 Monokai 粉红色"
+    );
+    // 第 3 行是 "  $pdo = new PDO();"
+    let pdo_line = &lines[2];
+    let new_span = pdo_line
+        .spans
+        .iter()
+        .find(|s| s.content.contains("new"))
+        .expect("应找到 new token");
+    assert_eq!(
+        new_span.style.fg,
+        Some(ratatui::style::Color::Rgb(246, 170, 17)),
+        "`new` 关键字应为 Monokai 橙色"
+    );
+    let pdo_span = pdo_line
+        .spans
+        .iter()
+        .find(|s| s.content.contains("PDO"))
+        .expect("应找到 PDO token");
+    assert_eq!(
+        pdo_span.style.fg,
+        Some(ratatui::style::Color::Rgb(166, 226, 46)),
+        "`PDO` 类名应为 Monokai 绿色"
+    );
+}
+
 /// P1-2 回归：渲染缓存 key 必须包含语言指纹，
 /// 内容相同但扩展名不同的两个文件不得串用语法高亮结果。
 #[cfg(feature = "markdown-highlight")]

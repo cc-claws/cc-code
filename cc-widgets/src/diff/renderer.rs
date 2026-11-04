@@ -12,10 +12,12 @@ use ratatui::{
 use crate::byte_cache::{estimate_lines_bytes, ByteBudgetCache};
 use crate::theme::Theme;
 
-use super::{compute_diff, CacheStats, DiffInput, DiffLine, DiffWordType};
+use super::{compute_diff, CacheStats, DiffInput, DiffLine, DiffResult, DiffWordType};
 
 #[cfg(feature = "markdown-highlight")]
-use crate::markdown::highlight::{syntect_color_to_ratatui, SYNTAX_SET, THEME_SET};
+use crate::markdown::highlight::{
+    find_syntax_for_token, syntect_color_to_ratatui, SYNTAX_SET, THEME_SET,
+};
 
 /// 把用于背景的 `Color::Reset` 转为 None，其余原样包裹为 Some。
 fn opt_bg(c: Color) -> Option<Color> {
@@ -349,7 +351,7 @@ fn highlight_line_spans(
     lang: &str,
 ) -> Option<Vec<Span<'static>>> {
     let ss = &*SYNTAX_SET;
-    let syntax = ss.find_syntax_by_token(lang)?;
+    let syntax = find_syntax_for_token(ss, lang)?;
     let theme = THEME_SET
         .themes
         .get(theme_name)
@@ -504,11 +506,27 @@ fn push_wrapped_line(
 /// 实际渲染逻辑（无缓存）
 fn render_diff_uncached(input: &DiffInput, width: usize, theme: &dyn Theme) -> Vec<Line<'static>> {
     let result = compute_diff(input);
+    render_diff_result(
+        &input.file_path,
+        &result,
+        width,
+        theme,
+        first_line_of(input),
+    )
+}
 
+/// 渲染已有 DiffResult（供 DiffInput 缓存渲染与 Patch 直接渲染共用）
+pub fn render_diff_result(
+    file_path: &str,
+    result: &DiffResult,
+    width: usize,
+    theme: &dyn Theme,
+    first_line: Option<&str>,
+) -> Vec<Line<'static>> {
     // 特殊情况：二进制文件
     if result.is_binary {
         return vec![Line::from(vec![Span::styled(
-            format!("  Binary file {} - cannot display diff", input.file_path),
+            format!("  Binary file {} - cannot display diff", file_path),
             Style::default().fg(theme.dim()),
         )])];
     }
@@ -516,10 +534,7 @@ fn render_diff_uncached(input: &DiffInput, width: usize, theme: &dyn Theme) -> V
     // 特殊情况：截断
     if result.is_truncated {
         return vec![Line::from(vec![Span::styled(
-            format!(
-                "  Diff too large for {} - changes not displayed",
-                input.file_path
-            ),
+            format!("  Diff too large for {} - changes not displayed", file_path),
             Style::default().fg(theme.dim()),
         )])];
     }
@@ -544,7 +559,7 @@ fn render_diff_uncached(input: &DiffInput, width: usize, theme: &dyn Theme) -> V
         None => Style::default().fg(fg),
     };
     lines.push(Line::from(vec![Span::styled(
-        format!("{} {}", prefix, input.file_path),
+        format!("{} {}", prefix, file_path),
         title_style,
     )]));
 
@@ -616,7 +631,7 @@ fn render_diff_uncached(input: &DiffInput, width: usize, theme: &dyn Theme) -> V
 
     // 语法高亮：从文件扩展名推导语言
     #[cfg(feature = "markdown-highlight")]
-    let syntax_lang = detect_language(&input.file_path, first_line_of(input));
+    let syntax_lang = detect_language(file_path, first_line);
     #[cfg(feature = "markdown-highlight")]
     let syntax_theme_name = theme.syntax_theme_name();
 

@@ -11,10 +11,13 @@ use crate::theme::Theme;
 
 use crate::byte_cache::ByteBudgetCache;
 
+pub mod patch;
 pub mod renderer;
 
 pub use crate::byte_cache::CacheStats;
+pub use patch::{is_patch_text, parse_patch, render_patch};
 pub use renderer::render_cache_stats;
+pub use renderer::render_diff_result;
 pub use renderer::render_new_file_code;
 
 /// diff 输入超过此大小时截断，不计算
@@ -338,7 +341,7 @@ fn compute_diff_uncached(input: &DiffInput) -> DiffResult {
 /// 对齐 CC `findAdjacentPairs`（`color-diff-napi/src/index.ts:601-627`）：
 /// 相邻的 `-` 块与 `+` 块按 `min(delCount, addCount)` 逐对配对——Add 少于
 /// Remove 时前 n 对仍有词级高亮，而不是整块放弃。
-fn fill_word_diffs(lines: &mut [DiffLine]) {
+pub(crate) fn fill_word_diffs(lines: &mut [DiffLine]) {
     // 收集需要做 word diff 的 (remove_idx, add_idx) 对
     let mut pairs: Vec<(usize, usize)> = Vec::new();
     let mut i = 0;

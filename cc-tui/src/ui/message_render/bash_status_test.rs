@@ -210,3 +210,33 @@ fn test_tool_phase_changes_equality_and_hash() {
         "阶段必须参与渲染 hash"
     );
 }
+
+#[test]
+fn test_finished_bash_git_diff_renders_as_formatted_diff() {
+    let diff = "diff --git a/src/lib.rs b/src/lib.rs\nindex 111..222 100644\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1,2 +1,3 @@\n pub fn a() {}\n+pub fn b() {}\n";
+    let vm = make_bash(ToolPhase::Finished, diff);
+    let text = make_text(&vm, true);
+    assert!(text.contains("src/lib.rs"), "应包含文件标题行: {text}");
+    assert!(text.contains("+"), "应包含增加的 diff 标记: {text}");
+}
+
+#[test]
+fn test_shell_command_git_diff_renders_as_formatted_diff() {
+    let diff = "diff --git a/app.php b/app.php\nindex 111..222 100644\n--- a/app.php\n+++ b/app.php\n@@ -1,2 +1,3 @@\n <?php\n+try {}\n";
+    let lines = render_shell_command("git diff", &[], diff, "", Some(0), true, 100, None, false);
+    let text = lines
+        .iter()
+        .map(|l| {
+            l.spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        text.contains("app.php"),
+        "ShellCommand 应渲染 patch 标题: {text}"
+    );
+    assert!(text.contains("+"), "ShellCommand 应渲染 patch 改动: {text}");
+}

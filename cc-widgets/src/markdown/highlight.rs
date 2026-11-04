@@ -8,6 +8,24 @@ use syntect::{easy::HighlightLines, highlighting::ThemeSet, parsing::SyntaxSet};
 pub static SYNTAX_SET: Lazy<SyntaxSet> = Lazy::new(two_face::syntax::extra_newlines);
 pub static THEME_SET: Lazy<ThemeSet> = Lazy::new(load_theme_set);
 
+/// 根据语言 token 查找语法定义。
+///
+/// 特殊处理：
+/// - PHP：syntect 默认把 `.php` 扩展名绑定到嵌入式 HTML 语法（`embedding.php`），
+///   在没有或离开 `<?php` 作用域时会回退纯文本；此处优先查找纯源码语法 `"PHP Source"`
+///   （`<source.php>`），保证纯 PHP 单行、diff 与代码块高亮正常生效。
+pub fn find_syntax_for_token<'a>(
+    ss: &'a SyntaxSet,
+    lang: &str,
+) -> Option<&'a syntect::parsing::SyntaxReference> {
+    if lang.eq_ignore_ascii_case("php") {
+        if let Some(syntax) = ss.find_syntax_by_name("PHP Source") {
+            return Some(syntax);
+        }
+    }
+    ss.find_syntax_by_token(lang)
+}
+
 /// 内嵌的 Monokai Extended 主题（dark / light），对齐 CC 的 diff 配色。
 /// 来源：https://github.com/jonschlinkert/sublime-monokai-extended（bat 同款）
 const MONOKAI_EXTENDED_DARK: &str = include_str!("themes/monokai-extended.tmTheme");
@@ -84,7 +102,7 @@ pub fn highlight_code_block(
     theme_name: &str,
 ) -> Option<Vec<Line<'static>>> {
     let ss = &*SYNTAX_SET;
-    let syntax = ss.find_syntax_by_token(lang)?;
+    let syntax = find_syntax_for_token(ss, lang)?;
     let theme = THEME_SET
         .themes
         .get(theme_name)
