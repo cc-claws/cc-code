@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.231：**Bash 输出 git diff 智能高亮渲染与 PHP 纯源码高亮修复**——终端输入 `!git diff` 或 Agent 执行 `git diff` 时，输出自动接入内置 Diff 渲染管线，呈现带代码语法着色、单侧行号 Gutter 与词级对比（Word-diff）的高颜值视图；同时修复 syntect 将 `.php` 绑定到 HTML 嵌入语法导致脱离 `<?php` 后单行高亮全变白字的问题，优先使用纯源码语法 `"PHP Source"` 稳定高亮（#872, #873）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.229：**任务报错与失败场景下保留雪花总结行**——遇到 LLM HTTP 404/550 报错或 Agent 异常终止时，此前在清理阶段会盲目清空 Spinner 总结行（clear_summary），导致报错信息下方完全空白、丢失了本次任务运行的耗时与完成时刻反馈。现在改进为：遇错时记录失败态总结行，保留耗时与时间戳打点，统一展示为雪花前缀的失败总结行（`✻ Failed after Xs · HH:MM`），既保留关键时间反馈，又消除了成功动词与报错混杂的认知冲突（#863, #864）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.228：**含 VS16 宽字形的表格行不再错位**——表格某行含 `⚠️`（`U+26A0 U+FE0F`）时，该行竖线分隔符与右侧边框曾整体右移 1 格、右边框冲出表格边界，滚动重绘后还会残留悬空竖线。根因在输出层：`Buffer::diff` 为宽字形补画的尾格被后端当作相邻格续写，不认宽字形已把光标推进 2 列。现在下发前丢弃被宽字形覆盖的尾格，判断依据取实际下发的字形宽度，表格渲染算法未改动（#860）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
