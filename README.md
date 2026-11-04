@@ -196,9 +196,15 @@ irm https://raw.githubusercontent.com/cc-claws/cc-code/main/scripts/install.ps1 
 cc-code/
 ├── cc-agent/                # Core: Agent loop, tool system, persistence, telemetry
 │   └── README.md              # Agent framework guide
-├── cc-middlewares/           # Middleware: filesystem, terminal, MCP, Hooks, etc.
+├── cc-tools/                # Leaf tool crate: stateless core tools and cross-platform process wrapper
+│   └── README.md              # Tool catalog and contracts
+├── cc-terminal/             # Cross-platform terminal layer: backend, viewport, clipboard, ConPTY
+│   └── README.md              # Terminal backend and capabilities
+├── cc-middlewares/           # Middleware: HITL, SubAgent, Skills, MCP, Hooks (file/terminal tools live in cc-tools / cc-terminal)
 │   ├── README.md              # Middleware overview
 │   └── CLAUDE.md              # Development guide and traps
+├── cc-tui-core/             # Session core & display model: i18n, theme, markdown, MessageViewModel
+│   └── README.md              # Display model and core state
 ├── cc-tui/                  # TUI application (Ratatui)
 │   ├── README.md              # TUI usage guide
 │   └── CLAUDE.md              # Development guide and traps
