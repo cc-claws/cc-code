@@ -1,5 +1,9 @@
 pub mod cache;
+pub mod math;
 mod render_state;
+
+#[cfg(test)]
+mod math_test;
 
 #[cfg(feature = "markdown-highlight")]
 pub mod highlight;
@@ -212,7 +216,7 @@ pub fn parse_markdown_with_options(
         return cached;
     }
 
-    let options = Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS;
+    let options = Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS | Options::ENABLE_MATH;
     let parser = Parser::new_ext(input, options).into_offset_iter();
     let mut state = RenderState::new(theme)
         .with_max_width(max_width)

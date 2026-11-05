@@ -5,6 +5,7 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthStr;
 
+use super::math::render_math;
 use super::{LinkHit, MarkdownTheme};
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -1641,6 +1642,41 @@ impl<'a> RenderState<'a> {
             }
             Event::HardBreak => {
                 self.flush_line();
+            }
+
+            // ── 数学公式 ─────────────────────────────────────────────────────
+            Event::InlineMath(text) => {
+                let rendered = render_math(text.as_ref());
+                let style = self.inline_style.fg(self.theme.code());
+                self.push_inline(Span::styled(rendered, style));
+            }
+            Event::DisplayMath(text) => {
+                let rendered = render_math(text.as_ref());
+                if self.table.is_some() {
+                    // 表格单元格内退化为行内形式，避免破坏表格布局
+                    let style = self.inline_style.fg(self.theme.code());
+                    self.push_inline(Span::styled(rendered, style));
+                } else {
+                    if !self.current_spans.is_empty() {
+                        self.flush_line();
+                    }
+                    // 独立成行展示，如果在列表项内，添加对应列表深度的缩进
+                    let indent = if let Some(depth) = self.list_stack.len().checked_sub(1) {
+                        "  ".repeat(depth + 1)
+                    } else {
+                        String::new()
+                    };
+                    for line in rendered.lines() {
+                        if !indent.is_empty() {
+                            self.current_spans.push(Span::raw(indent.clone()));
+                        }
+                        self.current_spans.push(Span::styled(
+                            line.to_string(),
+                            self.inline_style.fg(self.theme.code()),
+                        ));
+                        self.flush_line();
+                    }
+                }
             }
 
             _ => {}

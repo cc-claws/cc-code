@@ -838,6 +838,70 @@ fn test_link_hit_wrapped_across_lines_all_share_url() {
     }
 }
 
+// ── 数学公式渲染场景 ──────────────────────────────────────────
+
+#[test]
+fn test_markdown_inline_math() {
+    let input = "质能方程为 $E = mc^2$，其中 $c$ 为常数。";
+    let text = parse_markdown(input, &default_theme(), 80);
+    let full_text: String = text
+        .lines
+        .iter()
+        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+        .collect();
+    assert!(
+        full_text.contains("E = mc²"),
+        "行内公式应解析并转写上标：got {full_text}"
+    );
+}
+
+#[test]
+fn test_markdown_display_math_standalone() {
+    let input = "公式如下：\n\n$$\\alpha + \\beta \\le \\gamma$$\n\n结论成立。";
+    let text = parse_markdown(input, &default_theme(), 80);
+    let full_text: String = text
+        .lines
+        .iter()
+        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+        .collect();
+    assert!(
+        full_text.contains("α + β ≤ γ"),
+        "块级公式应转换为 Unicode 数学符号：got {full_text}"
+    );
+}
+
+#[test]
+fn test_markdown_display_math_in_list() {
+    let input = "1. 计算规则：\n$$\\text{Result} = (\\text{Value A} + \\text{Value B}).\\text{fixed}(2)$$\n代码参考：demo";
+    let text = parse_markdown(input, &default_theme(), 80);
+    let full_text: String = text
+        .lines
+        .iter()
+        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+        .collect();
+    assert!(
+        full_text.contains("Result = (Value A + Value B).fixed(2)"),
+        "列表项中的块级公式应提纯 text 语法：got {full_text}"
+    );
+    assert!(full_text.contains("计算规则"));
+    assert!(full_text.contains("代码参考：demo"));
+}
+
+#[test]
+fn test_markdown_math_in_table() {
+    let input = "| 名称 | 公式 |\n| --- | --- |\n| 勾股定理 | $a^2 + b^2 = c^2$ |";
+    let text = parse_markdown(input, &default_theme(), 80);
+    let full_text: String = text
+        .lines
+        .iter()
+        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+        .collect();
+    assert!(
+        full_text.contains("a² + b² = c²"),
+        "表格内的行内公式应被正确转写：got {full_text}"
+    );
+}
+
 #[test]
 fn test_link_hit_plain_text_has_no_links() {
     let doc = parse_markdown_with_links("没有任何链接的普通文本", &default_theme(), 80);
