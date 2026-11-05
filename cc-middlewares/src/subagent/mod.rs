@@ -136,7 +136,7 @@ use crate::{agent_define::AgentOverrides, parse_agent_file, tools::BoxToolWrappe
 ///     Box::new(BaseModelReactLLM::new(model.clone())) as Box<dyn ReactLLM + Send + Sync>
 /// });
 /// // Optional: system prompt builder, making sub-agent's tone/proactiveness visible in Langfuse
-/// let system_builder = Arc::new(|overrides: Option<&AgentOverrides>, cwd: &str| {
+/// let system_builder = Arc::new(|overrides: Option<&AgentOverrides>, cwd: &str, _tools: &[String]| {
 ///     build_system_prompt(overrides, cwd)
 /// });
 /// let middleware = SubAgentMiddleware::new(parent_tools, Some(event_handler), llm_factory)
@@ -152,10 +152,11 @@ pub struct SubAgentMiddleware {
     /// Parameter is optional model alias (e.g., "haiku"/"sonnet"/"opus"), None means use parent model
     #[allow(clippy::type_complexity)]
     llm_factory: Arc<dyn Fn(Option<&str>) -> Box<dyn ReactLLM + Send + Sync> + Send + Sync>,
-    /// System prompt builder: (agent overrides, cwd) -> system prompt string
+    /// System prompt builder: (agent overrides, cwd, visible canonical tool names) -> system prompt
     /// When set, child agent injects system prompt via with_system_prompt() (visible in Langfuse)
     #[allow(clippy::type_complexity)]
-    system_builder: Option<Arc<dyn Fn(Option<&AgentOverrides>, &str) -> String + Send + Sync>>,
+    system_builder:
+        Option<Arc<dyn Fn(Option<&AgentOverrides>, &str, &[String]) -> String + Send + Sync>>,
     /// 主 Agent 的会话内核，由 build_tool 传给子 Agent。
     kernel: cc_agent::kernel::Kernel,
     /// Parent agent cancellation token (passed to child agent, supports user interruption)
@@ -231,7 +232,7 @@ impl SubAgentMiddleware {
     #[allow(clippy::type_complexity)]
     pub fn with_system_builder(
         mut self,
-        builder: Arc<dyn Fn(Option<&AgentOverrides>, &str) -> String + Send + Sync>,
+        builder: Arc<dyn Fn(Option<&AgentOverrides>, &str, &[String]) -> String + Send + Sync>,
     ) -> Self {
         self.system_builder = Some(builder);
         self

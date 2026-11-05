@@ -58,10 +58,10 @@ pub struct SubAgentTool {
     #[allow(clippy::type_complexity)]
     pub(crate) llm_factory:
         Arc<dyn Fn(Option<&str>) -> Box<dyn ReactLLM + Send + Sync> + Send + Sync>,
-    /// System prompt builder: (agent overrides, cwd) -> system prompt string
+    /// System prompt builder: (agent overrides, cwd, visible canonical tool names) -> system prompt
     #[allow(clippy::type_complexity)]
     pub(crate) system_builder:
-        Option<Arc<dyn Fn(Option<&AgentOverrides>, &str) -> String + Send + Sync>>,
+        Option<Arc<dyn Fn(Option<&AgentOverrides>, &str, &[String]) -> String + Send + Sync>>,
     /// Optional cancellation token for interrupting sub-agent execution
     pub(crate) cancel: Option<AgentCancellationToken>,
     /// Shared reference to parent agent message snapshot (used by Fork path)
@@ -174,7 +174,7 @@ impl SubAgentTool {
     #[allow(clippy::type_complexity)]
     pub fn with_system_builder(
         mut self,
-        builder: Arc<dyn Fn(Option<&AgentOverrides>, &str) -> String + Send + Sync>,
+        builder: Arc<dyn Fn(Option<&AgentOverrides>, &str, &[String]) -> String + Send + Sync>,
     ) -> Self {
         self.system_builder = Some(builder);
         self

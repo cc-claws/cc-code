@@ -220,7 +220,7 @@ fn make_runner(
         cwd: Arc::from(fixture.cwd()),
         rendered: Arc::from(FROZEN_GUIDANCE),
     }))
-    .with_system_builder(Arc::new(move |overrides, _cwd| {
+    .with_system_builder(Arc::new(move |overrides, _cwd, _tools| {
         observations
             .personas
             .lock()

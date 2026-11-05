@@ -30,7 +30,9 @@ pub type RegisterRuntimeFn =
 pub type DeregisterRuntimeFn = Arc<dyn Fn(&str) + Send + Sync>;
 /// System prompt 构建器类型
 pub type SystemPromptBuilder = Arc<
-    dyn Fn(Option<&cc_middlewares::agent_define::AgentOverrides>, &str) -> String + Send + Sync,
+    dyn Fn(Option<&cc_middlewares::agent_define::AgentOverrides>, &str, &[String]) -> String
+        + Send
+        + Sync,
 >;
 use cc_agent::{
     agent::{state::AgentState, AgentCancellationToken, ReActAgent},
@@ -431,25 +433,15 @@ fn build_agent_inner(
     // 系统提示构建器
     let frozen_language_for_sub = peri_config.config.language.clone();
     let frozen_date_for_sub = frozen_date.clone();
-    let sub_model_name = model_name.clone();
-    let system_builder: SystemPromptBuilder = Arc::new(move |overrides, cwd_dir| {
-        let features = crate::prompt::PromptFeatures::detect();
-        let prompt = crate::prompt::build_system_prompt_for_kernel(
+    let system_builder: SystemPromptBuilder = Arc::new(move |overrides, cwd_dir, tools| {
+        crate::prompt::build_subagent_system_prompt(
             overrides,
             cwd_dir,
-            features,
-            &[],
             frozen_date_for_sub.as_deref(),
             frozen_language_for_sub.as_deref(),
             kernel,
-        );
-        // 子 Agent 与主 Agent 使用同一内核的提示词段落。
-        let kernel_prompt = kernel.prompt_for(&sub_model_name);
-        if kernel_prompt.is_empty() {
-            prompt
-        } else {
-            format!("{prompt}\n\n{kernel_prompt}")
-        }
+            tools,
+        )
     });
 
     // Parent message snapshot

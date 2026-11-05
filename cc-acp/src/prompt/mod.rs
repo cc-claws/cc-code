@@ -199,6 +199,102 @@ pub(crate) fn build_system_prompt_with_memory_for_kernel(
     memory: Option<&AutoMemorySnapshot>,
     kernel: Kernel,
 ) -> String {
+    build_system_prompt_inner(
+        overrides,
+        cwd,
+        features,
+        extra_agent_dirs,
+        frozen_date,
+        language,
+        memory,
+        kernel,
+        false,
+    )
+}
+
+/// 子 Agent 的工具指引来自权限过滤后的实际工具集，不沿用主 Agent 的能力声明。
+pub(crate) fn build_subagent_system_prompt(
+    overrides: Option<&AgentOverrides>,
+    cwd: &str,
+    frozen_date: Option<&str>,
+    language: Option<&str>,
+    kernel: Kernel,
+    available_tools: &[String],
+) -> String {
+    let mut features = PromptFeatures::detect();
+    features.subagent_enabled = false;
+    features.cron_enabled = false;
+    features.channel_enabled = false;
+    let skills_enabled = available_tools.iter().any(|name| name == "Skill");
+    // The main-agent skill section promises context:fork execution. Children
+    // load inline skills through SkillsMiddleware and cannot delegate again.
+    features.skills_enabled = false;
+    let memory = AutoMemorySnapshot::capture(cwd);
+    let mut prompt = build_system_prompt_inner(
+        overrides,
+        cwd,
+        features,
+        &[],
+        frozen_date,
+        language,
+        Some(&memory),
+        kernel,
+        true,
+    );
+    prompt.push_str(&format!(
+        "\n\n# Agent Kernel: {}\n\n# Subagent tool policy\n\n\
+         Complete the assigned task directly with the tools below and their exposed schemas. \
+         Do not delegate further work. If a required capability or authorization is missing, \
+         report it to the parent agent and continue independent work. \
+         Inherited MCP tools are called directly and keep their original names and parameters.\n\n<tools>\n",
+        kernel.id()
+    ));
+    for name in available_tools {
+        let description = kernel
+            .tool_spec(name)
+            .map(|spec| {
+                if spec.description.is_empty() {
+                    spec.prompt_snippet
+                } else {
+                    spec.description
+                }
+            })
+            .unwrap_or("Use the exposed tool schema and description.");
+        prompt.push_str(&format!("- {}: {description}\n", kernel.echo_name(name)));
+    }
+    prompt.push_str("</tools>");
+    if available_tools.iter().any(|name| name == "Edit") {
+        if available_tools.iter().any(|name| name == "Read") {
+            prompt.push_str(&format!(
+                "\n\nInspect the target with `{}` before using `{}`.",
+                kernel.echo_name("Read"),
+                kernel.echo_name("Edit")
+            ));
+        }
+        if kernel.tool_spec("Edit").and_then(|spec| spec.mutation_form)
+            == Some(cc_agent::kernel::MutationForm::BatchReplace)
+        {
+            prompt.push_str("\nBatch edits match the original file at once. Each oldText must occur exactly once, ranges must not overlap, and a failed batch leaves the file unchanged.");
+        }
+    }
+    if skills_enabled {
+        prompt.push_str("\n\nSkills can be loaded inline here. Report skills requiring an isolated child execution to the parent agent; nested delegation is unavailable.");
+    }
+    prompt
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_system_prompt_inner(
+    overrides: Option<&AgentOverrides>,
+    cwd: &str,
+    features: PromptFeatures,
+    extra_agent_dirs: &[std::path::PathBuf],
+    frozen_date: Option<&str>,
+    language: Option<&str>,
+    memory: Option<&AutoMemorySnapshot>,
+    kernel: Kernel,
+    subagent: bool,
+) -> String {
     let env = if let Some(date) = frozen_date {
         PromptEnv::with_frozen_date(cwd, date)
     } else {
@@ -342,7 +438,7 @@ pub(crate) fn build_system_prompt_with_memory_for_kernel(
     for (i, section) in static_sections.iter().enumerate() {
         // Each non-cc kernel supplies its own tool policy. Keep shared task and
         // permission rules, without the cc-only deferred-tool instructions.
-        if !kernel.is_cc() && i == 4 {
+        if i == 4 && (!kernel.is_cc() || subagent) {
             continue;
         }
         if i > 0 {

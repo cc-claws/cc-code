@@ -793,6 +793,84 @@ async fn test_hitl_edit_diff_includes_surrounding_context_lines() {
 }
 
 #[tokio::test]
+async fn test_hitl_kernel_batch_edit_diff_shows_original_context_without_dumping_edits() {
+    for dialect in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("batch.txt");
+        let original = "before context\nalpha\nmiddle context\nbeta\nafter context\n";
+        std::fs::write(&path, original).unwrap();
+        let input = if dialect {
+            serde_json::json!({"path":path,"edits":[{"oldText":"beta","newText":"gamma"},{"oldText":"alpha","newText":"beta"}]})
+        } else {
+            serde_json::json!({"file_path":path,"edits":[{"old_string":"beta","new_string":"gamma"},{"old_string":"alpha","new_string":"beta"}]})
+        };
+        let item = BatchItem {
+            tool_call_id: String::new(),
+            tool_name: "Edit".to_string(),
+            input,
+        };
+        let (mut app, mut handle) =
+            make_headless_hitl(120, 44, "en", vec![make_bash_item("git status"), item]).await;
+        let collapsed = make_hitl_snapshot(&mut app, &mut handle).join("\n");
+        assert!(!collapsed.contains("oldText") && !collapsed.contains("old_string"));
+        let Some(InteractionPrompt::Approval(prompt)) =
+            &mut app.session_mgr.current_mut().agent.interaction_prompt
+        else {
+            panic!("approval prompt missing");
+        };
+        prompt.cursor = 1;
+        let expanded = make_hitl_snapshot(&mut app, &mut handle).join("\n");
+        assert!(expanded.contains("gamma"), "{expanded}");
+        assert!(expanded.contains("before context"));
+        assert!(expanded.contains("middle context"));
+        assert!(expanded.contains("after context"));
+        assert!(
+            !expanded.contains("edits:")
+                && !expanded.contains("oldText")
+                && !expanded.contains("old_string")
+        );
+        assert!(expanded.contains('−') && expanded.contains('+'));
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            original,
+            "rendering must not write files"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_hitl_kernel_batch_edit_preview_invalidates_same_length_file_cache_within_one_second()
+{
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("cached.txt");
+    let set_modified = |nanos| {
+        let modified = std::time::UNIX_EPOCH + std::time::Duration::new(1_800_000_000, nanos);
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(modified))
+            .unwrap();
+    };
+    std::fs::write(&path, "first context\nchange_here\nend\n").unwrap();
+    set_modified(100_000_000);
+    let item = BatchItem {
+        tool_call_id: String::new(),
+        tool_name: "Edit".to_string(),
+        input: serde_json::json!({"file_path":path,"edits":[{"old_string":"change_here","new_string":"updated"}]}),
+    };
+    let (mut app, mut handle) = make_headless_hitl(120, 30, "en", vec![item]).await;
+    assert!(make_hitl_snapshot(&mut app, &mut handle)
+        .join("\n")
+        .contains("first context"));
+    std::fs::write(&path, "later context\nchange_here\nend\n").unwrap();
+    set_modified(800_000_000);
+    let updated = make_hitl_snapshot(&mut app, &mut handle).join("\n");
+    assert!(updated.contains("later context"), "{updated}");
+    assert!(!updated.contains("first context"), "{updated}");
+}
+
+#[tokio::test]
 async fn test_hitl_bash_description_sits_above_body_rule_without_prefix() {
     let item = BatchItem {
         tool_call_id: String::new(),

@@ -368,6 +368,61 @@ impl EditFileTool {
         &self,
         input: &Value,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        let plan = BatchEditPlan::parse(input)?;
+        let resolved = resolve_path(&self.cwd, plan.file_path);
+        let raw_content = match std::fs::read_to_string(&resolved) {
+            Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Err(format!("Error: File not found at {}", resolved.display()).into());
+            }
+            Err(e) => return Err(e.into()),
+        };
+        let final_content = plan.apply(&raw_content, &resolved.to_string_lossy())?;
+        let line_diff = final_content.lines().count() as i64 - raw_content.lines().count() as i64;
+        let diff_desc = match line_diff.cmp(&0) {
+            std::cmp::Ordering::Greater => format!(
+                "Added {} line{}",
+                line_diff,
+                if line_diff == 1 { "" } else { "s" }
+            ),
+            std::cmp::Ordering::Less => format!(
+                "Removed {} line{}",
+                -line_diff,
+                if -line_diff == 1 { "" } else { "s" }
+            ),
+            std::cmp::Ordering::Equal => "Replaced text (same line count)".to_string(),
+        };
+        let rel = super::display_rel_path(&self.cwd, &resolved);
+        let total = plan.edits.len();
+        let message = format!(
+            "Applied {} edits to {} ({}, {} replacements)",
+            total, rel, diff_desc, total
+        );
+        // 拼接结果与原文相同：不写盘，避免仅刷新 mtime。
+        if final_content == raw_content {
+            return Ok(message);
+        }
+        write_atomic(&resolved, &final_content)?;
+        Ok(message)
+    }
+}
+
+/// Compute the exact batch-edit result for an approval preview without writing files.
+pub fn preview_batch_edit(
+    raw_content: &str,
+    input: &Value,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let plan = BatchEditPlan::parse(input)?;
+    plan.apply(raw_content, plan.file_path)
+}
+
+struct BatchEditPlan<'a> {
+    file_path: &'a str,
+    edits: Vec<(String, String)>,
+}
+
+impl<'a> BatchEditPlan<'a> {
+    fn parse(input: &'a Value) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         if input.get("old_string").is_some() || input.get("new_string").is_some() {
             return Err(
                 "Error: 'edits' cannot be combined with top-level 'old_string'/'new_string'"
@@ -401,25 +456,28 @@ impl EditFileTool {
             parsed.push((old.replace("\r\n", "\n"), new.replace("\r\n", "\n")));
         }
 
-        let resolved = resolve_path(&self.cwd, file_path);
-        let raw_content = match std::fs::read_to_string(&resolved) {
-            Ok(c) => c,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return Err(format!("Error: File not found at {}", resolved.display()).into());
-            }
-            Err(e) => return Err(e.into()),
-        };
+        Ok(Self {
+            file_path,
+            edits: parsed,
+        })
+    }
+
+    fn apply(
+        &self,
+        raw_content: &str,
+        display_path: &str,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         // CRLF 在整个循环外归一化一次、恢复一次，避免 \r\r\n。
         let is_crlf = raw_content.contains("\r\n");
         let content = if is_crlf {
             raw_content.replace("\r\n", "\n")
         } else {
-            raw_content.clone()
+            raw_content.to_string()
         };
 
         // 预匹配：所有区间都相对原文，互不影响。
-        let mut ranges: Vec<(usize, usize, String, usize)> = Vec::with_capacity(parsed.len());
-        for (idx, (old, new)) in parsed.iter().enumerate() {
+        let mut ranges: Vec<(usize, usize, String, usize)> = Vec::with_capacity(self.edits.len());
+        for (idx, (old, new)) in self.edits.iter().enumerate() {
             // 必须检测**重叠**匹配：str::match_indices 只返回不重叠匹配，
             // 例如原文 "aaa"、old_string="aa" 实际有 2 个位置，漏检会误判为唯一。
             let matches = find_all_occurrences(&content, old);
@@ -428,7 +486,7 @@ impl EditFileTool {
                 return Err(format!(
                     "Error: Edit #{} old_string not found in {}\n{}",
                     idx + 1,
-                    resolved.display(),
+                    display_path,
                     hint
                 )
                 .into());
@@ -442,7 +500,7 @@ impl EditFileTool {
                 return Err(format!(
                     "Error: Edit #{} old_string is not unique in {} (found {} occurrences).\nMatches at: {}.\nProvide more surrounding context to make it unique.",
                     idx + 1,
-                    resolved.display(),
+                    display_path,
                     matches.len(),
                     locations.join(", ")
                 )
@@ -474,32 +532,7 @@ impl EditFileTool {
         } else {
             working
         };
-        let line_diff = final_content.lines().count() as i64 - content.lines().count() as i64;
-        let diff_desc = match line_diff.cmp(&0) {
-            std::cmp::Ordering::Greater => format!(
-                "Added {} line{}",
-                line_diff,
-                if line_diff == 1 { "" } else { "s" }
-            ),
-            std::cmp::Ordering::Less => format!(
-                "Removed {} line{}",
-                -line_diff,
-                if -line_diff == 1 { "" } else { "s" }
-            ),
-            std::cmp::Ordering::Equal => "Replaced text (same line count)".to_string(),
-        };
-        let rel = super::display_rel_path(&self.cwd, &resolved);
-        let total = ranges.len();
-        let message = format!(
-            "Applied {} edits to {} ({}, {} replacements)",
-            total, rel, diff_desc, total
-        );
-        // 拼接结果与原文相同：不写盘，避免仅刷新 mtime。
-        if final_content == raw_content {
-            return Ok(message);
-        }
-        write_atomic(&resolved, &final_content)?;
-        Ok(message)
+        Ok(final_content)
     }
 }
 
@@ -601,6 +634,10 @@ fn write_atomic(path: &std::path::Path, content: &str) -> std::io::Result<()> {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "edit_batch_preview_test.rs"]
+mod batch_preview_tests;
 
 #[cfg(test)]
 mod tests {
