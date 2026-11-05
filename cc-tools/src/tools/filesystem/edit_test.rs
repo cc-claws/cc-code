@@ -587,7 +587,12 @@
             .invoke(serde_json::json!({"file_path": "f.txt", "old_string": "foo", "new_string": "bar"}))
             .await
             .unwrap();
-        assert!(ok.contains("Replaced text (same line count) to f.txt"), "unexpected: {ok}");
+        // rel 在 CI 的 tempdir 下可能退化为绝对路径，断言只校验消息形态与文件名。
+        assert!(
+            ok.starts_with("Replaced text (same line count) to "),
+            "unexpected: {ok}"
+        );
+        assert!(ok.ends_with("f.txt"), "unexpected: {ok}");
         let err = tool
             .invoke(serde_json::json!({"file_path": "f.txt", "old_string": "missing", "new_string": "x"}))
             .await

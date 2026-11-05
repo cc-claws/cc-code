@@ -187,7 +187,7 @@ impl Kernel {
             PromptSource::Single(p) => p,
             PromptSource::ByModel { default, overrides } => {
                 if let Some((_, p)) = overrides.iter().find(|(m, _)| *m == model) {
-                    return *p;
+                    return p;
                 }
                 overrides
                     .iter()
