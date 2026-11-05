@@ -190,7 +190,9 @@ impl App {
                     });
                 }
 
-                if name == "Write" {
+                // Write 与 Edit（pi 内核的 Batch 形态）都在执行前采集旧内容快照：
+                // 多编辑无法从最终内容反推原文，必须靠快照生成全文 diff。
+                if matches!(name.as_str(), "Write" | "Edit") {
                     if let Some(snapshot) = update.pointer("/_meta/peri/fileSnapshot") {
                         if let Ok(snapshot) = serde_json::from_value::<cc_agent::tools::FileSnapshot>(
                             snapshot.clone(),

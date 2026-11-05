@@ -7,6 +7,22 @@
     }
 
     #[tokio::test]
+    async fn test_create_preserves_kernel_after_reopen() {
+        let (store, directory) = make_store().await;
+        let mut meta = ThreadMeta::new("/tmp");
+        meta.kernel_id = Some("pi".to_string());
+        let id = store.create_thread(meta).await.unwrap();
+        drop(store);
+        let reopened = SqliteThreadStore::new(directory.path().join("test.db"))
+            .await
+            .unwrap();
+        assert_eq!(
+            reopened.load_meta(&id).await.unwrap().kernel_id.as_deref(),
+            Some("pi")
+        );
+    }
+
+    #[tokio::test]
     async fn test_create_append_load() {
         let (store, _dir) = make_store().await;
         let meta = ThreadMeta::new("/tmp");

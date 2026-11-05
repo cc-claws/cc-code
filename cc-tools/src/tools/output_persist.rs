@@ -12,9 +12,14 @@ pub fn persist_truncated_output(full_content: &str) -> String {
     match fs::write(&file_path, full_content) {
         Ok(_) => {
             let read_path = file_path.to_string_lossy().replace('\\', "/");
+            let kernel = cc_agent::tools::ToolInvocationContext::kernel();
+            let read_tool = kernel.echo_name("Read");
+            let path_param = kernel.dialectize_param_names("file_path");
             format!(
-                "\n\n[Full output saved to {}]\n[If your answer depends on omitted content, you must call the Read tool with file_path=\"{}\" before answering. Use offset/limit for large files.]",
+                "\n\n[Full output saved to {}]\n[If your answer depends on omitted content, you must call the {} tool with {}=\"{}\" before answering. Use offset/limit for large files.]",
                 file_path.display(),
+                read_tool,
+                path_param,
                 read_path
             )
         }

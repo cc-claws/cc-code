@@ -88,7 +88,7 @@ impl BaseTool for AskUserTool {
     }
 
     fn parameters(&self) -> Value {
-        ask_user_tool_definition().parameters
+        ask_user_tool_definition().parameters.into_json()
     }
 
     async fn invoke(

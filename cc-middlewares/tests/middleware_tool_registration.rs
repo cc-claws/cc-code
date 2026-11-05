@@ -1,3 +1,4 @@
+use cc_agent::kernel::MutationForm;
 use cc_agent::prelude::*;
 use cc_middlewares::middleware::{FilesystemMiddleware, TerminalMiddleware};
 use std::fs;
@@ -51,7 +52,7 @@ async fn test_filesystem_middleware_provides_all_tools() {
     let dir = setup_temp_dir();
     let cwd = dir.path().to_str().unwrap();
 
-    let tools = FilesystemMiddleware::build_tools(cwd);
+    let tools = FilesystemMiddleware::build_tools(cwd, MutationForm::default());
     let tool_names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
 
     for expected in FilesystemMiddleware::tool_names() {

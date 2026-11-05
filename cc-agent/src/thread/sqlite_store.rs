@@ -16,21 +16,21 @@ use crate::{
 const THREAD_COLUMNS: &str = "t.id, t.title, t.cwd, t.created_at, t.updated_at, t.message_count,
     COALESCE(SUM(LENGTH(CAST(m.content AS BLOB))), 0) as content_size,
     t.parent_thread_id, t.snapshot_at_message_id, t.hidden, t.cancel_policy, t.config, t.cached_context, t.agent_status,
-    t.latest_recap, t.last_task_summary, t.model, t.reasoning_effort, t.branch";
+    t.latest_recap, t.last_task_summary, t.model, t.reasoning_effort, t.branch, t.kernel_id";
 
 /// SELECT thread 元数据列（不含 cached_context），用于 list_threads 等列表场景。
 /// cached_context 包含完整消息历史 JSON，加载所有线程时会占用大量内存（~1MB/线程）。
 const THREAD_META_COLUMNS: &str = "t.id, t.title, t.cwd, t.created_at, t.updated_at, t.message_count,
     COALESCE(SUM(LENGTH(CAST(m.content AS BLOB))), 0) as content_size,
     t.parent_thread_id, t.snapshot_at_message_id, t.hidden, t.cancel_policy, t.config, NULL as cached_context, t.agent_status,
-    t.latest_recap, t.last_task_summary, t.model, t.reasoning_effort, t.branch";
+    t.latest_recap, t.last_task_summary, t.model, t.reasoning_effort, t.branch, t.kernel_id";
 
 /// 不联接消息表，不加载配置与上下文大字段，用于命令中心的全量统计。
 const THREAD_METADATA_COLUMNS: &str =
     "t.id, t.title, t.cwd, t.created_at, t.updated_at, t.message_count,
     0 as content_size, t.parent_thread_id, t.snapshot_at_message_id, t.hidden, t.cancel_policy,
     NULL as config, NULL as cached_context, t.agent_status, t.latest_recap, t.last_task_summary,
-    t.model, t.reasoning_effort, t.branch";
+    t.model, t.reasoning_effort, t.branch, t.kernel_id";
 
 /// 使用命名列映射，避免新字段使 SQLx tuple 超过 16 列限制。
 #[derive(sqlx::FromRow)]
@@ -54,6 +54,7 @@ struct ThreadMetaRow {
     model: Option<String>,
     reasoning_effort: Option<String>,
     branch: Option<String>,
+    kernel_id: Option<String>,
 }
 
 /// 密钥/历史类路径收紧为 owner-only（Unix 0o600/0o700，Windows owner-only DACL）。
@@ -209,6 +210,7 @@ impl SqliteThreadStore {
             "ALTER TABLE threads ADD COLUMN model TEXT",
             "ALTER TABLE threads ADD COLUMN reasoning_effort TEXT",
             "ALTER TABLE threads ADD COLUMN branch TEXT",
+            "ALTER TABLE threads ADD COLUMN kernel_id TEXT",
         ];
         for sql in &alter_columns {
             // SQLite 返回 "duplicate column name" 时忽略
@@ -368,6 +370,7 @@ fn meta_from_row(row: ThreadMetaRow) -> Result<ThreadMeta> {
         model,
         reasoning_effort,
         branch,
+        kernel_id,
     } = row;
     // last_task_summary 以 JSON 文本落库；解析失败时降级为 None，不阻断整个 thread 加载
     let last_task_summary = match last_task_summary {
@@ -387,6 +390,7 @@ fn meta_from_row(row: ThreadMetaRow) -> Result<ThreadMeta> {
         model,
         reasoning_effort,
         branch,
+        kernel_id,
         created_at: created_at.parse::<DateTime<Utc>>()?,
         updated_at: updated_at.parse::<DateTime<Utc>>()?,
         message_count: message_count as usize,
@@ -445,8 +449,8 @@ impl ThreadStore for SqliteThreadStore {
         sqlx::query(
             "INSERT INTO threads (id, title, cwd, created_at, updated_at, message_count,
                 parent_thread_id, snapshot_at_message_id, hidden, cancel_policy, config, cached_context, agent_status,
-                latest_recap, last_task_summary, model, reasoning_effort, branch)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+                latest_recap, last_task_summary, model, reasoning_effort, branch, kernel_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
         )
         .bind(&meta.id)
         .bind(&meta.title)
@@ -466,6 +470,7 @@ impl ThreadStore for SqliteThreadStore {
         .bind(&meta.model)
         .bind(&meta.reasoning_effort)
         .bind(&meta.branch)
+        .bind(&meta.kernel_id)
         .execute(&self.pool)
         .await?;
         Ok(id)
@@ -547,8 +552,8 @@ impl ThreadStore for SqliteThreadStore {
                 parent_thread_id = ?5, snapshot_at_message_id = ?6, hidden = ?7,
                 cancel_policy = ?8, config = ?9, cached_context = ?10, agent_status = ?11,
                 latest_recap = ?12, last_task_summary = ?13,
-                model = ?14, reasoning_effort = ?15, branch = ?16
-             WHERE id = ?17",
+                model = ?14, reasoning_effort = ?15, branch = ?16, kernel_id = ?17
+             WHERE id = ?18",
         )
         .bind(&meta.title)
         .bind(&meta.cwd)
@@ -566,6 +571,7 @@ impl ThreadStore for SqliteThreadStore {
         .bind(&meta.model)
         .bind(&meta.reasoning_effort)
         .bind(&meta.branch)
+        .bind(&meta.kernel_id)
         .bind(id.as_str())
         .execute(&self.pool)
         .await?;
@@ -642,6 +648,21 @@ impl ThreadStore for SqliteThreadStore {
         sqlx::query("UPDATE threads SET title = ?1, updated_at = ?2 WHERE id = ?3")
             .bind(title)
             .bind(&now)
+            .bind(id.as_str())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// 窄更新内核字段：单列 UPDATE，避免 load_meta + 全量回写覆盖并发写入的
+    /// 标题 / 状态 / 回顾 / 上下文缓存。
+    async fn update_kernel_snapshot(
+        &self,
+        id: &ThreadId,
+        kernel_id: Option<String>,
+    ) -> Result<()> {
+        sqlx::query("UPDATE threads SET kernel_id = ?1 WHERE id = ?2")
+            .bind(kernel_id)
             .bind(id.as_str())
             .execute(&self.pool)
             .await?;

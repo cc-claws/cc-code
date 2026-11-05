@@ -767,7 +767,7 @@ fn apply_command_rewrite(call: &ToolCall, rewritten: Option<String>) -> ToolCall
 ///
 /// 非 Bash 调用原样返回（零开销，不 spawn 任何子进程）。
 fn gate_effective_call(call: &ToolCall) -> ToolCall {
-    if effective_tool_name(&call.name, &call.input) != "Bash" {
+    if effective_tool_name(&call.name, &call.input) != TOOL_BASH {
         return call.clone();
     }
     let Some(command) = jev::effective_params(&call.name, &call.input)

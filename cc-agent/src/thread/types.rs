@@ -36,6 +36,9 @@ pub struct ThreadMeta {
     /// 会话所属工作目录的 Git 分支快照
     #[serde(default)]
     pub branch: Option<String>,
+    /// 会话创建/切换时使用的 Agent 内核 id（resume 时据此恢复，不读全局配置）
+    #[serde(default)]
+    pub kernel_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub message_count: usize,
@@ -89,6 +92,7 @@ impl ThreadMeta {
             model: None,
             reasoning_effort: None,
             branch: None,
+            kernel_id: None,
             created_at: now,
             updated_at: now,
             message_count: 0,
@@ -119,6 +123,7 @@ impl ThreadMeta {
             model: None,
             reasoning_effort: None,
             branch: None,
+            kernel_id: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             message_count: 0,

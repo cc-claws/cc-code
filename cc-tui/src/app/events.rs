@@ -22,6 +22,12 @@ pub enum AgentEvent {
     },
     /// TUI 本地 shell 命令执行完成（不进入 Agent history）
     ShellCommandCompleted(ShellCommandRecord),
+    /// Acknowledged result of a local /kernel command; never terminates an agent turn.
+    KernelCommandCompleted {
+        session_id: Option<String>,
+        kernel_id: Option<String>,
+        message: String,
+    },
     /// 已声明工具调用，尚在审批或语义判定期间；不带文件快照。
     ToolPending {
         tool_call_id: String,

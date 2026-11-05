@@ -131,7 +131,7 @@ pub(super) fn build_content(app: &App, width: usize) -> Option<ApprovalContent> 
                     for (key, value) in map {
                         if matches!(
                             key.as_str(),
-                            "file_path" | "path" | "command" | "old_string" | "new_string"
+                            "file_path" | "path" | "command" | "old_string" | "new_string" | "edits"
                         ) {
                             continue;
                         }
@@ -445,7 +445,7 @@ fn input_rows(
                 })
         })
         .flatten();
-    let edit = if item.tool_name == "Edit" {
+    let edit = if item.tool_name == "Edit" && !map.contains_key("edits") {
         map.get("old_string")
             .and_then(serde_json::Value::as_str)
             .zip(map.get("new_string").and_then(serde_json::Value::as_str))
@@ -467,6 +467,26 @@ fn input_rows(
                 width,
                 project_cwd,
             );
+        }
+    }
+    let mut batch_diff_rendered = false;
+    if active && item.tool_name == "Edit" && map.contains_key("edits") {
+        if let Some((_, file_path)) = path {
+            if let Some(content) = cached_file_content(file_path, project_cwd) {
+                if let Ok(updated) = cc_middlewares::tools::filesystem::edit::preview_batch_edit(
+                    &content,
+                    &item.input,
+                ) {
+                    rows.extend(render_diff_rows(
+                        file_path,
+                        sanitize_display_text_preserving_newlines(&content),
+                        sanitize_display_text_preserving_newlines(&updated),
+                        false,
+                        width,
+                    ));
+                    batch_diff_rendered = true;
+                }
+            }
         }
     }
     // Write 的 content：文件已存在时按 diff 渲染（用户要看改了什么），
@@ -527,6 +547,7 @@ fn input_rows(
             || path.is_some_and(|(path_key, _)| key == path_key)
             || (key == "content" && item.tool_name == "Write")
             || ((key == "old_string" || key == "new_string") && edit.is_some())
+            || (key == "edits" && batch_diff_rendered)
         {
             continue;
         }
@@ -659,7 +680,7 @@ fn full_file_pair(file_path: &str, project_cwd: &str, old: &str, new: &str) -> (
 
 /// 缓存的文件快照：mtime + 长度用于失效判定。
 struct FileSnapshot {
-    mtime: u64,
+    mtime: u128,
     len: u64,
     text: String,
 }
@@ -689,7 +710,7 @@ fn cached_file_content(file_path: &str, project_cwd: &str) -> Option<String> {
         .modified()
         .ok()
         .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|delta| delta.as_secs())
+        .map(|delta| delta.as_nanos())
         .unwrap_or(0);
     let key = resolved.to_string_lossy().to_string();
     if let Ok(cache) = CACHE.lock() {

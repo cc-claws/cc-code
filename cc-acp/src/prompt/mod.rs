@@ -6,6 +6,7 @@
 //! Sections are loaded from cc-tui's `prompts/sections/` directory using
 //! `include_str!` with paths relative to the cc-acp crate root.
 
+use cc_agent::kernel::Kernel;
 use cc_middlewares::AgentOverrides;
 
 mod memory;
@@ -129,10 +130,30 @@ pub fn build_system_prompt(
     frozen_date: Option<&str>,
     language: Option<&str>,
 ) -> String {
+    build_system_prompt_for_kernel(
+        overrides,
+        cwd,
+        features,
+        extra_agent_dirs,
+        frozen_date,
+        language,
+        Kernel::cc(),
+    )
+}
+
+pub fn build_system_prompt_for_kernel(
+    overrides: Option<&AgentOverrides>,
+    cwd: &str,
+    features: PromptFeatures,
+    extra_agent_dirs: &[std::path::PathBuf],
+    frozen_date: Option<&str>,
+    language: Option<&str>,
+    kernel: Kernel,
+) -> String {
     let memory = features
         .memory_enabled
         .then(|| AutoMemorySnapshot::capture(cwd));
-    build_system_prompt_with_memory(
+    build_system_prompt_with_memory_for_kernel(
         overrides,
         cwd,
         features,
@@ -140,6 +161,7 @@ pub fn build_system_prompt(
         frozen_date,
         language,
         memory.as_ref(),
+        kernel,
     )
 }
 
@@ -153,6 +175,125 @@ pub(crate) fn build_system_prompt_with_memory(
     frozen_date: Option<&str>,
     language: Option<&str>,
     memory: Option<&AutoMemorySnapshot>,
+) -> String {
+    build_system_prompt_with_memory_for_kernel(
+        overrides,
+        cwd,
+        features,
+        extra_agent_dirs,
+        frozen_date,
+        language,
+        memory,
+        Kernel::cc(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn build_system_prompt_with_memory_for_kernel(
+    overrides: Option<&AgentOverrides>,
+    cwd: &str,
+    features: PromptFeatures,
+    extra_agent_dirs: &[std::path::PathBuf],
+    frozen_date: Option<&str>,
+    language: Option<&str>,
+    memory: Option<&AutoMemorySnapshot>,
+    kernel: Kernel,
+) -> String {
+    build_system_prompt_inner(
+        overrides,
+        cwd,
+        features,
+        extra_agent_dirs,
+        frozen_date,
+        language,
+        memory,
+        kernel,
+        false,
+    )
+}
+
+/// 子 Agent 的工具指引来自权限过滤后的实际工具集，不沿用主 Agent 的能力声明。
+pub(crate) fn build_subagent_system_prompt(
+    overrides: Option<&AgentOverrides>,
+    cwd: &str,
+    frozen_date: Option<&str>,
+    language: Option<&str>,
+    kernel: Kernel,
+    available_tools: &[String],
+) -> String {
+    let mut features = PromptFeatures::detect();
+    features.subagent_enabled = false;
+    features.cron_enabled = false;
+    features.channel_enabled = false;
+    let skills_enabled = available_tools.iter().any(|name| name == "Skill");
+    // The main-agent skill section promises context:fork execution. Children
+    // load inline skills through SkillsMiddleware and cannot delegate again.
+    features.skills_enabled = false;
+    let memory = AutoMemorySnapshot::capture(cwd);
+    let mut prompt = build_system_prompt_inner(
+        overrides,
+        cwd,
+        features,
+        &[],
+        frozen_date,
+        language,
+        Some(&memory),
+        kernel,
+        true,
+    );
+    prompt.push_str(&format!(
+        "\n\n# Agent Kernel: {}\n\n# Subagent tool policy\n\n\
+         Complete the assigned task directly with the tools below and their exposed schemas. \
+         Do not delegate further work. If a required capability or authorization is missing, \
+         report it to the parent agent and continue independent work. \
+         Inherited MCP tools are called directly and keep their original names and parameters.\n\n<tools>\n",
+        kernel.id()
+    ));
+    for name in available_tools {
+        let description = kernel
+            .tool_spec(name)
+            .map(|spec| {
+                if spec.description.is_empty() {
+                    spec.prompt_snippet
+                } else {
+                    spec.description
+                }
+            })
+            .unwrap_or("Use the exposed tool schema and description.");
+        prompt.push_str(&format!("- {}: {description}\n", kernel.echo_name(name)));
+    }
+    prompt.push_str("</tools>");
+    if available_tools.iter().any(|name| name == "Edit") {
+        if available_tools.iter().any(|name| name == "Read") {
+            prompt.push_str(&format!(
+                "\n\nInspect the target with `{}` before using `{}`.",
+                kernel.echo_name("Read"),
+                kernel.echo_name("Edit")
+            ));
+        }
+        if kernel.tool_spec("Edit").and_then(|spec| spec.mutation_form)
+            == Some(cc_agent::kernel::MutationForm::BatchReplace)
+        {
+            prompt.push_str("\nBatch edits match the original file at once. Each oldText must occur exactly once, ranges must not overlap, and a failed batch leaves the file unchanged.");
+        }
+    }
+    if skills_enabled {
+        prompt.push_str("\n\nSkills can be loaded inline here. Report skills requiring an isolated child execution to the parent agent; nested delegation is unavailable.");
+    }
+    prompt
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_system_prompt_inner(
+    overrides: Option<&AgentOverrides>,
+    cwd: &str,
+    features: PromptFeatures,
+    extra_agent_dirs: &[std::path::PathBuf],
+    frozen_date: Option<&str>,
+    language: Option<&str>,
+    memory: Option<&AutoMemorySnapshot>,
+    kernel: Kernel,
+    subagent: bool,
 ) -> String {
     let env = if let Some(date) = frozen_date {
         PromptEnv::with_frozen_date(cwd, date)
@@ -212,7 +353,7 @@ pub(crate) fn build_system_prompt_with_memory(
             "/../cc-tui/prompts/sections/10_hitl.md"
         )));
     }
-    if features.subagent_enabled {
+    if features.subagent_enabled && !kernel.should_hide("Agent") {
         dynamic_sections.push(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../cc-tui/prompts/sections/11_subagent.md"
@@ -224,7 +365,7 @@ pub(crate) fn build_system_prompt_with_memory(
             "/../cc-tui/prompts/sections/12_cron.md"
         )));
     }
-    if features.skills_enabled {
+    if features.skills_enabled && !kernel.should_hide("Skill") {
         dynamic_sections.push(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../cc-tui/prompts/sections/13_skills.md"
@@ -241,6 +382,53 @@ pub(crate) fn build_system_prompt_with_memory(
         .map(build_agent_overrides_block)
         .unwrap_or_default();
 
+    let available_agents = format_available_agents(&env.cwd, extra_agent_dirs);
+    let git_bash_status = if env.platform == "windows" {
+        if env.git_bash_available {
+            "available"
+        } else {
+            "not available"
+        }
+    } else {
+        "not applicable (native bash)"
+    };
+    let cron_tool_access = if kernel.exposes_tool_search() {
+        "Discover them through `SearchExtraTools` when needed, then call them through `ExecuteExtraTool` using the returned schema."
+    } else {
+        "Call these tools directly using their exposed names and schemas."
+    };
+    let variables = [
+        ("{{cwd}}", env.cwd.as_str()),
+        (
+            "{{is_git_repo}}",
+            if env.is_git_repo { "Yes" } else { "No" },
+        ),
+        ("{{platform}}", env.platform.as_str()),
+        ("{{os_version}}", env.os_version.as_str()),
+        ("{{python_version}}", env.python_version.as_str()),
+        ("{{date}}", env.date.as_str()),
+        ("{{git_bash_status}}", git_bash_status),
+        ("{{available_agents}}", available_agents.as_str()),
+        ("{{cron_tool_access}}", cron_tool_access),
+    ];
+    let render_section = |template: &str| {
+        let template = kernel.dialectize_hint(template);
+        let mut rendered = String::new();
+        // Substitute code-owned placeholders once, before user data is appended.
+        // Replacement values may themselves contain literal placeholder syntax.
+        for part in template.split_inclusive("}}") {
+            if let Some(start) = part.rfind("{{") {
+                if let Some((_, value)) = variables.iter().find(|(key, _)| *key == &part[start..]) {
+                    rendered.push_str(&part[..start]);
+                    rendered.push_str(value);
+                    continue;
+                }
+            }
+            rendered.push_str(part);
+        }
+        rendered
+    };
+
     // 合成：静态段落 + 边界标记 + 覆盖块 + 动态段落
     // 边界标记之前的全部内容可被 Anthropic prompt cache 命中；
     // 边界标记之后的内容（overrides、日期、cwd 等）变化不会破坏前缀缓存。
@@ -248,10 +436,15 @@ pub(crate) fn build_system_prompt_with_memory(
     // 若放在静态段之前会导致每个 agent 的缓存前缀完全失效。
     let mut result = String::new();
     for (i, section) in static_sections.iter().enumerate() {
+        // Each non-cc kernel supplies its own tool policy. Keep shared task and
+        // permission rules, without the cc-only deferred-tool instructions.
+        if i == 4 && (!kernel.is_cc() || subagent) {
+            continue;
+        }
         if i > 0 {
             result.push_str("\n\n");
         }
-        result.push_str(section);
+        result.push_str(&render_section(section));
     }
     result.push_str("\n\n__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__");
     if !overrides_block.is_empty() {
@@ -260,14 +453,16 @@ pub(crate) fn build_system_prompt_with_memory(
     }
     for section in &dynamic_sections {
         result.push_str("\n\n");
-        result.push_str(section);
+        // Translate templates before interpolating user paths, overrides or memory.
+        result.push_str(&render_section(section));
     }
     // 精简记忆读取规则与有界索引；不常驻完整写入教学，也不触发后台记忆生成。
     // 整段仅由宿主注入一次，位于动态边界之后，不破坏已有缓存前缀。
     if let Some(memory) = memory.filter(|_| features.memory_enabled) {
-        let mem_prompt = cc_middlewares::memory::build_memory_read_prompt(
+        let mem_prompt = cc_middlewares::memory::build_memory_read_prompt_for_kernel(
             &memory.display_directory,
             Some(&memory.content),
+            kernel,
         );
         result.push_str("\n\n");
         result.push_str(&mem_prompt);
@@ -285,31 +480,6 @@ pub(crate) fn build_system_prompt_with_memory(
     }
 
     result
-        .replace("{{cwd}}", &env.cwd)
-        .replace(
-            "{{is_git_repo}}",
-            if env.is_git_repo { "Yes" } else { "No" },
-        )
-        .replace("{{platform}}", &env.platform)
-        .replace("{{os_version}}", &env.os_version)
-        .replace("{{python_version}}", &env.python_version)
-        .replace("{{date}}", &env.date)
-        .replace(
-            "{{git_bash_status}}",
-            if env.platform == "windows" {
-                if env.git_bash_available {
-                    "available"
-                } else {
-                    "not available"
-                }
-            } else {
-                "not applicable (native bash)"
-            },
-        )
-        .replace(
-            "{{available_agents}}",
-            &format_available_agents(&env.cwd, extra_agent_dirs),
-        )
 }
 
 /// 将 `AgentOverrides` 拼成注入到提示词顶部的覆盖块。

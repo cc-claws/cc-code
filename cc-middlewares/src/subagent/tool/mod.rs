@@ -9,6 +9,26 @@ use crate::{
 };
 use tokio::sync::mpsc;
 
+fn tool_is_visible(
+    kernel: cc_agent::kernel::Kernel,
+    allowed: &[String],
+    disallowed: &[String],
+    name: &str,
+) -> bool {
+    let key = cc_agent::kernel::canonical_tool_name(name).unwrap_or(name);
+    let matches = |candidate: &String| {
+        cc_agent::kernel::canonical_tool_name(candidate)
+            .unwrap_or(candidate)
+            .eq_ignore_ascii_case(key)
+    };
+    !kernel.should_hide(name)
+        && !key.eq_ignore_ascii_case("Agent")
+        && (allowed.is_empty()
+            || (allowed.len() == 1 && allowed[0] == "*")
+            || allowed.iter().any(matches))
+        && !disallowed.iter().any(matches)
+}
+
 /// 构造 SubAgent 标准中间件链
 pub(crate) fn build_subagent_middlewares(
     config: SubAgentMiddlewareConfig,
@@ -25,7 +45,21 @@ pub(crate) fn build_subagent_middlewares(
             .with_config(config.instruction_config.clone().unwrap_or_default()),
     };
     middlewares.push(Box::new(agents_md));
-    middlewares.push(Box::new(SkillsMiddleware::new().with_global_config().with_extra_dirs(config.extra_skill_dirs.clone())));
+    let mut skills = SkillsMiddleware::new()
+        .with_kernel(config.kernel)
+        .with_global_config()
+        .with_extra_dirs(config.extra_skill_dirs.clone());
+    if !config.available_tools.iter().any(|name| name == "Skill")
+        || !tool_is_visible(
+            config.kernel,
+            &config.allowed_tools,
+            &config.disallowed_tools,
+            "Skill",
+        )
+    {
+        skills = skills.with_frozen_summary(String::new());
+    }
+    middlewares.push(Box::new(skills));
     if !config.skill_names.is_empty() {
         let skill_tool = config.skill_tool.unwrap_or_else(|| crate::tools::SkillTool::new(SkillsMiddleware::resolve_dirs_static(&config.cwd, &config.extra_skill_dirs)));
         middlewares.push(Box::new(SkillPreloadMiddleware::new(

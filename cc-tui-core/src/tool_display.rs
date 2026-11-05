@@ -198,6 +198,33 @@ pub fn build_diff_input(
 ) -> Option<cc_widgets::DiffInput> {
     match name {
         "Edit" => {
+            // Batch（pi 内核）形态：执行侧已保存旧内容快照，直接做真 diff。
+            // 多编辑的组合顺序无法从最终内容唯一还原，不能走下面的反推路径。
+            if let Some(Some(old_content)) = tool_call_id.and_then(write_old_content) {
+                let snapshot_path = input
+                    .get("file_path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                if !snapshot_path.is_empty() {
+                    let path: PathBuf = match cwd {
+                        Some(cwd) => Path::new(cwd).join(snapshot_path),
+                        None => PathBuf::from(snapshot_path),
+                    };
+                    if let Ok(new_content) = std::fs::read_to_string(&path) {
+                        if new_content == old_content {
+                            return None;
+                        }
+                        return Some(cc_widgets::DiffInput {
+                            file_path: snapshot_path.to_string(),
+                            old_content,
+                            new_content,
+                            is_new_file: false,
+                            is_deleted_file: false,
+                            is_binary: false,
+                        });
+                    }
+                }
+            }
             let old_string = input
                 .get("old_string")
                 .and_then(|v| v.as_str())

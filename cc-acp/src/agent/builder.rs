@@ -17,6 +17,7 @@ use cc_agent::{
         events::{AgentEvent as ExecutorEvent, AgentEventHandler},
         token::ContextBudget,
     },
+    kernel::{Kernel, MutationForm},
     llm::BaseModel,
 };
 
@@ -29,7 +30,9 @@ pub type RegisterRuntimeFn =
 pub type DeregisterRuntimeFn = Arc<dyn Fn(&str) + Send + Sync>;
 /// System prompt 构建器类型
 pub type SystemPromptBuilder = Arc<
-    dyn Fn(Option<&cc_middlewares::agent_define::AgentOverrides>, &str) -> String + Send + Sync,
+    dyn Fn(Option<&cc_middlewares::agent_define::AgentOverrides>, &str, &[String]) -> String
+        + Send
+        + Sync,
 >;
 use cc_agent::{
     agent::{state::AgentState, AgentCancellationToken, ReActAgent},
@@ -117,6 +120,8 @@ pub struct AcpAgentConfig {
     pub deregister_runtime: Option<DeregisterRuntimeFn>,
     /// Session-owned registry keeps child control available between prompts.
     pub background_registry: Option<Arc<cc_middlewares::BackgroundTaskRegistry>>,
+    /// 会话内核：提示词、工具方言、可见性、Edit 形态的唯一来源。
+    pub kernel: Kernel,
 }
 
 pub struct AcpAgentOutput {
@@ -210,7 +215,17 @@ fn build_agent_inner(
         register_runtime,
         deregister_runtime,
         background_registry,
+        kernel,
     } = cfg;
+
+    // Edit 的变更形态由 ToolSpec 数据驱动，不在 builder 里 match 内核。
+    let edit_form: MutationForm = kernel
+        .spec()
+        .tools
+        .iter()
+        .find(|t| t.canonical == "Edit")
+        .and_then(|t| t.mutation_form)
+        .unwrap_or_default();
 
     // TerminalMiddleware：注入 shell_executor（None = InlineShellExecutor，保持原行为）。
     // 同一实例同时用于 parent_tools 构造和中间件链，保证 BashTool 与链共享同一 executor。
@@ -224,13 +239,14 @@ fn build_agent_inner(
         || system_prompt.clone(),
         |ov| {
             let features = crate::prompt::PromptFeatures::detect();
-            crate::prompt::build_system_prompt(
+            crate::prompt::build_system_prompt_for_kernel(
                 Some(ov),
                 &cwd,
                 features,
                 &plugin_agent_dirs,
                 None,
                 None,
+                kernel,
             )
         },
     );
@@ -240,7 +256,7 @@ fn build_agent_inner(
     let provider_name = provider.display_name().to_string();
 
     // LLM 模型
-    let mut base_llm = BaseModelReactLLM::new(provider.into_model());
+    let mut base_llm = BaseModelReactLLM::new(provider.into_model()).with_kernel(kernel);
     if let Some(ref sid) = session_id {
         base_llm = base_llm.with_session_id(sid);
     }
@@ -338,7 +354,7 @@ fn build_agent_inner(
 
     // 父工具集（供子 agent 继承）
     let mut parent_tools: Vec<Box<dyn cc_agent::tools::BaseTool>> =
-        FilesystemMiddleware::build_tools(&cwd);
+        FilesystemMiddleware::build_tools(&cwd, edit_form);
     parent_tools.extend(terminal_middleware.build_tools(&cwd));
     // 子 Agent 继承 Skill 的加载能力；不继承 fork runner，防止隐式递归委派。
     parent_tools.push(Box::new(
@@ -404,7 +420,7 @@ fn build_agent_inner(
                 },
             );
 
-        let mut llm = BaseModelReactLLM::from_arc(model);
+        let mut llm = BaseModelReactLLM::from_arc(model).with_kernel(kernel);
         if let Some(s) = sid {
             llm = llm.with_session_id(s);
         }
@@ -417,15 +433,14 @@ fn build_agent_inner(
     // 系统提示构建器
     let frozen_language_for_sub = peri_config.config.language.clone();
     let frozen_date_for_sub = frozen_date.clone();
-    let system_builder: SystemPromptBuilder = Arc::new(move |overrides, cwd_dir| {
-        let features = crate::prompt::PromptFeatures::detect();
-        crate::prompt::build_system_prompt(
+    let system_builder: SystemPromptBuilder = Arc::new(move |overrides, cwd_dir, tools| {
+        crate::prompt::build_subagent_system_prompt(
             overrides,
             cwd_dir,
-            features,
-            &[],
             frozen_date_for_sub.as_deref(),
             frozen_language_for_sub.as_deref(),
+            kernel,
+            tools,
         )
     });
 
@@ -471,6 +486,7 @@ fn build_agent_inner(
         llm_factory.clone(),
     )
     .with_system_builder(system_builder)
+    .with_kernel(kernel)
     .with_cancel(cancel.clone())
     .with_parent_messages(parent_messages)
     .with_extra_skill_dirs(plugin_skill_dirs.clone())
@@ -512,12 +528,10 @@ fn build_agent_inner(
         .with_auto_compact_threshold(compact_config.auto_compact_threshold)
         .with_warning_threshold(compact_config.micro_compact_threshold);
 
-    // 将 Git Attribution 追加到系统提示词末尾（动态区域，不影响缓存前缀）
-    let attribution = cc_middlewares::GitAttributionMiddleware::attribution_text(&model_name);
-    let system_prompt = format!(
-        "{}\n\n## Git Attribution\n\nWhen creating git commits, append the following line to the commit message:\n\n```\n{}\n```\n\nThis tracks AI contributions and should always be included in commit messages for code you authored.",
-        system_prompt, attribution
-    );
+    let system_prompt = finalize_system_prompt(system_prompt, kernel, &model_name);
+    // 注意：这里**不能**对整段 system_prompt 做方言替换——它包含用户记忆、
+    // CLAUDE.md 指令、cwd 等动态数据，替换会污染用户内容。内核方言只通过
+    // `prompt_for` 追加的内核段落与 `dialectize_known_hints` 定点提示语生效。
 
     // 构建 ReActAgent
     let executor = ReActAgent::new(model)
@@ -526,7 +540,12 @@ fn build_agent_inner(
         .with_compact_config(compact_config)
         .with_notification_rx(bg_notification_rx)
         .with_system_prompt(system_prompt)
-        .with_tool_filter(cc_middlewares::tool_search::is_deferred_tool)
+        .with_kernel(kernel)
+        .with_tool_filter(move |name: &str| {
+            kernel.should_hide(name)
+                || (kernel.exposes_tool_search()
+                    && cc_middlewares::tool_search::is_deferred_tool(name))
+        })
         .with_shared_tools(Arc::clone(&shared_tools))
         .add_middleware(Box::new({
             let mut mw = AgentsMdMiddleware::new().with_excludes(claude_md_excludes);
@@ -546,6 +565,7 @@ fn build_agent_inner(
         .add_middleware(Box::new(AgentDefineMiddleware::new()))
         .add_middleware(Box::new({
             let mut mw = SkillsMiddleware::new()
+                .with_kernel(kernel)
                 .with_global_config()
                 .with_extra_dirs(plugin_skill_dirs);
             if let Some(summary) = frozen_skill_summary {
@@ -556,10 +576,10 @@ fn build_agent_inner(
         .add_middleware(Box::new(
             SkillPreloadMiddleware::new(preload_skills, &cwd).with_skill_tool(skill_tool.clone()),
         ))
-        .add_middleware(Box::new(cc_middlewares::AtMentionMiddleware::new(
-            cwd.clone().into(),
-        )))
-        .add_middleware(Box::new(FilesystemMiddleware::new()))
+        .add_middleware(Box::new(
+            cc_middlewares::AtMentionMiddleware::new(cwd.clone().into()).with_kernel(kernel),
+        ))
+        .add_middleware(Box::new(FilesystemMiddleware::new().with_form(edit_form)))
         .add_middleware(Box::new(cc_middlewares::GitAttributionMiddleware::new(
             &model_name,
         )))
@@ -628,10 +648,13 @@ fn build_agent_inner(
     };
 
     // ToolSearch 中间件
-    let executor = executor.add_middleware(Box::new(cc_middlewares::ToolSearchMiddleware::new(
-        Arc::clone(&tool_search_index),
-        Arc::clone(&shared_tools),
-    )));
+    let executor = executor.add_middleware(Box::new(
+        cc_middlewares::ToolSearchMiddleware::new(
+            Arc::clone(&tool_search_index),
+            Arc::clone(&shared_tools),
+        )
+        .with_kernel(kernel),
+    ));
 
     let executor = executor
         .with_event_handler(Arc::clone(&event_handler))
@@ -699,6 +722,21 @@ fn build_agent_inner(
             bg_event_rx,
         },
         new_cache,
+    )
+}
+
+/// Shared by execution and the session prompt inspector.
+pub fn finalize_system_prompt(system_prompt: String, kernel: Kernel, model_name: &str) -> String {
+    let kernel_prompt = kernel.prompt_for(model_name);
+    let system_prompt = if kernel_prompt.is_empty() {
+        system_prompt
+    } else {
+        format!("{system_prompt}\n\n{kernel_prompt}")
+    };
+    let attribution = cc_middlewares::GitAttributionMiddleware::attribution_text(model_name);
+    format!(
+        "{}\n\n## Git Attribution\n\nWhen creating git commits, append the following line to the commit message:\n\n```\n{}\n```\n\nThis tracks AI contributions and should always be included in commit messages for code you authored.",
+        system_prompt, attribution
     )
 }
 

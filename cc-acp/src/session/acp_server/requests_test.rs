@@ -121,7 +121,7 @@ async fn test_update_config_updates_cfg_provider_after_switching_provider() {
     updated_config.config.active_provider_id = "b".to_string();
 
     let params = json!({
-        "sessionId": "test-session",
+        "sessionId": "",
         "config": updated_config,
     });
 
@@ -315,6 +315,182 @@ fn make_minimal_cfg() -> (tempfile::TempDir, AcpServerConfig) {
     let provider = LlmProvider::from_config(&peri_config).unwrap();
     let cfg = make_server_config(peri_config, provider, &tmp);
     (tmp, cfg)
+}
+
+#[tokio::test]
+async fn test_kernel_switch_persists_recovers_and_forks_without_changing_other_sessions(
+) -> anyhow::Result<()> {
+    let (tmp, cfg) = make_minimal_cfg();
+    let cwd = tmp.path().to_string_lossy().to_string();
+    let mut sessions = HashMap::new();
+    let created = handle_request(
+        "session/new",
+        &json!({"cwd":cwd}),
+        &cfg,
+        &mut sessions,
+        &MockTransport,
+    )
+    .await?;
+    let id = created["sessionId"].as_str().unwrap().to_string();
+    assert_eq!(
+        cfg.thread_store.load_meta(&id).await?.kernel_id.as_deref(),
+        Some("cc")
+    );
+    let other = handle_request(
+        "session/new",
+        &json!({"cwd":cwd}),
+        &cfg,
+        &mut sessions,
+        &MockTransport,
+    )
+    .await?;
+    let other_id = other["sessionId"].as_str().unwrap().to_string();
+    handle_request(
+        "session/set_config_option",
+        &json!({"sessionId":id,"configId":"agent_kernel","value":"pi"}),
+        &cfg,
+        &mut sessions,
+        &MockTransport,
+    )
+    .await?;
+    assert_eq!(
+        sessions[&id].frozen.as_ref().unwrap().kernel_id.as_deref(),
+        Some("pi")
+    );
+    assert_eq!(
+        sessions[&other_id]
+            .frozen
+            .as_ref()
+            .unwrap()
+            .kernel_id
+            .as_deref(),
+        Some("cc")
+    );
+    assert_eq!(
+        cfg.thread_store.load_meta(&id).await?.kernel_id.as_deref(),
+        Some("pi")
+    );
+    cfg.peri_config.write().config.agent_kernel = Some("dsh".to_string());
+    sessions.clear();
+    let loaded = handle_request(
+        "session/load",
+        &json!({"sessionId":id}),
+        &cfg,
+        &mut sessions,
+        &MockTransport,
+    )
+    .await?;
+    assert!(loaded.get("configOptions").is_some());
+    assert_eq!(
+        loaded["configOptions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|option| option["id"] == "agent_kernel")
+            .unwrap()["currentValue"],
+        "pi"
+    );
+    let status = handle_request(
+        "session/kernel",
+        &json!({"sessionId":id}),
+        &cfg,
+        &mut sessions,
+        &MockTransport,
+    )
+    .await?;
+    assert_eq!(status["kernelId"], "pi");
+    assert!(status["systemPrompt"]
+        .as_str()
+        .unwrap()
+        .contains("# Agent Kernel: pi"));
+    assert_eq!(
+        sessions[&id].frozen.as_ref().unwrap().kernel_id.as_deref(),
+        Some("pi")
+    );
+    let forked = handle_request(
+        "session/fork",
+        &json!({"sessionId":id,"cwd":cwd}),
+        &cfg,
+        &mut sessions,
+        &MockTransport,
+    )
+    .await?;
+    let fork_id = forked["sessionId"].as_str().unwrap().to_string();
+    assert_eq!(
+        cfg.thread_store
+            .load_meta(&fork_id)
+            .await?
+            .kernel_id
+            .as_deref(),
+        Some("pi")
+    );
+    assert_eq!(
+        sessions[&fork_id]
+            .frozen
+            .as_ref()
+            .unwrap()
+            .kernel_id
+            .as_deref(),
+        Some("pi")
+    );
+    let mut reset = cfg.peri_config.read().clone();
+    reset.config.agent_kernel = None;
+    handle_request(
+        "session/update_config",
+        &json!({"sessionId":id,"config":reset}),
+        &cfg,
+        &mut sessions,
+        &MockTransport,
+    )
+    .await?;
+    assert_eq!(
+        sessions[&id].frozen.as_ref().unwrap().kernel_id.as_deref(),
+        Some("cc")
+    );
+    assert_eq!(
+        cfg.thread_store.load_meta(&id).await?.kernel_id.as_deref(),
+        Some("cc")
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_failed_kernel_switch_keeps_live_session_and_configuration() -> anyhow::Result<()> {
+    let (tmp, mut cfg) = make_minimal_cfg();
+    let mut sessions = HashMap::new();
+    let created = handle_request(
+        "session/new",
+        &json!({"cwd":tmp.path()}),
+        &cfg,
+        &mut sessions,
+        &MockTransport,
+    )
+    .await?;
+    let id = created["sessionId"].as_str().unwrap().to_string();
+    let before = cfg.peri_config.read().clone();
+    cfg.config_path = tmp.path().to_path_buf();
+    assert!(handle_request(
+        "session/set_config_option",
+        &json!({"sessionId":id,"configId":"agent_kernel","value":"pi"}),
+        &cfg,
+        &mut sessions,
+        &MockTransport
+    )
+    .await
+    .is_err());
+    assert_eq!(
+        cfg.peri_config.read().config.agent_kernel,
+        before.config.agent_kernel
+    );
+    assert_eq!(
+        sessions[&id].frozen.as_ref().unwrap().kernel_id.as_deref(),
+        Some("cc")
+    );
+    assert_eq!(
+        cfg.thread_store.load_meta(&id).await?.kernel_id.as_deref(),
+        Some("cc")
+    );
+    Ok(())
 }
 
 /// session/load 传入非 UUID（含路径穿越片段）应被 -32602 拒绝

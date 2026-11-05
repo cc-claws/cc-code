@@ -116,6 +116,7 @@ fn make_agent_config(
         register_runtime: None,
         deregister_runtime: None,
         background_registry: None,
+        kernel: cc_agent::kernel::Kernel::default(),
     }
 }
 
@@ -281,6 +282,9 @@ mod compact_tests;
 
 #[path = "builder_memory_live_test.rs"]
 mod live_tests;
+
+#[path = "builder_kernel_test.rs"]
+mod kernel_tests;
 
 async fn make_two_turn_requests(
     protocol: MockProvider,

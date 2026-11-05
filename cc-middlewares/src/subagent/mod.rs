@@ -33,6 +33,7 @@ pub struct InheritedInstructions {
 /// 链顺序固定：`AgentsMd -> Skills -> [SkillPreload] -> Todo -> SubAgentPermission`；
 /// 仅 `skill_names` / `cwd` / `inherited_instructions` 在不同执行路径间变化。
 pub(crate) struct SubAgentMiddlewareConfig {
+    pub kernel: cc_agent::kernel::Kernel,
     /// 需要预加载的 skill 名称列表，为空时跳过 SkillPreloadMiddleware
     pub skill_names: Vec<String>,
     /// 与主 Agent 一致的插件技能目录。
@@ -60,6 +61,7 @@ impl SubAgentMiddlewareConfig {
     /// Fork 路径配置（无 skill 预加载）
     pub fn for_fork(cwd: &str) -> Self {
         Self {
+            kernel: cc_agent::kernel::Kernel::default(),
             skill_names: Vec::new(),
             extra_skill_dirs: Vec::new(),
             skill_tool: None,
@@ -78,6 +80,7 @@ impl SubAgentMiddlewareConfig {
     /// `skills` 来自 `agent_def.frontmatter.skills`，为空时跳过 SkillPreloadMiddleware
     pub fn for_agent_def(skills: Vec<String>, cwd: &str) -> Self {
         Self {
+            kernel: cc_agent::kernel::Kernel::default(),
             skill_names: skills,
             extra_skill_dirs: Vec::new(),
             skill_tool: None,
@@ -133,7 +136,7 @@ use crate::{agent_define::AgentOverrides, parse_agent_file, tools::BoxToolWrappe
 ///     Box::new(BaseModelReactLLM::new(model.clone())) as Box<dyn ReactLLM + Send + Sync>
 /// });
 /// // Optional: system prompt builder, making sub-agent's tone/proactiveness visible in Langfuse
-/// let system_builder = Arc::new(|overrides: Option<&AgentOverrides>, cwd: &str| {
+/// let system_builder = Arc::new(|overrides: Option<&AgentOverrides>, cwd: &str, _tools: &[String]| {
 ///     build_system_prompt(overrides, cwd)
 /// });
 /// let middleware = SubAgentMiddleware::new(parent_tools, Some(event_handler), llm_factory)
@@ -149,10 +152,13 @@ pub struct SubAgentMiddleware {
     /// Parameter is optional model alias (e.g., "haiku"/"sonnet"/"opus"), None means use parent model
     #[allow(clippy::type_complexity)]
     llm_factory: Arc<dyn Fn(Option<&str>) -> Box<dyn ReactLLM + Send + Sync> + Send + Sync>,
-    /// System prompt builder: (agent overrides, cwd) -> system prompt string
+    /// System prompt builder: (agent overrides, cwd, visible canonical tool names) -> system prompt
     /// When set, child agent injects system prompt via with_system_prompt() (visible in Langfuse)
     #[allow(clippy::type_complexity)]
-    system_builder: Option<Arc<dyn Fn(Option<&AgentOverrides>, &str) -> String + Send + Sync>>,
+    system_builder:
+        Option<Arc<dyn Fn(Option<&AgentOverrides>, &str, &[String]) -> String + Send + Sync>>,
+    /// 主 Agent 的会话内核，由 build_tool 传给子 Agent。
+    kernel: cc_agent::kernel::Kernel,
     /// Parent agent cancellation token (passed to child agent, supports user interruption)
     cancel: Option<AgentCancellationToken>,
     /// Shared reference to parent agent message snapshot, written in before_agent, read by Fork child agent
@@ -204,6 +210,7 @@ impl SubAgentMiddleware {
             event_handler,
             llm_factory,
             system_builder: None,
+            kernel: cc_agent::kernel::Kernel::default(),
             cancel: None,
             parent_messages: None,
             background_registry: None,
@@ -225,9 +232,15 @@ impl SubAgentMiddleware {
     #[allow(clippy::type_complexity)]
     pub fn with_system_builder(
         mut self,
-        builder: Arc<dyn Fn(Option<&AgentOverrides>, &str) -> String + Send + Sync>,
+        builder: Arc<dyn Fn(Option<&AgentOverrides>, &str, &[String]) -> String + Send + Sync>,
     ) -> Self {
         self.system_builder = Some(builder);
+        self
+    }
+
+    /// 继承主 Agent 内核；子 Agent 的提示词、工具方言与入站归一化随之生效。
+    pub fn with_kernel(mut self, kernel: cc_agent::kernel::Kernel) -> Self {
+        self.kernel = kernel;
         self
     }
 
@@ -350,6 +363,7 @@ impl SubAgentMiddleware {
             cwd.to_string(),
         );
         tool = tool.with_permissions(Arc::clone(&self.permissions));
+        tool = tool.with_kernel(self.kernel);
         tool = tool.with_extra_skill_dirs(self.extra_skill_dirs.clone());
         tool = tool.with_extra_agent_dirs(self.extra_agent_dirs.clone());
         if let Some(ref builder) = self.system_builder {

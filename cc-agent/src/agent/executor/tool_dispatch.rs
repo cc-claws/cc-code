@@ -288,6 +288,18 @@ fn validate_value_type(
         }
     }
 
+    if val.is_object() {
+        validate_against_schema(val, prop_schema)
+            .map_err(|message| format!("Invalid nested arguments at '{field_name}': {message}"))?;
+    }
+    if let (Some(items), Some(item_schema)) = (val.as_array(), prop_schema.get("items")) {
+        for (index, item) in items.iter().enumerate() {
+            validate_value_type(item, item_schema, &format!("{field_name}[{index}]")).map_err(
+                |message| format!("Invalid nested arguments at '{field_name}[{index}]': {message}"),
+            )?;
+        }
+    }
+
     Ok(())
 }
 
@@ -594,7 +606,7 @@ pub(crate) fn validate_against_schema(
                         "The parameter '{key}' type is expected as {expected}, but received {actual}"
                     ));
                     // 同时保留 enum 不匹配的原始信息（如果是 enum 错误而非类型错误）
-                    if msg.contains("not one of") {
+                    if msg.contains("not one of") || msg.contains("Invalid nested arguments") {
                         // 替换最后一条为更精确的 enum 信息
                         errors.pop();
                         errors.push(msg);
@@ -1049,7 +1061,12 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                 let call_id = call.id.clone();
                 let input = call.input.clone();
                 let input = normalize_params(&tool_name, input);
+                let kernel = agent.kernel;
                 let tool = resolve_tool(&call.name, all_tools);
+                // 执行入口 fail-closed：可见性只控制发给 LLM 的定义，模型手写
+                // 未暴露的管辖工具名时也必须拒绝；非管辖工具不受此限。
+                let tool = tool
+                    .filter(|t| !(kernel.governs(t.name()) && !kernel.is_exposed(t.name())));
                 let cancel = cancel.clone();
                 let invocation = crate::tools::ToolInvocationContext {
                     tool_call_id: call_id.clone(),
@@ -1071,6 +1088,7 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                     );
                     let _enter = span.enter();
                     let invoke_fut = async {
+                        let echo = kernel.echo_name(&tool_name);
                         match tool {
                             Some(t) => {
                                 let schema = t.parameters();
@@ -1083,21 +1101,40 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                                         }
                                         _ => Vec::new(),
                                     };
-                                    // 启发式工具错配诊断
-                                    let hint = suggest_tool_mismatch(&tool_name, &input)
-                                        .map(|h| format!("\n{h}"))
-                                        .unwrap_or_default();
+                                    // 校验用的是规范 schema；反馈给模型前把参数名转成方言名，
+                                    // 避免 pi 下模型收到「要求修正 file_path」而 schema 写的是 path。
+                                    let msg = if kernel.is_cc() {
+                                        msg
+                                    } else {
+                                        kernel.dialectize_param_names(&msg).into_owned()
+                                    };
+                                    let keys_text = if kernel.is_cc() {
+                                        format!("{keys:?}")
+                                    } else {
+                                        kernel
+                                            .dialectize_param_names(&format!("{keys:?}"))
+                                            .into_owned()
+                                    };
+                                    // 启发式工具错配诊断：cc 沿用静态表（逐字节等价），
+                                    // 其他内核用按方言生成的 signature_hints。
+                                    let hint = (if kernel.is_cc() {
+                                        suggest_tool_mismatch(&tool_name, &input)
+                                    } else {
+                                        kernel.suggest_mismatch(&tool_name, &input)
+                                    })
+                                    .map(|h| format!("\n{h}"))
+                                    .unwrap_or_default();
                                     return Err(AgentError::ToolSchemaValidationFailed {
                                         tool: tool_name.clone(),
                                         reason: format!(
-                                            "Invalid arguments for tool {tool_name}:\n{msg}\n\
-                                             Received keys: {keys:?}. Rewrite the call to satisfy the schema and retry.{hint}"
+                                            "Invalid arguments for tool {echo}:\n{msg}\n\
+                                             Received keys: {keys_text}. Rewrite the call to satisfy the schema and retry.{hint}"
                                         ),
                                     });
                                 }
                                 crate::tools::ToolOutputContext::scope_invocation(
                                     output_context,
-                                    invocation.scope(t.invoke_content(input)),
+                                    invocation.scope_with_kernel(kernel, t.invoke_content(input)),
                                 ).await.map_err(|e| {
                                     AgentError::ToolExecutionFailed {
                                         tool: tool_name.clone(),
@@ -1105,7 +1142,7 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                                     }
                                 })
                             }
-                            None => Err(AgentError::ToolNotFound(tool_name.clone())),
+                            None => Err(AgentError::ToolNotFound(echo.to_string())),
                         }
                     };
                     tokio::select! {

@@ -398,6 +398,16 @@ impl AcpTuiClient {
             .unwrap()
             .clone()
             .unwrap_or_default();
+        self.set_config_option_for_session(&session_id, config_id, value)
+            .await
+    }
+
+    pub async fn set_config_option_for_session(
+        &self,
+        session_id: &str,
+        config_id: &str,
+        value: &str,
+    ) -> Result<(), String> {
         let params = json!({ "sessionId": session_id, "configId": config_id, "value": value });
         let _ = self
             .transport
@@ -405,6 +415,13 @@ impl AcpTuiClient {
             .await
             .map_err(|e| e.to_string())?;
         Ok(())
+    }
+
+    pub async fn kernel_status(&self, session_id: &str, cwd: &str) -> Result<Value, String> {
+        self.transport
+            .send_request("session/kernel", json!({"sessionId":session_id,"cwd":cwd}))
+            .await
+            .map_err(|error| error.to_string())
     }
 
     /// Update the full PeriConfig on the ACP server (for Login panel CRUD).

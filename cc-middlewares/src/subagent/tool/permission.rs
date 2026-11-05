@@ -88,17 +88,17 @@ impl SubAgentPermissionMiddleware {
             return Err(Self::reject(call, "子 Agent 不允许递归委派或嵌套代理执行"));
         }
         let wildcard = self.allowed.len() == 1 && self.allowed[0] == "*";
-        if (!self.allowed.is_empty()
-            && !wildcard
-            && !self
-                .allowed
-                .iter()
-                .any(|name| name.eq_ignore_ascii_case(target)))
-            || self
-                .disallowed
-                .iter()
-                .any(|name| name.eq_ignore_ascii_case(target))
-        {
+        // agent.md 里可能写方言名（如 dsh 的 todo_write），比较前统一归一到规范名。
+        let target_key = cc_agent::kernel::canonical_tool_name(target).unwrap_or(target);
+        let matches_allowed = self.allowed.iter().any(|name| {
+            let key = cc_agent::kernel::canonical_tool_name(name).unwrap_or(name);
+            key.eq_ignore_ascii_case(target_key)
+        });
+        let matches_disallowed = self.disallowed.iter().any(|name| {
+            let key = cc_agent::kernel::canonical_tool_name(name).unwrap_or(name);
+            key.eq_ignore_ascii_case(target_key)
+        });
+        if (!self.allowed.is_empty() && !wildcard && !matches_allowed) || matches_disallowed {
             return Err(Self::reject(
                 call,
                 "工具不在子 Agent 的允许集合中或已被明确禁止",

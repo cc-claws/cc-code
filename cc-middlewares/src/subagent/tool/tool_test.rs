@@ -609,7 +609,7 @@ async fn test_system_builder_injects_system_message() {
         Arc::new(|_: Option<&str>| Box::new(SystemEchoLLM) as Box<dyn ReactLLM + Send + Sync>),
         dir.path().to_str().unwrap().to_string(),
     )
-    .with_system_builder(Arc::new(|_overrides, _cwd| "tone: be concise".to_string()));
+    .with_system_builder(Arc::new(|_overrides, _cwd, _tools| "tone: be concise".to_string()));
 
     let result = run_subagent(
         &t,
@@ -1035,7 +1035,7 @@ async fn test_fork_system_prompt_consistent() {
         "/tmp".to_string(),
     )
     .with_parent_messages(parent_messages)
-    .with_system_builder(Arc::new(|_ov, _cwd| "FORK-TEST-SYSTEM".to_string()));
+    .with_system_builder(Arc::new(|_ov, _cwd, _tools| "FORK-TEST-SYSTEM".to_string()));
 
     run_subagent(
         &t,
@@ -1395,7 +1395,7 @@ async fn test_fork_uses_parent_system_prompt_without_agent_overrides() {
     )
     .with_parent_messages(Arc::new(RwLock::new(vec![BaseMessage::human("Hello")])))
     .with_system_builder(Arc::new(
-        move |overrides: Option<&AgentOverrides>, _cwd: &str| {
+        move |overrides: Option<&AgentOverrides>, _cwd: &str, _tools: &[String]| {
             seen_clone.lock().unwrap().push(overrides.is_some());
             "system".to_string()
         },

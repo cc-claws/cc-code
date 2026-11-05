@@ -1,4 +1,5 @@
-use cc_agent::tools::BaseTool;
+use cc_agent::kernel::MutationForm;
+use cc_agent::tools::{BaseTool, FileSnapshot};
 use serde_json::Value;
 
 use super::resolve_path;
@@ -15,11 +16,21 @@ Usage:
 /// Edit tool (replace) - 与 TypeScript replace_tool 对齐
 pub struct EditFileTool {
     pub cwd: String,
+    /// 变更形态：默认 SingleReplace；由内核 ToolSpec.mutation_form 决定。
+    pub form: MutationForm,
 }
 
 impl EditFileTool {
     pub fn new(cwd: impl Into<String>) -> Self {
-        Self { cwd: cwd.into() }
+        Self {
+            cwd: cwd.into(),
+            form: MutationForm::default(),
+        }
+    }
+
+    pub fn with_form(mut self, form: MutationForm) -> Self {
+        self.form = form;
+        self
     }
 }
 
@@ -142,27 +153,23 @@ impl BaseTool for EditFileTool {
     }
 
     fn parameters(&self) -> Value {
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "file_path": {
-                    "type": "string",
-                    "description": "The absolute path to the file to modify"
-                },
-                "old_string": {
-                    "type": "string",
-                    "description": "The text to replace. Must match EXACTLY including all whitespace, indentation, and newlines. The edit will fail if old_string is not unique in the file unless replace_all is true"
-                },
-                "new_string": {
-                    "type": "string",
-                    "description": "The text to replace it with (must be different from old_string)"
-                },
-                "replace_all": {
-                    "type": "boolean",
-                    "description": "If true, replace all occurrences of old_string. If false (default), replace only the first occurrence. Use this to rename variables or update repeated patterns across the file"
-                }
-            },
-            "required": ["file_path", "old_string", "new_string"]
+        match self.form {
+            MutationForm::SingleReplace => single_schema(),
+            MutationForm::BatchReplace => batch_schema(),
+        }
+    }
+
+    /// Batch 形态下在执行前抓取旧内容，供 TUI 生成全文 diff。
+    /// 单编辑路径返回 None，继续走原有的「从最终内容反推」逻辑。
+    fn file_snapshot(&self, input: &Value) -> Option<FileSnapshot> {
+        // 单编辑路径不走快照（保留原有反推 diff 逻辑）。
+        input.get("edits")?;
+        let path = input["file_path"]
+            .as_str()
+            .or_else(|| input["path"].as_str())?;
+        let resolved = resolve_path(&self.cwd, path);
+        Some(FileSnapshot {
+            old_content: std::fs::read_to_string(resolved).ok(),
         })
     }
 
@@ -170,6 +177,10 @@ impl BaseTool for EditFileTool {
         &self,
         input: Value,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        // `edits` 存在时走多编辑路径；否则完整走原单编辑路径（逐字节不变）。
+        if input.get("edits").is_some() {
+            return self.apply_batch(&input);
+        }
         let file_path = input["file_path"]
             .as_str()
             .ok_or("The 'file_path' parameter is required for the Edit tool.")?;
@@ -347,6 +358,286 @@ impl BaseTool for EditFileTool {
         }
     }
 }
+
+impl EditFileTool {
+    /// 多编辑：原文坐标预匹配 + 区间两两不相交 + 全部校验通过才写盘。
+    ///
+    /// `edits` 是 pi 内核的语义：每个 edit 都在**原始内容**上定位，
+    /// 不做「顺序应用到中间副本」（那会让结果依赖顺序并产生连锁失效）。
+    fn apply_batch(
+        &self,
+        input: &Value,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        let plan = BatchEditPlan::parse(input)?;
+        let resolved = resolve_path(&self.cwd, plan.file_path);
+        let raw_content = match std::fs::read_to_string(&resolved) {
+            Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Err(format!("Error: File not found at {}", resolved.display()).into());
+            }
+            Err(e) => return Err(e.into()),
+        };
+        let final_content = plan.apply(&raw_content, &resolved.to_string_lossy())?;
+        let line_diff = final_content.lines().count() as i64 - raw_content.lines().count() as i64;
+        let diff_desc = match line_diff.cmp(&0) {
+            std::cmp::Ordering::Greater => format!(
+                "Added {} line{}",
+                line_diff,
+                if line_diff == 1 { "" } else { "s" }
+            ),
+            std::cmp::Ordering::Less => format!(
+                "Removed {} line{}",
+                -line_diff,
+                if -line_diff == 1 { "" } else { "s" }
+            ),
+            std::cmp::Ordering::Equal => "Replaced text (same line count)".to_string(),
+        };
+        let rel = super::display_rel_path(&self.cwd, &resolved);
+        let total = plan.edits.len();
+        let message = format!(
+            "Applied {} edits to {} ({}, {} replacements)",
+            total, rel, diff_desc, total
+        );
+        // 拼接结果与原文相同：不写盘，避免仅刷新 mtime。
+        if final_content == raw_content {
+            return Ok(message);
+        }
+        write_atomic(&resolved, &final_content)?;
+        Ok(message)
+    }
+}
+
+/// Compute the exact batch-edit result for an approval preview without writing files.
+pub fn preview_batch_edit(
+    raw_content: &str,
+    input: &Value,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let plan = BatchEditPlan::parse(input)?;
+    plan.apply(raw_content, plan.file_path)
+}
+
+struct BatchEditPlan<'a> {
+    file_path: &'a str,
+    edits: Vec<(String, String)>,
+}
+
+impl<'a> BatchEditPlan<'a> {
+    fn parse(input: &'a Value) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        if input.get("old_string").is_some() || input.get("new_string").is_some() {
+            return Err(
+                "Error: 'edits' cannot be combined with top-level 'old_string'/'new_string'"
+                    .into(),
+            );
+        }
+        let file_path = input["file_path"]
+            .as_str()
+            .or_else(|| input["path"].as_str())
+            .ok_or("Error: 'file_path' is required for the Edit tool.")?;
+        let edits = input["edits"]
+            .as_array()
+            .ok_or("Error: 'edits' must be an array")?;
+        if edits.is_empty() {
+            return Err("Error: 'edits' cannot be empty".into());
+        }
+        let mut parsed: Vec<(String, String)> = Vec::with_capacity(edits.len());
+        for (idx, item) in edits.iter().enumerate() {
+            let old = item["old_string"]
+                .as_str()
+                .or_else(|| item["oldText"].as_str())
+                .ok_or_else(|| format!("Error: Edit #{} is missing 'old_string'", idx + 1))?;
+            let new = item["new_string"]
+                .as_str()
+                .or_else(|| item["newText"].as_str())
+                .ok_or_else(|| format!("Error: Edit #{} is missing 'new_string'", idx + 1))?;
+            if old.is_empty() {
+                return Err(format!("Error: Edit #{} has an empty 'old_string'", idx + 1).into());
+            }
+            // Match and restore line endings once for both the file and replacement text.
+            parsed.push((old.replace("\r\n", "\n"), new.replace("\r\n", "\n")));
+        }
+
+        Ok(Self {
+            file_path,
+            edits: parsed,
+        })
+    }
+
+    fn apply(
+        &self,
+        raw_content: &str,
+        display_path: &str,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        // CRLF 在整个循环外归一化一次、恢复一次，避免 \r\r\n。
+        let is_crlf = raw_content.contains("\r\n");
+        let content = if is_crlf {
+            raw_content.replace("\r\n", "\n")
+        } else {
+            raw_content.to_string()
+        };
+
+        // 预匹配：所有区间都相对原文，互不影响。
+        let mut ranges: Vec<(usize, usize, String, usize)> = Vec::with_capacity(self.edits.len());
+        for (idx, (old, new)) in self.edits.iter().enumerate() {
+            // 必须检测**重叠**匹配：str::match_indices 只返回不重叠匹配，
+            // 例如原文 "aaa"、old_string="aa" 实际有 2 个位置，漏检会误判为唯一。
+            let matches = find_all_occurrences(&content, old);
+            if matches.is_empty() {
+                let hint = build_not_found_hint(&content, old);
+                return Err(format!(
+                    "Error: Edit #{} old_string not found in {}\n{}",
+                    idx + 1,
+                    display_path,
+                    hint
+                )
+                .into());
+            }
+            if matches.len() > 1 {
+                let locations: Vec<String> = matches
+                    .iter()
+                    .take(10)
+                    .map(|offset| format!("line {}", content[..*offset].lines().count() + 1))
+                    .collect();
+                return Err(format!(
+                    "Error: Edit #{} old_string is not unique in {} (found {} occurrences).\nMatches at: {}.\nProvide more surrounding context to make it unique.",
+                    idx + 1,
+                    display_path,
+                    matches.len(),
+                    locations.join(", ")
+                )
+                .into());
+            }
+            let start = matches[0];
+            ranges.push((start, start + old.len(), new.clone(), idx));
+        }
+
+        ranges.sort_by_key(|r| r.0);
+        for pair in ranges.windows(2) {
+            if pair[0].1 > pair[1].0 {
+                return Err(format!(
+                    "Error: Edits #{} and #{} overlap",
+                    pair[0].3 + 1,
+                    pair[1].3 + 1
+                )
+                .into());
+            }
+        }
+
+        // 从后往前拼接，避免前面的替换让后面的偏移失效。
+        let mut working = content.clone();
+        for (start, end, new, _) in ranges.iter().rev() {
+            working.replace_range(*start..*end, new.as_str());
+        }
+        let final_content = if is_crlf {
+            working.replace('\n', "\r\n")
+        } else {
+            working
+        };
+        Ok(final_content)
+    }
+}
+
+/// cc / dsh 形态：与改造前逐字节一致的 JSON Schema。
+fn single_schema() -> Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "file_path": {
+                "type": "string",
+                "description": "The absolute path to the file to modify"
+            },
+            "old_string": {
+                "type": "string",
+                "description": "The text to replace. Must match EXACTLY including all whitespace, indentation, and newlines. The edit will fail if old_string is not unique in the file unless replace_all is true"
+            },
+            "new_string": {
+                "type": "string",
+                "description": "The text to replace it with (must be different from old_string)"
+            },
+            "replace_all": {
+                "type": "boolean",
+                "description": "If true, replace all occurrences of old_string. If false (default), replace only the first occurrence. Use this to rename variables or update repeated patterns across the file"
+            }
+        },
+        "required": ["file_path", "old_string", "new_string"]
+    })
+}
+
+/// 内部批量形态：使用**规范字段名**，保证调度器能用归一化后的入参校验；
+/// 出站时由 `translate_definitions` 改写成 pi 的 path / oldText / newText。
+fn batch_schema() -> Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "file_path": {
+                "type": "string",
+                "description": "The absolute path to the file to modify"
+            },
+            "edits": {
+                "type": "array",
+                "description": "Non-overlapping edits applied against the original file content. Each old_string must match exactly once.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "old_string": {
+                            "type": "string",
+                            "description": "The exact text to replace. Must be unique in the original file."
+                        },
+                        "new_string": {
+                            "type": "string",
+                            "description": "The replacement text"
+                        }
+                    },
+                    "required": ["old_string", "new_string"]
+                }
+            }
+        },
+        "required": ["file_path", "edits"]
+    })
+}
+
+/// 返回 needle 在 haystack 中的全部起始位置（**含重叠匹配**）。
+///
+/// `str::match_indices` 只返回不重叠匹配，会漏掉 "aaa" 中 "aa" 的第二个位置，
+/// 导致本应 ambiguous 的编辑被误判为唯一并执行错误替换。这里按字符步进扫描。
+fn find_all_occurrences(haystack: &str, needle: &str) -> Vec<usize> {
+    if needle.is_empty() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    let mut start = 0;
+    while start <= haystack.len() {
+        let Some(pos) = haystack[start..].find(needle) else {
+            break;
+        };
+        let abs = start + pos;
+        out.push(abs);
+        let step = haystack[abs..]
+            .chars()
+            .next()
+            .map(char::len_utf8)
+            .unwrap_or(1);
+        start = abs + step;
+    }
+    out
+}
+
+/// 原子写入：先写临时文件再 rename。
+fn write_atomic(path: &std::path::Path, content: &str) -> std::io::Result<()> {
+    let tmp_ext = format!("tmp.{}", uuid::Uuid::now_v7());
+    let tmp_path = path.with_extension(tmp_ext);
+    std::fs::write(&tmp_path, content)?;
+    match std::fs::rename(&tmp_path, path) {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp_path);
+            Err(e)
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "edit_batch_preview_test.rs"]
+mod batch_preview_tests;
 
 #[cfg(test)]
 mod tests {

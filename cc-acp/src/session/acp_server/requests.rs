@@ -16,13 +16,14 @@ use agent_client_protocol::schema::{
     SetSessionConfigOptionResponse, SetSessionModeResponse, SetSessionModelResponse,
 };
 
-use cc_acp::dispatch::config_update::make_config_options;
-
-use crate::provider::{LlmProvider, save_to};
+use crate::provider::{save_to, LlmProvider};
 
 use super::{
     apply_thinking_effort, build_mode_state, build_model_state,
-    notify::{extract_session_id, send_available_commands_update, send_config_option_update},
+    notify::{
+        extract_session_id, send_available_commands_update, send_config_option_update,
+        session_config_options,
+    },
     parse_permission_mode, AcpServerConfig, SessionState,
 };
 
@@ -262,7 +263,17 @@ pub(crate) async fn handle_request(
                     persist_config(cfg);
                 }
             }
-            let meta = ThreadMeta::new(&cwd);
+            let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
+            let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
+                &cwd,
+                project_config(cfg, &cwd),
+                &cfg.plugin_skill_dirs,
+                &cfg.plugin_agent_dirs,
+                &frozen_date,
+                cc_acp::session::frozen::rule_model_from(&cfg.provider.read()),
+            );
+            let mut meta = ThreadMeta::new(&cwd);
+            meta.kernel_id = frozen_data.kernel_id.clone();
             let thread_id = cfg
                 .thread_store
                 .create_thread(meta)
@@ -288,18 +299,6 @@ pub(crate) async fn handle_request(
                 },
             );
 
-            // ── Freeze system prompt data at session creation ──
-            let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
-
-            let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
-                &cwd,
-                project_config(cfg, &cwd),
-                &cfg.plugin_skill_dirs,
-                &cfg.plugin_agent_dirs,
-                &frozen_date,
-                cc_acp::session::frozen::rule_model_from(&cfg.provider.read()),
-            );
-
             let state = sessions.get_mut(&session_id).unwrap();
             state.frozen = Some(frozen_data);
             info!(session_id = %session_id, "ACP session created with ThreadStore");
@@ -309,11 +308,7 @@ pub(crate) async fn handle_request(
                 let c = cfg.peri_config.read();
                 build_model_state(&p, &c)
             };
-            let config_options = {
-                let c = cfg.peri_config.read();
-                let p = cfg.provider.read();
-                make_config_options(&c, &p, cfg.permission_mode.load())
-            };
+            let config_options = session_config_options(cfg, sessions, &session_id);
             let resp = NewSessionResponse::new(SessionId::new(&*session_id))
                 .modes(modes)
                 .models(models)
@@ -344,7 +339,7 @@ pub(crate) async fn handle_request(
                 persist_session_snapshot(cfg, session_id, &session.cwd).await;
             }
             let resp = SetSessionModelResponse::new();
-            send_config_option_update(transport, session_id, cfg).await;
+            send_config_option_update(transport, session_id, cfg, sessions).await;
             serde_json::to_value(resp)
                 .map_err(|e| AcpError::new(-32603, format!("Serialize failed: {e}")))
         }
@@ -359,7 +354,7 @@ pub(crate) async fn handle_request(
             cfg.permission_mode.store(mode);
             info!(mode_id = %mode_id, "Permission mode changed");
             let resp = SetSessionModeResponse::new();
-            send_config_option_update(transport, session_id, cfg).await;
+            send_config_option_update(transport, session_id, cfg, sessions).await;
             serde_json::to_value(resp)
                 .map_err(|e| AcpError::new(-32603, format!("Serialize failed: {e}")))
         }
@@ -403,22 +398,48 @@ pub(crate) async fn handle_request(
                     persist_config(cfg);
                     info!(enabled = %enabled, "Context 1M changed via configOption (persisted)");
                 }
+                "agent_kernel" => {
+                    // 严格解析：未知内核不写配置、不切换。
+                    let Some(kernel) = cc_agent::kernel::Kernel::from_config_checked(value) else {
+                        return Err(AcpError::new(
+                            -32602,
+                            format!("未知内核: {value}，可用内核：cc / dsh / pi"),
+                        ));
+                    };
+                    let mut next_config = cfg.peri_config.read().clone();
+                    next_config.config.agent_kernel = Some(kernel.id().to_string());
+                    cc_acp::session::kernel::persist_switch(
+                        cfg.thread_store.as_ref(),
+                        session_id,
+                        &next_config,
+                        &cfg.config_path,
+                    )
+                    .await
+                    .map_err(|error| AcpError::new(-32603, format!("内核切换失败: {error}")))?;
+                    *cfg.peri_config.write() = next_config;
+                    if let Some(session) = sessions.get_mut(session_id) {
+                        // 冻结的内核身份随切换更新；builder 每轮据此重算内核提示词段落，
+                        // 无需重建整个 system_prompt（避免绕过 memory / feature / attribution）。
+                        if let Some(ref mut frozen) = session.frozen {
+                            frozen.kernel_id = Some(kernel.id().to_string());
+                        }
+                        // 内核影响 LLM adapter 的工具定义，缓存实例必须失效。
+                        session.agent_pool.lock().invalidate();
+                    }
+                    info!(kernel = %value, "Agent kernel changed via configOption");
+                }
                 _ => {
                     debug!(config_id = %config_id, "Unknown config option");
                 }
             }
-            if matches!(config_id, "model" | "thinking_effort") {
+            if matches!(config_id, "model" | "thinking_effort" | "agent_kernel") {
                 if let Some(session) = sessions.get(session_id) {
                     persist_session_snapshot(cfg, session_id, &session.cwd).await;
                 }
             }
-            let config_options = {
-                let c = cfg.peri_config.read();
-                let p = cfg.provider.read();
-                make_config_options(&c, &p, cfg.permission_mode.load())
-            };
+            let config_options = session_config_options(cfg, sessions, session_id);
             let resp = SetSessionConfigOptionResponse::new(config_options);
-            send_config_option_update(transport, session_id, cfg).await;
+            send_config_option_update(transport, session_id, cfg, sessions).await;
             serde_json::to_value(resp)
                 .map_err(|e| AcpError::new(-32603, format!("Serialize failed: {e}")))
         }
@@ -446,6 +467,10 @@ pub(crate) async fn handle_request(
             let meta = cfg.thread_store.load_meta(&thread_id).await.map_err(|_| {
                 AcpError::new(-32001, format!("session not found: {req_session_id}"))
             })?;
+            if let Some(id) = meta.kernel_id.as_deref() {
+                cc_agent::kernel::Kernel::try_from_id(id)
+                    .map_err(|error| AcpError::new(-32602, error.to_string()))?;
+            }
             // 历史线程的目录是持久化事实，调用方的启动目录不能覆盖它。
             let cwd = meta.cwd.as_str();
 
@@ -504,6 +529,11 @@ pub(crate) async fn handle_request(
                         cc_acp::session::frozen::rule_model_from(&cfg.provider.read()),
                     ));
                 }
+                // 持久化的内核身份优先于当前全局配置，保证重启后恢复原内核。
+                if let (Some(frozen), Some(kernel_id)) = (s.frozen.as_mut(), meta.kernel_id.clone())
+                {
+                    frozen.kernel_id = Some(kernel_id);
+                }
             }
 
             let modes = build_mode_state(&cfg.permission_mode);
@@ -512,11 +542,7 @@ pub(crate) async fn handle_request(
                 let c = cfg.peri_config.read();
                 build_model_state(&p, &c)
             };
-            let config_options = {
-                let c = cfg.peri_config.read();
-                let p = cfg.provider.read();
-                make_config_options(&c, &p, cfg.permission_mode.load())
-            };
+            let config_options = session_config_options(cfg, sessions, req_session_id);
             let resp = LoadSessionResponse::new()
                 .modes(modes)
                 .models(models)
@@ -613,8 +639,34 @@ pub(crate) async fn handle_request(
             }
 
             // ── Freeze session data at resume time ──
+            // 会话冻结的内核身份优先于当前全局配置：中途改过配置不应让历史上下文
+            // 与新提示词错配。
+            let mut existing_kernel_id = sessions
+                .get(req_session_id)
+                .and_then(|s| s.frozen.as_ref())
+                .and_then(|f| f.kernel_id.clone());
+            // 进程重启后内存 sessions 为空，回落到持久化的 kernel_id。
+            if existing_kernel_id.is_none() {
+                existing_kernel_id = cfg
+                    .thread_store
+                    .load_meta(&req_session_id.to_string())
+                    .await
+                    .ok()
+                    .and_then(|m| m.kernel_id);
+            }
+            if let Some(id) = existing_kernel_id.as_deref() {
+                cc_agent::kernel::Kernel::try_from_id(id)
+                    .map_err(|error| AcpError::new(-32602, error.to_string()))?;
+            }
+            if sessions
+                .get(req_session_id)
+                .is_some_and(|session| session.frozen.is_some())
+            {
+                return serde_json::to_value(ResumeSessionResponse::new())
+                    .map_err(|error| AcpError::new(-32603, error.to_string()));
+            }
             let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
-            let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
+            let mut frozen_data = cc_acp::session::frozen::build_frozen_session_data(
                 cwd,
                 cfg.peri_config.read().config.clone(),
                 &cfg.plugin_skill_dirs,
@@ -622,6 +674,11 @@ pub(crate) async fn handle_request(
                 &frozen_date,
                 cc_acp::session::frozen::rule_model_from(&cfg.provider.read()),
             );
+            if let Some(id) = existing_kernel_id {
+                frozen_data.kernel_id = Some(id);
+            } else {
+                tracing::warn!("resume: 会话缺少 kernel_id，回退全局配置");
+            }
             if let Some(s) = sessions.get_mut(req_session_id) {
                 s.frozen = Some(frozen_data);
             }
@@ -629,6 +686,31 @@ pub(crate) async fn handle_request(
             let resp = ResumeSessionResponse::new();
             serde_json::to_value(resp)
                 .map_err(|e| AcpError::new(-32603, format!("Serialize failed: {e}")))
+        }
+
+        "session/kernel" => {
+            let id = extract_session_id(params, "");
+            let session = sessions.get(id);
+            if !id.is_empty() && session.is_none() {
+                return Err(AcpError::new(-32602, "session not found"));
+            }
+            let cwd = session
+                .map(|session| session.cwd.as_str())
+                .unwrap_or_else(|| params.get("cwd").and_then(Value::as_str).unwrap_or("."));
+            let config = cc_acp::provider::PeriConfig {
+                config: project_config(cfg, cwd),
+                ..Default::default()
+            };
+            let provider =
+                LlmProvider::from_config(&config).unwrap_or_else(|| cfg.provider.read().clone());
+            cc_acp::session::kernel::describe(
+                session.and_then(|session| session.frozen.as_ref()),
+                &config,
+                &provider,
+                cwd,
+                &cfg.plugin_agent_dirs,
+            )
+            .map_err(|error| AcpError::new(-32602, error.to_string()))
         }
 
         "session/fork" => {
@@ -645,10 +727,41 @@ pub(crate) async fn handle_request(
                     AcpError::new(-32602, format!("source session not found: {source_id}"))
                 })?;
 
-            let (new_thread_id, copied_history) =
-                dispatch::fork_session(cfg.thread_store.as_ref(), source_id, &source_history, cwd)
+            // fork 继承源会话的内核身份。
+            let mut source_kernel_id = sessions
+                .get(source_id)
+                .and_then(|s| s.frozen.as_ref())
+                .and_then(|f| f.kernel_id.clone());
+            if source_kernel_id.is_none() {
+                source_kernel_id = cfg
+                    .thread_store
+                    .load_meta(&source_id.to_string())
                     .await
-                    .map_err(|e| AcpError::new(-32603, e))?;
+                    .map_err(|error| AcpError::new(-32602, error.to_string()))?
+                    .kernel_id;
+            }
+
+            let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
+            let mut frozen_data = cc_acp::session::frozen::build_frozen_session_data(
+                cwd,
+                project_config(cfg, cwd),
+                &cfg.plugin_skill_dirs,
+                &cfg.plugin_agent_dirs,
+                &frozen_date,
+                cc_acp::session::frozen::rule_model_from(&cfg.provider.read()),
+            );
+            if let Some(id) = source_kernel_id {
+                frozen_data.kernel_id = Some(id);
+            }
+            let (new_thread_id, copied_history) = dispatch::session_fork::fork_session_with_kernel(
+                cfg.thread_store.as_ref(),
+                source_id,
+                &source_history,
+                cwd,
+                frozen_data.kernel_id.clone(),
+            )
+            .await
+            .map_err(|error| AcpError::new(-32603, error))?;
 
             let new_session_id = new_thread_id.clone();
             persist_session_snapshot(cfg, &new_session_id, cwd).await;
@@ -662,27 +775,13 @@ pub(crate) async fn handle_request(
                     cancel_token: None,
                     background_registry: Arc::default(),
                     steering: None,
-                    frozen: None,
+                    frozen: Some(frozen_data),
                     recall_items: Vec::new(),
                     agent_pool: Arc::default(),
                     approval_memory: cc_middlewares::hitl::ApprovalMemory::new(),
                     mcp_over_acp_servers: HashMap::new(),
                 },
             );
-
-            // ── Freeze session data at fork time ──
-            let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
-            let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
-                cwd,
-                cfg.peri_config.read().config.clone(),
-                &cfg.plugin_skill_dirs,
-                &cfg.plugin_agent_dirs,
-                &frozen_date,
-                cc_acp::session::frozen::rule_model_from(&cfg.provider.read()),
-            );
-            if let Some(s) = sessions.get_mut(&new_session_id) {
-                s.frozen = Some(frozen_data);
-            }
 
             info!(source = %source_id, new = %new_session_id, "Session forked");
             let resp = ForkSessionResponse::new(SessionId::new(new_session_id));
@@ -709,7 +808,30 @@ pub(crate) async fn handle_request(
                 ));
             }
 
+            cc_acp::session::kernel::persist_switch(
+                cfg.thread_store.as_ref(),
+                session_id,
+                &new_cfg,
+                &cfg.config_path,
+            )
+            .await
+            .map_err(|error| AcpError::new(-32603, format!("保存配置失败: {error}")))?;
             *cfg.peri_config.write() = new_cfg.clone();
+
+            // 配置整体替换时，内核变更也要同步到会话冻结身份，
+            // 否则 resolve_kernel 仍读旧的 frozen.kernel_id，切换不生效。
+            {
+                let kernel =
+                    cc_agent::kernel::Kernel::from_config(new_cfg.config.agent_kernel.as_deref());
+                if let Some(session) = sessions.get_mut(session_id) {
+                    if let Some(ref mut frozen) = session.frozen {
+                        if frozen.kernel_id.as_deref() != Some(kernel.id()) {
+                            frozen.kernel_id = Some(kernel.id().to_string());
+                            session.agent_pool.lock().invalidate();
+                        }
+                    }
+                }
+            }
 
             if let Some(p) = LlmProvider::from_config(&new_cfg) {
                 *cfg.provider.write() = p;
@@ -724,18 +846,12 @@ pub(crate) async fn handle_request(
                 s.agent_pool.lock().invalidate();
             }
 
-            persist_config(cfg);
-
             if let Some(session) = sessions.get(session_id) {
                 persist_session_snapshot(cfg, session_id, &session.cwd).await;
             }
 
-            let config_options = {
-                let c = cfg.peri_config.read();
-                let p = cfg.provider.read();
-                make_config_options(&c, &p, cfg.permission_mode.load())
-            };
-            send_config_option_update(transport, session_id, cfg).await;
+            let config_options = session_config_options(cfg, sessions, session_id);
+            send_config_option_update(transport, session_id, cfg, sessions).await;
             serde_json::to_value(SetSessionConfigOptionResponse::new(config_options))
                 .map_err(|e| AcpError::new(-32603, format!("Serialize failed: {e}")))
         }

@@ -159,6 +159,58 @@ impl BaseMessage {
         }
     }
 
+    /// 对 AI 消息的**双份名字存储**应用同一个改写闭包。
+    ///
+    /// `BaseMessage::Ai` 同时把工具名存在 `content` 的 `ContentBlock::ToolUse`
+    /// 与 `tool_calls: Vec<ToolCallRequest>` 里，`ai_from_blocks` 只在构造时同步一次，
+    /// 之后不会自动同步。任何一处的改写都必须用本方法同时覆盖两处，否则
+    /// API payload 与 state / compact 比对会看到不一致的名字。
+    ///
+    /// 闭包签名 `(旧名字, 入参) -> 新名字`；入参可就地改写（内核入站归一化用），
+    /// 也可原样不动（出站历史回译只改名字）。
+    pub fn map_ai_tool_names(&mut self, mut f: impl FnMut(&str, &mut serde_json::Value) -> String) {
+        let Self::Ai {
+            content,
+            tool_calls,
+            ..
+        } = self
+        else {
+            return;
+        };
+        match content {
+            MessageContent::Blocks(blocks) => {
+                for block in blocks.iter_mut() {
+                    if let ContentBlock::ToolUse { name, input, .. } = block {
+                        let new_name = f(name, input);
+                        *name = new_name;
+                    }
+                }
+            }
+            MessageContent::Raw(values) => {
+                for value in values.iter_mut() {
+                    if value["type"].as_str() != Some("tool_use") {
+                        continue;
+                    }
+                    let Some(old_name) = value["name"].as_str().map(str::to_string) else {
+                        continue;
+                    };
+                    let mut input = value
+                        .get("input")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null);
+                    let new_name = f(&old_name, &mut input);
+                    value["name"] = serde_json::Value::String(new_name);
+                    value["input"] = input;
+                }
+            }
+            MessageContent::Text(_) => {}
+        }
+        for tc in tool_calls.iter_mut() {
+            let new_name = f(&tc.name, &mut tc.arguments);
+            tc.name = new_name;
+        }
+    }
+
     pub fn tool_error(id: impl Into<String>, error: impl Into<MessageContent>) -> Self {
         Self::Tool {
             id: MessageId::new(),

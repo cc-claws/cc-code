@@ -10,7 +10,7 @@ use crate::{
     subagent::SubAgentMiddlewareConfig,
 };
 
-use super::build_subagent_middlewares;
+use super::{build_subagent_middlewares, tool_is_visible};
 
 /// 子 Agent 构建参数；后台 Agent 独立取消，Skill fork 随父调用取消。
 ///
@@ -61,6 +61,7 @@ impl super::SubAgentTool {
             child_meta.hidden = true;
             child_meta.cancel_policy = if options.cascade_cancel { "cascade" } else { "independent" }.to_string();
             child_meta.title = Some(agent_name.to_string());
+            child_meta.kernel_id = Some(self.kernel.id().to_string());
             store
                 .create_thread(child_meta)
                 .await
@@ -115,7 +116,32 @@ impl super::SubAgentTool {
         };
 
         // 6. Build agent
-        let mut agent_builder = ReActAgent::new(llm).max_iterations(max_iterations);
+        // 子 Agent 必须与主 Agent 使用同一内核可见性过滤，并遵循自身的工具白名单与禁用项，
+        // 否则模型会看到执行入口随后会拒绝的工具（中间件注册的 TodoWrite/Skill 也在此列）。
+        let disallowed_for_filter: Vec<String> = if options.fork {
+            Vec::new()
+        } else {
+            agent_def.frontmatter.disallowed_tools.to_vec()
+        };
+        let allowed_for_filter: Vec<String> = if options.fork {
+            Vec::new()
+        } else {
+            agent_def.frontmatter.tools.to_vec()
+        };
+        let allowed_for_prompt = allowed_for_filter.clone();
+        let disallowed_for_prompt = disallowed_for_filter.clone();
+        let filter_kernel = self.kernel;
+        let mut agent_builder = ReActAgent::new(llm)
+            .max_iterations(max_iterations)
+            .with_kernel(self.kernel)
+            .with_tool_filter(move |name: &str| {
+                !tool_is_visible(
+                    filter_kernel,
+                    &allowed_for_filter,
+                    &disallowed_for_filter,
+                    name,
+                )
+            });
 
         // 7. Middlewares（fork 不带 agent.md 的 skills，其余链完全一致）
         let mut middleware_config = self.permission_config(
@@ -140,7 +166,27 @@ impl super::SubAgentTool {
                 },
             );
         middleware_config.skill_tool = Some(child_skill_tool);
-        for mw in build_subagent_middlewares(middleware_config) {
+        middleware_config.kernel = self.kernel;
+        middleware_config.available_tools = filtered_tools
+            .iter()
+            .map(|tool| tool.name().to_string())
+            .collect();
+        let middlewares = build_subagent_middlewares(middleware_config);
+        let mut visible_tools: Vec<String> = filtered_tools
+            .iter()
+            .map(|tool| tool.name().to_string())
+            .chain(middlewares.iter().flat_map(|mw| {
+                mw.collect_tools(cwd)
+                    .into_iter()
+                    .map(|tool| tool.name().to_string())
+            }))
+            .filter(|name| {
+                tool_is_visible(self.kernel, &allowed_for_prompt, &disallowed_for_prompt, name)
+            })
+            .collect();
+        visible_tools.sort();
+        visible_tools.dedup();
+        for mw in middlewares {
             agent_builder = agent_builder.add_middleware(mw);
         }
 
@@ -155,7 +201,7 @@ impl super::SubAgentTool {
                     &agent_def.frontmatter.proactiveness,
                 )
             };
-            let system_content = builder(overrides.as_ref(), cwd);
+            let system_content = builder(overrides.as_ref(), cwd, &visible_tools);
             agent_builder = agent_builder.with_system_prompt(system_content);
         }
 
@@ -188,3 +234,7 @@ impl super::SubAgentTool {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "kernel_prompt_test.rs"]
+mod tests;

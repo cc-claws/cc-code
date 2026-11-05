@@ -53,6 +53,85 @@ struct StdioContext {
     sessions: parking_lot::RwLock<std::collections::HashMap<String, SessionInfo>>,
     thread_store: Arc<dyn cc_agent::thread::ThreadStore>,
     langfuse_session: Option<Arc<cc_acp::langfuse::LangfuseSession>>,
+    config_path: std::path::PathBuf,
+    config_update_lock: tokio::sync::Mutex<()>,
+}
+
+fn publish_stdio_kernel(ctx: &StdioContext, session_id: &str, kernel: cc_agent::kernel::Kernel) {
+    if let Some(session) = ctx.sessions.write().get_mut(session_id) {
+        if let Some(frozen) = &mut session.frozen {
+            frozen.kernel_id = Some(kernel.id().to_string());
+        }
+        session.agent_pool.lock().invalidate();
+    }
+}
+
+async fn set_stdio_kernel(
+    ctx: &StdioContext,
+    session_id: &str,
+    value: &str,
+) -> Result<(), agent_client_protocol::Error> {
+    let kernel = cc_agent::kernel::Kernel::try_from_id(value)
+        .map_err(|error| agent_client_protocol::Error::invalid_params().data(error.to_string()))?;
+    let _guard = ctx.config_update_lock.lock().await;
+    let mut next = ctx.peri_config.read().clone();
+    next.config.agent_kernel = Some(kernel.id().to_string());
+    cc_acp::session::kernel::persist_switch(
+        ctx.thread_store.as_ref(),
+        session_id,
+        &next,
+        &ctx.config_path,
+    )
+    .await
+    .map_err(|error| agent_client_protocol::Error::internal_error().data(error.to_string()))?;
+    *ctx.peri_config.write() = next;
+    publish_stdio_kernel(ctx, session_id, kernel);
+    Ok(())
+}
+
+fn stdio_config_options(
+    ctx: &StdioContext,
+    session_id: &str,
+) -> Vec<agent_client_protocol::schema::SessionConfigOption> {
+    let mut config = ctx.peri_config.read().clone();
+    if let Some(id) = ctx
+        .sessions
+        .read()
+        .get(session_id)
+        .and_then(|session| session.frozen.as_ref())
+        .and_then(|frozen| frozen.kernel_id.as_ref())
+    {
+        config.config.agent_kernel = Some(id.clone());
+    }
+    cc_acp::dispatch::config_update::make_config_options(
+        &config,
+        &ctx.provider.read(),
+        ctx.permission_mode.load(),
+    )
+}
+
+fn stdio_kernel_status(
+    ctx: &StdioContext,
+    session_id: &str,
+    cwd: &str,
+) -> Result<serde_json::Value, agent_client_protocol::Error> {
+    let sessions = ctx.sessions.read();
+    let session = sessions.get(session_id);
+    if !session_id.is_empty() && session.is_none() {
+        return Err(agent_client_protocol::Error::invalid_params().data("session not found"));
+    }
+    let cwd = session.map(|session| session.cwd.as_str()).unwrap_or(cwd);
+    let config = stdio_project_config(ctx, cwd);
+    let provider = cc_acp::provider::LlmProvider::from_config(&config)
+        .unwrap_or_else(|| ctx.provider.read().clone());
+    cc_acp::session::kernel::describe(
+        session.and_then(|session| session.frozen.as_ref()),
+        &config,
+        &provider,
+        cwd,
+        &ctx.plugin_agent_dirs,
+    )
+    .map_err(|error| agent_client_protocol::Error::invalid_params().data(error.to_string()))
 }
 
 fn stdio_project_config(ctx: &StdioContext, cwd: &str) -> cc_tui::config::PeriConfig {
@@ -81,26 +160,49 @@ async fn resume_session(ctx: &StdioContext, sid: &str) -> Result<(), agent_clien
             .get(sid)
             .is_none_or(|session| session.history.is_empty())
     };
-    if !needs_history {
+    let needs_frozen = ctx
+        .sessions
+        .read()
+        .get(sid)
+        .is_none_or(|session| session.frozen.is_none());
+    if let Some(id) = meta.kernel_id.as_deref() {
+        cc_agent::kernel::Kernel::try_from_id(id).map_err(|error| {
+            agent_client_protocol::Error::invalid_params().data(error.to_string())
+        })?;
+    }
+    if !needs_history && !needs_frozen {
         tracing::info!(session_id = %sid, "Session resumed (existing)");
         return Ok(());
     }
     let cwd = meta.cwd;
-    let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
-    let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
-        &cwd,
-        stdio_project_config(ctx, &cwd).config,
-        &ctx.plugin_skill_dirs,
-        &ctx.plugin_agent_dirs,
-        &frozen_date,
-        cc_acp::session::frozen::rule_model_from(&ctx.provider.read()),
-    );
+    let frozen_data = needs_frozen.then(|| {
+        let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let mut frozen_data = cc_acp::session::frozen::build_frozen_session_data(
+            &cwd,
+            stdio_project_config(ctx, &cwd).config,
+            &ctx.plugin_skill_dirs,
+            &ctx.plugin_agent_dirs,
+            &frozen_date,
+            cc_acp::session::frozen::rule_model_from(&ctx.provider.read()),
+        );
+        if let Some(kernel_id) = meta.kernel_id.clone() {
+            frozen_data.kernel_id = Some(kernel_id);
+        }
+        frozen_data
+    });
     // parking_lot guard 不能跨 await；读取期间其他请求可能已填入历史。
-    let history = cc_acp::dispatch::load_session_messages(ctx.thread_store.as_ref(), sid).await;
+    let history = if needs_history {
+        cc_acp::dispatch::load_session_messages(ctx.thread_store.as_ref(), sid).await
+    } else {
+        Vec::new()
+    };
     let mut sessions = ctx.sessions.write();
     if let Some(session) = sessions.get_mut(sid) {
         if session.history.is_empty() {
             session.history = history;
+        }
+        if session.frozen.is_none() {
+            session.frozen = frozen_data;
         }
         tracing::info!(session_id = %sid, "Session resumed (existing)");
     } else {
@@ -113,7 +215,7 @@ async fn resume_session(ctx: &StdioContext, sid: &str) -> Result<(), agent_clien
                 history,
                 cancel_token: None,
                 background_registry: Arc::default(),
-                frozen: Some(frozen_data),
+                frozen: frozen_data,
                 agent_pool: Arc::default(),
                 prompt_lock: Arc::default(),
                 background_results: None,
@@ -510,6 +612,8 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
         sessions: parking_lot::RwLock::new(std::collections::HashMap::new()),
         thread_store,
         langfuse_session,
+        config_path: cc_acp::provider::store::config_path(),
+        config_update_lock: tokio::sync::Mutex::new(()),
     });
 
     use agent_client_protocol::{
@@ -551,7 +655,17 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                 let ctx = ctx_clone.clone();
                 async move |req: NewSessionRequest, responder, cx: ConnectionTo<Client>| {
                     let cwd_str = req.cwd.to_string_lossy().to_string();
-                    let meta = cc_agent::thread::ThreadMeta::new(&cwd_str);
+                    let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
+                    let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
+                        &cwd_str,
+                        stdio_project_config(&ctx, &cwd_str).config,
+                        &ctx.plugin_skill_dirs,
+                        &ctx.plugin_agent_dirs,
+                        &frozen_date,
+                        cc_acp::session::frozen::rule_model_from(&ctx.provider.read()),
+                    );
+                    let mut meta = cc_agent::thread::ThreadMeta::new(&cwd_str);
+                    meta.kernel_id = frozen_data.kernel_id.clone();
                     let thread_id = match ctx.thread_store.create_thread(meta).await {
                         Ok(id) => id,
                         Err(e) => {
@@ -567,19 +681,6 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                     };
                     let sid = thread_id.clone();
                     persist_stdio_snapshot(&ctx, &sid, &cwd_str).await;
-                    // ── Freeze system prompt data at session creation ──
-                    let frozen_date =
-                        chrono::Local::now().format("%Y-%m-%d").to_string();
-
-                    let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
-                        &cwd_str,
-                        stdio_project_config(&ctx, &cwd_str).config,
-                        &ctx.plugin_skill_dirs,
-                        &ctx.plugin_agent_dirs,
-                        &frozen_date,
-                        cc_acp::session::frozen::rule_model_from(&ctx.provider.read()),
-                    );
-
                     // Scan skills for AvailableCommands
                     let skill_dirs = cc_middlewares::SkillsMiddleware::resolve_dirs_static(
                         &cwd_str,
@@ -612,11 +713,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                         let c = ctx.peri_config.read();
                         build_model_state(&p, &c)
                     };
-                    let config_options = {
-                        let c = ctx.peri_config.read();
-                        let p = ctx.provider.read();
-                        dispatch::config_update::make_config_options(&c, &p, ctx.permission_mode.load())
-                    };
+                    let config_options = stdio_config_options(&ctx, &sid);
                     let _ = responder.respond(
                         NewSessionResponse::new(SessionId::new(&*sid))
                             .modes(modes)
@@ -721,11 +818,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                     let mode = parse_permission_mode(mode_id);
                     ctx.permission_mode.store(mode);
                     tracing::info!(mode_id = %mode_id, "Permission mode changed");
-                    let config_options = {
-                        let c = ctx.peri_config.read();
-                        let p = ctx.provider.read();
-                        dispatch::config_update::make_config_options(&c, &p, ctx.permission_mode.load())
-                    };
+                    let config_options = stdio_config_options(&ctx, req.session_id.0.as_ref());
                     let notif = SessionNotification::new(
                         req.session_id.clone(),
                         SessionUpdate::ConfigOptionUpdate(ConfigOptionUpdate::new(config_options)),
@@ -756,11 +849,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                         }
                     }
                     persist_stdio_session_snapshot(&ctx, req.session_id.0.as_ref()).await;
-                    let config_options = {
-                        let c = ctx.peri_config.read();
-                        let p = ctx.provider.read();
-                        dispatch::config_update::make_config_options(&c, &p, ctx.permission_mode.load())
-                    };
+                    let config_options = stdio_config_options(&ctx, req.session_id.0.as_ref());
                     let notif = SessionNotification::new(
                         req.session_id.clone(),
                         SessionUpdate::ConfigOptionUpdate(ConfigOptionUpdate::new(config_options)),
@@ -805,6 +894,12 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                                     apply_thinking_effort(&ctx.peri_config, v);
                                     tracing::info!(effort = %v, "Thinking effort changed via configOption");
                                 }
+                                "agent_kernel" => {
+                                    if let Err(error) = set_stdio_kernel(&ctx, req.session_id.0.as_ref(), v).await {
+                                        let _ = responder.respond_with_error(error);
+                                        return Ok(());
+                                    }
+                                }
                                 _ => {
                                     tracing::debug!(config_id = %config_id, "Unknown config option");
                                 }
@@ -820,11 +915,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                     if matches!(config_id, "model" | "thinking_effort") {
                         persist_stdio_session_snapshot(&ctx, req.session_id.0.as_ref()).await;
                     }
-                    let config_options = {
-                        let cfg = ctx.peri_config.read();
-                        let p = ctx.provider.read();
-                        dispatch::config_update::make_config_options(&cfg, &p, ctx.permission_mode.load())
-                    };
+                    let config_options = stdio_config_options(&ctx, req.session_id.0.as_ref());
                     let notif = SessionNotification::new(
                         req.session_id.clone(),
                         SessionUpdate::ConfigOptionUpdate(ConfigOptionUpdate::new(config_options.clone())),
@@ -913,6 +1004,12 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                             return Ok(());
                         }
                     };
+                    if let Some(id) = meta.kernel_id.as_deref() {
+                        if let Err(error) = cc_agent::kernel::Kernel::try_from_id(id) {
+                            let _ = responder.respond_with_error(agent_client_protocol::Error::invalid_params().data(error.to_string()));
+                            return Ok(());
+                        }
+                    }
                     let cwd = meta.cwd;
                     let cwd_for_skills = cwd.clone();
 
@@ -920,14 +1017,18 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                     let needs_frozen = ctx.sessions.read().get(&sid).is_none_or(|session| session.frozen.is_none());
                     let frozen_data = needs_frozen.then(|| {
                         let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
-                        cc_acp::session::frozen::build_frozen_session_data(
+                        let mut frozen = cc_acp::session::frozen::build_frozen_session_data(
                             &cwd,
                             stdio_project_config(&ctx, &cwd).config,
                             &ctx.plugin_skill_dirs,
                             &ctx.plugin_agent_dirs,
                             &frozen_date,
                             cc_acp::session::frozen::rule_model_from(&ctx.provider.read()),
-                        )
+                        );
+                        if let Some(kernel_id) = meta.kernel_id.clone() {
+                            frozen.kernel_id = Some(kernel_id);
+                        }
+                        frozen
                     });
 
                     // Load history from ThreadStore via dispatch function
@@ -975,11 +1076,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                         let c = ctx.peri_config.read();
                         build_model_state(&p, &c)
                     };
-                    let config_options = {
-                        let c = ctx.peri_config.read();
-                        let p = ctx.provider.read();
-                        dispatch::config_update::make_config_options(&c, &p, ctx.permission_mode.load())
-                    };
+                    let config_options = stdio_config_options(&ctx, &sid);
                     let resp = LoadSessionResponse::new()
                         .modes(modes)
                         .models(models)
@@ -1038,12 +1135,29 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                         return Ok(());
                     }
 
-                    // Fork via dispatch function
-                    let (new_thread_id, copied_history) = match dispatch::fork_session(
+                    let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
+                    let mut frozen_data = cc_acp::session::frozen::build_frozen_session_data(
+                        &cwd_str, stdio_project_config(&ctx, &cwd_str).config,
+                        &ctx.plugin_skill_dirs, &ctx.plugin_agent_dirs, &frozen_date,
+                        cc_acp::session::frozen::rule_model_from(&ctx.provider.read()),
+                    );
+                    let mut source_kernel_id = ctx.sessions.read().get(&source_id)
+                        .and_then(|session| session.frozen.as_ref())
+                        .and_then(|frozen| frozen.kernel_id.clone());
+                    if source_kernel_id.is_none() {
+                        source_kernel_id = ctx.thread_store.load_meta(&source_id).await
+                            .map_err(|error| agent_client_protocol::Error::invalid_params().data(error.to_string()))?.kernel_id;
+                    }
+                    if let Some(id) = source_kernel_id {
+                        frozen_data.kernel_id = Some(id);
+                    }
+                    // Persist the effective kernel in the same create as the fork.
+                    let (new_thread_id, copied_history) = match dispatch::session_fork::fork_session_with_kernel(
                         ctx.thread_store.as_ref(),
                         &source_id,
                         &source_history,
                         &cwd_str,
+                        frozen_data.kernel_id.clone(),
                     ).await {
                         Ok((id, msgs)) => (id, msgs),
                         Err(e) => {
@@ -1059,16 +1173,6 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                     // Insert new session
                     let new_session_id = new_thread_id.clone();
                     persist_stdio_snapshot(&ctx, &new_session_id, &cwd_str).await;
-                    // Build frozen data for forked session
-                    let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
-                    let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
-                        &cwd_str,
-                        ctx.peri_config.read().config.clone(),
-                        &ctx.plugin_skill_dirs,
-                        &ctx.plugin_agent_dirs,
-                        &frozen_date,
-                        cc_acp::session::frozen::rule_model_from(&ctx.provider.read()),
-                    );
                     {
                         let mut sessions = ctx.sessions.write();
                         sessions.insert(
@@ -1100,7 +1204,13 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
             {
                 let ctx = ctx_clone.clone();
                 async move |req: agent_client_protocol::UntypedMessage, responder, cx: ConnectionTo<Client>| {
-                    // Only handle session/update_config; pass through all others
+                    if req.method() == "session/kernel" {
+                        let id = req.params().get("sessionId").and_then(|value| value.as_str()).unwrap_or("");
+                        let cwd = req.params().get("cwd").and_then(|value| value.as_str()).unwrap_or(".");
+                        let status = stdio_kernel_status(&ctx, id, cwd)?;
+                        let _ = responder.respond(status);
+                        return Ok(agent_client_protocol::Handled::Yes);
+                    }
                     if req.method() != "session/update_config" {
                         return Ok(agent_client_protocol::Handled::No {
                             message: (req, responder),
@@ -1133,7 +1243,13 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                             .data(format!("active_provider_id '{active_pid}' not found")));
                     }
 
+                    let _guard = ctx.config_update_lock.lock().await;
+                    cc_acp::session::kernel::persist_switch(
+                        ctx.thread_store.as_ref(), &session_id, &new_cfg, &ctx.config_path,
+                    ).await.map_err(|error| agent_client_protocol::Error::internal_error().data(error.to_string()))?;
                     *ctx.peri_config.write() = new_cfg.clone();
+                    publish_stdio_kernel(&ctx, &session_id,
+                        cc_agent::kernel::Kernel::from_config(new_cfg.config.agent_kernel.as_deref()));
 
                     if let Some(p) = cc_tui::app::agent::LlmProvider::from_config(&new_cfg) {
                         tracing::info!(model = %p.model_name(), "Provider updated via session/update_config");
@@ -1148,11 +1264,7 @@ pub async fn run_acp_stdio(cwd: String) -> anyhow::Result<()> {
                         }
                     }
 
-                    let config_options = {
-                        let c = ctx.peri_config.read();
-                        let p = ctx.provider.read();
-                        dispatch::config_update::make_config_options(&c, &p, ctx.permission_mode.load())
-                    };
+                    let config_options = stdio_config_options(&ctx, &session_id);
                     let notif = SessionNotification::new(
                         SessionId::new(&*session_id),
                         SessionUpdate::ConfigOptionUpdate(ConfigOptionUpdate::new(config_options.clone())),

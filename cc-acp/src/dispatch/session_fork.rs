@@ -15,7 +15,25 @@ pub async fn fork_session(
     source_messages: &[BaseMessage],
     cwd: &str,
 ) -> Result<(String, Vec<BaseMessage>), String> {
-    let meta = ThreadMeta::new(cwd);
+    fork_session_with_kernel(thread_store, source_thread_id, source_messages, cwd, None).await
+}
+
+pub async fn fork_session_with_kernel(
+    thread_store: &dyn ThreadStore,
+    source_thread_id: &str,
+    source_messages: &[BaseMessage],
+    cwd: &str,
+    kernel_id: Option<String>,
+) -> Result<(String, Vec<BaseMessage>), String> {
+    let source_meta = thread_store
+        .load_meta(&source_thread_id.to_string())
+        .await
+        .map_err(|error| format!("Source thread not found: {error}"))?;
+    let mut meta = ThreadMeta::new(cwd);
+    meta.kernel_id = kernel_id.or(source_meta.kernel_id);
+    if let Some(id) = meta.kernel_id.as_deref() {
+        cc_agent::kernel::Kernel::try_from_id(id).map_err(|error| error.to_string())?;
+    }
     let new_thread_id = thread_store
         .create_thread(meta)
         .await
@@ -26,7 +44,10 @@ pub async fn fork_session(
             .append_messages(&ThreadId::from(new_thread_id.clone()), source_messages)
             .await
         {
-            tracing::warn!(error = %e, "session/fork: failed to copy messages to new thread");
+            if let Err(cleanup) = thread_store.delete_thread(&new_thread_id).await {
+                tracing::warn!(error = %cleanup, "session/fork: failed to clean up incomplete thread");
+            }
+            return Err(format!("Failed to copy session history: {e}"));
         }
     }
 

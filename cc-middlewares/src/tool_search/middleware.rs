@@ -19,6 +19,7 @@ use super::{
 /// 1. 注册 SearchExtraTools 和 ExecuteExtraTool 两个元工具
 /// 2. 在 before_agent 时注入延迟工具列表到 system prompt
 pub struct ToolSearchMiddleware {
+    kernel: cc_agent::kernel::Kernel,
     tool_search_index: Arc<ToolSearchIndex>,
     shared_tools: Arc<RwLock<HashMap<String, Arc<dyn BaseTool>>>>,
 }
@@ -29,9 +30,15 @@ impl ToolSearchMiddleware {
         shared_tools: Arc<RwLock<HashMap<String, Arc<dyn BaseTool>>>>,
     ) -> Self {
         Self {
+            kernel: cc_agent::kernel::Kernel::default(),
             tool_search_index,
             shared_tools,
         }
+    }
+
+    pub fn with_kernel(mut self, kernel: cc_agent::kernel::Kernel) -> Self {
+        self.kernel = kernel;
+        self
     }
 }
 
@@ -49,6 +56,11 @@ impl<S: State> Middleware<S> for ToolSearchMiddleware {
     }
 
     async fn before_agent(&self, state: &mut S) -> AgentResult<()> {
+        // Other kernels expose configured MCP tools directly. A cached cc
+        // discovery prompt must not instruct them to call unavailable meta tools.
+        if !self.kernel.exposes_tool_search() {
+            return Ok(());
+        }
         // 检查 shared_tools 是否有变化（MCP 后续连接等场景）
         let tools = self.shared_tools.read();
         let deferred_arcs: Vec<Arc<dyn BaseTool>> = tools

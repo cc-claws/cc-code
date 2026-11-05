@@ -79,7 +79,7 @@ pub fn build_config_options(
     provider: &LlmProvider,
     current_mode: PermissionMode,
 ) -> Vec<SessionConfigOption> {
-    let mut options = Vec::with_capacity(3);
+    let mut options = Vec::with_capacity(4);
 
     // ── Mode (category: mode) ──
     let current_mode_id = match current_mode {
@@ -142,6 +142,20 @@ pub fn build_config_options(
         )
         .category(SessionConfigOptionCategory::ThoughtLevel),
     );
+
+    // ── Agent kernel (runtime switch) ──
+    let current_kernel = peri_config.config.agent_kernel.as_deref().unwrap_or("cc");
+    let kernel_options = vec![
+        SessionConfigSelectOption::new(SessionConfigValueId::new("cc"), "cc-code"),
+        SessionConfigSelectOption::new(SessionConfigValueId::new("dsh"), "DeepSeek Harness"),
+        SessionConfigSelectOption::new(SessionConfigValueId::new("pi"), "pi"),
+    ];
+    options.push(SessionConfigOption::select(
+        SessionConfigId::new("agent_kernel"),
+        "Agent Kernel",
+        SessionConfigValueId::new(current_kernel),
+        SessionConfigSelectOptions::Ungrouped(kernel_options),
+    ));
 
     options
 }

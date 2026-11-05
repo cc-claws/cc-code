@@ -26,7 +26,7 @@ use tracing::{debug, error};
 use crate::{
     agent::builder::{self, AcpAgentConfig},
     langfuse::{LangfuseSession, LangfuseTracer},
-    prompt::{build_system_prompt, PromptFeatures},
+    prompt::PromptFeatures,
     provider::LlmProvider,
     session::{
         agent_pool::AgentPool,
@@ -116,13 +116,35 @@ pub struct FrozenSessionData {
     pub memory_entrypoint: Option<String>,
     /// 自动记忆存储目录路径（物理已确保存在）。
     pub memory_dir: Option<String>,
+    /// 会话创建时的内核 id；resume 时据此还原，不读全局配置。
+    /// None = 旧会话（缺字段），回退全局配置并记 warn。
+    pub kernel_id: Option<String>,
+}
+
+/// 从冻结数据与全局配置解析会话内核（建会话 / 每轮执行 / show 共用唯一入口）。
+///
+/// 优先用冻结的 kernel_id：resume / 切换后提示词与工具表必须来自同一个 Kernel。
+/// 只有旧会话缺字段时才回退全局配置。
+pub fn resolve_kernel(
+    frozen: Option<&FrozenSessionData>,
+    peri_config: &crate::provider::PeriConfig,
+) -> Result<cc_agent::kernel::Kernel, cc_agent::kernel::UnknownKernel> {
+    match frozen.and_then(|f| f.kernel_id.as_deref()) {
+        Some(id) => cc_agent::kernel::Kernel::try_from_id(id),
+        None => {
+            tracing::warn!("会话缺少 kernel_id，回退全局配置");
+            Ok(cc_agent::kernel::Kernel::from_config(
+                peri_config.config.agent_kernel.as_deref(),
+            ))
+        }
+    }
 }
 
 /// Shared agent execution pipeline with auto-compact support.
 ///
 /// This function encapsulates steps 2-7 of the prompt execution flow:
 /// 1. Create event channel + cancel token
-/// 2. Build agent via [`build_system_prompt`] + [`builder::build_agent_with_embedded_memory`]
+/// 2. Build agent via [`crate::prompt::build_system_prompt_for_kernel`] + [`builder::build_agent_with_embedded_memory`]
 /// 3. Spawn background event pump using the provided [`EventSink`]
 /// 4. Execute agent
 /// 5. Auto-compact handled by CompactMiddleware (before_model hook)
@@ -179,6 +201,27 @@ pub async fn execute_prompt(
         tracing::warn!(%error, %cwd, "Failed to load project settings; retaining session settings");
         peri_config.as_ref().clone()
     }));
+    let kernel = match resolve_kernel(frozen.as_ref(), &peri_config) {
+        Ok(kernel) => kernel,
+        Err(error) => {
+            event_sink
+                .push_event(
+                    &session_id,
+                    &ExecutorEvent::AgentExecutionFailed {
+                        message: format!("{error}，请显式切换到可用内核：cc / dsh / pi"),
+                    },
+                    0,
+                )
+                .await;
+            event_sink.push_done(&session_id).await;
+            return PromptResult {
+                messages: history,
+                ok: false,
+                stop_reason: PromptStopReason::EndTurn,
+                recall_items: incoming_recalls,
+            };
+        }
+    };
     let project_provider = LlmProvider::from_config(&peri_config);
     let provider = project_provider.as_ref().unwrap_or(provider);
     let hook_groups = super::project_context::project_hook_groups(hook_groups, cwd);
@@ -535,7 +578,7 @@ pub async fn execute_prompt(
         if let Some(ref f) = frozen {
             // 使用 session 创建时冻结的数据，跳过重建
             (
-                f.system_prompt.clone(),
+                super::frozen::system_prompt_for_kernel(f, kernel, cwd, &plugin_agent_dirs),
                 f.instructions.clone(),
                 f.skill_summary.clone(),
                 Some(f.date.clone()),
@@ -544,13 +587,14 @@ pub async fn execute_prompt(
         } else {
             // Legacy: per-turn rebuild（子 Agent 等场景未提供 frozen 数据时使用）
             let features = PromptFeatures::detect();
-            let sp = build_system_prompt(
+            let sp = crate::prompt::build_system_prompt_for_kernel(
                 None,
                 cwd,
                 features,
                 &plugin_agent_dirs,
                 None,
                 language.as_deref(),
+                kernel,
             );
             (sp, None, None, None, None)
         };
@@ -589,6 +633,7 @@ pub async fn execute_prompt(
             provider: provider.clone(),
             cwd: cwd.to_string(),
             system_prompt,
+            kernel,
             frozen_instructions,
             frozen_memory_entrypoint: None,
             frozen_skill_summary,

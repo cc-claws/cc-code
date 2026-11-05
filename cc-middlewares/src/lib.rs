@@ -30,6 +30,7 @@ pub mod attribution;
 pub mod cron;
 pub mod hitl;
 pub mod hooks;
+pub mod kernel_text;
 pub mod lsp;
 pub mod mcp;
 pub mod memory;

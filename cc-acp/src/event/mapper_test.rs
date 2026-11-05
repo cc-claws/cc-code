@@ -631,7 +631,7 @@ fn test_llm_call_start_produces_no_output() {
             tools: vec![ToolDefinition {
                 name: "Bash".to_string(),
                 description: "Run command".to_string(),
-                parameters: serde_json::Value::Null,
+                parameters: serde_json::Value::Null.into(),
             }],
         },
         "LlmCallStart",

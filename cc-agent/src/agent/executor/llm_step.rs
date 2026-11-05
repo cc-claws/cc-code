@@ -39,7 +39,9 @@ pub(crate) async fn call_llm<L: ReactLLM, S: State>(
             Vec::new()
         }),
         tools: if wants_payload {
-            tool_refs.iter().map(|t| t.definition()).collect()
+            agent
+                .kernel
+                .translate_definitions(tool_refs.iter().map(|t| t.definition()).collect())
         } else {
             Vec::new()
         },

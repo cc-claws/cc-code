@@ -383,3 +383,272 @@
             "\tx\n\t\ty"
         );
     }
+
+    fn make_batch_tool(cwd: &str) -> EditFileTool {
+        EditFileTool::new(cwd).with_form(MutationForm::BatchReplace)
+    }
+
+    #[tokio::test]
+    async fn test_edit_multi_overlapping_match_rejected() {
+        // "aaa" 中 "aa" 有 2 个重叠起点（0、1），match_indices 只会看到 1 个。
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f.txt");
+        std::fs::write(&path, "aaa").unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        let err = tool
+            .invoke(serde_json::json!({
+                "file_path": "f.txt",
+                "edits": [{"old_string": "aa", "new_string": "b"}]
+            }))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("not unique"), "unexpected: {err}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "aaa");
+    }
+
+    #[tokio::test]
+    async fn test_edit_multi_overlapping_match_rejected_multibyte() {
+        // 每个字符 2 字节，"αα" 在 "ααα" 中有 2 个重叠起点。
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f.txt");
+        std::fs::write(&path, "ααα").unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        let err = tool
+            .invoke(serde_json::json!({
+                "file_path": "f.txt",
+                "edits": [{"old_string": "αα", "new_string": "β"}]
+            }))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("not unique"), "unexpected: {err}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "ααα");
+    }
+
+    #[test]
+    fn test_cc_kernel_edit_schema_unchanged() {
+        let single = EditFileTool::new(".").parameters();
+        let batch = make_batch_tool(".").parameters();
+        assert_eq!(single["required"], serde_json::json!(["file_path", "old_string", "new_string"]));
+        assert!(single["properties"].get("file_path").is_some());
+        assert!(single["properties"].get("old_string").is_some());
+        assert!(single["properties"].get("new_string").is_some());
+        assert!(single["properties"].get("replace_all").is_some());
+        assert!(single["properties"].get("edits").is_none());
+        assert_eq!(batch["required"], serde_json::json!(["file_path", "edits"]));
+        assert!(batch["properties"].get("file_path").is_some());
+        assert!(batch["properties"].get("edits").is_some());
+        assert!(batch["properties"].get("old_string").is_none());
+        assert!(batch["properties"].get("replace_all").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_edit_multi_all_applied() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f.txt");
+        std::fs::write(&path, "aaa bbb ccc").unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({
+                "file_path": "f.txt",
+                "edits": [
+                    {"old_string": "aaa", "new_string": "AAA"},
+                    {"old_string": "bbb", "new_string": "BBB"},
+                    {"old_string": "ccc", "new_string": "CCC"}
+                ]
+            }))
+            .await
+            .unwrap();
+        assert!(result.contains("Applied 3 edits"), "unexpected: {result}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "AAA BBB CCC");
+    }
+
+    #[tokio::test]
+    async fn test_edit_multi_atomic() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f.txt");
+        let original = "aaa bbb ccc";
+        std::fs::write(&path, original).unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        let err = tool
+            .invoke(serde_json::json!({
+                "file_path": "f.txt",
+                "edits": [
+                    {"old_string": "aaa", "new_string": "AAA"},
+                    {"old_string": "missing", "new_string": "X"},
+                    {"old_string": "ccc", "new_string": "CCC"}
+                ]
+            }))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("not found"), "unexpected: {err}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+    }
+
+    #[tokio::test]
+    async fn test_edit_multi_no_chaining() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f.txt");
+        std::fs::write(&path, "foo foo").unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        let err = tool
+            .invoke(serde_json::json!({
+                "file_path": "f.txt",
+                "edits": [
+                    {"old_string": "foo foo", "new_string": "bar foo"},
+                    {"old_string": "foo", "new_string": "baz"}
+                ]
+            }))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("not unique"), "unexpected: {err}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "foo foo");
+    }
+
+    #[tokio::test]
+    async fn test_edit_multi_overlap_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f.txt");
+        std::fs::write(&path, "abcdef").unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        let err = tool
+            .invoke(serde_json::json!({
+                "file_path": "f.txt",
+                "edits": [
+                    {"old_string": "abcd", "new_string": "X"},
+                    {"old_string": "cdef", "new_string": "Y"}
+                ]
+            }))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("overlap"), "unexpected: {err}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "abcdef");
+    }
+
+    #[tokio::test]
+    async fn test_edit_multi_empty_array() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f.txt");
+        std::fs::write(&path, "content").unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        let err = tool
+            .invoke(serde_json::json!({"file_path": "f.txt", "edits": []}))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("cannot be empty"), "unexpected: {err}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "content");
+    }
+
+    #[tokio::test]
+    async fn test_edit_multi_conflict_with_top_level() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f.txt");
+        std::fs::write(&path, "content").unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        let err = tool
+            .invoke(serde_json::json!({
+                "file_path": "f.txt",
+                "old_string": "content",
+                "new_string": "x",
+                "edits": [{"old_string": "content", "new_string": "y"}]
+            }))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("cannot be combined"), "unexpected: {err}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "content");
+    }
+
+    #[tokio::test]
+    async fn test_edit_multi_crlf_preserved() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f.txt");
+        std::fs::write(&path, "aaa\r\nbbb\r\nccc").unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        tool.invoke(serde_json::json!({
+            "file_path": "f.txt",
+            "edits": [
+                {"old_string": "aaa", "new_string": "AAA"},
+                {"old_string": "ccc", "new_string": "CCC"}
+            ]
+        }))
+        .await
+        .unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(content, "AAA\r\nbbb\r\nCCC");
+        assert!(!content.contains("\r\r\n"));
+    }
+
+    #[tokio::test]
+    async fn test_edit_multi_noop_no_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f.txt");
+        std::fs::write(&path, "aaa").unwrap();
+        let before = std::fs::metadata(&path).unwrap().modified().unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        let result = tool
+            .invoke(serde_json::json!({
+                "file_path": "f.txt",
+                "edits": [{"old_string": "aaa", "new_string": "aaa"}]
+            }))
+            .await
+            .unwrap();
+        assert!(result.contains("Applied 1 edits"), "unexpected: {result}");
+        let after = std::fs::metadata(&path).unwrap().modified().unwrap();
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn test_edit_multi_diff_from_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f.txt");
+        std::fs::write(&path, "old content").unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        let snapshot = tool
+            .file_snapshot(&serde_json::json!({
+                "file_path": "f.txt",
+                "edits": [{"old_string": "old", "new_string": "new"}]
+            }))
+            .unwrap();
+        assert_eq!(snapshot.old_content.as_deref(), Some("old content"));
+        assert!(tool
+            .file_snapshot(&serde_json::json!({"file_path": "f.txt", "old_string": "old"}))
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn test_edit_single_golden_messages() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("f.txt"), "hello foo world").unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        let ok = tool
+            .invoke(serde_json::json!({"file_path": "f.txt", "old_string": "foo", "new_string": "bar"}))
+            .await
+            .unwrap();
+        // rel 在 CI 的 tempdir 下可能退化为绝对路径，断言只校验消息形态与文件名。
+        assert!(
+            ok.starts_with("Replaced text (same line count) to "),
+            "unexpected: {ok}"
+        );
+        assert!(ok.ends_with("f.txt"), "unexpected: {ok}");
+        let err = tool
+            .invoke(serde_json::json!({"file_path": "f.txt", "old_string": "missing", "new_string": "x"}))
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().starts_with("Error: old_string not found"),
+            "unexpected: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_edit_single_validation_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        let err = tool
+            .invoke(serde_json::json!({"old_string": "", "new_string": "x"}))
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("'file_path' parameter is required"),
+            "unexpected: {err}"
+        );
+    }

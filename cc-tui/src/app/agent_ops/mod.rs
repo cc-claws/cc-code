@@ -85,6 +85,33 @@ impl App {
             AgentEvent::ShellCommandCompleted(record) => {
                 self.handle_shell_command_completed(record)
             }
+            AgentEvent::KernelCommandCompleted {
+                session_id,
+                kernel_id,
+                message,
+            } => {
+                if let Some(id) = kernel_id {
+                    self.services
+                        .peri_config
+                        .get_or_insert_with(Default::default)
+                        .config
+                        .agent_kernel = Some(id);
+                }
+                if self
+                    .acp_client
+                    .as_ref()
+                    .and_then(|client| client.session_id())
+                    == session_id
+                {
+                    self.session_mgr
+                        .current_mut()
+                        .messages
+                        .view_messages
+                        .push(crate::ui::message_view::MessageViewModel::system(message));
+                    self.render_rebuild();
+                }
+                (true, false, false)
+            }
             // 后台 shell 完成通知由 poll_background_shell_events 直接 submit_message，
             // 不经此 event 路径；保留 arm 保证 match 穷尽。
             AgentEvent::BackgroundShellCompleted { .. } => (false, false, false),
