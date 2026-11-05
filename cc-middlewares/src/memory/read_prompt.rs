@@ -8,26 +8,40 @@ const TRUNCATED_INDEX_SUFFIX: &str =
 
 /// 构建精简的记忆读取提示词，索引由调用方在会话创建时捕获。
 pub fn build_memory_read_prompt(memory_dir: &str, entrypoint_content: Option<&str>) -> String {
+    build_memory_read_prompt_for_kernel(
+        memory_dir,
+        entrypoint_content,
+        cc_agent::kernel::Kernel::cc(),
+    )
+}
+
+pub fn build_memory_read_prompt_for_kernel(
+    memory_dir: &str,
+    entrypoint_content: Option<&str>,
+    kernel: cc_agent::kernel::Kernel,
+) -> String {
     let formatted_dir = if memory_dir.ends_with('/') || memory_dir.ends_with('\\') {
         memory_dir.to_string()
     } else {
         format!("{memory_dir}/")
     };
-    let mut prompt = format!(
-        "# Memory\nDirectory: `{formatted_dir}`.\nFor relevant prior context or explicit recall, use the index and Read relevant topic files. If the preview is empty, partial, or has no relevant entry, Grep the full MEMORY.md with task keywords (output_mode: content); if missing or no match, Grep this directory's *.md files. Read matching topics or sections; use offset/limit for long files. An empty preview does not mean no memory exists; current source takes precedence over memory.\nSave, update, or delete memory only when the user explicitly requests it; use Write/Edit to maintain topic files and a short MEMORY.md index (frontmatter type: user/feedback/project/reference). Before editing the index, Read its current contents; never overwrite it from this preview."
-    );
+    let template = "# Memory\nDirectory: `{{memory_dir}}`.\nFor relevant prior context or explicit recall, use the index and Read relevant topic files. If the preview is empty, partial, or has no relevant entry, Grep the full MEMORY.md with task keywords (output_mode: content); if missing or no match, Grep this directory's *.md files. Read matching topics or sections; use offset/limit for long files. An empty preview does not mean no memory exists; current source takes precedence over memory.\nSave, update, or delete memory only when the user explicitly requests it; use Write/Edit to maintain topic files and a short MEMORY.md index (frontmatter type: user/feedback/project/reference). Before editing the index, Read its current contents; never overwrite it from this preview.";
+    let mut prompt = kernel
+        .dialectize_hint(template)
+        .replace("{{memory_dir}}", &formatted_dir);
     if let Some(content) = entrypoint_content.filter(|content| !content.trim().is_empty()) {
         prompt.push_str("\n\nMEMORY.md:\n");
-        prompt.push_str(&truncate_memory_read_index(content.trim()));
+        prompt.push_str(&truncate_memory_read_index(content.trim(), kernel));
     }
     prompt
 }
 
-fn truncate_memory_read_index(content: &str) -> String {
+fn truncate_memory_read_index(content: &str, kernel: cc_agent::kernel::Kernel) -> String {
     if content.len() <= MAX_MEMORY_READ_INDEX_BYTES {
         return content.to_string();
     }
-    let mut end = MAX_MEMORY_READ_INDEX_BYTES - TRUNCATED_INDEX_SUFFIX.len();
+    let suffix = kernel.dialectize_hint(TRUNCATED_INDEX_SUFFIX);
+    let mut end = MAX_MEMORY_READ_INDEX_BYTES - suffix.len();
     while !content.is_char_boundary(end) {
         end -= 1;
     }
@@ -37,7 +51,7 @@ fn truncate_memory_read_index(content: &str) -> String {
         Some(line_end) => &prefix[..line_end],
         None => prefix,
     };
-    format!("{}{TRUNCATED_INDEX_SUFFIX}", prefix.trim_end())
+    format!("{}{suffix}", prefix.trim_end())
 }
 
 #[cfg(test)]

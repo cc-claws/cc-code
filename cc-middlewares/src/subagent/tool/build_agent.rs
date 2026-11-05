@@ -61,6 +61,7 @@ impl super::SubAgentTool {
             child_meta.hidden = true;
             child_meta.cancel_policy = if options.cascade_cancel { "cascade" } else { "independent" }.to_string();
             child_meta.title = Some(agent_name.to_string());
+            child_meta.kernel_id = Some(self.kernel.id().to_string());
             store
                 .create_thread(child_meta)
                 .await
@@ -160,6 +161,7 @@ impl super::SubAgentTool {
                 },
             );
         middleware_config.skill_tool = Some(child_skill_tool);
+        middleware_config.kernel = self.kernel;
         for mw in build_subagent_middlewares(middleware_config) {
             agent_builder = agent_builder.add_middleware(mw);
         }

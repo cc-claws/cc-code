@@ -29,11 +29,20 @@ use crate::tool_search::core_tools::TOOL_READ;
 /// ```
 pub struct AtMentionMiddleware {
     cwd: PathBuf,
+    kernel: cc_agent::kernel::Kernel,
 }
 
 impl AtMentionMiddleware {
     pub fn new(cwd: PathBuf) -> Self {
-        Self { cwd }
+        Self {
+            cwd,
+            kernel: cc_agent::kernel::Kernel::default(),
+        }
+    }
+
+    pub fn with_kernel(mut self, kernel: cc_agent::kernel::Kernel) -> Self {
+        self.kernel = kernel;
+        self
     }
 }
 
@@ -146,10 +155,10 @@ impl<S: State> Middleware<S> for AtMentionMiddleware {
                     content = fc.content
                 ));
             }
-            buf.push_str(
+            buf.push_str(&self.kernel.dialectize_hint(
                 "These are directory listings expanded from the user's @mentions at submission time. \
                  Use Glob to locate relevant files and Read to inspect their contents when needed.",
-            );
+            ));
             state.add_message(BaseMessage::system(buf));
         }
 

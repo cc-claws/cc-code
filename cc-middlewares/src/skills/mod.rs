@@ -51,6 +51,7 @@ pub fn load_global_skills_dir() -> Option<PathBuf> {
 /// 2. 全局配置的 `skills_dir`（可配置）
 /// 3. `{cwd}/.claude/skills/`（项目级）
 pub struct SkillsMiddleware {
+    kernel: cc_agent::kernel::Kernel,
     project_skills_dir: Option<PathBuf>,
     global_skills_dir: Option<PathBuf>,
     user_skills_dir: Option<PathBuf>,
@@ -62,12 +63,39 @@ pub struct SkillsMiddleware {
 impl SkillsMiddleware {
     pub fn new() -> Self {
         Self {
+            kernel: cc_agent::kernel::Kernel::default(),
             project_skills_dir: None,
             global_skills_dir: None,
             user_skills_dir: None,
             extra_dirs: vec![],
             frozen_summary: None,
         }
+    }
+
+    pub fn with_kernel(mut self, kernel: cc_agent::kernel::Kernel) -> Self {
+        self.kernel = kernel;
+        self
+    }
+
+    fn render_summary(&self, summary: &str) -> String {
+        // The generated header/footer contain instructions; the middle listing
+        // contains user-provided skill names and descriptions and stays verbatim.
+        let Some((header, rest)) = summary.split_once("\n\n") else {
+            return summary.to_string();
+        };
+        let Some((listing, footer)) = rest.rsplit_once("\n\n") else {
+            return summary.to_string();
+        };
+        if !header.starts_with("Available skills provide specialized workflows")
+            || !footer.starts_with("Use Skill(")
+        {
+            return summary.to_string();
+        }
+        format!(
+            "{}\n\n{listing}\n\n{}",
+            self.kernel.dialectize_hint(header),
+            self.kernel.dialectize_hint(footer)
+        )
     }
 
     /// 覆盖项目级 skills 目录（默认 `{cwd}/.claude/skills/`）
@@ -229,7 +257,7 @@ impl<S: State> Middleware<S> for SkillsMiddleware {
         // 使用冻结摘要时跳过所有磁盘 I/O
         if let Some(ref summary) = self.frozen_summary {
             if !summary.trim().is_empty() {
-                state.prepend_message(BaseMessage::system(summary.clone()));
+                state.prepend_message(BaseMessage::system(self.render_summary(summary)));
             }
             return Ok(());
         }
@@ -247,7 +275,7 @@ impl<S: State> Middleware<S> for SkillsMiddleware {
         }
 
         let summary = Self::build_summary(&skills);
-        state.prepend_message(BaseMessage::system(summary));
+        state.prepend_message(BaseMessage::system(self.render_summary(&summary)));
 
         Ok(())
     }

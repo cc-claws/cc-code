@@ -237,13 +237,14 @@ fn build_agent_inner(
         || system_prompt.clone(),
         |ov| {
             let features = crate::prompt::PromptFeatures::detect();
-            crate::prompt::build_system_prompt(
+            crate::prompt::build_system_prompt_for_kernel(
                 Some(ov),
                 &cwd,
                 features,
                 &plugin_agent_dirs,
                 None,
                 None,
+                kernel,
             )
         },
     );
@@ -433,13 +434,14 @@ fn build_agent_inner(
     let sub_model_name = model_name.clone();
     let system_builder: SystemPromptBuilder = Arc::new(move |overrides, cwd_dir| {
         let features = crate::prompt::PromptFeatures::detect();
-        let prompt = crate::prompt::build_system_prompt(
+        let prompt = crate::prompt::build_system_prompt_for_kernel(
             overrides,
             cwd_dir,
             features,
             &[],
             frozen_date_for_sub.as_deref(),
             frozen_language_for_sub.as_deref(),
+            kernel,
         );
         // 子 Agent 与主 Agent 使用同一内核的提示词段落。
         let kernel_prompt = kernel.prompt_for(&sub_model_name);
@@ -534,21 +536,7 @@ fn build_agent_inner(
         .with_auto_compact_threshold(compact_config.auto_compact_threshold)
         .with_warning_threshold(compact_config.micro_compact_threshold);
 
-    // 内核专属提示词段落（cc 为空串，保持逐字节等价）。
-    // 与 /kernel 切换、/kernel show 复用同一个 prompt_for 结果。
-    let kernel_prompt = kernel.prompt_for(&model_name);
-    let system_prompt = if kernel_prompt.is_empty() {
-        system_prompt
-    } else {
-        format!("{system_prompt}\n\n{kernel_prompt}")
-    };
-
-    // 将 Git Attribution 追加到系统提示词末尾（动态区域，不影响缓存前缀）
-    let attribution = cc_middlewares::GitAttributionMiddleware::attribution_text(&model_name);
-    let system_prompt = format!(
-        "{}\n\n## Git Attribution\n\nWhen creating git commits, append the following line to the commit message:\n\n```\n{}\n```\n\nThis tracks AI contributions and should always be included in commit messages for code you authored.",
-        system_prompt, attribution
-    );
+    let system_prompt = finalize_system_prompt(system_prompt, kernel, &model_name);
     // 注意：这里**不能**对整段 system_prompt 做方言替换——它包含用户记忆、
     // CLAUDE.md 指令、cwd 等动态数据，替换会污染用户内容。内核方言只通过
     // `prompt_for` 追加的内核段落与 `dialectize_known_hints` 定点提示语生效。
@@ -581,6 +569,7 @@ fn build_agent_inner(
         .add_middleware(Box::new(AgentDefineMiddleware::new()))
         .add_middleware(Box::new({
             let mut mw = SkillsMiddleware::new()
+                .with_kernel(kernel)
                 .with_global_config()
                 .with_extra_dirs(plugin_skill_dirs);
             if let Some(summary) = frozen_skill_summary {
@@ -591,9 +580,9 @@ fn build_agent_inner(
         .add_middleware(Box::new(
             SkillPreloadMiddleware::new(preload_skills, &cwd).with_skill_tool(skill_tool.clone()),
         ))
-        .add_middleware(Box::new(cc_middlewares::AtMentionMiddleware::new(
-            cwd.clone().into(),
-        )))
+        .add_middleware(Box::new(
+            cc_middlewares::AtMentionMiddleware::new(cwd.clone().into()).with_kernel(kernel),
+        ))
         .add_middleware(Box::new(FilesystemMiddleware::new().with_form(edit_form)))
         .add_middleware(Box::new(cc_middlewares::GitAttributionMiddleware::new(
             &model_name,
@@ -663,10 +652,13 @@ fn build_agent_inner(
     };
 
     // ToolSearch 中间件
-    let executor = executor.add_middleware(Box::new(cc_middlewares::ToolSearchMiddleware::new(
-        Arc::clone(&tool_search_index),
-        Arc::clone(&shared_tools),
-    )));
+    let executor = executor.add_middleware(Box::new(
+        cc_middlewares::ToolSearchMiddleware::new(
+            Arc::clone(&tool_search_index),
+            Arc::clone(&shared_tools),
+        )
+        .with_kernel(kernel),
+    ));
 
     let executor = executor
         .with_event_handler(Arc::clone(&event_handler))
@@ -734,6 +726,21 @@ fn build_agent_inner(
             bg_event_rx,
         },
         new_cache,
+    )
+}
+
+/// Shared by execution and the session prompt inspector.
+pub fn finalize_system_prompt(system_prompt: String, kernel: Kernel, model_name: &str) -> String {
+    let kernel_prompt = kernel.prompt_for(model_name);
+    let system_prompt = if kernel_prompt.is_empty() {
+        system_prompt
+    } else {
+        format!("{system_prompt}\n\n{kernel_prompt}")
+    };
+    let attribution = cc_middlewares::GitAttributionMiddleware::attribution_text(model_name);
+    format!(
+        "{}\n\n## Git Attribution\n\nWhen creating git commits, append the following line to the commit message:\n\n```\n{}\n```\n\nThis tracks AI contributions and should always be included in commit messages for code you authored.",
+        system_prompt, attribution
     )
 }
 

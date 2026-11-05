@@ -449,8 +449,8 @@ impl ThreadStore for SqliteThreadStore {
         sqlx::query(
             "INSERT INTO threads (id, title, cwd, created_at, updated_at, message_count,
                 parent_thread_id, snapshot_at_message_id, hidden, cancel_policy, config, cached_context, agent_status,
-                latest_recap, last_task_summary, model, reasoning_effort, branch)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+                latest_recap, last_task_summary, model, reasoning_effort, branch, kernel_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
         )
         .bind(&meta.id)
         .bind(&meta.title)
@@ -470,6 +470,7 @@ impl ThreadStore for SqliteThreadStore {
         .bind(&meta.model)
         .bind(&meta.reasoning_effort)
         .bind(&meta.branch)
+        .bind(&meta.kernel_id)
         .execute(&self.pool)
         .await?;
         Ok(id)

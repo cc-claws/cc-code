@@ -4,6 +4,25 @@
     }
 
     #[tokio::test]
+    async fn test_non_search_kernels_ignore_shared_cc_discovery_cache() {
+        let (index, shared) = build_test_components();
+        let cc = ToolSearchMiddleware::new(Arc::clone(&index), Arc::clone(&shared));
+        let mut cc_state = cc_agent::agent::state::AgentState::new("/tmp");
+        cc.before_agent(&mut cc_state).await.unwrap();
+        assert!(index.cached_prompt().is_some());
+        for id in ["pi", "dsh"] {
+            let middleware = ToolSearchMiddleware::new(Arc::clone(&index), Arc::clone(&shared))
+                .with_kernel(cc_agent::kernel::Kernel::try_from_id(id).unwrap());
+            let mut state = cc_agent::agent::state::AgentState::new("/tmp");
+            middleware.before_agent(&mut state).await.unwrap();
+            assert!(
+                state.messages().is_empty(),
+                "{id}: MCP tools are directly visible"
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn test_before_agent_excludes_history_marker_from_discovery() {
         let (index, shared) = build_test_components();
         shared.write().insert(

@@ -71,10 +71,14 @@ pub fn find_canonical_project_root(cwd: &Path) -> PathBuf {
 /// 1. 若已有历史记忆（~/.claude/projects/），透明继承复用
 /// 2. 否则统一落盘在 ~/.cc-code/projects/<sanitized>/memory/
 pub fn get_auto_memory_dir(cwd: &str) -> PathBuf {
+    let home = dirs_next::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    auto_memory_dir_under(cwd, &home)
+}
+
+fn auto_memory_dir_under(cwd: &str, home: &Path) -> PathBuf {
     let canonical_root = find_canonical_project_root(Path::new(cwd));
     let sanitized = sanitize_project_path(&canonical_root.to_string_lossy());
 
-    let home = dirs_next::home_dir().unwrap_or_else(|| PathBuf::from("."));
     let cc_code_project_mem = home
         .join(".cc-code")
         .join("projects")
@@ -94,18 +98,23 @@ pub fn get_auto_memory_dir(cwd: &str) -> PathBuf {
 }
 
 /// 获取自动记忆的脱敏展示目录（用于 System Prompt 呈现，绝不泄露宿主真实用户名和绝对盘符）。
-/// 无论 Windows 还是 Unix，一律呈现为规范的 `~/.cc-code/projects/<sanitized>/memory/`
+/// 展示路径必须指向实际选中的共享目录，包括已有的 `.claude` 历史记忆。
 pub fn get_auto_memory_display_dir(cwd: &str) -> String {
-    let canonical_root = find_canonical_project_root(Path::new(cwd));
-    let sanitized = sanitize_project_path(&canonical_root.to_string_lossy());
-    format!("~/.cc-code/projects/{}/memory/", sanitized)
+    let home = dirs_next::home_dir().unwrap_or_else(|| PathBuf::from("."));
+    memory_display_dir_under(cwd, &home)
+}
+
+fn memory_display_dir_under(cwd: &str, home: &Path) -> String {
+    let directory = auto_memory_dir_under(cwd, home);
+    let relative = directory
+        .strip_prefix(home)
+        .expect("memory is located under home");
+    format!("~/{}/", relative.to_string_lossy().replace('\\', "/"))
 }
 
 /// 获取入口文件的脱敏展示路径
 pub fn get_auto_memory_display_entrypoint(cwd: &str) -> String {
-    let canonical_root = find_canonical_project_root(Path::new(cwd));
-    let sanitized = sanitize_project_path(&canonical_root.to_string_lossy());
-    format!("~/.cc-code/projects/{}/memory/MEMORY.md", sanitized)
+    format!("{}MEMORY.md", get_auto_memory_display_dir(cwd))
 }
 
 /// 获取入口索引文件路径 `.../memory/MEMORY.md`
@@ -163,4 +172,39 @@ pub fn is_auto_mem_path(candidate: &Path, cwd: &str) -> bool {
     }
 
     false
+}
+
+#[cfg(test)]
+mod display_tests {
+    use super::*;
+
+    #[test]
+    fn legacy_memory_display_resolves_to_the_shared_existing_directory() {
+        let home = tempfile::tempdir().unwrap();
+        let project = tempfile::tempdir().unwrap();
+        let cwd = project.path().to_str().unwrap();
+        let project_key = sanitize_project_path(cwd);
+        let legacy = home
+            .path()
+            .join(".claude/projects")
+            .join(&project_key)
+            .join("memory");
+        std::fs::create_dir_all(&legacy).unwrap();
+        assert_eq!(auto_memory_dir_under(cwd, home.path()), legacy);
+        assert_eq!(
+            memory_display_dir_under(cwd, home.path()),
+            format!("~/.claude/projects/{project_key}/memory/")
+        );
+        let current = home
+            .path()
+            .join(".cc-code/projects")
+            .join(&project_key)
+            .join("memory");
+        std::fs::create_dir_all(&current).unwrap();
+        assert_eq!(auto_memory_dir_under(cwd, home.path()), current);
+        assert_eq!(
+            memory_display_dir_under(cwd, home.path()),
+            format!("~/.cc-code/projects/{project_key}/memory/")
+        );
+    }
 }

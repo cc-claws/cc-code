@@ -26,9 +26,11 @@ static PI_TOOLS: &[ToolSpec] = &[
     tool("Glob", "find", "Find files matching a glob pattern.", "find: find files by name", RENAME_NONE, &[], None),
     tool("Grep", "grep", "Search file contents with a pattern.", "grep: search contents", RENAME_NONE, &[HINT_GREP], None),
     tool("Bash", "bash", "Execute a shell command.", "bash: run a command", RENAME_NONE, &[HINT_BASH], None),
+    // Skills are user-configured shared capabilities, independent of the kernel.
+    tool("Skill", "skill", "", "skill: invoke a configured skill", RENAME_NONE, &[], None),
 ];
 
-/// pi 内核：只映射 6 个工具，无延迟加载元工具，全量放行非管辖工具。
+/// pi 内核：6 个基础工具和共享 Skill，无延迟加载元工具。
 pub static PI: KernelSpec = KernelSpec {
     id: "pi",
     prompt: PromptSource::Single(include_str!("../prompts/pi.md")),

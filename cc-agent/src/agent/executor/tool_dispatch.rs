@@ -288,6 +288,18 @@ fn validate_value_type(
         }
     }
 
+    if val.is_object() {
+        validate_against_schema(val, prop_schema)
+            .map_err(|message| format!("Invalid nested arguments at '{field_name}': {message}"))?;
+    }
+    if let (Some(items), Some(item_schema)) = (val.as_array(), prop_schema.get("items")) {
+        for (index, item) in items.iter().enumerate() {
+            validate_value_type(item, item_schema, &format!("{field_name}[{index}]")).map_err(
+                |message| format!("Invalid nested arguments at '{field_name}[{index}]': {message}"),
+            )?;
+        }
+    }
+
     Ok(())
 }
 
@@ -594,7 +606,7 @@ pub(crate) fn validate_against_schema(
                         "The parameter '{key}' type is expected as {expected}, but received {actual}"
                     ));
                     // 同时保留 enum 不匹配的原始信息（如果是 enum 错误而非类型错误）
-                    if msg.contains("not one of") {
+                    if msg.contains("not one of") || msg.contains("Invalid nested arguments") {
                         // 替换最后一条为更精确的 enum 信息
                         errors.pop();
                         errors.push(msg);

@@ -397,7 +397,8 @@ impl EditFileTool {
             if old.is_empty() {
                 return Err(format!("Error: Edit #{} has an empty 'old_string'", idx + 1).into());
             }
-            parsed.push((old.to_string(), new.to_string()));
+            // Match and restore line endings once for both the file and replacement text.
+            parsed.push((old.replace("\r\n", "\n"), new.replace("\r\n", "\n")));
         }
 
         let resolved = resolve_path(&self.cwd, file_path);

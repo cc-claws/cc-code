@@ -10,6 +10,7 @@ pub mod command;
 pub mod event_sink;
 pub mod executor;
 pub mod frozen;
+pub mod kernel;
 pub mod project_context;
 pub mod state_builders;
 pub mod steering;

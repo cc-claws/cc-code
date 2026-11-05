@@ -152,6 +152,9 @@ fn make_stdio_context(thread_store: Arc<dyn ThreadStore>) -> StdioContext {
         sessions: parking_lot::RwLock::default(),
         thread_store,
         langfuse_session: None,
+        config_path: std::env::temp_dir()
+            .join(format!("peri-kernel-test-{}.json", uuid::Uuid::new_v4())),
+        config_update_lock: tokio::sync::Mutex::new(()),
     }
 }
 
@@ -168,6 +171,80 @@ fn make_session_info(meta: &ThreadMeta, history: Vec<BaseMessage>) -> SessionInf
         prompt_lock: Arc::default(),
         background_results: None,
     }
+}
+
+#[tokio::test]
+async fn test_resume_populates_missing_kernel_snapshot_without_reloading_nonempty_history(
+) -> anyhow::Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let mut meta = ThreadMeta::new(tmp.path().to_string_lossy().to_string());
+    meta.kernel_id = Some("pi".to_string());
+    let id = meta.id.clone();
+    let store = make_context_thread_store(meta.clone(), vec![BaseMessage::human("stored")]);
+    let ctx = make_stdio_context(store.clone());
+    ctx.sessions.write().insert(
+        id.clone(),
+        make_session_info(&meta, vec![BaseMessage::human("live")]),
+    );
+    resume_session(&ctx, &id).await?;
+    assert_eq!(store.context_reads.load(Ordering::Relaxed), 0);
+    assert_eq!(ctx.sessions.read()[&id].history[0].content(), "live");
+    assert_eq!(
+        ctx.sessions.read()[&id]
+            .frozen
+            .as_ref()
+            .unwrap()
+            .kernel_id
+            .as_deref(),
+        Some("pi")
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_stdio_kernel_switch_rollback_and_resume_use_persisted_identity() -> anyhow::Result<()>
+{
+    let directory = tempfile::tempdir()?;
+    let store = Arc::new(cc_agent::thread::FilesystemThreadStore::new(
+        directory.path().join("threads"),
+    ));
+    let mut meta = ThreadMeta::new(directory.path().to_string_lossy().to_string());
+    meta.kernel_id = Some("cc".to_string());
+    let id = store.create_thread(meta).await?;
+    let mut ctx = make_stdio_context(store.clone());
+    ctx.config_path = directory.path().join("settings.json");
+    resume_session(&ctx, &id).await?;
+    set_stdio_kernel(&ctx, &id, "pi").await?;
+    assert_eq!(stdio_kernel_status(&ctx, &id, ".")?["kernelId"], "pi");
+    assert_eq!(store.load_meta(&id).await?.kernel_id.as_deref(), Some("pi"));
+    ctx.config_path = directory.path().to_path_buf();
+    assert!(set_stdio_kernel(&ctx, &id, "dsh").await.is_err());
+    assert_eq!(
+        ctx.peri_config.read().config.agent_kernel.as_deref(),
+        Some("pi")
+    );
+    assert_eq!(store.load_meta(&id).await?.kernel_id.as_deref(), Some("pi"));
+    assert_eq!(stdio_kernel_status(&ctx, &id, ".")?["kernelId"], "pi");
+    ctx.peri_config.write().config.agent_kernel = Some("cc".to_string());
+    ctx.sessions.write().clear();
+    resume_session(&ctx, &id).await?;
+    let status = stdio_kernel_status(&ctx, &id, ".")?;
+    assert_eq!(status["kernelId"], "pi");
+    assert!(status["systemPrompt"]
+        .as_str()
+        .unwrap()
+        .contains("# Agent Kernel: pi"));
+    let options = serde_json::to_value(stdio_config_options(&ctx, &id))?;
+    assert_eq!(
+        options
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|option| option["id"] == "agent_kernel")
+            .unwrap()["currentValue"],
+        "pi"
+    );
+    Ok(())
 }
 
 #[tokio::test]

@@ -17,7 +17,9 @@ pub use paths::{
     is_auto_mem_path, sanitize_project_path,
 };
 pub use prompt::{build_auto_memory_instructions, build_auto_memory_prompt};
-pub use read_prompt::{build_memory_read_prompt, MAX_MEMORY_READ_INDEX_BYTES};
+pub use read_prompt::{
+    build_memory_read_prompt, build_memory_read_prompt_for_kernel, MAX_MEMORY_READ_INDEX_BYTES,
+};
 
 #[cfg(test)]
 mod tests {

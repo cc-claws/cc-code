@@ -23,7 +23,7 @@ fn test_kernel_text_injection() {
         ),
         (
             "invoke Skill with its name. NEVER read SKILL.md directly with Read",
-            "invoke Skill with its name. NEVER read SKILL.md directly with read",
+            "invoke skill with its name. NEVER read SKILL.md directly with read",
         ),
         ("use Read on the skill path", "use read on the skill path"),
     ];

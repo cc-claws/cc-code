@@ -12,6 +12,10 @@ pub struct McpMiddleware {
     pool: Arc<McpClientPool>,
 }
 
+#[cfg(test)]
+#[path = "kernel_shared_test.rs"]
+mod kernel_shared_test;
+
 impl McpMiddleware {
     pub fn new(pool: Arc<McpClientPool>) -> Self {
         Self { pool }

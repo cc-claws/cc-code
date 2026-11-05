@@ -15,6 +15,56 @@ use crate::session::executor::FrozenSessionData;
 /// 会话内共享的规则槽。惰性提炼，落位后门自动开始携带 CLAUDE.md 策略。
 pub type SessionJevRulesSlot = JevRulesSlot;
 
+/// Render the selected kernel using the frozen date, language and memory snapshot.
+/// Project instructions and memory contents are data, never dialect-rewritten.
+pub fn system_prompt_for_kernel(
+    frozen: &FrozenSessionData,
+    kernel: cc_agent::kernel::Kernel,
+    cwd: &str,
+    plugin_agent_dirs: &[PathBuf],
+) -> String {
+    if kernel.is_cc() {
+        return frozen.system_prompt.clone();
+    }
+    let memory = frozen.memory_dir.as_ref().map(|directory| {
+        let entrypoint = frozen.memory_entrypoint.as_deref().unwrap_or("");
+        let (header, content) = entrypoint
+            .split_once(" (auto-memory):\n\n")
+            .unwrap_or(("", ""));
+        let display_directory = header
+            .strip_prefix("Contents of ")
+            .and_then(|path| path.strip_suffix("/MEMORY.md"))
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                dirs_next::home_dir()
+                    .and_then(|home| {
+                        std::path::Path::new(directory)
+                            .strip_prefix(home)
+                            .ok()
+                            .map(|relative| {
+                                format!("~/{}/", relative.to_string_lossy().replace('\\', "/"))
+                            })
+                    })
+                    .unwrap_or_else(|| directory.clone())
+            });
+        crate::prompt::AutoMemorySnapshot {
+            directory: PathBuf::from(directory),
+            display_directory,
+            content: content.to_string(),
+        }
+    });
+    crate::prompt::build_system_prompt_with_memory_for_kernel(
+        None,
+        cwd,
+        crate::prompt::PromptFeatures::detect(),
+        plugin_agent_dirs,
+        Some(&frozen.date),
+        frozen.language.as_deref(),
+        memory.as_ref(),
+        kernel,
+    )
+}
+
 /// 用当前 provider 构造**提炼专用**模型（`session/new` 调用方传入 `build_frozen_session_data`）。
 ///
 /// 刻意走低思考档（见 [`crate::provider::LlmProvider::into_extraction_model`]）：

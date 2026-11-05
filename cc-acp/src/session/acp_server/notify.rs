@@ -53,23 +53,35 @@ pub(crate) fn extract_session_id<'a>(params: &'a Value, default_value: &'a str) 
 }
 
 /// Build the current set of config options and push a `ConfigOptionUpdate` notification.
+pub(super) fn session_config_options(
+    cfg: &AcpServerConfig,
+    sessions: &HashMap<String, SessionState>,
+    session_id: &str,
+) -> Vec<agent_client_protocol::schema::SessionConfigOption> {
+    let mut config = cfg.peri_config.read().clone();
+    if let Some(id) = sessions
+        .get(session_id)
+        .and_then(|session| session.frozen.as_ref())
+        .and_then(|frozen| frozen.kernel_id.as_ref())
+    {
+        config.config.agent_kernel = Some(id.clone());
+    }
+    config_update::make_config_options(&config, &cfg.provider.read(), cfg.permission_mode.load())
+}
+
 pub(crate) async fn send_config_option_update(
     transport: &dyn cc_acp::transport::AcpTransport,
     session_id: &str,
     cfg: &AcpServerConfig,
+    sessions: &HashMap<String, SessionState>,
 ) {
     if session_id.is_empty() {
         return;
     }
-    let update = {
-        let c = cfg.peri_config.read();
-        let p = cfg.provider.read();
-        SessionUpdate::ConfigOptionUpdate(config_update::make_config_option_update(
-            &c,
-            &p,
-            cfg.permission_mode.load(),
-        ))
-    };
+    let update =
+        SessionUpdate::ConfigOptionUpdate(agent_client_protocol::schema::ConfigOptionUpdate::new(
+            session_config_options(cfg, sessions, session_id),
+        ));
     let update_value = match serde_json::to_value(&update) {
         Ok(p) => p,
         Err(e) => {

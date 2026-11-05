@@ -283,6 +283,9 @@ mod compact_tests;
 #[path = "builder_memory_live_test.rs"]
 mod live_tests;
 
+#[path = "builder_kernel_test.rs"]
+mod kernel_tests;
+
 async fn make_two_turn_requests(
     protocol: MockProvider,
     embedded_memory: bool,

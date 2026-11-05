@@ -216,7 +216,9 @@ fn test_system_prompt_no_accumulation_on_switch() {
     assert_eq!(frozen.kernel_id.as_deref(), Some("pi"));
     assert_eq!(frozen.system_prompt, "base");
     assert_eq!(
-        resolve_kernel(Some(&frozen), &Default::default()).id(),
+        resolve_kernel(Some(&frozen), &Default::default())
+            .unwrap()
+            .id(),
         "pi"
     );
 }

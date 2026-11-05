@@ -25,7 +25,12 @@ pub(crate) fn build_subagent_middlewares(
             .with_config(config.instruction_config.clone().unwrap_or_default()),
     };
     middlewares.push(Box::new(agents_md));
-    middlewares.push(Box::new(SkillsMiddleware::new().with_global_config().with_extra_dirs(config.extra_skill_dirs.clone())));
+    middlewares.push(Box::new(
+        SkillsMiddleware::new()
+            .with_kernel(config.kernel)
+            .with_global_config()
+            .with_extra_dirs(config.extra_skill_dirs.clone()),
+    ));
     if !config.skill_names.is_empty() {
         let skill_tool = config.skill_tool.unwrap_or_else(|| crate::tools::SkillTool::new(SkillsMiddleware::resolve_dirs_static(&config.cwd, &config.extra_skill_dirs)));
         middlewares.push(Box::new(SkillPreloadMiddleware::new(
