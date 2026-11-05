@@ -18,7 +18,9 @@ const HINT_GREP: (&[&str], &str) = (&["pattern"], "grep");
 const HINT_BASH: (&[&str], &str) = (&["command"], "bash");
 
 static PI_TOOLS: &[ToolSpec] = &[
-    tool("Read", "read", "Read a file. Use path (not file_path) and optional offset/limit.", "read: read a file at path", RENAME_PATH, &[HINT_READ], None),
+    // 注意：offset 沿用 peri 语义（从 0 开始跳过的行数），与上游 pi 的 1-indexed 行号不同；
+    // 已在 description 中显式说明，避免模型按上游文档产生 off-by-one。
+    tool("Read", "read", "Read a file. Use path (not file_path). offset is 0-based: number of lines to skip.", "read: read a file at path", RENAME_PATH, &[HINT_READ], None),
     tool("Write", "write", "Write content to a file at path.", "write: write a file at path", RENAME_PATH, &[], None),
     tool("Edit", "edit", "Apply multiple non-overlapping edits to one file: pass path and an edits array of {oldText,newText}.", "edit: batch edits with oldText/newText", RENAME_EDIT, &[HINT_EDIT], Some(MutationForm::BatchReplace)),
     tool("Glob", "find", "Find files matching a glob pattern.", "find: find files by name", RENAME_NONE, &[], None),

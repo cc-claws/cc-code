@@ -153,6 +153,8 @@ pub struct SubAgentMiddleware {
     /// When set, child agent injects system prompt via with_system_prompt() (visible in Langfuse)
     #[allow(clippy::type_complexity)]
     system_builder: Option<Arc<dyn Fn(Option<&AgentOverrides>, &str) -> String + Send + Sync>>,
+    /// 主 Agent 的会话内核，由 build_tool 传给子 Agent。
+    kernel: cc_agent::kernel::Kernel,
     /// Parent agent cancellation token (passed to child agent, supports user interruption)
     cancel: Option<AgentCancellationToken>,
     /// Shared reference to parent agent message snapshot, written in before_agent, read by Fork child agent
@@ -204,6 +206,7 @@ impl SubAgentMiddleware {
             event_handler,
             llm_factory,
             system_builder: None,
+            kernel: cc_agent::kernel::Kernel::default(),
             cancel: None,
             parent_messages: None,
             background_registry: None,
@@ -228,6 +231,12 @@ impl SubAgentMiddleware {
         builder: Arc<dyn Fn(Option<&AgentOverrides>, &str) -> String + Send + Sync>,
     ) -> Self {
         self.system_builder = Some(builder);
+        self
+    }
+
+    /// 继承主 Agent 内核；子 Agent 的提示词、工具方言与入站归一化随之生效。
+    pub fn with_kernel(mut self, kernel: cc_agent::kernel::Kernel) -> Self {
+        self.kernel = kernel;
         self
     }
 
@@ -350,6 +359,7 @@ impl SubAgentMiddleware {
             cwd.to_string(),
         );
         tool = tool.with_permissions(Arc::clone(&self.permissions));
+        tool = tool.with_kernel(self.kernel);
         tool = tool.with_extra_skill_dirs(self.extra_skill_dirs.clone());
         tool = tool.with_extra_agent_dirs(self.extra_agent_dirs.clone());
         if let Some(ref builder) = self.system_builder {

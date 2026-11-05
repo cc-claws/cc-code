@@ -47,7 +47,7 @@ impl KernelCommand {
         Self::push_notice(
             app,
             format!(
-                "当前 Agent 内核: {}\n可用内核: cc / dsh / pi\n\n## Kernel Prompt\n{}\n\n## Git Attribution\n{}",
+                "全局配置的内核: {}\n可用内核: cc / dsh / pi\n\n注意：完整系统提示词由 ACP 会话冻结（基础段落 + 动态上下文），\n若当前会话切换前已创建，冻结内核可能与全局配置不同，本命令只展示内核附加段落。\n\n## Kernel Prompt\n{}\n\n## Git Attribution\n{}",
                 kernel.id(),
                 kernel_prompt,
                 attribution
@@ -105,7 +105,7 @@ impl Command for KernelCommand {
                 Self::push_notice(
                     app,
                     format!(
-                        "当前 Agent 内核: {}\n可用内核: cc / dsh / pi\n{}",
+                        "全局配置的内核: {}\n可用内核: cc / dsh / pi\n{}",
                         kernel.id(),
                         USAGE
                     ),

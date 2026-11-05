@@ -417,7 +417,7 @@ fn build_agent_inner(
                 },
             );
 
-        let mut llm = BaseModelReactLLM::from_arc(model);
+        let mut llm = BaseModelReactLLM::from_arc(model).with_kernel(kernel);
         if let Some(s) = sid {
             llm = llm.with_session_id(s);
         }
@@ -430,16 +430,24 @@ fn build_agent_inner(
     // 系统提示构建器
     let frozen_language_for_sub = peri_config.config.language.clone();
     let frozen_date_for_sub = frozen_date.clone();
+    let sub_model_name = model_name.clone();
     let system_builder: SystemPromptBuilder = Arc::new(move |overrides, cwd_dir| {
         let features = crate::prompt::PromptFeatures::detect();
-        crate::prompt::build_system_prompt(
+        let prompt = crate::prompt::build_system_prompt(
             overrides,
             cwd_dir,
             features,
             &[],
             frozen_date_for_sub.as_deref(),
             frozen_language_for_sub.as_deref(),
-        )
+        );
+        // 子 Agent 与主 Agent 使用同一内核的提示词段落。
+        let kernel_prompt = kernel.prompt_for(&sub_model_name);
+        if kernel_prompt.is_empty() {
+            prompt
+        } else {
+            format!("{prompt}\n\n{kernel_prompt}")
+        }
     });
 
     // Parent message snapshot
@@ -484,6 +492,7 @@ fn build_agent_inner(
         llm_factory.clone(),
     )
     .with_system_builder(system_builder)
+    .with_kernel(kernel)
     .with_cancel(cancel.clone())
     .with_parent_messages(parent_messages)
     .with_extra_skill_dirs(plugin_skill_dirs.clone())

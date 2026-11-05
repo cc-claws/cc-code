@@ -148,17 +148,13 @@ fn test_dsh_tool_names() {
         ("Agent", "subagent"),
         ("AskUserQuestion", "ask_user_question"),
         ("Skill", "skill"),
-        ("CronRegister", "schedule_create"),
-        ("CronList", "schedule_list"),
     ];
     for (canonical, dialect) in expected {
         assert_eq!(dsh().dialect_name(canonical), Some(dialect), "{canonical}");
     }
-    assert!(dsh()
-        .spec()
-        .tools
-        .iter()
-        .any(|t| format!("{:?}", t.params).contains("rrule")));
+    // dsh 的 RRULE 与 peri 五段 cron 不同构，按能力缺口不映射。
+    assert_eq!(dsh().dialect_name("CronRegister"), None);
+    assert!(!dsh().spec().governed_tools.contains(&"CronRegister"));
 }
 
 #[test]

@@ -115,7 +115,9 @@ impl super::SubAgentTool {
         };
 
         // 6. Build agent
-        let mut agent_builder = ReActAgent::new(llm).max_iterations(max_iterations);
+        let mut agent_builder = ReActAgent::new(llm)
+            .max_iterations(max_iterations)
+            .with_kernel(self.kernel);
 
         // 7. Middlewares（fork 不带 agent.md 的 skills，其余链完全一致）
         let mut middleware_config = self.permission_config(

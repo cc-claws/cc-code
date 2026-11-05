@@ -93,6 +93,8 @@ pub struct SubAgentTool {
     /// 插件 agent 搜索目录：项目级与用户级之后、内置之前查找（见 #759）。
     pub(crate) extra_agent_dirs: Vec<std::path::PathBuf>,
     pub(crate) permissions: Arc<crate::hitl::HumanInTheLoopMiddleware>,
+    /// 主 Agent 的会话内核：子 Agent 继承同一套提示词、工具方言与入站归一化。
+    pub(crate) kernel: cc_agent::kernel::Kernel,
 }
 
 impl SubAgentTool {
@@ -159,7 +161,14 @@ impl SubAgentTool {
             extra_skill_dirs: Vec::new(),
             extra_agent_dirs: Vec::new(),
             permissions: Arc::new(crate::hitl::HumanInTheLoopMiddleware::subagent_default()),
+            kernel: cc_agent::kernel::Kernel::default(),
         }
+    }
+
+    /// 继承主 Agent 内核；不设置时退化为 cc（与不启用内核等价）。
+    pub fn with_kernel(mut self, kernel: cc_agent::kernel::Kernel) -> Self {
+        self.kernel = kernel;
+        self
     }
 
     #[allow(clippy::type_complexity)]

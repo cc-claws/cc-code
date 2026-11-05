@@ -6,9 +6,6 @@ use crate::kernel::{KernelSpec, ParamSpec, PromptSource, ToolSpec};
 const RENAME_NONE: ParamSpec = ParamSpec::Rename(&[]);
 /// dsh 的 grep 用 `include` 表达 peri 的 `glob` 过滤参数。
 const RENAME_GREP: ParamSpec = ParamSpec::Rename(&[("include", "glob")]);
-/// dsh 的 schedule_create 用 `rrule`（string）表达 peri 的 `expression`。
-const RENAME_CRON: ParamSpec = ParamSpec::Rename(&[("rrule", "expression")]);
-
 static DSH_TOOLS: &[ToolSpec] = &[
     tool(
         "Read",
@@ -109,29 +106,13 @@ static DSH_TOOLS: &[ToolSpec] = &[
         &[],
         None,
     ),
-    tool(
-        "CronRegister",
-        "schedule_create",
-        "Create a schedule using an rrule expression.",
-        "schedule_create: create a schedule",
-        RENAME_CRON,
-        &[],
-        None,
-    ),
-    tool(
-        "CronList",
-        "schedule_list",
-        "List all schedules.",
-        "schedule_list: list schedules",
-        RENAME_NONE,
-        &[],
-        None,
-    ),
+    // 注意：dsh 的 schedule_create 使用 RFC 5545 RRULE（含时区语义），
+    // peri 的 CronScheduler 只接受五段 cron 表达式，二者不同构。
+    // 按「能力缺口不映射」处理（同 apply_patch），Cron 工具保持规范名直接可见。
 ];
 
-/// 管辖边界 = 公共 14 项 + 本内核显式映射的两个定时工具。
-/// `CronRemove` 不在此列：dsh 通过 `schedule_edit` 的 `action: delete` 实现，
-/// 语义非同构，故不映射、也不裁剪（非管辖工具一律放行）。
+/// 管辖边界 = 公共 14 项。Cron 系列不在管辖内：dsh 的 RRULE 语义与 peri 的
+/// 五段 cron 不同构，保持规范名直接可见（非管辖工具一律放行）。
 static DSH_GOVERNED: &[&str] = &[
     "Read",
     "Write",
@@ -147,8 +128,6 @@ static DSH_GOVERNED: &[&str] = &[
     "Skill",
     "SearchExtraTools",
     "ExecuteExtraTool",
-    "CronRegister",
-    "CronList",
 ];
 
 /// dsh 内核：snake_case 小写工具名，参数与 cc 几乎同构，无延迟加载元工具。

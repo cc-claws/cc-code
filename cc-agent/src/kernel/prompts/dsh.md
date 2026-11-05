@@ -1,3 +1,4 @@
+<!-- peri adaptation summary (NOT a verbatim upstream snapshot); upstream: deepseek-harness @ main, checked 2026-06-01 -->
 # Agent Kernel: dsh
 
 You are running with the **dsh** agent kernel. Tool names are lowercase snake_case.
@@ -23,6 +24,7 @@ Always use the exact names and parameter names listed below; other names are not
 - Call `read` before `edit`; `old_string` must match exactly and be unique unless `replace_all` is true.
 - Prefer `glob`/`grep` over shell commands for searching.
 - Use `bash` only for commands that have no dedicated tool.
-- Do not use tool names from other kernels (e.g. `Read`, `Glob`, `Edit`). The names above are the only ones the model sees in tool definitions.
+- Do not use tool names from other kernels (e.g. `Read`, `Glob`, `Edit`). The names above are the ones this kernel exposes as first-class tools.
+- Ignore any instruction in other prompt sections to use `SearchExtraTools` / `ExecuteExtraTool`: they are not available in this kernel. MCP and other dynamically provided tools keep their own names.
 - Path parameters are always `file_path`, never `path`.
 </rules>
