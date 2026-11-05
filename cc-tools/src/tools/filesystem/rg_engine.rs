@@ -219,9 +219,9 @@ pub async fn execute_rg_grep(
 ) -> Option<String> {
     let search_path = match &parsed.path {
         Some(p) => {
-            let p = Path::new(p);
+            let p = super::msys_drive_path(p).unwrap_or_else(|| PathBuf::from(p));
             if p.is_absolute() {
-                p.to_path_buf()
+                p
             } else {
                 // 清理相对路径中的 ./ 或 .\ 前缀，避免 rg 输出 ./xxx 格式
                 let cleaned = p
