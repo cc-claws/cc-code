@@ -105,6 +105,15 @@ const DIVERGENCES: &[(&str, &str)] = &[
         "html_comment",
         "HTML 注释块：CC 丢弃注释后不留空行；peri 会多一个前置空行",
     ),
+    // ── 数学公式支持 ──
+    (
+        "math_inline",
+        "CC 不支持 LaTeX 公式渲染保留 $ 标记；peri 提纯并转写为 Unicode 数学符号（如 $x^2$ -> x²）",
+    ),
+    (
+        "math_block",
+        "CC 不支持 LaTeX 公式渲染保留 $$ 标记；peri 提纯并转写为 Unicode 数学符号",
+    ),
 ];
 
 fn golden() -> Vec<Fixture> {
@@ -221,8 +230,25 @@ fn markdown_matches_claude_code() {
             // 边框/符号字符后，字母数字与 CJK 必须完全一致。
             // 这样 `| a |` 与 `│ a │` 的差异被正确视为格式差异，
             // 而真正丢字（如 bullet 吞掉正文）仍会失败。
+            fn normalize_char(c: char) -> char {
+                match c {
+                    '⁰' => '0',
+                    '¹' => '1',
+                    '²' => '2',
+                    '³' => '3',
+                    '⁴' => '4',
+                    '⁵' => '5',
+                    '⁶' => '6',
+                    '⁷' => '7',
+                    '⁸' => '8',
+                    '⁹' => '9',
+                    _ => c,
+                }
+            }
+
             fn meaningful(s: &str) -> Vec<char> {
                 s.chars()
+                    .map(normalize_char)
                     .filter(|c| {
                         !c.is_whitespace()
                             && !matches!(
@@ -242,6 +268,8 @@ fn markdown_matches_claude_code() {
                                     | '▎'
                                     | '•'
                                     | ':'
+                                    | '$'
+                                    | '^'
                             )
                     })
                     .collect()
