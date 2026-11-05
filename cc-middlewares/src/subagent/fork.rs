@@ -48,11 +48,11 @@ pub fn filter_tools(
             }
             if !is_wildcard
                 && !allowed_list.is_empty()
-                && !allowed_keys.iter().any(|n| *n == name_key)
+                && !allowed_keys.contains(&name_key)
             {
                 return false;
             }
-            if disallowed_keys.iter().any(|n| *n == name_key) {
+            if disallowed_keys.contains(&name_key) {
                 return false;
             }
             true
