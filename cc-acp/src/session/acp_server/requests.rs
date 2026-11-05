@@ -301,10 +301,13 @@ pub(crate) async fn handle_request(
             );
 
             // 持久化内核身份，供进程重启后的 load/resume 恢复（内存 sessions 会丢）。
-            let _ = cfg
+            if let Err(e) = cfg
                 .thread_store
                 .update_kernel_snapshot(&session_id, frozen_data.kernel_id.clone())
-                .await;
+                .await
+            {
+                tracing::warn!(error = %e, "持久化内核身份失败，重启后可能回退全局配置");
+            }
 
             let state = sessions.get_mut(&session_id).unwrap();
             state.frozen = Some(frozen_data);
@@ -431,13 +434,16 @@ pub(crate) async fn handle_request(
                         session.agent_pool.lock().invalidate();
                     }
                     if !session_id.is_empty() {
-                        let _ = cfg
+                        if let Err(e) = cfg
                             .thread_store
                             .update_kernel_snapshot(
                                 &session_id.to_string(),
                                 Some(kernel.id().to_string()),
                             )
-                            .await;
+                            .await
+                        {
+                            tracing::warn!(error = %e, "持久化内核身份失败，重启后可能回退全局配置");
+                        }
                     }
                     persist_config(cfg);
                     info!(kernel = %value, "Agent kernel changed via configOption");
@@ -758,10 +764,13 @@ pub(crate) async fn handle_request(
                 s.frozen = Some(frozen_data);
             }
             // fork 的内核身份同样要落盘，否则重启 + 改全局配置后会回退。
-            let _ = cfg
+            if let Err(e) = cfg
                 .thread_store
                 .update_kernel_snapshot(&new_session_id, fork_kernel_id)
-                .await;
+                .await
+            {
+                tracing::warn!(error = %e, "fork 持久化内核身份失败，重启后可能回退全局配置");
+            }
 
             info!(source = %source_id, new = %new_session_id, "Session forked");
             let resp = ForkSessionResponse::new(SessionId::new(new_session_id));
@@ -803,13 +812,16 @@ pub(crate) async fn handle_request(
                         }
                     }
                     if !session_id.is_empty() {
-                        let _ = cfg
+                        if let Err(e) = cfg
                             .thread_store
                             .update_kernel_snapshot(
                                 &session_id.to_string(),
                                 Some(kernel.id().to_string()),
                             )
-                            .await;
+                            .await
+                        {
+                            tracing::warn!(error = %e, "持久化内核身份失败，重启后可能回退全局配置");
+                        }
                     }
                 }
             }

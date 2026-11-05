@@ -305,7 +305,7 @@ fn test_micro_compact_after_normalize() {
 }
 
 #[test]
-fn test_dialectize_input_edit_single_to_batch() {
+fn test_dialectize_input_keeps_original_history_shape() {
     let pi = Kernel::from_config_checked("pi").unwrap();
     let input = json!({
         "file_path": "a.rs",
@@ -315,10 +315,22 @@ fn test_dialectize_input_edit_single_to_batch() {
     });
     let out = pi.dialectize_input("Edit", &input);
     assert_eq!(out["path"], "a.rs");
-    assert_eq!(out["edits"][0]["oldText"], "foo");
-    assert_eq!(out["edits"][0]["newText"], "bar");
-    assert!(out.get("old_string").is_none());
+    // 跨结构历史不做有损转换：保留原始字段（replace_all 等事实不能被伪造丢弃）。
+    assert_eq!(out["old_string"], "foo");
+    assert_eq!(out["new_string"], "bar");
+    assert_eq!(out["replace_all"], false);
+    assert!(out.get("edits").is_none());
     assert!(out.get("file_path").is_none());
+}
+
+#[test]
+fn test_normalize_input_conflict_keeps_both_fields() {
+    let pi = Kernel::from_config_checked("pi").unwrap();
+    // 方言字段与规范字段同时存在：不做静默覆盖，两者都保留，交由 schema 校验拒绝。
+    let input = json!({"path": "a.rs", "file_path": "b.rs"});
+    let out = pi.normalize_input("Read", &input);
+    assert_eq!(out["path"], "a.rs");
+    assert_eq!(out["file_path"], "b.rs");
 }
 
 #[test]

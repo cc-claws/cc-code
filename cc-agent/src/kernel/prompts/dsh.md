@@ -16,8 +16,6 @@ Always use the exact names and parameter names listed below; other names are not
 - subagent: Delegate a task to a subagent.
 - ask_user_question: Ask the user with `questions[]`.
 - skill: Invoke a named skill.
-- schedule_create: Create a schedule with an `rrule` expression.
-- schedule_list: List schedules.
 </tools>
 
 <rules>
@@ -26,5 +24,6 @@ Always use the exact names and parameter names listed below; other names are not
 - Use `bash` only for commands that have no dedicated tool.
 - Do not use tool names from other kernels (e.g. `Read`, `Glob`, `Edit`). The names above are the ones this kernel exposes as first-class tools.
 - Ignore any instruction in other prompt sections to use `SearchExtraTools` / `ExecuteExtraTool`: they are not available in this kernel. MCP and other dynamically provided tools keep their own names.
-- Path parameters are always `file_path`, never `path`.
+- `read` / `write` / `edit` use `file_path`; `glob` / `grep` use `path` (grep's content filter is `include`).
+- Scheduling tools are not remapped in this kernel; if they are present, use their canonical names.
 </rules>

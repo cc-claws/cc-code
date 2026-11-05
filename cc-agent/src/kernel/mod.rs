@@ -359,21 +359,8 @@ impl Kernel {
                 }
             }
         }
-        if spec.mutation_form == Some(MutationForm::BatchReplace) && out.get("edits").is_none() {
-            let old = out.get("old_string").cloned();
-            let new = out.get("new_string").cloned();
-            if let (Some(old), Some(new)) = (old, new) {
-                if let Some(obj) = out.as_object_mut() {
-                    obj.remove("old_string");
-                    obj.remove("new_string");
-                    obj.remove("replace_all");
-                    obj.insert(
-                        "edits".to_string(),
-                        serde_json::json!([{ "oldText": old, "newText": new }]),
-                    );
-                }
-            }
-        }
+        // 跨结构历史（cc 单编辑 ↔ pi 批量）**不做有损转换**：
+        // 伪造等价调用会丢掉 replace_all 等事实，保留原始字段让模型看到真实历史。
         out
     }
 
@@ -571,6 +558,15 @@ fn rename_keys(value: &mut Value, renames: &[(&str, &str)]) {
     };
     for (from, to) in renames {
         if from == to {
+            continue;
+        }
+        if !map.contains_key(*from) {
+            continue;
+        }
+        if map.contains_key(*to) {
+            // 方言字段与规范字段同时存在：保留两者，交由 schema 校验 fail-closed，
+            // 避免静默覆盖导致操作到错误的文件。
+            tracing::warn!(from = %from, to = %to, "kernel param rename conflict");
             continue;
         }
         if let Some(v) = map.remove(*from) {

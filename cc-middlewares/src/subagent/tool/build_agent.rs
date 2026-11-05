@@ -115,9 +115,27 @@ impl super::SubAgentTool {
         };
 
         // 6. Build agent
+        // 子 Agent 必须与主 Agent 使用同一套可见性过滤 + 自身的 disallowedTools，
+        // 否则模型会看到执行入口随后会拒绝的工具（中间件注册的 TodoWrite/Skill 也在此列）。
+        let disallowed_for_filter: Vec<String> = if options.fork {
+            Vec::new()
+        } else {
+            agent_def.frontmatter.disallowed_tools.to_vec()
+        };
+        let filter_kernel = self.kernel;
         let mut agent_builder = ReActAgent::new(llm)
             .max_iterations(max_iterations)
-            .with_kernel(self.kernel);
+            .with_kernel(self.kernel)
+            .with_tool_filter(move |name: &str| {
+                if filter_kernel.should_hide(name) {
+                    return true;
+                }
+                let name_key = cc_agent::kernel::canonical_tool_name(name).unwrap_or(name);
+                disallowed_for_filter.iter().any(|allowed| {
+                    let key = cc_agent::kernel::canonical_tool_name(allowed).unwrap_or(allowed);
+                    key.eq_ignore_ascii_case(name_key)
+                })
+            });
 
         // 7. Middlewares（fork 不带 agent.md 的 skills，其余链完全一致）
         let mut middleware_config = self.permission_config(
