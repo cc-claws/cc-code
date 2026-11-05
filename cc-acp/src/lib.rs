@@ -19,3 +19,7 @@ pub mod prompt;
 pub mod provider;
 pub mod session;
 pub mod transport;
+
+#[cfg(test)]
+#[path = "kernel_acceptance_test.rs"]
+mod kernel_acceptance_test;

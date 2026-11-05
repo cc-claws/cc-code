@@ -15,6 +15,7 @@ use crate::{
         state::State,
     },
     error::{AgentError, AgentResult},
+    kernel::Kernel,
     messages::{message::MessageId, BaseMessage},
     middleware::{chain::MiddlewareChain, r#trait::Middleware},
     tools::BaseTool,
@@ -62,8 +63,11 @@ where
     /// 后台任务通知接收端：后台 agent 完成时推送结果
     pub notification_rx:
         Option<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<BackgroundTaskResult>>>,
-    /// 工具过滤器：返回 true 的工具从 LLM 可见列表中移除（None = 不过滤，向后兼容）
-    pub(crate) tool_filter: Option<fn(&str) -> bool>,
+    /// 工具过滤器：返回 true 的工具从 LLM 可见列表中移除（None = 不过滤，向后兼容）。
+    /// 用 Arc<dyn Fn> 而非裸 fn 指针，才能携带当前内核的可见性策略。
+    pub(crate) tool_filter: Option<Arc<dyn Fn(&str) -> bool + Send + Sync>>,
+    /// 当前会话内核。非 Option：漏注入会退化为 cc，而不是 None 静默跳过归一化。
+    pub(crate) kernel: Kernel,
     /// 共享工具注册表：包含所有工具（包括 deferred），供 ExecuteExtraTool 代理执行使用
     pub(crate) shared_tools: Option<Arc<parking_lot::RwLock<HashMap<String, Arc<dyn BaseTool>>>>>,
     /// micro_compact 配置（None = 不在循环内自动压缩）
@@ -83,6 +87,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
             context_budget: None,
             notification_rx: None,
             tool_filter: None,
+            kernel: Kernel::default(),
             shared_tools: None,
             compact_config: None,
             steering: None,
@@ -150,8 +155,17 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
     ///
     /// 返回 `true` 的工具从 LLM 可见列表中移除（延迟加载），
     /// 返回 `false` 或 `None` 时保留所有工具（向后兼容）。
-    pub fn with_tool_filter(mut self, filter: fn(&str) -> bool) -> Self {
-        self.tool_filter = Some(filter);
+    pub fn with_tool_filter<F>(mut self, filter: F) -> Self
+    where
+        F: Fn(&str) -> bool + Send + Sync + 'static,
+    {
+        self.tool_filter = Some(Arc::new(filter));
+        self
+    }
+
+    /// 注入会话内核（提示词与工具表必须来自同一个 Kernel 实例）。
+    pub fn with_kernel(mut self, kernel: Kernel) -> Self {
+        self.kernel = kernel;
         self
     }
 
@@ -273,7 +287,7 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
             all_tools.insert(name.clone(), tool.as_ref());
         }
 
-        let mut tool_refs: Vec<&dyn BaseTool> = if let Some(filter) = self.tool_filter {
+        let mut tool_refs: Vec<&dyn BaseTool> = if let Some(filter) = self.tool_filter.as_ref() {
             all_tools
                 .values()
                 .copied()
@@ -362,6 +376,10 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
             // LLM 推理
             let reasoning =
                 self::llm_step::call_llm(self, state, &tool_refs, step, &cancel).await?;
+            // 入站归一化：dialect → canonical，一次性改写 tool_calls 与
+            // source_message 的双份名字存储。下游事件流 / HITL / resolve_tool /
+            // compact 全部读同一份 reasoning 派生值，故只需在这一处做。
+            let reasoning = self.kernel.normalize_reasoning(reasoning);
 
             // 钩子: after_model — LLM 调用后（响应后处理）
             self.chain.run_after_model(state, &reasoning).await?;

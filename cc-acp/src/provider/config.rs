@@ -153,6 +153,9 @@ pub struct AppConfig {
     /// "dark-daltonized" | "light-ansi" | "dark-ansi"；缺省 = "default"）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme: Option<String>,
+    /// Agent 内核："cc" | "dsh" | "pi"；未知值回退 "cc"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_kernel: Option<String>,
     /// 系统提示词 persona 覆盖
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub persona: Option<String>,
@@ -283,6 +286,9 @@ impl AppConfig {
         }
         if workspace.language.is_some() {
             self.language = workspace.language;
+        }
+        if workspace.agent_kernel.is_some() {
+            self.agent_kernel = workspace.agent_kernel;
         }
         if workspace.persona.is_some() {
             self.persona = workspace.persona;

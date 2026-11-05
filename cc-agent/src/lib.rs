@@ -11,6 +11,7 @@ pub mod error;
 pub mod fs;
 pub mod hitl;
 pub mod interaction;
+pub mod kernel;
 pub mod llm;
 pub mod messages;
 pub mod middleware;

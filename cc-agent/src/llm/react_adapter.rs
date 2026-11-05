@@ -5,6 +5,7 @@ use super::BaseModel;
 use crate::{
     agent::react::{ReactLLM, Reasoning, ToolCall},
     error::AgentResult,
+    kernel::Kernel,
     llm::types::{LlmRequest, StopReason, StreamingContext},
     messages::{BaseMessage, ContentBlock},
     tools::BaseTool,
@@ -16,6 +17,8 @@ pub struct BaseModelReactLLM {
     pub system: Option<String>,
     /// 会话级 ID，透传到 LlmRequest，供代理（如 LiteLLM）按 session 聚合请求
     pub session_id: Option<String>,
+    /// 当前会话内核：出站工具定义与历史工具名回译都由此驱动。
+    pub kernel: Kernel,
 }
 
 impl BaseModelReactLLM {
@@ -24,6 +27,7 @@ impl BaseModelReactLLM {
             model: Arc::from(model),
             system: None,
             session_id: None,
+            kernel: Kernel::default(),
         }
     }
 
@@ -33,7 +37,13 @@ impl BaseModelReactLLM {
             model,
             system: None,
             session_id: None,
+            kernel: Kernel::default(),
         }
+    }
+
+    pub fn with_kernel(mut self, kernel: Kernel) -> Self {
+        self.kernel = kernel;
+        self
     }
 
     pub fn with_system(mut self, system: impl Into<String>) -> Self {
@@ -55,9 +65,14 @@ impl ReactLLM for BaseModelReactLLM {
         tools: &[&dyn BaseTool],
         streaming: Option<StreamingContext>,
     ) -> AgentResult<Reasoning> {
-        let tool_defs = tools.iter().map(|t| t.definition()).collect();
+        // 出站：工具定义改成本内核方言；历史消息里的 tool_use 名字同步回译，
+        // 避免「工具列表叫 read、历史里却写着 Read」的自相矛盾。
+        let tool_defs: Vec<_> = tools.iter().map(|t| t.definition()).collect();
+        let tool_defs = self.kernel.translate_definitions(tool_defs);
+        let mut outbound_messages = messages.to_vec();
+        self.kernel.dialectize_messages(&mut outbound_messages);
 
-        let mut request = LlmRequest::new(messages.to_vec()).with_tools(tool_defs);
+        let mut request = LlmRequest::new(outbound_messages).with_tools(tool_defs);
 
         if let Some(system) = &self.system {
             request = request.with_system(system.clone());

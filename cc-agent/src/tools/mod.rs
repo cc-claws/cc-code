@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::messages::{ContentBlock, MessageContent};
 
@@ -15,13 +15,81 @@ pub struct FileSnapshot {
     pub old_content: Option<String>,
 }
 
+/// 工具入参的表达方式形态标签（不含数据）。
+///
+/// 只作为 `ToolSpec.parameters_kind` 与 [`ToolParameters::kind`] 的返回值，
+/// 让内核定义能声明「该工具是否用裸文本入参」而不携带任何运行时数据。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolParametersKind {
+    JsonSchema,
+    RawText,
+}
+
+/// 工具入参表达方式：结构化 JSON Schema 或裸文本。
+///
+/// 手写 serde 实现（不用 `#[serde(untagged)]`）：`untagged` 下 `RawText`
+/// 会序列化为 `null`，与 `Json(Value::Null)` 无法区分，反序列化永远命中 `Json`。
+/// 这里 `Json(v)` 序列化为裸值（与改造前逐字节一致），`RawText` 序列化为 `null`；
+/// 反序列化一律按 `Json` 处理（历史数据全部是 JSON Schema）。
+#[derive(Debug, Clone)]
+pub enum ToolParameters {
+    Json(serde_json::Value),
+    RawText,
+}
+
+impl ToolParameters {
+    pub fn kind(&self) -> ToolParametersKind {
+        match self {
+            Self::Json(_) => ToolParametersKind::JsonSchema,
+            Self::RawText => ToolParametersKind::RawText,
+        }
+    }
+
+    /// 取结构化 schema；裸文本返回 None。
+    pub fn as_json(&self) -> Option<&serde_json::Value> {
+        match self {
+            Self::Json(v) => Some(v),
+            Self::RawText => None,
+        }
+    }
+
+    /// 消费自身取得 `serde_json::Value`；裸文本返回 `Value::Null`。
+    pub fn into_json(self) -> serde_json::Value {
+        match self {
+            Self::Json(v) => v,
+            Self::RawText => serde_json::Value::Null,
+        }
+    }
+}
+
+impl Serialize for ToolParameters {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Json(v) => v.serialize(s),
+            Self::RawText => s.serialize_none(),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ToolParameters {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(Self::Json(serde_json::Value::deserialize(d)?))
+    }
+}
+
+impl From<serde_json::Value> for ToolParameters {
+    fn from(v: serde_json::Value) -> Self {
+        Self::Json(v)
+    }
+}
+
 /// 工具定义（JSON Schema 格式参数描述）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDefinition {
     pub name: String,
     pub description: String,
-    /// JSON Schema for parameters
-    pub parameters: serde_json::Value,
+    /// JSON Schema for parameters（或裸文本形态）
+    pub parameters: ToolParameters,
 }
 
 /// 工具执行结果——支持纯文本和多模态（如图片）返回
@@ -80,7 +148,7 @@ pub trait BaseTool: Send + Sync {
         ToolDefinition {
             name: self.name().to_string(),
             description: self.description().to_string(),
-            parameters: self.parameters(),
+            parameters: ToolParameters::Json(self.parameters()),
         }
     }
 

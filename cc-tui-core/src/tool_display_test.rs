@@ -608,3 +608,44 @@ fn test_agent_stop_args_falls_back_to_task_id() {
     let stop_with_desc = serde_json::json!({"action": "stop", "task_id": "bg-1", "description": "停掉查天气"});
     assert_eq!(format_tool_args("Agent", &stop_with_desc, None).as_deref(), Some("停掉查天气"));
 }
+
+#[test]
+fn test_edit_multi_diff_from_snapshot() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("f.txt"), "new content").unwrap();
+    cache_write_old_content("tc-edit-batch", Some("old content".to_string()));
+    let input = serde_json::json!({
+        "file_path": "f.txt",
+        "edits": [{"old_string": "old", "new_string": "new"}]
+    });
+    let di = build_diff_input(
+        "Edit",
+        &input,
+        Some(dir.path().to_str().unwrap()),
+        Some("tc-edit-batch"),
+    )
+    .expect("Batch Edit 应能用快照生成 diff");
+    assert_eq!(di.old_content, "old content");
+    assert_eq!(di.new_content, "new content");
+    assert!(!di.is_new_file);
+}
+
+#[test]
+fn test_edit_single_diff_still_uses_reverse_inference() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("f.txt"), "hello foo world").unwrap();
+    let input = serde_json::json!({
+        "file_path": "f.txt",
+        "old_string": "bar",
+        "new_string": "foo"
+    });
+    let di = build_diff_input(
+        "Edit",
+        &input,
+        Some(dir.path().to_str().unwrap()),
+        Some("tc-edit-single"),
+    )
+    .expect("单编辑反推路径仍可用");
+    assert_eq!(di.old_content, "hello bar world");
+    assert_eq!(di.new_content, "hello foo world");
+}

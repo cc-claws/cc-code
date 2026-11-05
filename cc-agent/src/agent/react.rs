@@ -201,6 +201,9 @@ pub struct Reasoning {
     pub streamed: bool,
     /// LLM 响应的停止原因（end_turn / tool_use / max_tokens）
     pub stop_reason: crate::llm::types::StopReason,
+    /// 归一化前的原始工具调用，仅供 Langfuse / 日志 / 调试回放观测，
+    /// 不参与任何后续执行逻辑（见 kernel::normalize_reasoning）。
+    pub raw_tool_calls: Option<Vec<ToolCall>>,
 }
 
 impl Reasoning {
@@ -213,6 +216,7 @@ impl Reasoning {
             usage: None,
             model: String::new(),
             streamed: false,
+            raw_tool_calls: None,
             stop_reason: crate::llm::types::StopReason::ToolUse,
         }
     }
@@ -226,6 +230,7 @@ impl Reasoning {
             usage: None,
             model: String::new(),
             streamed: false,
+            raw_tool_calls: None,
             stop_reason: crate::llm::types::StopReason::EndTurn,
         }
     }

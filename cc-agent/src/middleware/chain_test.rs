@@ -450,6 +450,7 @@
             usage: None,
             model: String::new(),
             streamed: false,
+            raw_tool_calls: None,
             stop_reason: crate::llm::types::StopReason::EndTurn,
         };
         chain
@@ -527,6 +528,7 @@
             usage: None,
             model: String::new(),
             streamed: false,
+            raw_tool_calls: None,
             stop_reason: crate::llm::types::StopReason::EndTurn,
         };
         let result = chain.run_after_model(&mut state, &reasoning).await;
@@ -554,6 +556,7 @@
             usage: None,
             model: String::new(),
             streamed: false,
+            raw_tool_calls: None,
             stop_reason: crate::llm::types::StopReason::EndTurn,
         };
         assert!(chain.run_after_model(&mut state, &reasoning).await.is_ok());
@@ -576,6 +579,7 @@
             usage: None,
             model: String::new(),
             streamed: false,
+            raw_tool_calls: None,
             stop_reason: crate::llm::types::StopReason::EndTurn,
         };
         chain
@@ -680,6 +684,7 @@
             usage: None,
             model: String::new(),
             streamed: false,
+            raw_tool_calls: None,
             stop_reason: crate::llm::types::StopReason::EndTurn,
         };
         chain
@@ -761,6 +766,7 @@
             usage: None,
             model: String::new(),
             streamed: false,
+            raw_tool_calls: None,
             stop_reason: crate::llm::types::StopReason::EndTurn,
         };
         chain
@@ -816,6 +822,7 @@
             usage: None,
             model: "test-model".into(),
             streamed: false,
+            raw_tool_calls: None,
             stop_reason: crate::llm::types::StopReason::ToolUse,
         };
         chain
@@ -851,6 +858,7 @@
             usage: None,
             model: String::new(),
             streamed: false,
+            raw_tool_calls: None,
             stop_reason: crate::llm::types::StopReason::EndTurn,
         };
         chain

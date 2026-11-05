@@ -116,6 +116,7 @@ fn make_agent_config(
         register_runtime: None,
         deregister_runtime: None,
         background_registry: None,
+        kernel: cc_agent::kernel::Kernel::default(),
     }
 }
 

@@ -116,6 +116,32 @@ pub struct FrozenSessionData {
     pub memory_entrypoint: Option<String>,
     /// 自动记忆存储目录路径（物理已确保存在）。
     pub memory_dir: Option<String>,
+    /// 会话创建时的内核 id；resume 时据此还原，不读全局配置。
+    /// None = 旧会话（缺字段），回退全局配置并记 warn。
+    pub kernel_id: Option<String>,
+}
+
+/// 从冻结数据与全局配置解析会话内核（建会话 / 每轮执行 / show 共用唯一入口）。
+///
+/// 优先用冻结的 kernel_id：resume / 切换后提示词与工具表必须来自同一个 Kernel。
+/// 只有旧会话缺字段时才回退全局配置。
+pub fn resolve_kernel(
+    frozen: Option<&FrozenSessionData>,
+    peri_config: &crate::provider::PeriConfig,
+) -> cc_agent::kernel::Kernel {
+    match frozen.and_then(|f| f.kernel_id.as_deref()) {
+        Some(id) => match cc_agent::kernel::Kernel::try_from_id(id) {
+            Ok(kernel) => kernel,
+            Err(_) => {
+                tracing::warn!(kernel_id = %id, "会话使用了未知内核，回退 cc");
+                cc_agent::kernel::Kernel::cc()
+            }
+        },
+        None => {
+            tracing::warn!("会话缺少 kernel_id，回退全局配置");
+            cc_agent::kernel::Kernel::from_config(peri_config.config.agent_kernel.as_deref())
+        }
+    }
 }
 
 /// Shared agent execution pipeline with auto-compact support.
@@ -589,6 +615,7 @@ pub async fn execute_prompt(
             provider: provider.clone(),
             cwd: cwd.to_string(),
             system_prompt,
+            kernel: resolve_kernel(frozen.as_ref(), peri_config.as_ref()),
             frozen_instructions,
             frozen_memory_entrypoint: None,
             frozen_skill_summary,

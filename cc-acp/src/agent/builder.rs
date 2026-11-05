@@ -17,6 +17,7 @@ use cc_agent::{
         events::{AgentEvent as ExecutorEvent, AgentEventHandler},
         token::ContextBudget,
     },
+    kernel::{Kernel, MutationForm},
     llm::BaseModel,
 };
 
@@ -117,6 +118,8 @@ pub struct AcpAgentConfig {
     pub deregister_runtime: Option<DeregisterRuntimeFn>,
     /// Session-owned registry keeps child control available between prompts.
     pub background_registry: Option<Arc<cc_middlewares::BackgroundTaskRegistry>>,
+    /// 会话内核：提示词、工具方言、可见性、Edit 形态的唯一来源。
+    pub kernel: Kernel,
 }
 
 pub struct AcpAgentOutput {
@@ -210,7 +213,17 @@ fn build_agent_inner(
         register_runtime,
         deregister_runtime,
         background_registry,
+        kernel,
     } = cfg;
+
+    // Edit 的变更形态由 ToolSpec 数据驱动，不在 builder 里 match 内核。
+    let edit_form: MutationForm = kernel
+        .spec()
+        .tools
+        .iter()
+        .find(|t| t.canonical == "Edit")
+        .and_then(|t| t.mutation_form)
+        .unwrap_or_default();
 
     // TerminalMiddleware：注入 shell_executor（None = InlineShellExecutor，保持原行为）。
     // 同一实例同时用于 parent_tools 构造和中间件链，保证 BashTool 与链共享同一 executor。
@@ -240,7 +253,7 @@ fn build_agent_inner(
     let provider_name = provider.display_name().to_string();
 
     // LLM 模型
-    let mut base_llm = BaseModelReactLLM::new(provider.into_model());
+    let mut base_llm = BaseModelReactLLM::new(provider.into_model()).with_kernel(kernel);
     if let Some(ref sid) = session_id {
         base_llm = base_llm.with_session_id(sid);
     }
@@ -338,7 +351,7 @@ fn build_agent_inner(
 
     // 父工具集（供子 agent 继承）
     let mut parent_tools: Vec<Box<dyn cc_agent::tools::BaseTool>> =
-        FilesystemMiddleware::build_tools(&cwd);
+        FilesystemMiddleware::build_tools(&cwd, edit_form);
     parent_tools.extend(terminal_middleware.build_tools(&cwd));
     // 子 Agent 继承 Skill 的加载能力；不继承 fork runner，防止隐式递归委派。
     parent_tools.push(Box::new(
@@ -512,12 +525,26 @@ fn build_agent_inner(
         .with_auto_compact_threshold(compact_config.auto_compact_threshold)
         .with_warning_threshold(compact_config.micro_compact_threshold);
 
+    // 内核专属提示词段落（cc 为空串，保持逐字节等价）。
+    // 与 /kernel 切换、/kernel show 复用同一个 prompt_for 结果。
+    let kernel_prompt = kernel.prompt_for(&model_name);
+    let system_prompt = if kernel_prompt.is_empty() {
+        system_prompt
+    } else {
+        format!("{system_prompt}\n\n{kernel_prompt}")
+    };
+
     // 将 Git Attribution 追加到系统提示词末尾（动态区域，不影响缓存前缀）
     let attribution = cc_middlewares::GitAttributionMiddleware::attribution_text(&model_name);
     let system_prompt = format!(
         "{}\n\n## Git Attribution\n\nWhen creating git commits, append the following line to the commit message:\n\n```\n{}\n```\n\nThis tracks AI contributions and should always be included in commit messages for code you authored.",
         system_prompt, attribution
     );
+    // 系统提示词整体都是「关于工具的描述」（不含用户文件/命令数据），
+    // 可安全地把其中的规范工具名替换为当前内核方言名。
+    // 这覆盖 prompts/sections/*.md 的交叉引用与运行时注入的提示语文案；
+    // cc 内核返回 Borrowed，逐字节不变。
+    let system_prompt = kernel.dialectize_hint(&system_prompt).into_owned();
 
     // 构建 ReActAgent
     let executor = ReActAgent::new(model)
@@ -526,7 +553,8 @@ fn build_agent_inner(
         .with_compact_config(compact_config)
         .with_notification_rx(bg_notification_rx)
         .with_system_prompt(system_prompt)
-        .with_tool_filter(cc_middlewares::tool_search::is_deferred_tool)
+        .with_kernel(kernel)
+        .with_tool_filter(move |name: &str| kernel.should_hide(name))
         .with_shared_tools(Arc::clone(&shared_tools))
         .add_middleware(Box::new({
             let mut mw = AgentsMdMiddleware::new().with_excludes(claude_md_excludes);
@@ -559,7 +587,7 @@ fn build_agent_inner(
         .add_middleware(Box::new(cc_middlewares::AtMentionMiddleware::new(
             cwd.clone().into(),
         )))
-        .add_middleware(Box::new(FilesystemMiddleware::new()))
+        .add_middleware(Box::new(FilesystemMiddleware::new().with_form(edit_form)))
         .add_middleware(Box::new(cc_middlewares::GitAttributionMiddleware::new(
             &model_name,
         )))

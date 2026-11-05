@@ -126,6 +126,6 @@ pub fn ask_user_tool_definition() -> cc_agent::tools::ToolDefinition {
                 }
             },
             "required": ["questions"]
-        }),
+        }).into(),
     }
 }

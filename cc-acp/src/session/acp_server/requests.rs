@@ -403,11 +403,35 @@ pub(crate) async fn handle_request(
                     persist_config(cfg);
                     info!(enabled = %enabled, "Context 1M changed via configOption (persisted)");
                 }
+                "agent_kernel" => {
+                    // 严格解析：未知内核不写配置、不切换。
+                    let Some(kernel) = cc_agent::kernel::Kernel::from_config_checked(value) else {
+                        return Err(AcpError::new(
+                            -32602,
+                            format!("未知内核: {value}，可用内核：cc / dsh / pi"),
+                        ));
+                    };
+                    {
+                        let mut c = cfg.peri_config.write();
+                        c.config.agent_kernel = Some(kernel.id().to_string());
+                    }
+                    if let Some(session) = sessions.get_mut(session_id) {
+                        // 冻结的内核身份随切换更新；builder 每轮据此重算内核提示词段落，
+                        // 无需重建整个 system_prompt（避免绕过 memory / feature / attribution）。
+                        if let Some(ref mut frozen) = session.frozen {
+                            frozen.kernel_id = Some(kernel.id().to_string());
+                        }
+                        // 内核影响 LLM adapter 的工具定义，缓存实例必须失效。
+                        session.agent_pool.lock().invalidate();
+                    }
+                    persist_config(cfg);
+                    info!(kernel = %value, "Agent kernel changed via configOption");
+                }
                 _ => {
                     debug!(config_id = %config_id, "Unknown config option");
                 }
             }
-            if matches!(config_id, "model" | "thinking_effort") {
+            if matches!(config_id, "model" | "thinking_effort" | "agent_kernel") {
                 if let Some(session) = sessions.get(session_id) {
                     persist_session_snapshot(cfg, session_id, &session.cwd).await;
                 }
@@ -613,8 +637,14 @@ pub(crate) async fn handle_request(
             }
 
             // ── Freeze session data at resume time ──
+            // 会话冻结的内核身份优先于当前全局配置：中途改过配置不应让历史上下文
+            // 与新提示词错配。
+            let existing_kernel_id = sessions
+                .get(req_session_id)
+                .and_then(|s| s.frozen.as_ref())
+                .and_then(|f| f.kernel_id.clone());
             let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
-            let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
+            let mut frozen_data = cc_acp::session::frozen::build_frozen_session_data(
                 cwd,
                 cfg.peri_config.read().config.clone(),
                 &cfg.plugin_skill_dirs,
@@ -622,6 +652,11 @@ pub(crate) async fn handle_request(
                 &frozen_date,
                 cc_acp::session::frozen::rule_model_from(&cfg.provider.read()),
             );
+            if let Some(id) = existing_kernel_id {
+                frozen_data.kernel_id = Some(id);
+            } else {
+                tracing::warn!("resume: 会话缺少 kernel_id，回退全局配置");
+            }
             if let Some(s) = sessions.get_mut(req_session_id) {
                 s.frozen = Some(frozen_data);
             }
@@ -650,6 +685,12 @@ pub(crate) async fn handle_request(
                     .await
                     .map_err(|e| AcpError::new(-32603, e))?;
 
+            // fork 继承源会话的内核身份。
+            let source_kernel_id = sessions
+                .get(source_id)
+                .and_then(|s| s.frozen.as_ref())
+                .and_then(|f| f.kernel_id.clone());
+
             let new_session_id = new_thread_id.clone();
             persist_session_snapshot(cfg, &new_session_id, cwd).await;
             sessions.insert(
@@ -672,7 +713,7 @@ pub(crate) async fn handle_request(
 
             // ── Freeze session data at fork time ──
             let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
-            let frozen_data = cc_acp::session::frozen::build_frozen_session_data(
+            let mut frozen_data = cc_acp::session::frozen::build_frozen_session_data(
                 cwd,
                 cfg.peri_config.read().config.clone(),
                 &cfg.plugin_skill_dirs,
@@ -680,6 +721,9 @@ pub(crate) async fn handle_request(
                 &frozen_date,
                 cc_acp::session::frozen::rule_model_from(&cfg.provider.read()),
             );
+            if let Some(id) = source_kernel_id {
+                frozen_data.kernel_id = Some(id);
+            }
             if let Some(s) = sessions.get_mut(&new_session_id) {
                 s.frozen = Some(frozen_data);
             }
@@ -710,6 +754,21 @@ pub(crate) async fn handle_request(
             }
 
             *cfg.peri_config.write() = new_cfg.clone();
+
+            // 配置整体替换时，内核变更也要同步到会话冻结身份，
+            // 否则 resolve_kernel 仍读旧的 frozen.kernel_id，切换不生效。
+            if let Some(id) = new_cfg.config.agent_kernel.as_deref() {
+                if let Some(kernel) = cc_agent::kernel::Kernel::from_config_checked(id) {
+                    if let Some(session) = sessions.get_mut(session_id) {
+                        if let Some(ref mut frozen) = session.frozen {
+                            if frozen.kernel_id.as_deref() != Some(kernel.id()) {
+                                frozen.kernel_id = Some(kernel.id().to_string());
+                                session.agent_pool.lock().invalidate();
+                            }
+                        }
+                    }
+                }
+            }
 
             if let Some(p) = LlmProvider::from_config(&new_cfg) {
                 *cfg.provider.write() = p;

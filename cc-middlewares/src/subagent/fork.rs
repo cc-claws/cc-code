@@ -5,10 +5,19 @@
 
 use std::sync::Arc;
 
+use cc_agent::kernel::canonical_tool_name;
 use cc_agent::tools::BaseTool;
 
 use crate::tool_search::core_tools::TOOL_AGENT;
 use crate::{agent_define::AgentOverrides, claude_agent_parser::ToolsValue, tools::ArcToolWrapper};
+
+/// 把工具名归一到规范名再比较：subagent 的 `disallowedTools` 可能用任一内核的
+/// 方言名（如 pi 的 `edit`/`write`），不归一会让只读 agent 拿到写权限。
+fn canonical_lower(name: &str) -> String {
+    canonical_tool_name(name)
+        .unwrap_or(name)
+        .to_lowercase()
+}
 
 /// Filter tools from parent set based on agent definition's tools/disallowedTools fields.
 ///
@@ -26,25 +35,24 @@ pub fn filter_tools(
     let allowed_list = allowed.to_vec();
     let disallowed_list = disallowed.to_vec();
     let is_wildcard = allowed_list.len() == 1 && allowed_list[0] == "*";
+    let allowed_keys: Vec<String> = allowed_list.iter().map(|n| canonical_lower(n)).collect();
+    let disallowed_keys: Vec<String> = disallowed_list.iter().map(|n| canonical_lower(n)).collect();
 
     parent_tools
         .iter()
         .filter(|tool| {
             let name = tool.name();
-            let name_lower = name.to_lowercase();
+            let name_key = canonical_lower(name);
             if name == TOOL_AGENT {
                 return false;
             }
             if !is_wildcard
                 && !allowed_list.is_empty()
-                && !allowed_list.iter().any(|n| n.to_lowercase() == name_lower)
+                && !allowed_keys.iter().any(|n| *n == name_key)
             {
                 return false;
             }
-            if disallowed_list
-                .iter()
-                .any(|n| n.to_lowercase() == name_lower)
-            {
+            if disallowed_keys.iter().any(|n| *n == name_key) {
                 return false;
             }
             true

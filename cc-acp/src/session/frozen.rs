@@ -120,6 +120,11 @@ pub fn build_frozen_session_data(
             .as_ref()
             .map(|snapshot| snapshot.rendered_entrypoint()),
         memory_dir: memory.map(|snapshot| snapshot.directory.to_string_lossy().into_owned()),
+        kernel_id: Some(
+            cc_agent::kernel::Kernel::from_config(app_config.agent_kernel.as_deref())
+                .id()
+                .to_string(),
+        ),
     }
 }
 
