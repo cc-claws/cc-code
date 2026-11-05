@@ -296,6 +296,11 @@ pub(crate) fn build_system_prompt_with_memory_for_kernel(
     } else {
         "not applicable (native bash)"
     };
+    let cron_tool_access = if kernel.exposes_tool_search() {
+        "Discover them through `SearchExtraTools` when needed, then call them through `ExecuteExtraTool` using the returned schema."
+    } else {
+        "Call these tools directly using their exposed names and schemas."
+    };
     let variables = [
         ("{{cwd}}", env.cwd.as_str()),
         (
@@ -308,6 +313,7 @@ pub(crate) fn build_system_prompt_with_memory_for_kernel(
         ("{{date}}", env.date.as_str()),
         ("{{git_bash_status}}", git_bash_status),
         ("{{available_agents}}", available_agents.as_str()),
+        ("{{cron_tool_access}}", cron_tool_access),
     ];
     let render_section = |template: &str| {
         let template = kernel.dialectize_hint(template);

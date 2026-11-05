@@ -296,7 +296,8 @@ async fn test_resume_session_reuses_nonempty_history_and_frozen_data() -> anyhow
 #[tokio::test]
 async fn test_resume_session_reloads_existing_empty_history() -> anyhow::Result<()> {
     let tmp = tempfile::tempdir()?;
-    let meta = ThreadMeta::new(tmp.path().to_string_lossy().to_string());
+    let mut meta = ThreadMeta::new(tmp.path().to_string_lossy().to_string());
+    meta.kernel_id = Some("pi".to_string());
     let id = meta.id.clone();
     let store = make_context_thread_store(meta.clone(), Vec::new());
     let ctx = make_stdio_context(store.clone());
@@ -308,6 +309,12 @@ async fn test_resume_session_reloads_existing_empty_history() -> anyhow::Result<
         ctx.sessions.read()[&id].history.is_empty(),
         "首次读取可以返回空历史"
     );
+    let frozen_prompt = ctx.sessions.read()[&id]
+        .frozen
+        .as_ref()
+        .expect("已有会话也必须补齐缺失的冻结身份")
+        .system_prompt
+        .clone();
     *store.history.write() = vec![BaseMessage::human("稍后持久化的历史")];
     resume_session(&ctx, &id).await?;
     assert_eq!(
@@ -319,10 +326,10 @@ async fn test_resume_session_reloads_existing_empty_history() -> anyhow::Result<
         ctx.sessions.read()[&id].history[0].content(),
         "稍后持久化的历史"
     );
-    assert!(
-        ctx.sessions.read()[&id].frozen.is_none(),
-        "已有会话的冻结数据初始化语义应保持不变"
-    );
+    let sessions = ctx.sessions.read();
+    let frozen = sessions[&id].frozen.as_ref().expect("冻结信息应保留");
+    assert_eq!(frozen.kernel_id.as_deref(), Some("pi"));
+    assert_eq!(frozen.system_prompt, frozen_prompt);
     Ok(())
 }
 

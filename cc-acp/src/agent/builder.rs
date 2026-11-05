@@ -549,7 +549,11 @@ fn build_agent_inner(
         .with_notification_rx(bg_notification_rx)
         .with_system_prompt(system_prompt)
         .with_kernel(kernel)
-        .with_tool_filter(move |name: &str| kernel.should_hide(name))
+        .with_tool_filter(move |name: &str| {
+            kernel.should_hide(name)
+                || (kernel.exposes_tool_search()
+                    && cc_middlewares::tool_search::is_deferred_tool(name))
+        })
         .with_shared_tools(Arc::clone(&shared_tools))
         .add_middleware(Box::new({
             let mut mw = AgentsMdMiddleware::new().with_excludes(claude_md_excludes);

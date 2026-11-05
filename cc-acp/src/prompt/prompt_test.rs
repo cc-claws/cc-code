@@ -167,6 +167,40 @@ fn test_cron_enabled_includes_cron_section() {
 }
 
 #[test]
+fn test_cron_prompt_matches_kernel_tool_access() {
+    for id in ["cc", "dsh", "pi"] {
+        let kernel = Kernel::try_from_id(id).unwrap();
+        let result = build_system_prompt_for_kernel(
+            None,
+            "/tmp",
+            PromptFeatures {
+                cron_enabled: true,
+                ..PromptFeatures::none()
+            },
+            &[],
+            None,
+            None,
+            kernel,
+        );
+        let section = result.split("# Scheduled Tasks (Cron)").nth(1).unwrap();
+        assert!(section.contains("5-field cron expressions"), "{id}");
+        assert_eq!(
+            section.contains("SearchExtraTools"),
+            kernel.exposes_tool_search(),
+            "{id}"
+        );
+        assert_eq!(
+            section.contains("ExecuteExtraTool"),
+            kernel.exposes_tool_search(),
+            "{id}"
+        );
+        if !kernel.exposes_tool_search() {
+            assert!(section.contains("directly"), "{id}");
+        }
+    }
+}
+
+#[test]
 fn test_skills_enabled_includes_skills_section() {
     let features = PromptFeatures {
         skills_enabled: true,

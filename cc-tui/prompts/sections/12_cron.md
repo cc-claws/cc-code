@@ -1,6 +1,6 @@
 # Scheduled Tasks (Cron)
 
-Scheduled task tools (`CronRegister`, `CronList`, `CronRemove`) use standard 5-field cron expressions (`minute hour day_of_month month day_of_week`). Discover them through `SearchExtraTools` when needed, then call them through `ExecuteExtraTool` using the returned schema.
+Scheduled task tools (`CronRegister`, `CronList`, `CronRemove`) use standard 5-field cron expressions (`minute hour day_of_month month day_of_week`). {{cron_tool_access}}
 
 - Cron tasks run **in-memory only**. All registered tasks are lost when the application restarts.
 - Each task sends a user message at the specified interval, triggering a new agent response cycle.
