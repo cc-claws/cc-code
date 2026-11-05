@@ -4,6 +4,12 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.240 — 2026-11-05
+
+### Fixes
+
+- **文件工具支持 MSYS 盘符路径（#899, #900）**：Windows 下 Read/Edit/Write/Glob/Grep 收到 Git Bash 习惯的 `/c/Users/...` 路径时无法定位真实文件。这类路径有 root 但无盘符，`is_absolute()` 返回 false，`Path::join` 会丢弃 cwd 落到「当前驱动器根」，解析结果随进程状态漂移，最终报 `File not found`，且错误只回显原始入参，容易误判为路径写法被拒绝。新增 `msys_drive_path()` 在 `resolve_path` 前置还原盘符（`/c/foo` → `C:/foo`），Grep / rg_engine 的搜索路径构造同样接入；not found 文案改为回显 resolved 路径，便于定位实际查找位置。仅 Windows 生效，`/cc/...`、`/1/...` 与相对路径不受影响。
+
 ## v0.6.235 — 2026-11-04
 
 ### Fixes
