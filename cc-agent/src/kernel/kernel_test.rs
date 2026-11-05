@@ -305,6 +305,36 @@ fn test_micro_compact_after_normalize() {
 }
 
 #[test]
+fn test_dialectize_input_edit_single_to_batch() {
+    let pi = Kernel::from_config_checked("pi").unwrap();
+    let input = json!({
+        "file_path": "a.rs",
+        "old_string": "foo",
+        "new_string": "bar",
+        "replace_all": false
+    });
+    let out = pi.dialectize_input("Edit", &input);
+    assert_eq!(out["path"], "a.rs");
+    assert_eq!(out["edits"][0]["oldText"], "foo");
+    assert_eq!(out["edits"][0]["newText"], "bar");
+    assert!(out.get("old_string").is_none());
+    assert!(out.get("file_path").is_none());
+}
+
+#[test]
+fn test_dialectize_param_names() {
+    let pi = Kernel::from_config_checked("pi").unwrap();
+    assert_eq!(
+        pi.dialectize_param_names("missing file_path, got old_string"),
+        "missing path, got oldText"
+    );
+    assert_eq!(
+        Kernel::cc().dialectize_param_names("missing file_path"),
+        "missing file_path"
+    );
+}
+
+#[test]
 fn test_dialectize_hint() {
     let pi = Kernel::from_config_checked("pi").unwrap();
     assert_eq!(
@@ -433,6 +463,7 @@ fn test_dialectize_messages_rewrites_history() {
         matches!(&content.content_blocks()[0], ContentBlock::ToolUse { name, .. } if name == "read")
     );
     assert_eq!(tool_calls[0].name, "read");
-    // 参数原样（历史是不可变事实记录）。
-    assert_eq!(tool_calls[0].arguments["file_path"], "a.rs");
+    // 参数也要改成方言名，才能与当前 schema 一致。
+    assert_eq!(tool_calls[0].arguments["path"], "a.rs");
+    assert!(tool_calls[0].arguments.get("file_path").is_none());
 }

@@ -162,9 +162,8 @@ impl BaseTool for EditFileTool {
     /// Batch 形态下在执行前抓取旧内容，供 TUI 生成全文 diff。
     /// 单编辑路径返回 None，继续走原有的「从最终内容反推」逻辑。
     fn file_snapshot(&self, input: &Value) -> Option<FileSnapshot> {
-        if input.get("edits").is_none() {
-            return None;
-        }
+        // 单编辑路径不走快照（保留原有反推 diff 逻辑）。
+        input.get("edits")?;
         let path = input["file_path"]
             .as_str()
             .or_else(|| input["path"].as_str())?;
@@ -420,10 +419,9 @@ impl EditFileTool {
         // 预匹配：所有区间都相对原文，互不影响。
         let mut ranges: Vec<(usize, usize, String, usize)> = Vec::with_capacity(parsed.len());
         for (idx, (old, new)) in parsed.iter().enumerate() {
-            let matches: Vec<usize> = content
-                .match_indices(old.as_str())
-                .map(|(offset, _)| offset)
-                .collect();
+            // 必须检测**重叠**匹配：str::match_indices 只返回不重叠匹配，
+            // 例如原文 "aaa"、old_string="aa" 实际有 2 个位置，漏检会误判为唯一。
+            let matches = find_all_occurrences(&content, old);
             if matches.is_empty() {
                 let hint = build_not_found_hint(&content, old);
                 return Err(format!(
@@ -561,6 +559,32 @@ fn batch_schema() -> Value {
         },
         "required": ["file_path", "edits"]
     })
+}
+
+/// 返回 needle 在 haystack 中的全部起始位置（**含重叠匹配**）。
+///
+/// `str::match_indices` 只返回不重叠匹配，会漏掉 "aaa" 中 "aa" 的第二个位置，
+/// 导致本应 ambiguous 的编辑被误判为唯一并执行错误替换。这里按字符步进扫描。
+fn find_all_occurrences(haystack: &str, needle: &str) -> Vec<usize> {
+    if needle.is_empty() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    let mut start = 0;
+    while start <= haystack.len() {
+        let Some(pos) = haystack[start..].find(needle) else {
+            break;
+        };
+        let abs = start + pos;
+        out.push(abs);
+        let step = haystack[abs..]
+            .chars()
+            .next()
+            .map(char::len_utf8)
+            .unwrap_or(1);
+        start = abs + step;
+    }
+    out
 }
 
 /// 原子写入：先写临时文件再 rename。

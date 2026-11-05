@@ -1089,6 +1089,20 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                                         }
                                         _ => Vec::new(),
                                     };
+                                    // 校验用的是规范 schema；反馈给模型前把参数名转成方言名，
+                                    // 避免 pi 下模型收到「要求修正 file_path」而 schema 写的是 path。
+                                    let msg = if kernel.is_cc() {
+                                        msg
+                                    } else {
+                                        kernel.dialectize_param_names(&msg).into_owned()
+                                    };
+                                    let keys_text = if kernel.is_cc() {
+                                        format!("{keys:?}")
+                                    } else {
+                                        kernel
+                                            .dialectize_param_names(&format!("{keys:?}"))
+                                            .into_owned()
+                                    };
                                     // 启发式工具错配诊断：cc 沿用静态表（逐字节等价），
                                     // 其他内核用按方言生成的 signature_hints。
                                     let hint = (if kernel.is_cc() {
@@ -1102,7 +1116,7 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                                         tool: tool_name.clone(),
                                         reason: format!(
                                             "Invalid arguments for tool {echo}:\n{msg}\n\
-                                             Received keys: {keys:?}. Rewrite the call to satisfy the schema and retry.{hint}"
+                                             Received keys: {keys_text}. Rewrite the call to satisfy the schema and retry.{hint}"
                                         ),
                                     });
                                 }

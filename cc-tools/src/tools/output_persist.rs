@@ -18,10 +18,13 @@ pub fn persist_truncated_output(full_content: &str) -> String {
                 read_path
             );
             // 这段是代码生成的提示语（不是工具输出数据），可按当前内核方言化。
-            cc_agent::kernel::text::dialectize_known_hints(
-                &cc_agent::tools::ToolInvocationContext::kernel(),
-                &hint,
-            )
+            let kernel = cc_agent::tools::ToolInvocationContext::kernel();
+            let hint = cc_agent::kernel::text::dialectize_known_hints(&kernel, &hint);
+            if kernel.is_cc() {
+                hint
+            } else {
+                kernel.dialectize_param_names(&hint).into_owned()
+            }
         }
         Err(e) => format!(
             "\n\n[Failed to save full output to {}: {e}]",

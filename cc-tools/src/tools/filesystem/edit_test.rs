@@ -388,6 +388,42 @@
         EditFileTool::new(cwd).with_form(MutationForm::BatchReplace)
     }
 
+    #[tokio::test]
+    async fn test_edit_multi_overlapping_match_rejected() {
+        // "aaa" 中 "aa" 有 2 个重叠起点（0、1），match_indices 只会看到 1 个。
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f.txt");
+        std::fs::write(&path, "aaa").unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        let err = tool
+            .invoke(serde_json::json!({
+                "file_path": "f.txt",
+                "edits": [{"old_string": "aa", "new_string": "b"}]
+            }))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("not unique"), "unexpected: {err}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "aaa");
+    }
+
+    #[tokio::test]
+    async fn test_edit_multi_overlapping_match_rejected_multibyte() {
+        // 每个字符 2 字节，"αα" 在 "ααα" 中有 2 个重叠起点。
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f.txt");
+        std::fs::write(&path, "ααα").unwrap();
+        let tool = EditFileTool::new(dir.path().to_str().unwrap());
+        let err = tool
+            .invoke(serde_json::json!({
+                "file_path": "f.txt",
+                "edits": [{"old_string": "αα", "new_string": "β"}]
+            }))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("not unique"), "unexpected: {err}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "ααα");
+    }
+
     #[test]
     fn test_cc_kernel_edit_schema_unchanged() {
         let single = EditFileTool::new(".").parameters();

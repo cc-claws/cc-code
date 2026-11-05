@@ -306,20 +306,75 @@ impl Kernel {
             .collect()
     }
 
-    /// 出站：把历史 AI 消息里的工具调用名字回译成本内核方言名。
-    /// 只改名字，参数原样（历史是不可变的事实记录）。
+    /// 出站：把历史 AI 消息里的工具调用名字**与参数**一起回译成本内核方言。
+    ///
+    /// 只改名字会与当前工具 schema 矛盾（pi 下模型看到历史 `read({"file_path"})`
+    /// 而 schema 要求 `path`），因此入参也要按同一 ParamSpec 正向改名。
     pub fn dialectize_messages(&self, messages: &mut [BaseMessage]) {
         if self.is_cc() {
             return;
         }
         for msg in messages {
-            msg.map_ai_tool_names(|name, _input| {
-                self.canonical_name(name)
-                    .and_then(|c| self.dialect_name(c))
-                    .unwrap_or(name)
-                    .to_string()
+            msg.map_ai_tool_names(|name, input| {
+                let Some(canonical) = self.canonical_name(name) else {
+                    return name.to_string();
+                };
+                *input = self.dialectize_input(canonical, input);
+                self.dialect_name(canonical).unwrap_or(name).to_string()
             });
         }
+    }
+
+    /// 出站：把历史工具调用的入参改写成方言名。
+    ///
+    /// - 顶层 / 数组字段按 ParamSpec 正向改名；
+    /// - pi 的 Edit 若历史是 cc 单编辑形态，适配为 `path + edits[{oldText,newText}]`
+    ///   （跨内核历史语义天然有损，仅做可读的形态适配）。
+    pub fn dialectize_input(&self, canonical: &str, input: &Value) -> Value {
+        if self.is_cc() {
+            return input.clone();
+        }
+        let Some(spec) = self.tool_spec(canonical) else {
+            return input.clone();
+        };
+        let mut out = input.clone();
+        let forward: Vec<(&str, &str)> = spec
+            .params
+            .top()
+            .iter()
+            .map(|(dialect, canonical)| (*canonical, *dialect))
+            .collect();
+        rename_keys(&mut out, &forward);
+        if let ParamSpec::RenameWithArrayFields {
+            array_key, fields, ..
+        } = &spec.params
+        {
+            if let Some(items) = out.get_mut(*array_key).and_then(Value::as_array_mut) {
+                let forward_fields: Vec<(&str, &str)> = fields
+                    .iter()
+                    .map(|(dialect, canonical)| (*canonical, *dialect))
+                    .collect();
+                for item in items.iter_mut() {
+                    rename_keys(item, &forward_fields);
+                }
+            }
+        }
+        if spec.mutation_form == Some(MutationForm::BatchReplace) && out.get("edits").is_none() {
+            let old = out.get("old_string").cloned();
+            let new = out.get("new_string").cloned();
+            if let (Some(old), Some(new)) = (old, new) {
+                if let Some(obj) = out.as_object_mut() {
+                    obj.remove("old_string");
+                    obj.remove("new_string");
+                    obj.remove("replace_all");
+                    obj.insert(
+                        "edits".to_string(),
+                        serde_json::json!([{ "oldText": old, "newText": new }]),
+                    );
+                }
+            }
+        }
+        out
     }
 
     /// 入站：一次性归一化 reasoning（dialect → canonical）。
@@ -425,32 +480,39 @@ impl Kernel {
         if self.is_cc() {
             return Cow::Borrowed(hint);
         }
-        let mut rules: Vec<(&str, &str)> = self
+        let rules: Vec<(&str, &str)> = self
             .spec()
             .tools
             .iter()
             .map(|t| (t.canonical, t.exposed))
             .collect();
-        rules.sort_by_key(|(canonical, _)| std::cmp::Reverse(canonical.len()));
-        let mut out = String::with_capacity(hint.len());
-        let mut i = 0;
-        while i < hint.len() {
-            let mut matched = false;
-            for (canonical, exposed) in &rules {
-                if hint[i..].starts_with(canonical) {
-                    out.push_str(exposed);
-                    i += canonical.len();
-                    matched = true;
-                    break;
+        Cow::Owned(replace_with_rules(hint, &rules))
+    }
+
+    /// 出站：把反馈文本里的规范**参数名**替换为方言名。
+    /// 用于 schema 校验错误、截断输出提示等面向模型的修正指令。
+    pub fn dialectize_param_names<'a>(&self, text: &'a str) -> Cow<'a, str> {
+        if self.is_cc() {
+            return Cow::Borrowed(text);
+        }
+        let mut rules: Vec<(&str, &str)> = Vec::new();
+        for spec in self.spec().tools {
+            for (dialect, canonical) in spec.params.top() {
+                if dialect != canonical {
+                    rules.push((*canonical, *dialect));
                 }
             }
-            if !matched {
-                let ch = hint[i..].chars().next().unwrap();
-                out.push(ch);
-                i += ch.len_utf8();
+            if let ParamSpec::RenameWithArrayFields { fields, .. } = &spec.params {
+                for (dialect, canonical) in fields.iter() {
+                    if dialect != canonical {
+                        rules.push((*canonical, *dialect));
+                    }
+                }
             }
         }
-        Cow::Owned(out)
+        rules.sort_unstable_by_key(|(canonical, _)| std::cmp::Reverse(canonical.len()));
+        rules.dedup_by(|a, b| a.0 == b.0);
+        Cow::Owned(replace_with_rules(text, &rules))
     }
 
     /// 按当前内核方言拼装的错配建议（键和值都用方言名）。
@@ -475,6 +537,31 @@ impl Kernel {
         }
         None
     }
+}
+
+/// 单遍最长匹配替换：规则按 `from` 长度降序，一次扫描完成。
+fn replace_with_rules(text: &str, rules: &[(&str, &str)]) -> String {
+    let mut sorted: Vec<(&str, &str)> = rules.to_vec();
+    sorted.sort_by_key(|(from, _)| std::cmp::Reverse(from.len()));
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < text.len() {
+        let mut matched = false;
+        for (from, to) in &sorted {
+            if text[i..].starts_with(from) {
+                out.push_str(to);
+                i += from.len();
+                matched = true;
+                break;
+            }
+        }
+        if !matched {
+            let ch = text[i..].chars().next().unwrap();
+            out.push(ch);
+            i += ch.len_utf8();
+        }
+    }
+    out
 }
 
 /// 把 JSON 对象里的 `from` 键改名为 `to`（in-place，客户端参数用）。

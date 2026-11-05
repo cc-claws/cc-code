@@ -753,9 +753,15 @@ pub(crate) async fn handle_request(
             if let Some(id) = source_kernel_id {
                 frozen_data.kernel_id = Some(id);
             }
+            let fork_kernel_id = frozen_data.kernel_id.clone();
             if let Some(s) = sessions.get_mut(&new_session_id) {
                 s.frozen = Some(frozen_data);
             }
+            // fork 的内核身份同样要落盘，否则重启 + 改全局配置后会回退。
+            let _ = cfg
+                .thread_store
+                .update_kernel_snapshot(&new_session_id, fork_kernel_id)
+                .await;
 
             info!(source = %source_id, new = %new_session_id, "Session forked");
             let resp = ForkSessionResponse::new(SessionId::new(new_session_id));
