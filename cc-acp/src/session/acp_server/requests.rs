@@ -300,6 +300,12 @@ pub(crate) async fn handle_request(
                 cc_acp::session::frozen::rule_model_from(&cfg.provider.read()),
             );
 
+            // 持久化内核身份，供进程重启后的 load/resume 恢复（内存 sessions 会丢）。
+            let _ = cfg
+                .thread_store
+                .update_kernel_snapshot(&session_id, frozen_data.kernel_id.clone())
+                .await;
+
             let state = sessions.get_mut(&session_id).unwrap();
             state.frozen = Some(frozen_data);
             info!(session_id = %session_id, "ACP session created with ThreadStore");
@@ -424,6 +430,15 @@ pub(crate) async fn handle_request(
                         // 内核影响 LLM adapter 的工具定义，缓存实例必须失效。
                         session.agent_pool.lock().invalidate();
                     }
+                    if !session_id.is_empty() {
+                        let _ = cfg
+                            .thread_store
+                            .update_kernel_snapshot(
+                                &session_id.to_string(),
+                                Some(kernel.id().to_string()),
+                            )
+                            .await;
+                    }
                     persist_config(cfg);
                     info!(kernel = %value, "Agent kernel changed via configOption");
                 }
@@ -527,6 +542,11 @@ pub(crate) async fn handle_request(
                         &frozen_date,
                         cc_acp::session::frozen::rule_model_from(&cfg.provider.read()),
                     ));
+                }
+                // 持久化的内核身份优先于当前全局配置，保证重启后恢复原内核。
+                if let (Some(frozen), Some(kernel_id)) = (s.frozen.as_mut(), meta.kernel_id.clone())
+                {
+                    frozen.kernel_id = Some(kernel_id);
                 }
             }
 
@@ -639,10 +659,19 @@ pub(crate) async fn handle_request(
             // ── Freeze session data at resume time ──
             // 会话冻结的内核身份优先于当前全局配置：中途改过配置不应让历史上下文
             // 与新提示词错配。
-            let existing_kernel_id = sessions
+            let mut existing_kernel_id = sessions
                 .get(req_session_id)
                 .and_then(|s| s.frozen.as_ref())
                 .and_then(|f| f.kernel_id.clone());
+            // 进程重启后内存 sessions 为空，回落到持久化的 kernel_id。
+            if existing_kernel_id.is_none() {
+                existing_kernel_id = cfg
+                    .thread_store
+                    .load_meta(&req_session_id.to_string())
+                    .await
+                    .ok()
+                    .and_then(|m| m.kernel_id);
+            }
             let frozen_date = chrono::Local::now().format("%Y-%m-%d").to_string();
             let mut frozen_data = cc_acp::session::frozen::build_frozen_session_data(
                 cwd,
@@ -766,6 +795,15 @@ pub(crate) async fn handle_request(
                                 session.agent_pool.lock().invalidate();
                             }
                         }
+                    }
+                    if !session_id.is_empty() {
+                        let _ = cfg
+                            .thread_store
+                            .update_kernel_snapshot(
+                                &session_id.to_string(),
+                                Some(kernel.id().to_string()),
+                            )
+                            .await;
                     }
                 }
             }

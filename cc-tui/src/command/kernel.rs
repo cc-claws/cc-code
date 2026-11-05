@@ -83,13 +83,18 @@ impl Command for KernelCommand {
                     let acp = acp_client.clone();
                     let val = arg.clone();
                     tokio::spawn(async move {
-                        let _ = acp.set_config_option("agent_kernel", &val).await;
+                        match acp.set_config_option("agent_kernel", &val).await {
+                            Ok(()) => tracing::info!(kernel = %val, "内核切换请求已应用"),
+                            Err(e) => tracing::error!(kernel = %val, error = %e, "内核切换请求失败"),
+                        }
                     });
                 }
+                // 异步请求的结果无法回传 UI，这里只声明「已请求」而非「已成功」，
+                // 避免 ACP 失败时界面仍显示切换成功。
                 Self::push_notice(
                     app,
                     format!(
-                        "已切换到 {} 内核。历史消息中的工具调用记录保留，但新内核的工具语义可能与历史不同。",
+                        "已请求切换到 {} 内核（配置已保存）。历史消息中的工具调用记录保留，但新内核的工具语义可能与历史不同；若当前会话未生效，请新开会话。",
                         arg
                     ),
                 );

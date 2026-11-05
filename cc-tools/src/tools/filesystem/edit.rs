@@ -530,35 +530,36 @@ fn single_schema() -> Value {
     })
 }
 
-/// pi 形态：path + edits[]{oldText,newText}，没有 replace_all。
+/// 内部批量形态：使用**规范字段名**，保证调度器能用归一化后的入参校验；
+/// 出站时由 `translate_definitions` 改写成 pi 的 path / oldText / newText。
 fn batch_schema() -> Value {
     serde_json::json!({
         "type": "object",
         "properties": {
-            "path": {
+            "file_path": {
                 "type": "string",
                 "description": "The absolute path to the file to modify"
             },
             "edits": {
                 "type": "array",
-                "description": "Non-overlapping edits applied against the original file content. Each oldText must match exactly once.",
+                "description": "Non-overlapping edits applied against the original file content. Each old_string must match exactly once.",
                 "items": {
                     "type": "object",
                     "properties": {
-                        "oldText": {
+                        "old_string": {
                             "type": "string",
                             "description": "The exact text to replace. Must be unique in the original file."
                         },
-                        "newText": {
+                        "new_string": {
                             "type": "string",
                             "description": "The replacement text"
                         }
                     },
-                    "required": ["oldText", "newText"]
+                    "required": ["old_string", "new_string"]
                 }
             }
         },
-        "required": ["path", "edits"]
+        "required": ["file_path", "edits"]
     })
 }
 

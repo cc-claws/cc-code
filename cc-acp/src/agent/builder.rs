@@ -540,11 +540,9 @@ fn build_agent_inner(
         "{}\n\n## Git Attribution\n\nWhen creating git commits, append the following line to the commit message:\n\n```\n{}\n```\n\nThis tracks AI contributions and should always be included in commit messages for code you authored.",
         system_prompt, attribution
     );
-    // 系统提示词整体都是「关于工具的描述」（不含用户文件/命令数据），
-    // 可安全地把其中的规范工具名替换为当前内核方言名。
-    // 这覆盖 prompts/sections/*.md 的交叉引用与运行时注入的提示语文案；
-    // cc 内核返回 Borrowed，逐字节不变。
-    let system_prompt = kernel.dialectize_hint(&system_prompt).into_owned();
+    // 注意：这里**不能**对整段 system_prompt 做方言替换——它包含用户记忆、
+    // CLAUDE.md 指令、cwd 等动态数据，替换会污染用户内容。内核方言只通过
+    // `prompt_for` 追加的内核段落与 `dialectize_known_hints` 定点提示语生效。
 
     // 构建 ReActAgent
     let executor = ReActAgent::new(model)

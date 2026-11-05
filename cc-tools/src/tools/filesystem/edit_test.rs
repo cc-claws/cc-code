@@ -398,8 +398,8 @@
         assert!(single["properties"].get("new_string").is_some());
         assert!(single["properties"].get("replace_all").is_some());
         assert!(single["properties"].get("edits").is_none());
-        assert_eq!(batch["required"], serde_json::json!(["path", "edits"]));
-        assert!(batch["properties"].get("path").is_some());
+        assert_eq!(batch["required"], serde_json::json!(["file_path", "edits"]));
+        assert!(batch["properties"].get("file_path").is_some());
         assert!(batch["properties"].get("edits").is_some());
         assert!(batch["properties"].get("old_string").is_none());
         assert!(batch["properties"].get("replace_all").is_none());
