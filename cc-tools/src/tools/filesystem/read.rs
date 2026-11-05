@@ -196,13 +196,13 @@ impl BaseTool for ReadFileTool {
                 ));
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(format!("Error: File not found at {file_path}"));
+                return Ok(format!("Error: File not found at {}", resolved.display()));
             }
             Err(e) => return Err(e.into()),
             _ => match std::fs::read_to_string(&resolved) {
                 Ok(c) => c,
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    return Ok(format!("Error: File not found at {file_path}"));
+                    return Ok(format!("Error: File not found at {}", resolved.display()));
                 }
                 Err(e) => return Err(e.into()),
             },
@@ -268,7 +268,8 @@ impl ReadFileTool {
             Ok(m) => m,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(ToolContent::text(format!(
-                    "Error: File not found at {file_path}"
+                    "Error: File not found at {}",
+                    resolved.display()
                 )));
             }
             Err(e) => return Err(e.into()),

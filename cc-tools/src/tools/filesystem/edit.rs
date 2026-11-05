@@ -190,7 +190,7 @@ impl BaseTool for EditFileTool {
         let raw_content = match std::fs::read_to_string(&resolved) {
             Ok(c) => c,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return Err(format!("Error: File not found at {file_path}").into());
+                return Err(format!("Error: File not found at {}", resolved.display()).into());
             }
             Err(e) => return Err(e.into()),
         };

@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.240：**文件工具支持 MSYS 盘符路径**——Windows 下 `/c/Users/...` 这类 Git Bash 写法此前会被解析到「当前驱动器根」并报 `File not found`，现按 Git Bash 语义还原为 `C:\Users\...`，Read/Edit/Write/Glob/Grep 全部生效，not found 提示也会显示实际查找路径（#899, #900）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.235：**解除 Bash 超时硬编码限制并支持 BASH_MAX_TIMEOUT_MS**——修复 Bash 工具参数校验死板限制 10 分钟（600,000ms）导致模型执行大项目构建或长任务时被强行截断提前杀掉的问题。完全尊重调用方显式指定的更大超时，未传 `execution_timeout` 时自动取 `max(max_timeout, timeout_ms)` 不误杀长任务；同时新增 `BASH_DEFAULT_TIMEOUT_MS` 与 `BASH_MAX_TIMEOUT_MS` 环境变量，允许自定义默认与最大上限（#886, #887）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.234：**自动会话回顾失败静默化与防死循环重试**——修复上游代理网关偶发 503 等异常时，后台自动触发的会话回顾在主消息流反复输出红字刷屏的问题。区分后台自动与手动触发：自动回顾失败改为后台日志静默忽略，不污染对话界面；调度器新增连续失败上限 `MAX_AUTO_RETRY_COUNT = 1`，超限立即停止重试，杜绝无限死循环（#881, #882）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。

@@ -67,9 +67,9 @@ fn execute_search(
     // 构建搜索路径
     let search_path = match &parsed.path {
         Some(p) => {
-            let p = Path::new(p);
+            let p = super::msys_drive_path(p).unwrap_or_else(|| PathBuf::from(p));
             if p.is_absolute() {
-                p.to_path_buf()
+                p
             } else {
                 Path::new(cwd).join(p)
             }

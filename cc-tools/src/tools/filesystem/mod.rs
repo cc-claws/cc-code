@@ -34,6 +34,11 @@ pub fn resolve_path(cwd: &str, file_path: &str) -> PathBuf {
         PathBuf::from(file_path)
     };
 
+    // Windows 下 /c/... 有 root 但没有盘符：is_absolute() 为 false，Path::join 会丢弃
+    // cwd 落到「当前驱动器根」，解析结果随进程状态漂移。这里按 Git Bash 语义直接还原
+    // 盘符（/c/foo → C:/foo），与用户在 Bash 工具里的写法保持一致。
+    let expanded = msys_drive_path(file_path).unwrap_or(expanded);
+
     let raw = if expanded.is_absolute() {
         expanded
     } else {
@@ -50,6 +55,20 @@ pub fn resolve_path(cwd: &str, file_path: &str) -> PathBuf {
         }
     }
     raw
+}
+
+/// 将 MSYS 盘符写法（/c/Users/foo）转为 Windows 路径（C:/Users/foo）。
+/// 非 Windows 平台或不符合该形态时返回 None。
+pub(super) fn msys_drive_path(file_path: &str) -> Option<PathBuf> {
+    if !cfg!(windows) {
+        return None;
+    }
+    let bytes = file_path.as_bytes();
+    if bytes.len() < 4 || bytes[0] != b'/' || !bytes[1].is_ascii_alphabetic() || bytes[2] != b'/' {
+        return None;
+    }
+    let drive = (bytes[1] as char).to_ascii_uppercase();
+    Some(PathBuf::from(format!("{drive}:{}", &file_path[2..])))
 }
 
 /// 生成用于 UI 显示的路径：剥离 Windows `canonicalize` 产生的 `\\?\` verbatim 前缀，
