@@ -1996,7 +1996,7 @@ fn test_bash_toolblock_error_keeps_name_neutral_color() {
     );
     assert_eq!(
         header.spans.get(2).and_then(|s| s.style.fg),
-        Some(crate::ui::theme::cur().text_soft),
+        Some(crate::ui::theme::cur().text),
         "报错时工具名字母应保持中性灰，不得变红"
     );
 }
@@ -2033,7 +2033,7 @@ fn test_non_bash_toolblock_error_keeps_name_neutral_color() {
     );
     assert_eq!(
         lines[0].spans.get(2).and_then(|s| s.style.fg),
-        Some(crate::ui::theme::cur().text_soft),
+        Some(crate::ui::theme::cur().text),
         "非 Bash 工具报错时名字也应保持中性灰"
     );
 }

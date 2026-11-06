@@ -3183,7 +3183,7 @@ pub fn render_view_model_with_flags(
                         Span::raw(" "),
                         Span::styled(
                             entry.display_name.clone(),
-                            Style::default().fg(theme::cur().text_soft),
+                            Style::default().fg(theme::cur().text),
                         ),
                     ]));
                     if let Some(args) = &entry.args_display {
