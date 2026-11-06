@@ -1027,13 +1027,16 @@ fn supplementary_lines(app: &App, spinner_line: &Option<Line<'static>>) -> Vec<L
                     crate::app::CompactMotion::Ufo => compact_ufo_line(started_at),
                 });
             } else if let Some((label, text)) = app.spinner_tip_display(turn_elapsed) {
-                lines.push(Line::from(vec![
-                    Span::styled(
-                        format!("{}{label}: ", BranchPrefix::PREFIX),
-                        Style::default().fg(theme::cur().inactive),
-                    ),
-                    Span::styled(text, Style::default().fg(theme::cur().inactive)),
-                ]));
+                let base = Style::default().fg(theme::cur().inactive);
+                let accent = Style::default().fg(theme::cur().suggestion);
+                let mut spans = vec![Span::styled(
+                    format!("{}{label}: ", BranchPrefix::PREFIX),
+                    base,
+                )];
+                spans.extend(crate::ui::highlight::slash_command_spans(
+                    &text, base, accent,
+                ));
+                lines.push(Line::from(spans));
             }
             if app.session_mgr.current().active_subagent().is_none()
                 && !app.session_mgr.current().todo_items.is_empty()

@@ -752,7 +752,13 @@ fn format_prefixed_text(
     text_style: Style,
     content_width: usize,
 ) -> Vec<Line<'static>> {
-    let line = Line::from(Span::styled(sanitize_display_text(text), text_style));
+    // 系统提示里的 slash 命令（如 /help 命令清单）统一着色，其余文字保持调用方给的样式。
+    let sanitized = sanitize_display_text(text);
+    let line = Line::from(crate::ui::highlight::slash_command_spans(
+        &sanitized,
+        text_style,
+        text_style.fg(theme::cur().suggestion),
+    ));
     // 续行悬挂缩进与首行前缀等宽，保证正文左对齐且总宽不溢出。
     let hang = " ".repeat(UnicodeWidthStr::width(first_prefix));
     format_wrapped_line_keep_lead(line, first_prefix, &hang, prefix_style, content_width)

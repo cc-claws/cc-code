@@ -1,4 +1,4 @@
-use ratatui::{layout::Rect, style::Style, widgets::Paragraph, Frame};
+use ratatui::{layout::Rect, style::Style, text::Line, widgets::Paragraph, Frame};
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
@@ -165,7 +165,11 @@ pub(super) fn render(f: &mut Frame, app: &mut App, area: Rect) {
         // 空间不足时整体省略，避免挤压消息预览。
         if show_tip {
             f.render_widget(
-                Paragraph::new(tip.as_str()).style(tip_style),
+                Paragraph::new(Line::from(crate::ui::highlight::slash_command_spans(
+                    &tip,
+                    tip_style,
+                    tip_style.fg(theme::cur().suggestion),
+                ))),
                 Rect::new(
                     preview_area.right() - tip_width,
                     preview_area.y,
