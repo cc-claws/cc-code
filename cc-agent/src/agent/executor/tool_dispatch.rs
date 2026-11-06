@@ -1063,7 +1063,6 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
         let futures: Vec<_> = ready_calls
             .iter()
             .map(|call| {
-                let agent = agent;
                 let finish_call = call.clone();
                 let tool_name = call.name.clone();
                 let call_id = call.id.clone();
