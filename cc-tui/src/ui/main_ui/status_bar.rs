@@ -556,14 +556,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         let label = lc.tr(i18n_key);
         // 符号对齐 CC `PermissionMode.ts`：`auto` 与 `bypassPermissions` 两档都带
         // `⏵⏵` 前缀（CC 文案是 `⏵⏵ bypass on`），这里保留 peri 既有的英文档名。
-        let is_highlight = app
-            .global_ui
-            .mode_highlight_until
-            .is_some_and(|until| std::time::Instant::now() < until);
-        let mut style = Style::default().fg(color);
-        if is_highlight {
-            style = style.add_modifier(Modifier::BOLD | Modifier::SLOW_BLINK);
-        }
+        let style = Style::default().fg(color);
         left_spans.push(Span::styled(
             format!("{SB_INDENT}{PERMISSION_MODE_SYMBOL} {label} "),
             style,

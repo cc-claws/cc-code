@@ -1171,27 +1171,6 @@ async fn test_shift_tab_cycles_permission_mode() {
 }
 
 #[tokio::test]
-async fn test_mode_highlight_until_set_on_cycle() {
-    let (mut app, _handle) = App::new_headless(120, 24).await;
-    // 初始无闪烁
-    assert!(
-        app.global_ui.mode_highlight_until.is_none(),
-        "初始不应有闪烁"
-    );
-    // 模拟 Shift+Tab: cycle + 设置 highlight
-    app.services.permission_mode.cycle();
-    app.global_ui.mode_highlight_until =
-        Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
-    assert!(
-        app.global_ui.mode_highlight_until.is_some(),
-        "cycle 后应设置闪烁截止时间"
-    );
-    // 验证截止时间在未来
-    let until = app.global_ui.mode_highlight_until.unwrap();
-    assert!(std::time::Instant::now() < until, "截止时间应在未来");
-}
-
-#[tokio::test]
 async fn test_spinner_shows_verb_in_status_bar() {
     let (mut app, mut handle) = crate::app::App::new_headless(120, 30).await;
     // 添加一条消息，否则 render_messages 会走 welcome 分支提前 return

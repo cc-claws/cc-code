@@ -360,7 +360,7 @@ Spinner 下方附加 Tip 行：`  ⎿  Tip: ...`（5 列前缀，与工具结果
 
 ### 最后一行（HUD 展开时为第三行，折叠时为第二行）
 
-左→右：权限模式标签（`⏵⏵` 前缀符号 + Auto / Bypass，切换后 1500ms BOLD + SLOW_BLINK，后接 `(Shift+Tab to cycle)`）→ 后台任务 pill（`1 shell, 1 agent` + `↓ to view`）→ 重试状态 → MCP 初始化进度 → LSP 诊断计数 → `Cache 87% · MEM 74MB`；最右侧为上下文相关的快捷键提示，右对齐、超宽时截断右侧。
+左→右：权限模式标签（`⏵⏵` 前缀符号 + Auto / Bypass，切换时只更新模式文字和颜色，后接 `(Shift+Tab to cycle)`）→ 后台任务 pill（`1 shell, 1 agent` + `↓ to view`）→ 重试状态 → MCP 初始化进度 → LSP 诊断计数 → `Cache 87% · MEM 74MB`；最右侧为上下文相关的快捷键提示，右对齐、超宽时截断右侧。
 
 右侧快捷键上下文：
 
@@ -757,7 +757,7 @@ Auto 模式下，父 Agent 有“允许、拒绝、询问用户”三种结果�
 
 `u8` → 模式的映射中，**未知取值一律回退 `AutoMode`**，绝不因陈旧/异常值意外滑进 Bypass。
 
-模式切换后标签 1500ms BOLD + SLOW_BLINK 高亮。状态栏首列始终显示（两档都有标签）。
+模式切换时标签只更新模式文字和颜色，字重保持不变，不添加临时高亮或闪烁。状态栏首列始终显示（两档都有标签）。
 
 > 详细分层防御、JEV 语义门与兜底分类机制见 [Auto 模式与权限把关指南](docs/auto-mode-guide.md)。
 
