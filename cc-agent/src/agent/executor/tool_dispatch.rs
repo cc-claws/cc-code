@@ -938,6 +938,10 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
 ///
 /// 不写入 state，由 `dispatch_tools` 统一写入。
 ///
+/// **完成通知时机**：`ToolEnd` 在每个工具 future 完成的第一时间发出，
+/// 不等整批工具结束；`run_on_error` / `run_after_tool` 与结果收集仍按原顺序
+/// 串行执行，state 仍由 `dispatch_tools` 一次性批量写入。
+///
 /// 返回 `(results, was_cancelled, deferred_error)`。
 /// - 正常路径：`(results, false, None)`
 /// - Cancel 路径：`(results, true, None)`
@@ -1038,13 +1042,17 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
         }
     }
 
-    // 阶段二：所有工具并发执行。
+    // 阶段二：所有工具并发执行。每个 future 在自身完成的瞬间就构造结果并
+    // 立即 emit ToolEnd，不等同批其他工具（如长跑 Bash）结束，避免快工具的
+    // 完成状态被整批 join 拖住。
     // SubAgent 通过 child_handler_factory 的独立 event handler 避免
     // 共享 Langfuse Mutex 的锁竞争，LLM 流式支持取消令牌中断。
-    let tool_results: Vec<Result<crate::tools::ToolContent, AgentError>> = {
+    let tool_results: Vec<(ToolResult, Option<AgentError>)> = {
         let futures: Vec<_> = ready_calls
             .iter()
             .map(|call| {
+                let agent = agent;
+                let finish_call = call.clone();
                 let tool_name = call.name.clone();
                 let call_id = call.id.clone();
                 let input = call.input.clone();
@@ -1108,7 +1116,7 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                             None => Err(AgentError::ToolNotFound(tool_name.clone())),
                         }
                     };
-                    tokio::select! {
+                    let raw_result = tokio::select! {
                         biased;
                         _ = cancel.cancelled() => {
                             Err(AgentError::ToolExecutionFailed {
@@ -1117,7 +1125,18 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                             })
                         }
                         result = invoke_fut => result,
-                    }
+                    };
+                    let (result, raw_error) = finalize_tool_result(&finish_call, raw_result);
+                    // 工具一完成就闭合展示态，不等整批 join_all 返回。
+                    agent.emit(AgentEvent::ToolEnd {
+                        message_id: ai_msg_id,
+                        tool_call_id: finish_call.id.clone(),
+                        name: finish_call.name.clone(),
+                        output: result.output.clone(),
+                        is_error: result.is_error,
+                        source_agent_id: None,
+                    });
+                    (result, raw_error)
                 }
             })
             .collect();
@@ -1130,84 +1149,15 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
     // 不写 state，由 dispatch_tools 统一写入。
     // 工具执行错误不终止循环——错误 ToolResult 收集后由 LLM 下一轮修正。
     // after_tool 中间件错误收集到 deferred_error。
+    // ToolEnd 已在阶段二各工具完成时立即发出，此处只做串行后处理，不重复 emit。
     let mut deferred_error: Option<String> = None;
     let mut exec_results: Vec<(ToolCall, ToolResult)> = Vec::with_capacity(ready_calls.len());
 
-    for (modified_call, tool_result) in ready_calls.into_iter().zip(tool_results) {
-        let result = match tool_result {
-            Ok(tool_content) => {
-                if let Some(content) = tool_content.content {
-                    ToolResult::success_rich(
-                        &modified_call.id,
-                        &modified_call.name,
-                        tool_content.output,
-                        content,
-                    )
-                } else {
-                    ToolResult::success(&modified_call.id, &modified_call.name, tool_content.output)
-                }
-            }
-            Err(AgentError::ToolNotFound(ref name)) => {
-                tracing::warn!(tool.name = %name, "工具未找到，作为错误结果返回");
-                ToolResult::error_with_kind(
-                    &modified_call.id,
-                    &modified_call.name,
-                    format!("工具 '{}' 不存在", name),
-                    ToolErrorKind::ToolNotFound,
-                )
-            }
-            Err(AgentError::ToolSchemaValidationFailed {
-                ref tool,
-                ref reason,
-            }) => {
-                let _ = agent
-                    .chain
-                    .run_on_error(
-                        state,
-                        &AgentError::ToolSchemaValidationFailed {
-                            tool: tool.clone(),
-                            reason: reason.clone(),
-                        },
-                    )
-                    .await;
-                ToolResult::error_with_kind(
-                    &modified_call.id,
-                    &modified_call.name,
-                    reason.clone(),
-                    ToolErrorKind::SchemaValidation,
-                )
-            }
-            Err(AgentError::ToolExecutionFailed {
-                ref tool,
-                ref reason,
-            }) => {
-                let _ = agent
-                    .chain
-                    .run_on_error(
-                        state,
-                        &AgentError::ToolExecutionFailed {
-                            tool: tool.clone(),
-                            reason: reason.clone(),
-                        },
-                    )
-                    .await;
-                ToolResult::error_with_kind(
-                    &modified_call.id,
-                    &modified_call.name,
-                    reason.clone(),
-                    ToolErrorKind::ExecutionFailed,
-                )
-            }
-            Err(ref e) => {
-                let _ = agent.chain.run_on_error(state, e).await;
-                ToolResult::error_with_kind(
-                    &modified_call.id,
-                    &modified_call.name,
-                    e.to_string(),
-                    ToolErrorKind::Other,
-                )
-            }
-        };
+    for (modified_call, (result, raw_error)) in ready_calls.into_iter().zip(tool_results) {
+        // 原始错误按既有分支交给中间件（ToolNotFound 原路径不调用）。
+        if let Some(error) = raw_error {
+            let _ = agent.chain.run_on_error(state, &error).await;
+        }
 
         if result.is_error {
             tracing::warn!(
@@ -1218,14 +1168,6 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                 "tool call failed"
             );
         }
-        agent.emit(AgentEvent::ToolEnd {
-            message_id: ai_msg_id,
-            tool_call_id: modified_call.id.clone(),
-            name: modified_call.name.clone(),
-            output: result.output.clone(),
-            is_error: result.is_error,
-            source_agent_id: None,
-        });
 
         if modified_call.name == "Agent" {
             tracing::debug!(
@@ -1258,6 +1200,51 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
     Ok((settled_results, was_cancelled, deferred_error))
 }
 
+/// 把工具执行的原始结果收敛为 `ToolResult`，并保留需要交给 `run_on_error` 的原始错误。
+///
+/// 纯转换：不写 state、不调中间件、不 emit 事件。放在工具 future 内调用，
+/// 使 `ToolEnd` 能在该工具完成的第一时间发出，而不必等整批工具结束。
+/// `Some(error)` 对应原有错误路径中需要 `run_on_error` 的分支；
+/// `ToolNotFound` 原路径不调用 `run_on_error`，故返回 `None`。
+fn finalize_tool_result(
+    call: &ToolCall,
+    raw: Result<crate::tools::ToolContent, AgentError>,
+) -> (ToolResult, Option<AgentError>) {
+    match raw {
+        Ok(tool_content) => {
+            let result = if let Some(content) = tool_content.content {
+                ToolResult::success_rich(&call.id, &call.name, tool_content.output, content)
+            } else {
+                ToolResult::success(&call.id, &call.name, tool_content.output)
+            };
+            (result, None)
+        }
+        Err(e) => {
+            let (output, kind, needs_on_error) = match &e {
+                AgentError::ToolNotFound(name) => {
+                    tracing::warn!(tool.name = %name, "工具未找到，作为错误结果返回");
+                    (
+                        format!("工具 '{}' 不存在", name),
+                        ToolErrorKind::ToolNotFound,
+                        false,
+                    )
+                }
+                AgentError::ToolSchemaValidationFailed { reason, .. } => {
+                    (reason.clone(), ToolErrorKind::SchemaValidation, true)
+                }
+                AgentError::ToolExecutionFailed { reason, .. } => {
+                    (reason.clone(), ToolErrorKind::ExecutionFailed, true)
+                }
+                _ => (e.to_string(), ToolErrorKind::Other, true),
+            };
+            (
+                ToolResult::error_with_kind(&call.id, &call.name, output, kind),
+                needs_on_error.then_some(e),
+            )
+        }
+    }
+}
+
 #[cfg(test)]
 #[path = "tool_dispatch_test.rs"]
 mod tests;
@@ -1273,3 +1260,7 @@ mod pending_tests;
 #[cfg(test)]
 #[path = "tool_dispatch_output_test.rs"]
 mod output_tests;
+
+#[cfg(test)]
+#[path = "tool_dispatch_completion_test.rs"]
+mod completion_tests;
