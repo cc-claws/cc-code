@@ -2071,7 +2071,7 @@ fn test_toolcallgroup_detail_header_uses_unified_indicator_and_color() {
     );
     assert_eq!(
         ok_header.spans[2].style.fg,
-        Some(crate::ui::theme::cur().text_soft),
+        Some(crate::ui::theme::cur().text),
         "工具名应为中性灰"
     );
     let failed_header = lines
@@ -2085,7 +2085,7 @@ fn test_toolcallgroup_detail_header_uses_unified_indicator_and_color() {
     );
     assert_eq!(
         failed_header.spans[2].style.fg,
-        Some(crate::ui::theme::cur().text_soft),
+        Some(crate::ui::theme::cur().text),
         "失败条目工具名也应为中性灰"
     );
 }
