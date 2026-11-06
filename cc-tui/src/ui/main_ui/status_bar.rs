@@ -909,13 +909,13 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
                 app.global_panels.status_bar_hints(lc)
             } else if app.session_mgr.current().ui.detail_mode {
                 vec![
-                    ("● Verbose".to_string(), String::new()),
+                    ("● verbose".to_string(), String::new()),
                     ("ctrl+o".to_string(), lc.tr("key-exit-detail")),
                 ]
             } else {
                 vec![
-                    ("ctrl+o".to_string(), lc.tr("key-detail")),
-                    ("ctrl+p".to_string(), lc.tr("key-settings")),
+                    ("ctrl+o".to_string(), lc.tr("key-status-detail")),
+                    ("ctrl+p".to_string(), lc.tr("key-status-settings")),
                 ]
             };
             format_hints(&hints, key_style, desc_style)
