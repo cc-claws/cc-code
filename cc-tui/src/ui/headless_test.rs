@@ -1121,8 +1121,8 @@ async fn test_status_bar_shows_permission_mode() {
         .draw(|f| crate::ui::main_ui::render(f, &mut app))
         .unwrap();
     assert!(
-        handle.contains("Bypass"),
-        "状态栏应显示 Bypass 模式，实际:\n{}",
+        handle.contains("bypass permissions on"),
+        "状态栏应显示 bypass permissions on 模式，实际:\n{}",
         handle.snapshot().join("\n")
     );
 }
@@ -1139,8 +1139,8 @@ async fn test_status_bar_updates_after_mode_switch() {
         .draw(|f| crate::ui::main_ui::render(f, &mut app))
         .unwrap();
     assert!(
-        handle.contains("Auto"),
-        "状态栏应显示 Auto，实际:\n{}",
+        handle.contains("auto mode on"),
+        "状态栏应显示 auto mode on，实际:\n{}",
         handle.snapshot().join("\n")
     );
 
@@ -1151,8 +1151,8 @@ async fn test_status_bar_updates_after_mode_switch() {
         .draw(|f| crate::ui::main_ui::render(f, &mut app))
         .unwrap();
     assert!(
-        handle.contains("Bypass"),
-        "切换后状态栏应显示 Bypass，实际:\n{}",
+        handle.contains("bypass permissions on"),
+        "切换后状态栏应显示 bypass permissions on，实际:\n{}",
         handle.snapshot().join("\n")
     );
 }

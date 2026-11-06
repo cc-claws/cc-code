@@ -118,9 +118,9 @@ thread-new-failed = Failed to create session, kept the current session: { $error
 
 # ---- Status Bar ----
 
-statusbar-permission-auto = Auto Mode
-statusbar-permission-bypass = Bypass
-statusbar-permission-cycle-hint = (Shift+Tab to cycle)
+statusbar-permission-auto = auto mode on
+statusbar-permission-bypass = bypass permissions on
+statusbar-permission-cycle-hint = (shift+tab to cycle)
 statusbar-copied = Copied { $count } chars to clipboard
 scroll-back-to-bottom = ↓ Back to bottom · End
 scroll-back-to-bottom-new = ↓ New activity · End

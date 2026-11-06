@@ -1317,8 +1317,8 @@ async fn test_status_bar_permission_pill_has_bypass_symbol() {
 
     let (mut app, mut handle) = crate::app::App::new_headless(140, 30).await;
     for (mode, label) in [
-        (PermissionMode::AutoMode, "Auto Mode"),
-        (PermissionMode::Bypass, "Bypass"),
+        (PermissionMode::AutoMode, "auto mode on"),
+        (PermissionMode::Bypass, "bypass permissions on"),
     ] {
         app.services.permission_mode.store(mode);
         handle

@@ -1999,7 +1999,7 @@ pub fn render_view_model_with_flags(
             // 工具名配色统一为中性色：成败与运行状态语义全部由 ● 指示器承载，
             // 工具名字母不随状态变色（此前 Bash 恒定灰、其他工具运行中青、报错红，
             // 规则不一致且同一行出现多种颜色，易误读）。
-            let name_style = Style::default().fg(theme::cur().text_soft);
+            let name_style = Style::default().fg(theme::cur().text);
 
             let mut header_spans = vec![
                 Span::styled(indicator.to_string(), Style::default().fg(indicator_color)),
@@ -3183,7 +3183,7 @@ pub fn render_view_model_with_flags(
                         Span::raw(" "),
                         Span::styled(
                             entry.display_name.clone(),
-                            Style::default().fg(theme::cur().text_soft),
+                            Style::default().fg(theme::cur().text),
                         ),
                     ]));
                     if let Some(args) = &entry.args_display {

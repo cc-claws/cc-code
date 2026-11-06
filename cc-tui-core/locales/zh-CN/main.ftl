@@ -117,9 +117,9 @@ thread-new-failed = 无法新建会话，已保留当前会话：{ $error }
 
 # ---- Status Bar ----
 
-statusbar-permission-auto = Auto Mode
-statusbar-permission-bypass = Bypass
-statusbar-permission-cycle-hint = (Shift+Tab 切换)
+statusbar-permission-auto = auto mode on
+statusbar-permission-bypass = bypass permissions on
+statusbar-permission-cycle-hint = (shift+tab 切换)
 statusbar-copied = 已复制 { $count } 个字符
 scroll-back-to-bottom = ↓ 回到最新 · End
 scroll-back-to-bottom-new = ↓ 有新活动 · End
