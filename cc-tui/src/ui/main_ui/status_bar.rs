@@ -842,7 +842,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
             let lc = &app.services.lc;
             format_hints(
                 &[
-                    ("Ctrl+O".to_string(), lc.tr("key-open-browser")),
+                    ("ctrl+o".to_string(), lc.tr("key-open-browser")),
                     ("Enter".to_string(), lc.tr("key-submit")),
                     ("Esc".to_string(), lc.tr("key-cancel")),
                 ],
@@ -910,12 +910,12 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
             } else if app.session_mgr.current().ui.detail_mode {
                 vec![
                     ("● Verbose".to_string(), String::new()),
-                    ("Ctrl+O".to_string(), lc.tr("key-exit-detail")),
+                    ("ctrl+o".to_string(), lc.tr("key-exit-detail")),
                 ]
             } else {
                 vec![
-                    ("Ctrl+O".to_string(), lc.tr("key-detail")),
-                    ("Ctrl+P".to_string(), lc.tr("key-settings")),
+                    ("ctrl+o".to_string(), lc.tr("key-detail")),
+                    ("ctrl+p".to_string(), lc.tr("key-settings")),
                 ]
             };
             format_hints(&hints, key_style, desc_style)
