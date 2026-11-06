@@ -128,6 +128,8 @@
 
 工具结果行格式：`  ⎿  ` 前缀（5 列：前 2 空格 + `⎿` + 后 2 空格；INACTIVE 色，失败时 ERROR 色）+ 内容（TEXT_SOFT 色，失败时 ERROR 色）。多行输出的续行使用 5 空格悬挂缩进（`BranchPrefix::HANG`），正文严格左对齐。错误折叠时显示 error_summary（最多 400 Unicode 字符，ERROR 色 `⎿` 前缀）。
 
+用户 `!` 本地命令输出保留原始文本与命令自带的 ANSI 颜色。`!git diff` 保留 Git 输出的文件头、`@@` 区块和 `+/-` 内容，沿用普通命令的折叠与展开，不额外生成文件摘要、行号或 diff 卡片。
+
 ### URL 超链接（工具结果 / `!` 命令输出）
 
 纯文本里裸写的 `http://` / `https://` 会变成**真超链接**：消息区登记 URL 命中区及稳定锚点，所有组件和选区绘制后先把链接色写入 frame buffer 样式，再由 `WidthSafeBackend` 在输出时包上 OSC 8 转义序列（`cc-tui/src/ui/osc8.rs` + `cc-tui/src/terminal_backend/hyperlink.rs`）。URL、锚点或启用状态变化时，即使文字相同也只补画受影响的字符；附件等 `recolor=false` 的链接保留自身颜色。**转义序列绝不写进 frame buffer**——`ratatui` 的 `Buffer::diff` 用 `symbol.width()` 决定跳过后续多少个 cell，序列载荷是可见字符，一旦进 buffer，链接后面的整段文字会被跳过不画。

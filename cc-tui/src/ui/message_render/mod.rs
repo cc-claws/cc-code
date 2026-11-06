@@ -1458,46 +1458,6 @@ fn render_shell_command(
     let mut lines = Vec::new();
     lines.push(shell_command_header(command, width));
 
-    // 成功执行的 patch 命令（如 `git diff`）：直接渲染为带语法高亮与行号 Gutter 的精美 diff
-    if exit_code == Some(0) && stderr.trim().is_empty() && cc_widgets::diff::is_patch_text(stdout) {
-        let diff_width = width.saturating_sub(BranchPrefix::WIDTH);
-        let widget_theme = theme::widgets_theme();
-        if let Some(rendered) = cc_widgets::diff::render_patch(stdout, diff_width, &widget_theme) {
-            let max_lines = if detail_mode {
-                usize::MAX
-            } else {
-                SHELL_OUTPUT_COLLAPSED_LINES
-            };
-            let prefix_style = Style::default().fg(theme::cur().inactive);
-            let total = rendered.len();
-            let shown = total.min(max_lines);
-            for (i, line) in rendered.into_iter().take(shown).enumerate() {
-                let prefix = if i == 0 {
-                    BranchPrefix::PREFIX
-                } else {
-                    BranchPrefix::HANG
-                };
-                let mut prefixed = line;
-                prefixed.spans.insert(0, Span::styled(prefix, prefix_style));
-                lines.push(prefixed);
-            }
-            if shown < total {
-                let hidden = total - shown;
-                lines.push(Line::from(vec![
-                    Span::styled(BranchPrefix::HANG, prefix_style),
-                    Span::styled(
-                        format!(
-                            "… +{hidden} line{} (ctrl+o to expand)",
-                            if hidden == 1 { "" } else { "s" }
-                        ),
-                        Style::default().fg(theme::cur().inactive),
-                    ),
-                ]));
-            }
-            return lines;
-        }
-    }
-
     let mut output_lines: Vec<(String, bool)> = Vec::new();
     for input in stdin {
         output_lines.push((format!("< {}", sanitize_display_text(input)), false));
