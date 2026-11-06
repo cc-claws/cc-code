@@ -4,6 +4,12 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.244 — 2026-11-06
+
+### Fixes
+
+- **状态栏与工具名显示风格收敛、权限模式切换视觉稳定及 git diff 原始输出保留（#906, #908, #910, #912, #914）**：本批 cc-tui 显示层修复统一了状态栏文案与工具头配色风格。状态栏快捷键提示与描述统一为小写（`ctrl+o`、`ctrl+p`、`:detail`、`:settings`），权限模式文案改为 `auto mode on` / `bypass permissions on`，并新增状态栏专用的 `key-status-detail` / `key-status-settings` locale 键，不改动 MCP、插件与后台任务面板共用的键；`Shift+Tab` 切换 Auto / Bypass 时移除权限标签的临时加粗与高亮计时，切换只更新模式文字与颜色，消除短暂闪烁跳变；用户执行 `!git diff` 时不再自动重排为带摘要和行号的 diff 卡片，改为保留 Git 原始文件头、`@@` 区块、`+/-` 内容及命令自带的 ANSI 颜色，并沿用普通命令的折叠与展开；工具名颜色在 #906 由 `text_soft` 调亮为 `text` 后，按用户反馈于 #914 恢复为 `theme::cur().text_soft` 柔灰层级，工具状态仍由指示器颜色表达。以上均为显示文案、配色与渲染路径调整，不改变权限切换逻辑与快捷键绑定。
+
 ## v0.6.241 — 2026-11-05
 
 ### Features
