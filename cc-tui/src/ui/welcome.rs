@@ -164,18 +164,13 @@ fn welcome_lines(app: &App, width: u16) -> Vec<Line<'static>> {
             )));
         }
         UpdateStatus::Unknown | UpdateStatus::UpToDate => {
-            // `/help` 单独着色为 SUGGESTION（与输入框里的 `/command` 一致），其余文字用 MUTED 降噪。
+            // slash 命令统一着色为 SUGGESTION（与输入框里的 `/command` 一致），其余文字 MUTED 降噪。
             let hint = fit(&lc.tr("welcome-start-hint"));
             let muted = Style::default().fg(theme::cur().inactive);
-            let spans = match hint.split_once("/help") {
-                Some((before, after)) => vec![
-                    Span::styled(before.to_string(), muted),
-                    Span::styled("/help", Style::default().fg(theme::cur().suggestion)),
-                    Span::styled(after.to_string(), muted),
-                ],
-                None => vec![Span::styled(hint.to_string(), muted)],
-            };
-            lines.push(Line::from(spans));
+            let accent = Style::default().fg(theme::cur().suggestion);
+            lines.push(Line::from(crate::ui::highlight::slash_command_spans(
+                &hint, muted, accent,
+            )));
         }
     }
 

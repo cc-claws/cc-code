@@ -291,7 +291,7 @@ read_file、search_files_rg、glob_files 等只读工具自动聚合：
 
 动画帧：16 个 Unicode 符号循环（`✳✴✵✶✷✸✹✺✻✼❃❊…`），每 200ms 推进一帧。
 Verb 列表：128 个中文烹饪/动作动词随机选择。
-Spinner 下方附加 Tip 行：`  ⎿  Tip: ...`（5 列前缀，与工具结果行共享 `BranchPrefix` 规范；INACTIVE 色）。调度对齐参考实现（issue #511）：每轮挑选一条并扣留、轮结束才发布展示，挑选按会话冷却（内置 10 个会话）取「最久未展示」者，历史持久化于 `~/.cc-code/spinner-tips.json`；本轮运行 >30min 时被 /clear 覆盖 tip 顶替；可用配置 `spinner_tips_enabled` 关闭、`spinner_tips_override` 追加自定义条目。
+Spinner 下方附加 Tip 行：`  ⎿  Tip: ...`（5 列前缀，与工具结果行共享 `BranchPrefix` 规范；INACTIVE 色；文案中的 slash 命令如 `/clear`、`/resume` 单独用 SUGGESTION 色，路径与 URL 不参与）。调度对齐参考实现（issue #511）：每轮挑选一条并扣留、轮结束才发布展示，挑选按会话冷却（内置 10 个会话）取「最久未展示」者，历史持久化于 `~/.cc-code/spinner-tips.json`；本轮运行 >30min 时被 /clear 覆盖 tip 顶替；可用配置 `spinner_tips_enabled` 关闭、`spinner_tips_override` 追加自定义条目。
 
 ## Todo 列表
 

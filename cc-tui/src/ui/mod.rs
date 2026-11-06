@@ -2,6 +2,7 @@ pub mod branch_prefix;
 pub use branch_prefix::BranchPrefix;
 #[cfg(any(test, feature = "headless"))]
 pub mod headless;
+pub mod highlight;
 pub mod main_ui;
 pub use cc_tui_core::markdown;
 pub mod message_render;
