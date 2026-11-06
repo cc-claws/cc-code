@@ -221,22 +221,58 @@ fn test_finished_bash_git_diff_renders_as_formatted_diff() {
 }
 
 #[test]
-fn test_shell_command_git_diff_renders_as_formatted_diff() {
-    let diff = "diff --git a/app.php b/app.php\nindex 111..222 100644\n--- a/app.php\n+++ b/app.php\n@@ -1,2 +1,3 @@\n <?php\n+try {}\n";
-    let lines = render_shell_command("git diff", &[], diff, "", Some(0), true, 100, None, false);
-    let text = lines
+fn test_shell_command_git_diff_preserves_native_output() {
+    let diff = "diff --git a/app.php b/app.php\nindex 111..222 100644\n--- a/app.php\n+++ b/app.php\n@@ -1,2 +1,2 @@\n <?php\n-old();\n+try {}\n";
+    let stdout = diff
+        .replace("-old();", "\x1b[31m-old();\x1b[0m")
+        .replace("+try {}", "\x1b[32m+try {}\x1b[0m");
+    let lines = render_shell_command(
+        "git diff",
+        &[],
+        &stdout,
+        "",
+        Some(0),
+        true,
+        100,
+        None,
+        false,
+    );
+    let output: Vec<String> = lines
         .iter()
+        .skip(1)
         .map(|l| {
             l.spans
                 .iter()
                 .map(|s| s.content.as_ref())
                 .collect::<String>()
         })
-        .collect::<Vec<_>>()
-        .join("\n");
-    assert!(
-        text.contains("app.php"),
-        "ShellCommand 应渲染 patch 标题: {text}"
+        .collect();
+    let expected: Vec<String> = diff
+        .lines()
+        .enumerate()
+        .map(|(i, line)| {
+            let prefix = if i == 0 {
+                BranchPrefix::PREFIX
+            } else {
+                BranchPrefix::HANG
+            };
+            format!("{prefix}{line}")
+        })
+        .collect();
+    assert_eq!(
+        output, expected,
+        "应逐行保留 Git 原始文件头、hunk 和改动内容"
     );
-    assert!(text.contains("+"), "ShellCommand 应渲染 patch 改动: {text}");
+    assert!(
+        lines.iter().flat_map(|line| &line.spans).any(|span| {
+            span.content.as_ref() == "-old();" && span.style.fg == Some(Color::Red)
+        }),
+        "应保留 Git 删除行自带的 ANSI 红色"
+    );
+    assert!(
+        lines.iter().flat_map(|line| &line.spans).any(|span| {
+            span.content.as_ref() == "+try {}" && span.style.fg == Some(Color::Green)
+        }),
+        "应保留 Git 添加行自带的 ANSI 绿色"
+    );
 }
