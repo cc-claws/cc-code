@@ -345,55 +345,7 @@ impl App {
         // 阶段2：注入通知（idle 时本批 + 队列同会话待注入一次性合并为 1 轮 turn；
         // 推理中全部入 pending，由 handle_done drain 合并注入）
         self.inject_bg_shell_notifications(notifications);
-        // 清理已完成任务（防 background_shells 无限增长 + 回收磁盘 output 文件）
-        self.cleanup_finished_background_shells();
         true
-    }
-
-    /// 清理已完成的后台 shell 任务（防止 background_shells 无限增长 + 回收磁盘文件）。
-    ///
-    /// 当 background_shells 超过 [`MAX_BACKGROUND_SHELLS`] 时，移除最旧的已完成
-    /// （terminal + notified）任务，并 spawn [`cc_agent::task_output::DiskOutput::cleanup`]
-    /// 删除其输出文件。运行中任务永不移除。
-    fn cleanup_finished_background_shells(&mut self) {
-        const MAX_BACKGROUND_SHELLS: usize = 20;
-        // 获取 panel 正在 Detail 查看的 task id，淘汰时排除（避免查看中任务被移除导致闪烁）
-        let viewing_id: Option<String> = self
-            .global_panels
-            .get::<super::background_tasks_panel::BackgroundTasksPanel>()
-            .and_then(|p| match &p.view {
-                super::background_tasks_panel::BackgroundTaskView::Detail { item_id } => {
-                    Some(item_id.clone())
-                }
-                _ => None,
-            });
-        let to_cleanup = {
-            let session = self.session_mgr.current_mut();
-            if session.background_shells.len() <= MAX_BACKGROUND_SHELLS {
-                return;
-            }
-            // 找最旧的已完成任务 index（排除正在 Detail 查看的，避免淘汰后闪烁"任务不存在"）
-            let mut oldest: Option<(usize, std::time::Instant)> = None;
-            for (i, bg) in session.background_shells.iter().enumerate() {
-                if bg.status.is_terminal()
-                    && bg.notified
-                    && viewing_id.as_deref() != Some(bg.id.as_str())
-                {
-                    let ended = bg.ended_at.unwrap_or(bg.started_at);
-                    if oldest.is_none_or(|(_, t)| ended < t) {
-                        oldest = Some((i, ended));
-                    }
-                }
-            }
-            let Some((idx, _)) = oldest else {
-                return;
-            };
-            session.background_shells.remove(idx).output_path
-        };
-        // spawn cleanup 文件（fire and forget，不阻塞 poll）
-        tokio::spawn(async move {
-            let _ = cc_agent::task_output::DiskOutput::cleanup(&to_cleanup).await;
-        });
     }
 
     /// 将当前前台 shell 命令转入后台（Ctrl+B 触发）。
