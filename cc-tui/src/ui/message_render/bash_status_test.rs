@@ -212,12 +212,23 @@ fn test_tool_phase_changes_equality_and_hash() {
 }
 
 #[test]
-fn test_finished_bash_git_diff_renders_as_formatted_diff() {
+fn test_finished_bash_git_diff_preserves_native_output() {
     let diff = "diff --git a/src/lib.rs b/src/lib.rs\nindex 111..222 100644\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1,2 +1,3 @@\n pub fn a() {}\n+pub fn b() {}\n";
     let vm = make_bash(ToolPhase::Finished, diff);
     let text = make_text(&vm, true);
-    assert!(text.contains("src/lib.rs"), "应包含文件标题行: {text}");
-    assert!(text.contains("+"), "应包含增加的 diff 标记: {text}");
+    for line in [
+        "diff --git a/src/lib.rs b/src/lib.rs",
+        "index 111..222 100644",
+        "--- a/src/lib.rs",
+        "+++ b/src/lib.rs",
+        "@@ -1,2 +1,3 @@",
+        "+pub fn b() {}",
+    ] {
+        assert!(
+            text.contains(line),
+            "应逐行保留 Git 原始输出: {line}\n{text}"
+        );
+    }
 }
 
 #[test]

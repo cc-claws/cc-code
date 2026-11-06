@@ -2204,61 +2204,20 @@ pub fn render_view_model_with_flags(
                     }
                 }
                 let mut error_header = String::new();
-                let bash_patch_rendered: Option<Vec<Line<'static>>> = if tool_name == "Bash"
-                    && !state.is_error
-                    && cc_widgets::diff::is_patch_text(content)
-                {
-                    let diff_width = width.saturating_sub(BranchPrefix::WIDTH);
-                    let widget_theme = theme::widgets_theme();
-                    cc_widgets::diff::render_patch(content, diff_width, &widget_theme)
+                // Bash 工具结果（含 `git diff`）一律按普通命令输出逐行展示，
+                // 不再把 patch 文本重排成带摘要/行号的 diff 卡片（与 `!` 命令口径一致）。
+                let bash_display_lines: Option<Vec<ToolDisplayLine>> = if tool_name == "Bash" {
+                    Some(transform_bash_output_lines(
+                        content,
+                        parse_exit_code(content),
+                        &mut error_header,
+                    ))
                 } else {
                     None
                 };
 
-                let bash_display_lines: Option<Vec<ToolDisplayLine>> =
-                    if bash_patch_rendered.is_some() {
-                        None
-                    } else if tool_name == "Bash" {
-                        Some(transform_bash_output_lines(
-                            content,
-                            parse_exit_code(content),
-                            &mut error_header,
-                        ))
-                    } else {
-                        None
-                    };
-
                 let content_width = BranchPrefix::content_width(width);
-                if let Some(rendered) = bash_patch_rendered {
-                    let patch_max_lines = if detail_mode { usize::MAX } else { 15 };
-                    let total = rendered.len();
-                    let shown = total.min(patch_max_lines);
-                    for (i, line) in rendered.into_iter().take(shown).enumerate() {
-                        let prefix = if i == 0 {
-                            BranchPrefix::PREFIX
-                        } else {
-                            BranchPrefix::HANG
-                        };
-                        let mut prefixed = line;
-                        prefixed
-                            .spans
-                            .insert(0, Span::styled(prefix, Style::default().fg(border_color)));
-                        lines.push(prefixed);
-                    }
-                    if shown < total {
-                        let hidden = total - shown;
-                        lines.push(Line::from(vec![
-                            Span::styled(BranchPrefix::HANG, Style::default().fg(border_color)),
-                            Span::styled(
-                                format!(
-                                    "… +{hidden} line{} (ctrl+o to expand)",
-                                    if hidden == 1 { "" } else { "s" }
-                                ),
-                                Style::default().fg(theme::cur().inactive),
-                            ),
-                        ]));
-                    }
-                } else if let Some(ref b_lines) = bash_display_lines {
+                if let Some(ref b_lines) = bash_display_lines {
                     push_visual_capped_output(
                         &mut lines,
                         b_lines,
