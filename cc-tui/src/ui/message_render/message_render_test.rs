@@ -1996,7 +1996,7 @@ fn test_bash_toolblock_error_keeps_name_neutral_color() {
     );
     assert_eq!(
         header.spans.get(2).and_then(|s| s.style.fg),
-        Some(crate::ui::theme::cur().text),
+        Some(crate::ui::theme::cur().text_soft),
         "报错时工具名字母应保持中性灰，不得变红"
     );
 }
@@ -2033,7 +2033,7 @@ fn test_non_bash_toolblock_error_keeps_name_neutral_color() {
     );
     assert_eq!(
         lines[0].spans.get(2).and_then(|s| s.style.fg),
-        Some(crate::ui::theme::cur().text),
+        Some(crate::ui::theme::cur().text_soft),
         "非 Bash 工具报错时名字也应保持中性灰"
     );
 }
@@ -2071,7 +2071,7 @@ fn test_toolcallgroup_detail_header_uses_unified_indicator_and_color() {
     );
     assert_eq!(
         ok_header.spans[2].style.fg,
-        Some(crate::ui::theme::cur().text),
+        Some(crate::ui::theme::cur().text_soft),
         "工具名应为中性灰"
     );
     let failed_header = lines
@@ -2085,7 +2085,7 @@ fn test_toolcallgroup_detail_header_uses_unified_indicator_and_color() {
     );
     assert_eq!(
         failed_header.spans[2].style.fg,
-        Some(crate::ui::theme::cur().text),
+        Some(crate::ui::theme::cur().text_soft),
         "失败条目工具名也应为中性灰"
     );
 }
