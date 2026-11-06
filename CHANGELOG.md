@@ -4,6 +4,12 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.246 — 2026-11-06
+
+### Fixes
+
+- **搜索工具头统一显示 `Search` 并补充 `path`（#923）**：消息区的 Glob / Grep 工具头此前各自显示工具名，且只展示裸 pattern。现统一显示为 `Search`（对齐参考实现的 `userFacingName`），摘要改为 `pattern: "…", path: "…"`，`path` 在 cwd 内折叠为相对路径；`-n` / `-i` / `-A` / `-B` / `-C` / `output_mode` 等只影响执行的参数不进入工具头。状态栏 `✓ Name ×N` 统计仍按真实工具名 `Glob` / `Grep` 计数，避免出现两条同名 `Search`；详细模式下 Glob 也不再重复包装 `pattern:` 前缀。
+
 ## v0.6.244 — 2026-11-06
 
 ### Fixes
