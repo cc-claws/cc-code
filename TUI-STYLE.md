@@ -103,7 +103,7 @@
 | 用户消息 | `❯` | ACCENT + BOLD | USER_BG 底色，所有行带底色 |
 | AI 回复 | `●` | TEXT (纯白) | 首行文本合并到 `●` 后，支持 markdown 渲染 |
 | 思考 (Reasoning) | — | — | 不在消息流中渲染，完全隐藏 |
-| 工具调用 | `⏺` | SAGE (绿) | 工具名 TEXT + BOLD，参数 DIM `(...)` |
+| 工具调用 | `⏺` | SAGE (绿) | 工具名 TEXT_SOFT，参数 DIM `(...)` |
 | 工具聚合组 | `⏺` | SAGE (绿) 前缀 + MUTED 汇总文字 | 仅一行汇总文本，不可展开 |
 | AskUserQuestion | `⏺` | SAGE (绿) | 标题 `User answered CC Code's questions:` + `⎿ · header → answer` |
 | SubAgent | `●` | SAGE / ERROR | 折叠：名称 + 任务预览；展开：嵌套消息 + 执行结果 |
@@ -118,13 +118,13 @@
 
 ### 工具状态指示器
 
-指示器 `⏺` 按状态变化，工具名称统一 TEXT + BOLD，参数用 DIM 色 `(...)` 显示：
+指示器 `⏺` 按状态变化，单条及分组内工具名称统一 TEXT_SOFT，参数用 DIM 色 `(...)` 显示：
 
 | 状态 | 指示器 | 指示器颜色 | 工具名颜色 |
 |------|--------|-----------|-----------|
-| Running | `⏺` 闪烁（200ms 周期，⏺/空格交替） | SAGE | TEXT + BOLD |
-| Completed | `⏺` | SAGE | TEXT + BOLD |
-| Failed | `✗` | ERROR | TEXT + BOLD |
+| Running | `⏺` 闪烁（200ms 周期，⏺/空格交替） | SAGE | TEXT_SOFT |
+| Completed | `⏺` | SAGE | TEXT_SOFT |
+| Failed | `✗` | ERROR | TEXT_SOFT |
 
 工具结果行格式：`  ⎿  ` 前缀（5 列：前 2 空格 + `⎿` + 后 2 空格；INACTIVE 色，失败时 ERROR 色）+ 内容（TEXT_SOFT 色，失败时 ERROR 色）。多行输出的续行使用 5 空格悬挂缩进（`BranchPrefix::HANG`），正文严格左对齐。错误折叠时显示 error_summary（最多 400 Unicode 字符，ERROR 色 `⎿` 前缀）。
 
