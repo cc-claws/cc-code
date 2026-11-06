@@ -1590,7 +1590,7 @@ fn test_tool_call_group_detail_mode_shows_glob_args_and_found_summary() {
         tools: vec![ToolEntry {
             tool_name: "Glob".to_string(),
             display_name: "Glob".to_string(),
-            args_display: Some("app/admin/controller/**/*.php".to_string()),
+            args_display: Some("pattern: \"app/admin/controller/**/*.php\"".to_string()),
             content: "app\\admin\\control2\napp\\admin\\control3\napp\\admin\\control4".to_string(),
             is_error: false,
             file_inspect: false,

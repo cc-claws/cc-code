@@ -59,8 +59,7 @@ pub fn format_tool_name(tool: &str) -> String {
         "Skill" => "Skill",
         "Write" => "Write",
         "Edit" => "Update",
-        "Glob" => "Glob",
-        "Grep" => "Grep",
+        "Glob" | "Grep" => "Search",
         "TodoWrite" => "Todo",
         "AskUserQuestion" => "Ask",
         "Agent" => "Agent",
@@ -72,14 +71,16 @@ pub fn format_tool_name(tool: &str) -> String {
 
 /// 会话工具统计（状态栏 `✓ Name ×N`）专用的显示名。
 ///
-/// 与 [`format_tool_name`] 的唯一差别：`Edit` 统一显示为 **`Edit`**，不转成
-/// `Update`。统计的 key 只有工具名、拿不到入参，无法像 CC `userFacingName(input)`
-/// 那样区分 `Create`（`old_string == ""`）与 `Update`；若仍显示 `Update`，用户
-/// 会把 `Create` 的次数也算进 `Update`（真机疑问：「这个地方哪有 Update」）。
-/// 消息区的工具头仍按入参显示 `Create` / `Update`，不受影响。
+/// 与 [`format_tool_name`] 的差别：统计栏保留**真实工具名**，不跟随消息区的展示别名。
+///
+/// - `Edit`：统计的 key 只有工具名、拿不到入参，无法像 CC `userFacingName(input)`
+///   那样区分 `Create`（`old_string == ""`）与 `Update`；若仍显示 `Update`，用户
+///   会把 `Create` 的次数也算进 `Update`（真机疑问：「这个地方哪有 Update」）。
+/// - `Glob` / `Grep`：消息区统一显示为 `Search`，但统计按工具名分组；两条同名
+///   `Search` 会让用户无法判断是通配搜索还是内容搜索。
 pub fn format_tool_name_for_stats(tool: &str) -> String {
-    if tool == "Edit" {
-        return "Edit".to_string();
+    if matches!(tool, "Edit" | "Glob" | "Grep") {
+        return tool.to_string();
     }
     format_tool_name(tool)
 }
@@ -432,8 +433,7 @@ pub fn format_tool_args(
                 .or_else(|| input["path"].as_str());
             path.map(|p| strip_cwd(p, cwd))
         }
-        "Glob" => input["pattern"].as_str().map(|p| truncate(p, 200)),
-        "Grep" => input["pattern"].as_str().map(|s| truncate(s, 200)),
+        "Glob" | "Grep" => search_args_summary(input, cwd),
         "WebSearch" => input["query"]
             .as_str()
             .map(|s| truncate(s, TOOL_ARGS_MAX_CHARS)),
@@ -465,6 +465,20 @@ pub fn format_tool_args(
         // 兜底：状态栏要求所有工具都有摘要，取第一个非空字符串字段
         _ => first_string_field(input).map(|s| truncate(s, 40)),
     }
+}
+
+/// 搜索类工具（Glob / Grep）的头部摘要，对齐参考实现 `renderToolUseMessage`：
+/// `pattern: "…"`，带 `path` 时追加 `, path: "…"`（cwd 内折叠成相对路径）。
+///
+/// 其余字段（`glob` / `type` / `output_mode` / `-n` / `-A` / `-B` / `-C` 等）只影响
+/// 执行，不进工具头。
+fn search_args_summary(input: &serde_json::Value, cwd: Option<&str>) -> Option<String> {
+    let pattern = input["pattern"].as_str()?;
+    let mut summary = format!("pattern: \"{}\"", truncate(pattern, 200));
+    if let Some(path) = input["path"].as_str() {
+        summary.push_str(&format!(", path: \"{}\"", strip_cwd(path, cwd)));
+    }
+    Some(summary)
 }
 
 /// AskUserQuestion 摘要：优先取首个问题的正文，取不到再退回标题

@@ -3,14 +3,18 @@ fn test_format_tool_name_new_names() {
     assert_eq!(format_tool_name("Read"), "Read");
     assert_eq!(format_tool_name("Write"), "Write");
     assert_eq!(format_tool_name("Edit"), "Update");
-    assert_eq!(format_tool_name("Glob"), "Glob");
-    assert_eq!(format_tool_name("Grep"), "Grep");
+    assert_eq!(format_tool_name("Glob"), "Search");
+    assert_eq!(format_tool_name("Grep"), "Search");
     assert_eq!(format_tool_name("Bash"), "Bash");
     assert_eq!(format_tool_name("TodoWrite"), "Todo");
     assert_eq!(format_tool_name("AskUserQuestion"), "Ask");
     assert_eq!(format_tool_name("Agent"), "Agent");
     assert_eq!(format_tool_name("Skill"), "Skill");
     assert_eq!(format_tool_name_for_stats("Skill"), "Skill");
+    // 统计栏保留真实工具名：消息区 Glob / Grep 都是 Search，统计要能区分来源
+    assert_eq!(format_tool_name_for_stats("Glob"), "Glob");
+    assert_eq!(format_tool_name_for_stats("Grep"), "Grep");
+    assert_eq!(format_tool_name_for_stats("Edit"), "Edit");
 }
 
 #[test]
@@ -233,12 +237,20 @@ fn test_glob_truncates_at_200() {
     let pattern = "p".repeat(300);
     let input = serde_json::json!({"pattern": pattern, "path": "/tmp"});
     let result = format_tool_args("Glob", &input, None).unwrap();
+    let pattern_part = result
+        .strip_prefix("pattern: \"")
+        .and_then(|rest| rest.split('"').next())
+        .expect("摘要应以 pattern: \" 开头");
     assert_eq!(
-        result.chars().count(),
+        pattern_part.chars().count(),
         201,
         "Glob pattern 应截断到 200 字符 + …"
     );
-    assert!(result.ends_with('…'), "超长 Glob pattern 应以 … 结尾");
+    assert!(pattern_part.ends_with('…'), "超长 Glob pattern 应以 … 结尾");
+    assert!(
+        result.ends_with(", path: \"/tmp\""),
+        "path 应保留在摘要末尾"
+    );
 }
 
 #[test]
@@ -280,13 +292,47 @@ fn test_read_file_path_takes_priority_over_path() {
 
 #[test]
 fn test_glob_pattern_not_path_stripped() {
-    // Glob pattern 不应走 strip_cwd（pattern 不是文件路径）
+    // Glob pattern 不应走 strip_cwd（pattern 不是文件路径），只有 path 才剥离 cwd
     let input = serde_json::json!({"pattern": "app/admin/**/*.php"});
     let result = format_tool_args("Glob", &input, Some("/home/user/project/"));
     assert_eq!(
         result.as_deref(),
-        Some("app/admin/**/*.php"),
+        Some("pattern: \"app/admin/**/*.php\""),
         "Glob pattern 不应被路径剥离"
+    );
+
+    let input = serde_json::json!({
+        "pattern": "app/admin/**/*.php",
+        "path": "/home/user/project/src"
+    });
+    assert_eq!(
+        format_tool_args("Glob", &input, Some("/home/user/project/")).as_deref(),
+        Some("pattern: \"app/admin/**/*.php\", path: \"src\""),
+        "path 应折叠为相对路径并追加到 pattern 之后"
+    );
+}
+
+#[test]
+fn test_search_args_include_pattern_and_path() {
+    // 对齐参考实现 renderToolUseMessage：只展示 pattern / path，flags 不进工具头
+    let input = serde_json::json!({
+        "pattern": "needle",
+        "path": "/home/user/project/src",
+        "output_mode": "content",
+        "-n": true,
+        "-C": 2
+    });
+    assert_eq!(
+        format_tool_args("Grep", &input, Some("/home/user/project/")).as_deref(),
+        Some("pattern: \"needle\", path: \"src\""),
+        "Grep 应展示 pattern + path，且不显示 -n/-C 等 flag"
+    );
+
+    let input = serde_json::json!({"pattern": "needle"});
+    assert_eq!(
+        format_tool_args("Grep", &input, None).as_deref(),
+        Some("pattern: \"needle\""),
+        "无 path 时只展示 pattern"
     );
 }
 
@@ -295,12 +341,16 @@ fn test_grep_truncates_at_200() {
     let pattern = "r".repeat(300);
     let input = serde_json::json!({"pattern": pattern});
     let result = format_tool_args("Grep", &input, None).unwrap();
+    let pattern_part = result
+        .strip_prefix("pattern: \"")
+        .and_then(|rest| rest.split('"').next())
+        .expect("摘要应以 pattern: \" 开头");
     assert_eq!(
-        result.chars().count(),
+        pattern_part.chars().count(),
         201,
         "Grep pattern 应截断到 200 字符 + …"
     );
-    assert!(result.ends_with('…'), "超长 Grep pattern 应以 … 结尾");
+    assert!(pattern_part.ends_with('…'), "超长 Grep pattern 应以 … 结尾");
 }
 
 #[test]
