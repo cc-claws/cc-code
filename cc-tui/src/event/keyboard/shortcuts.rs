@@ -15,9 +15,7 @@ pub(super) fn handle_shortcuts(
 ) -> Option<Action> {
     // Shift+Tab (BackTab): cycle permission mode
     if matches!(key_event.code, KeyCode::BackTab) {
-        let _new_mode = app.services.permission_mode.cycle();
-        app.global_ui.mode_highlight_until =
-            Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
+        app.services.permission_mode.cycle();
         return Some(Action::Redraw);
     }
 
