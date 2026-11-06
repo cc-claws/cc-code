@@ -1054,21 +1054,14 @@ fn absolute_link_path(text: &str) -> Option<std::path::PathBuf> {
     std::env::current_dir().ok().map(|cwd| cwd.join(path))
 }
 
-fn tool_args_header(tool_name: &str, args: &str, max_width: usize) -> String {
+fn tool_args_header(args: &str, max_width: usize) -> String {
     let sanitized_args = sanitize_display_text(args);
     let sanitized_args = if let Some(mem_path) = format_display_path_for_memory(&sanitized_args) {
         mem_path
     } else {
         sanitized_args
     };
-    if tool_name == "Glob" {
-        // "pattern: \"...\"" 占 11 列固定前缀/后缀宽度
-        let inner_max = max_width.saturating_sub(11);
-        let summary = truncate_to_display_width(&sanitized_args, inner_max);
-        format!("pattern: \"{}\"", summary)
-    } else {
-        truncate_to_display_width(&sanitized_args, max_width)
-    }
+    truncate_to_display_width(&sanitized_args, max_width)
 }
 
 /// 批次汇总树形渲染：折叠态显示 header + 每行摘要，展开态显示各 agent 详情。
@@ -2038,7 +2031,7 @@ pub fn render_view_model_with_flags(
                     let path_text = tool_path_text(tool_name, args);
                     let header_args = path_text.unwrap_or(args);
                     let max_args_width = header_args_width(width, name_width + 2, detail_mode);
-                    let summary = tool_args_header(tool_name, header_args, max_args_width);
+                    let summary = tool_args_header(header_args, max_args_width);
                     let args_start_g = header_spans
                         .iter()
                         .map(|span| span.content.graphemes(true).count())
@@ -3115,8 +3108,7 @@ pub fn render_view_model_with_flags(
                                 header_args_width(width, prefix_width + 2, detail_mode);
                             // 与单条 ToolBlock 的详细模式一致：Write/Edit/Read 显示完整绝对路径
                             let verbose = verbose_tool_args(&entry.tool_name, args);
-                            let summary =
-                                tool_args_header(&entry.tool_name, &verbose, max_args_width);
+                            let summary = tool_args_header(&verbose, max_args_width);
                             let header_line = lines.len().saturating_sub(1);
                             let args_start_g = indicator.graphemes(true).count()
                                 + 1
