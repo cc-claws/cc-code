@@ -121,6 +121,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **状态栏与工具名样式收敛、权限切换视觉稳定与 git diff 原始输出** | v0.6.244 | 统一状态栏快捷键文案为小写（`ctrl+o` / `ctrl+p` / `:detail` / `:settings`），权限名改为 `auto mode on` / `bypass permissions on`；移除 `Shift+Tab` 切换权限模式时权限标签的临时加粗与高亮计时，消除闪烁跳变；`!git diff` 不再自动重排为带摘要与行号的 diff 卡片，保留 Git 原始文件头、`@@` 区块、`+/-` 内容与自带 ANSI 颜色；工具名颜色按用户反馈从 `text` 恢复为柔灰 `text_soft`（#906, #908, #910, #912, #914）。 |
 | **支持运行时切换 cc / dsh / pi Agent 内核** | v0.6.241 | 支持通过配置项 `agent_kernel` 或 `/kernel` 命令在 `cc`（参考实现经典内核）、`dsh`（Devin-style shell）与 `pi`（流式轻量）Agent 内核间运行时无缝切换。内部统一规范名并由方言层双向翻译，对齐子代理能力与审批契约，cc 内核保持逐字节等价（#826, #903）；终端 Markdown 渲染同时新增 LaTeX 数学公式解析与 Unicode 提纯渲染（#901, #902）。 |
 | **文件工具支持 MSYS 盘符路径** | v0.6.240 | Windows 下传入 Git Bash 习惯的 `/c/Users/...` 时无法定位真实文件：这类路径有 root 但无盘符，`is_absolute()` 为 false，`Path::join` 会丢弃 cwd 落到「当前驱动器根」，解析结果随进程状态漂移，最终报 `File not found`，且错误只回显原始入参，容易误判为路径写法被拒绝。新增 `msys_drive_path()` 在 `resolve_path` 前把 `/c/foo` 还原为 `C:/foo`，Grep / rg_engine 的搜索路径构造同样接入；not found 提示改为回显 resolved 路径。仅 Windows 生效，`/cc/...`、`/1/...` 与相对路径不受影响（#899, #900）。 |
 | **解除 Bash 超时硬编码限制并支持 BASH_MAX_TIMEOUT_MS** | v0.6.235 | 修复 Bash 工具参数校验死板限制 10 分钟（600,000ms）导致模型执行大项目构建或长任务时被强行截断提前杀掉的问题。完全尊重调用方显式指定的更大超时，未传 `execution_timeout` 时自动取 `max(max_timeout, timeout_ms)` 不误杀长任务；同时新增 `BASH_DEFAULT_TIMEOUT_MS` 与 `BASH_MAX_TIMEOUT_MS` 环境变量，允许自定义默认与最大上限（#886, #887）。 |
@@ -130,8 +131,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **Bash 输出 git diff 智能高亮渲染与 PHP 纯源码高亮修复** | v0.6.231 | 终端输入 `!git diff` 或 Agent 执行 `git diff` 时，输出自动接入内置 Diff 渲染管线，呈现带代码语法着色、单侧行号 Gutter 与词级对比（Word-diff）的高颜值视图；同时修复 syntect 将 `.php` 绑定到 HTML 嵌入语法导致脱离 `<?php` 后单行高亮全变白字的问题，优先使用纯源码语法 `"PHP Source"` 稳定高亮（#872, #873）。 |
 | **含 VS16 宽字形的表格行不再错位** | v0.6.228 | markdown 表格某行单元格含 `⚠️`（`U+26A0 U+FE0F`）时，该行的竖线分隔符与右侧边框曾整体右移 1 格、右边框冲出表格边界，滚动重绘后右侧残留悬空竖线。根因在输出层而非表格渲染：`Buffer::diff` 为宽字形额外补画的尾格，被 crossterm 后端按 cell 索引当作相邻格续写（不认宽字形已把光标推进 2 列）。现在下发 cell 前丢弃被宽字形覆盖的尾格，判断依据取实际下发的字形宽度（宽字形若被降级成 1 列 ASCII 则保留尾格）（#860）。 |
 | **Compact 阈值数值选项与范围优化** | v0.6.224 | `/config` 配置面板中的「Compact 阈值」重构为带百分比标识的选项样式，阈值下限放宽至 10%（支持 10-99% 范围，允许更早触发压缩）；移出通用单行自由文本框，支持按 ← / → 步进调节与数字键盘纯数字输入，失焦自动规范化回写，彻底杜绝长字符串与非法字符回显（#844, #845）。 |
-| **终端色彩能力探测与色深降级** | v0.6.223 | 此前主题与状态栏一律输出 `Color::Rgb`（24-bit），只支持 256/16 色的终端只能自行近似，`NO_COLOR` 也不生效。现按 `NO_COLOR`、`TERM=dumb`、`COLORTERM`/`TERM` 的真彩标识、Apple Terminal 与 `*256*` 判定色深并在输出层降级：256 档取「6×6×6 色立方 + 24 级灰阶」中更近者，16 档量化到基础色，`NO_COLOR` 只清颜色、保留 bold/dim 等属性。`TMUX` 内压到 256（默认配置不转发 `38;2` 背景），`PERI_TMUX_TRUECOLOR=1` 可豁免。真彩终端输出与改动前逐字节一致（#601）。 |
-> 更早版本（v0.6.0 – v0.6.223）见 [CHANGELOG](./CHANGELOG.md)。
+> 更早版本（v0.6.0 – v0.6.224）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---
 

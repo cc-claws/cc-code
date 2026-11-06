@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.244：**状态栏与工具名样式收敛、权限切换视觉稳定与 git diff 原始输出**——状态栏快捷键文案统一小写、权限名改为 `auto mode on` / `bypass permissions on`，移除 `Shift+Tab` 切换权限模式时的临时加粗与闪烁；`!git diff` 不再重排成带行号的 diff 卡片，保留 Git 原始输出与自带 ANSI 颜色；工具名配色按反馈恢复柔灰 `text_soft`（#906, #908, #910, #912, #914）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.241：**支持运行时切换 cc / dsh / pi Agent 内核**——可通过 `agent_kernel` 配置或 `/kernel` 命令在 `cc`、`dsh` 与 `pi` 三个内核间无缝切换，方言层双向翻译保证工具与审批契约一致，cc 内核保持逐字节等价（#826, #903）；同时支持终端 Markdown LaTeX 数学公式解析与 Unicode 提纯渲染（#901, #902）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.240：**文件工具支持 MSYS 盘符路径**——Windows 下 `/c/Users/...` 这类 Git Bash 写法此前会被解析到「当前驱动器根」并报 `File not found`，现按 Git Bash 语义还原为 `C:\Users\...`，Read/Edit/Write/Glob/Grep 全部生效，not found 提示也会显示实际查找路径（#899, #900）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
