@@ -453,24 +453,19 @@ impl BaseModel for ChatOpenAI {
         let norm = super::super::url_util::normalize_base_url(&self.base_url, "openai");
         let chat_url = format!("{}/chat/completions", norm.trim_end_matches('/'));
 
-        let resp = self
-            .client
-            .post(&chat_url)
-            .bearer_auth(&self.api_key)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| {
-                let msg = super::super::url_util::format_reqwest_error(&e, &chat_url);
-                tracing::error!(
-                    provider = "openai",
-                    model = %self.model,
-                    elapsed_ms = start.elapsed().as_millis() as u64,
-                    error = %e,
-                    "LLM 网络请求失败: {msg}"
-                );
-                AgentError::LlmError(msg)
-            })?;
+        let req = self.client.post(&chat_url).bearer_auth(&self.api_key);
+        let req = crate::llm::apply_opencode_session_header(req, request.session_id.as_deref());
+        let resp = req.json(&body).send().await.map_err(|e| {
+            let msg = super::super::url_util::format_reqwest_error(&e, &chat_url);
+            tracing::error!(
+                provider = "openai",
+                model = %self.model,
+                elapsed_ms = start.elapsed().as_millis() as u64,
+                error = %e,
+                "LLM 网络请求失败: {msg}"
+            );
+            AgentError::LlmError(msg)
+        })?;
 
         let status = resp.status();
         let resp_text = resp.text().await.map_err(|e| {

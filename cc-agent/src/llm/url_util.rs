@@ -100,6 +100,18 @@ pub fn normalize_base_url(raw: &str, provider_type: &str) -> String {
     clean
 }
 
+/// 判断 URL 是否指向 OpenCode 网关（`opencode.ai`）
+///
+/// OpenCode Console / Go 要求客户端在每个请求上带稳定的 `x-opencode-session`，
+/// 缺失会直接返回 400（无法按会话优化路由与 prompt cache）。
+/// 通过 host 判定，覆盖 `https://opencode.ai/inference/{,go/}{anthropic,openai/v1}` 等端点。
+pub fn is_opencode_endpoint(url: &str) -> bool {
+    reqwest::Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_lowercase()))
+        .is_some_and(|host| host == "opencode.ai" || host.ends_with(".opencode.ai"))
+}
+
 /// 将 reqwest 错误转换为面向终端用户友好、定位明确的错误描述
 pub fn format_reqwest_error(e: &reqwest::Error, url: &str) -> String {
     if e.is_builder() {
