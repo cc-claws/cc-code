@@ -2940,13 +2940,17 @@ fn test_compact_done_rendering_no_bullet_prefix() {
         detail_only: false,
         branch_prefix: false,
     };
-    let text_lines: Vec<String> = render_view_model(&vm, None, 80, false, 0)
-        .iter()
-        .map(line_plain_text)
-        .collect();
+    let rendered = render_view_model(&vm, None, 80, false, 0);
+    let text_lines: Vec<String> = rendered.iter().map(line_plain_text).collect();
     assert_eq!(text_lines[0], "✻ Context compacted");
     assert_eq!(text_lines[1], "  ⎿  Read src/main.rs (120 lines)");
     assert_eq!(text_lines[2], "  ⎿  Skill: rust");
+    // 标题行不得比 `⎿` 子行更暗：统一用 inactive（subtle 在暗色主题下仅 rgb(80,80,80)）
+    assert_eq!(
+        rendered[0].spans[0].style.fg,
+        Some(theme::cur().inactive),
+        "✻ 标题行应与 `⎿` 子行同为 inactive"
+    );
     for line in &text_lines {
         assert!(
             !line.contains("· "),
