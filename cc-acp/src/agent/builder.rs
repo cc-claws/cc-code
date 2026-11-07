@@ -616,7 +616,10 @@ fn build_agent_inner(
                 group,
                 hook_llm_factory.clone(),
                 &cwd,
-                "",
+                // 真实会话 ID 必须传入 hook payload：外部 hook 生态（如
+                // clawd 宠物）按 session_id 聚合会话，硬编码 "" 会让所有
+                // peri 会话上报成同一个会话而互相覆盖。
+                session_id.clone().unwrap_or_default(),
                 "",
                 permission_mode.clone(),
                 provider_name.clone(),
@@ -743,3 +746,7 @@ pub fn finalize_system_prompt(system_prompt: String, kernel: Kernel, model_name:
 #[cfg(test)]
 #[path = "builder_memory_test.rs"]
 mod memory_tests;
+
+#[cfg(all(test, unix))]
+#[path = "builder_hook_session_test.rs"]
+mod hook_session_tests;
