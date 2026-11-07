@@ -752,13 +752,7 @@ fn format_prefixed_text(
     text_style: Style,
     content_width: usize,
 ) -> Vec<Line<'static>> {
-    // 系统提示里的 slash 命令（如 /help 命令清单）统一着色，其余文字保持调用方给的样式。
-    let sanitized = sanitize_display_text(text);
-    let line = Line::from(crate::ui::highlight::slash_command_spans(
-        &sanitized,
-        text_style,
-        text_style.fg(theme::cur().suggestion),
-    ));
+    let line = Line::from(Span::styled(sanitize_display_text(text), text_style));
     // 续行悬挂缩进与首行前缀等宽，保证正文左对齐且总宽不溢出。
     let hang = " ".repeat(UnicodeWidthStr::width(first_prefix));
     format_wrapped_line_keep_lead(line, first_prefix, &hang, prefix_style, content_width)
@@ -2928,12 +2922,20 @@ pub fn render_view_model_with_flags(
                         Some(_) => ("  ", Style::default().fg(text_color)),
                         None => ("· ", Style::default().fg(theme::cur().subtle)),
                     };
-                    push_prefixed_text(
-                        &mut lines,
-                        line,
-                        prefix,
-                        prefix_style,
+                    // 系统提示正文里的 slash 命令（如 /help 命令清单）单独着色；
+                    // 工具输出等数据展示不参与 slash 着色，避免路径/正则片段被误染。
+                    let sanitized = sanitize_display_text(line);
+                    let spans = crate::ui::highlight::slash_command_spans(
+                        &sanitized,
                         Style::default().fg(text_color),
+                        Style::default().fg(theme::cur().suggestion),
+                    );
+                    push_wrapped_line_keep_lead(
+                        &mut lines,
+                        Line::from(spans),
+                        prefix,
+                        &" ".repeat(UnicodeWidthStr::width(prefix)),
+                        prefix_style,
                         width.saturating_sub(4).max(20),
                     );
                 }
