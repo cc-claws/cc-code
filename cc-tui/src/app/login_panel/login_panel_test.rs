@@ -81,9 +81,9 @@ fn test_login_panel_enter_new_auto_fills_openai() {
     let mut panel = LoginPanel::from_config(&cfg);
     panel.enter_new();
     assert_eq!(panel.buf_type, "openai");
-    assert_eq!(panel.buf_opus_model, "gpt-4o");
-    assert_eq!(panel.buf_sonnet_model, "gpt-4o-mini");
-    assert_eq!(panel.buf_haiku_model, "gpt-3.5-turbo");
+    assert_eq!(panel.buf_opus_model, "gpt-6-astra");
+    assert_eq!(panel.buf_sonnet_model, "gpt-6.1-sol");
+    assert_eq!(panel.buf_haiku_model, "gpt-6-luna");
 }
 
 #[test]
@@ -95,9 +95,9 @@ fn test_login_panel_cycle_type_auto_fills_anthropic() {
     panel.edit_field = LoginEditField::Type;
     panel.cycle_type();
     assert_eq!(panel.buf_type, "anthropic");
-    assert_eq!(panel.buf_opus_model, "claude-opus-4-7");
-    assert_eq!(panel.buf_sonnet_model, "claude-sonnet-4-6");
-    assert_eq!(panel.buf_haiku_model, "claude-haiku-4-5");
+    assert_eq!(panel.buf_opus_model, "claude-opus-5-5");
+    assert_eq!(panel.buf_sonnet_model, "claude-sonnet-5-5");
+    assert_eq!(panel.buf_haiku_model, "claude-haiku-5-5");
 }
 
 #[test]

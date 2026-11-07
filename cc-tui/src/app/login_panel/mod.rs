@@ -8,12 +8,18 @@ use super::{panel_list::PanelList, App};
 const DEFAULT_MODELS: &[(&str, &str, &str, &str, &str)] = &[
     (
         "anthropic",
-        "claude-opus-4-7",
-        "claude-sonnet-4-6",
-        "claude-haiku-4-5",
-        "claude-fable-5",
+        "claude-opus-5-5",
+        "claude-sonnet-5-5",
+        "claude-haiku-5-5",
+        "claude-fable-5-1",
     ),
-    ("openai", "gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo", "gpt-4o"),
+    (
+        "openai",
+        "gpt-6-astra",
+        "gpt-6.1-sol",
+        "gpt-6-luna",
+        "gpt-6-astra",
+    ),
 ];
 
 /// provider_type 循环切换列表

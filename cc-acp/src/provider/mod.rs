@@ -58,7 +58,7 @@ impl LlmProvider {
             "anthropic" => {
                 let api_key = std::env::var("ANTHROPIC_API_KEY").ok()?;
                 let model = std::env::var("ANTHROPIC_MODEL")
-                    .unwrap_or_else(|_| "claude-sonnet-4-6".to_string());
+                    .unwrap_or_else(|_| "claude-sonnet-5-5".to_string());
                 let base_url = std::env::var("ANTHROPIC_BASE_URL")
                     .ok()
                     .map(|u| normalize_base_url(&u, "anthropic"))
@@ -74,7 +74,7 @@ impl LlmProvider {
                 if provider_hint.is_empty() {
                     if let Ok(api_key) = std::env::var("ANTHROPIC_API_KEY") {
                         let model = std::env::var("ANTHROPIC_MODEL")
-                            .unwrap_or_else(|_| "claude-sonnet-4-6".to_string());
+                            .unwrap_or_else(|_| "claude-sonnet-5-5".to_string());
                         let base_url = std::env::var("ANTHROPIC_BASE_URL")
                             .ok()
                             .map(|u| normalize_base_url(&u, "anthropic"))
@@ -92,7 +92,8 @@ impl LlmProvider {
                     .or_else(|_| std::env::var("OPENAI_BASE_URL"))
                     .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
                 let base_url = normalize_base_url(&raw_base, "openai");
-                let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o".to_string());
+                let model =
+                    std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-6.1-sol".to_string());
                 Some(Self::OpenAi {
                     api_key,
                     base_url,
@@ -106,7 +107,8 @@ impl LlmProvider {
                     .or_else(|_| std::env::var("OPENAI_BASE_URL"))
                     .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
                 let base_url = normalize_base_url(&raw_base, "openai");
-                let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o".to_string());
+                let model =
+                    std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-6.1-sol".to_string());
                 Some(Self::OpenAi {
                     api_key,
                     base_url,
@@ -136,8 +138,8 @@ impl LlmProvider {
             .filter(|m| !m.is_empty())
             .map(|m| m.to_string())
             .unwrap_or_else(|| match provider.provider_type.to_lowercase().as_str() {
-                "anthropic" => "claude-sonnet-4-6".to_string(),
-                _ => "gpt-4o".to_string(),
+                "anthropic" => "claude-sonnet-5-5".to_string(),
+                _ => "gpt-6.1-sol".to_string(),
             });
 
         let thinking = app.thinking.clone().filter(|t| t.enabled);
@@ -185,8 +187,8 @@ impl LlmProvider {
             .filter(|m| !m.is_empty())
             .map(|m| m.to_string())
             .unwrap_or_else(|| match provider.provider_type.to_lowercase().as_str() {
-                "anthropic" => "claude-sonnet-4-6".to_string(),
-                _ => "gpt-4o".to_string(),
+                "anthropic" => "claude-sonnet-5-5".to_string(),
+                _ => "gpt-6.1-sol".to_string(),
             });
 
         let thinking = app.thinking.clone().filter(|t| t.enabled);

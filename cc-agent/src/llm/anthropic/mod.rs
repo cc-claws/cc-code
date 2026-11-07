@@ -74,7 +74,7 @@ impl ChatAnthropic {
         let model = std::env::var("ANTHROPIC_MODEL")
             .ok()
             .filter(|m| !m.trim().is_empty())
-            .unwrap_or_else(|| "claude-sonnet-4-6".to_string());
+            .unwrap_or_else(|| "claude-sonnet-5-5".to_string());
         let mut s = Self::new(api_key, model);
         if let Ok(url) = std::env::var("ANTHROPIC_BASE_URL") {
             s = s.with_base_url(url);

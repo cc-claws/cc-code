@@ -99,7 +99,7 @@ impl ChatOpenAI {
         let model = std::env::var("OPENAI_MODEL")
             .ok()
             .filter(|m| !m.trim().is_empty())
-            .unwrap_or_else(|| "gpt-4o".to_string());
+            .unwrap_or_else(|| "gpt-6.1-sol".to_string());
         Some(Self::new(api_key, model).with_base_url(base_url))
     }
 
