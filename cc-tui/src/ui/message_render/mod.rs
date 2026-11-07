@@ -2825,16 +2825,18 @@ pub fn render_view_model_with_flags(
                         ),
                     ]));
                 } else if line.starts_with('✻') {
+                    // `✻` 标题行（Context compacted / Waiting for …）与下方 `⎿` 子行、
+                    // 视口底部 `✻ Brewed for …` 总结行同色，避免标题比子行更暗。
                     let l = Line::from(Span::styled(
                         sanitize_display_text(line),
-                        Style::default().fg(theme::cur().subtle),
+                        Style::default().fg(theme::cur().inactive),
                     ));
                     push_wrapped_line_keep_lead(
                         &mut lines,
                         l,
                         "",
                         "  ",
-                        Style::default().fg(theme::cur().subtle),
+                        Style::default().fg(theme::cur().inactive),
                         width.saturating_sub(2).max(20),
                     );
                 } else if let Some(rest) = BranchPrefix::strip_prefix(line) {
