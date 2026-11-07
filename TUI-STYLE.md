@@ -432,9 +432,9 @@ Spinner 下方附加 Tip 行：`  ⎿  Tip: ...`（5 列前缀，与工具结果
 ───────────── Select model ──────────────────
   Switch between models. Applies to this session.
 
-  ❯ 1. Opus  ✔   claude-opus-4-7
-    2. Sonnet      claude-sonnet-4-6
-    3. Haiku       claude-haiku-4-5
+  ❯ 1. Opus  ✔   claude-opus-5-5
+    2. Sonnet      claude-sonnet-5-5
+    3. Haiku       claude-haiku-5-5
     4. Fable       <gateway-mapped tier>
 
     ● High effort ← → to adjust

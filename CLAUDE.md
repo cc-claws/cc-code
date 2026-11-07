@@ -222,7 +222,7 @@ session/new → frozen_date → frozen_instructions（合并去重后的指引�
 | `OPENAI_API_KEY` | OpenAI 兼容 API Key |
 | `OPENAI_API_BASE` | API Base URL（优先于 `OPENAI_BASE_URL`） |
 | `OPENAI_BASE_URL` | API Base URL（fallback） |
-| `OPENAI_MODEL` | 模型名称（默认 gpt-4o） |
+| `OPENAI_MODEL` | 模型名称（默认 gpt-6.1-sol） |
 | `MODEL_PROVIDER` | Provider 选择提示（auto-detect） |
 | `YOLO_MODE=true/false` | 免审批开关。**仅显式设为 `true` 才生效**；未设置或 `false`/`0` 时启用 HITL 审批（fail-closed） |
 | `RUST_LOG` | 日志级别（默认 info） |

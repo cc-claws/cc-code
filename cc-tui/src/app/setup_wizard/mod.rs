@@ -85,12 +85,12 @@ impl ProviderType {
     pub fn default_model_ids(&self) -> [&str; 4] {
         match self {
             Self::Anthropic => [
-                "claude-opus-4-6",
-                "claude-sonnet-4-6",
-                "claude-haiku-4-5-20251001",
-                "claude-fable-5",
+                "claude-opus-5-5",
+                "claude-sonnet-5-5",
+                "claude-haiku-5-5",
+                "claude-fable-5-1",
             ],
-            Self::OpenAiCompatible => ["gpt-5.5", "gpt-4o", "gpt-4o-mini", "gpt-4o"],
+            Self::OpenAiCompatible => ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna", "gpt-6-astra"],
         }
     }
 }

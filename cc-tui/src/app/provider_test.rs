@@ -54,14 +54,14 @@ fn test_from_config_sonnet_alias() {
 fn test_from_config_empty_model_fallback_anthropic() {
     let cfg = make_config("opus", "anthropic", "", "anthropic");
     let provider = LlmProvider::from_config(&cfg).expect("空 model 不应 panic");
-    assert_eq!(provider.model_name(), "claude-sonnet-4-6");
+    assert_eq!(provider.model_name(), "claude-sonnet-5-5");
 }
 
 #[test]
 fn test_from_config_empty_model_fallback_openai() {
     let cfg = make_config("haiku", "openai", "", "openai");
     let provider = LlmProvider::from_config(&cfg).expect("空 model openai 不应 panic");
-    assert_eq!(provider.model_name(), "gpt-4o");
+    assert_eq!(provider.model_name(), "gpt-6.1-sol");
 }
 
 #[test]
@@ -69,7 +69,7 @@ fn test_from_config_unknown_alias_fallback() {
     let mut cfg = make_config("opus", "anthropic", "claude-opus-4-6", "anthropic");
     cfg.config.active_alias = "ultra".to_string();
     let provider = LlmProvider::from_config(&cfg).expect("未知别名应 fallback");
-    assert_eq!(provider.model_name(), "claude-sonnet-4-6");
+    assert_eq!(provider.model_name(), "claude-sonnet-5-5");
 }
 
 #[test]
@@ -109,7 +109,7 @@ fn test_from_config_for_alias_known() {
 fn test_from_config_for_alias_unknown_returns_fallback() {
     let cfg = make_config("opus", "anthropic", "claude-opus-4-6", "anthropic");
     let p = LlmProvider::from_config_for_alias(&cfg, "turbo").unwrap();
-    assert_eq!(p.model_name(), "claude-sonnet-4-6");
+    assert_eq!(p.model_name(), "claude-sonnet-5-5");
 }
 
 #[test]
