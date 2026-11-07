@@ -121,6 +121,7 @@ impl App {
             pending_bg_shell_notifications: std::collections::VecDeque::new(),
             bg_shell_steering: Default::default(),
             latest_recap: None,
+            running_async_hooks: Vec::new(),
         };
 
         let app = App {

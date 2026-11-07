@@ -478,15 +478,31 @@ async fn test_session_hook_events_merge_into_single_row() {
     assert_eq!(texts[0], "2 UserPromptSubmit hooks ran · 8ms");
 }
 
-/// 不同事件的异步完成在合并窗口内并成一行（参考实现形态）。
+/// 异步 hook 生命周期只更新 spinner 登记：开始登记、完成移除、成功静默（无尾行）。
 #[tokio::test]
-async fn test_async_hook_completions_merge_into_single_row() {
+async fn test_async_hook_lifecycle_updates_running_state() {
     // Arrange
     let (mut app, _handle) = App::new_headless(120, 30).await;
     // Act
-    for event in ["UserPromptSubmit", "PreToolUse"] {
+    app.handle_agent_event(AgentEvent::HooksStarted {
+        event: "PreToolUse".into(),
+        tool_call_id: Some("tc-1".into()),
+    });
+    app.handle_agent_event(AgentEvent::HooksStarted {
+        event: "PreToolUse".into(),
+        tool_call_id: Some("tc-2".into()),
+    });
+    // Assert
+    let running: Vec<String> = app.session_mgr.current().running_async_hooks().to_vec();
+    assert_eq!(
+        running,
+        vec!["PreToolUse", "PreToolUse"],
+        "开始应登记运行中"
+    );
+    // Act
+    for _ in 0..2 {
         app.handle_agent_event(AgentEvent::HooksCompleted {
-            event: event.into(),
+            event: "PreToolUse".into(),
             ran: 1,
             duration_ms: 5,
             failures: Vec::new(),
@@ -495,11 +511,13 @@ async fn test_async_hook_completions_merge_into_single_row() {
         });
     }
     // Assert
-    let texts = hook_note_texts(&app);
-    assert_eq!(texts.len(), 1, "窗口内应并成一行: {texts:?}");
-    assert_eq!(
-        texts[0],
-        "Async hook UserPromptSubmit completed, Async hook PreToolUse completed"
+    assert!(
+        app.session_mgr.current().running_async_hooks().is_empty(),
+        "完成应移除登记"
+    );
+    assert!(
+        hook_note_texts(&app).is_empty(),
+        "异步 hook 成功完成不写消息区尾行（成功静默）"
     );
 }
 

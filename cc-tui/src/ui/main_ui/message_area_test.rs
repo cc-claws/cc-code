@@ -481,3 +481,31 @@ fn test_handle_error_retains_failed_summary_in_visible_tail() {
         "报错后 visible_tail 应渲染失败总结行: {tail_text}"
     );
 }
+
+/// spinner 行的异步 hook 文案：单个带事件名，同事件计数，两种列名，三种以上收敛。
+#[test]
+fn test_async_hook_tip_variants() {
+    use super::async_hook_tip;
+    // Arrange & Act & Assert
+    assert_eq!(async_hook_tip(&[]), "", "无运行中不展示");
+    assert_eq!(
+        async_hook_tip(&["PostToolUse".to_string()]),
+        "Async hook PostToolUse running…"
+    );
+    assert_eq!(
+        async_hook_tip(&["PostToolUse".to_string(), "PostToolUse".to_string()]),
+        "2 async PostToolUse hooks running…"
+    );
+    assert_eq!(
+        async_hook_tip(&["PreToolUse".to_string(), "PostToolUse".to_string()]),
+        "Async hooks PreToolUse, PostToolUse running…"
+    );
+    assert_eq!(
+        async_hook_tip(&[
+            "PreToolUse".to_string(),
+            "PostToolUse".to_string(),
+            "Stop".to_string()
+        ]),
+        "3 async hooks running…"
+    );
+}

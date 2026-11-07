@@ -76,9 +76,6 @@ impl ToolOutputPreview {
 pub enum HookRowKind {
     /// 同步汇总 `N <Event> hooks ran · Xms`：仅详细模式，受 4 行上限约束
     Summary,
-    /// 异步 hook 开始占位行 `Async hook <Event> running…`：仅详细模式。
-    /// 折叠时只有同步汇总行受 4 行上限约束，占位行不参与折叠。
-    Async,
     /// 阻断行（策略生效）：普通模式可见，受 3 行上限约束
     Block,
     /// hook 自身失败（崩溃 / 超时 / 非法输出）：仅详细模式，受 3 行上限约束
@@ -118,17 +115,6 @@ impl HookRow {
         }
     }
 
-    /// 异步 hook 开始占位行（`Async hook <Event> running…`）：仅详细模式可见，
-    /// 不参与汇总行折叠。完成结果不挂在工具块上（走会话级尾行），
-    /// 因此这是 `Async` 类别唯一的工具级行。
-    pub fn async_row_running(text: impl Into<String>) -> Self {
-        Self {
-            text: text.into(),
-            tone: NoteTone::Neutral,
-            kind: HookRowKind::Async,
-        }
-    }
-
     /// 阻断行：工具真的没跑，普通模式必须可见。
     pub fn blocked(text: impl Into<String>) -> Self {
         Self {
@@ -150,11 +136,6 @@ impl HookRow {
     /// 是否只在详细模式（Ctrl+O）可见。
     pub fn detail_only(&self) -> bool {
         !self.kind.visible_in_normal_mode()
-    }
-
-    /// 是否为异步逐条行（不参与汇总行折叠）。
-    pub fn async_row(&self) -> bool {
-        self.kind == HookRowKind::Async
     }
 }
 

@@ -91,14 +91,13 @@ fn append_hook_rows(
         if row.detail_only() && !detail_mode {
             continue;
         }
-        // 失败类行（阻断 / 自身失败）走 3 行上限，各自按类别独立折叠；
-        // 异步逐条行不参与任何上限。
+        // 失败类行（阻断 / 自身失败）走 3 行上限，各自按类别独立折叠。
         if row.kind.is_failure() {
             if failures >= HOOK_FAILURE_MAX_ROWS {
                 continue;
             }
             failures += 1;
-        } else if !row.async_row() {
+        } else {
             if summaries >= HOOK_SUMMARY_MAX_ROWS {
                 continue;
             }
@@ -123,7 +122,7 @@ fn append_hook_rows(
     let hidden_summaries = if detail_mode {
         hook_rows
             .iter()
-            .filter(|row| !row.kind.is_failure() && !row.async_row())
+            .filter(|row| !row.kind.is_failure())
             .count()
             .saturating_sub(HOOK_SUMMARY_MAX_ROWS)
     } else {

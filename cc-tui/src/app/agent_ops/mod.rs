@@ -511,18 +511,12 @@ impl App {
             AgentEvent::CompactError(msg) => self.handle_compact_error(msg),
             AgentEvent::HooksStarted {
                 event,
-                tool_call_id,
+                tool_call_id: _,
             } => {
-                // 异步 hook 的占位行：先挂上 `Async hook {event} running…`，
-                // 完成事件到达时由 clear_running_hook 移除，结果行走会话级尾行。
-                if let Some(tool_call_id) = tool_call_id {
-                    self.session_mgr
-                        .current_mut()
-                        .messages
-                        .pipeline
-                        .start_hook_result(&tool_call_id, event);
-                    self.request_rebuild();
-                }
+                // 异步 hook 运行状态只进 spinner 行（`Async hook X running…`），完成即消失；
+                // 不写消息区占位行，避免高频工具调用下占位闪现闪没。
+                self.session_mgr.current_mut().start_async_hook(&event);
+                self.request_rebuild();
                 (true, false, false)
             }
             AgentEvent::HooksCompleted {
@@ -541,26 +535,9 @@ impl App {
                     .agent
                     .dedup_hook_failures(&event, failures);
                 if is_async {
-                    // 异步完成统一走会话级尾行：它可能在工具块冻结进历史前缀之后
-                    // 才回来，挂在工具块上就永远贴不上去。同事件累加计数、不同事件
-                    // 在短窗口内并成一行（见 MessagePipeline::record_async_hook）。
-                    if let Some(tool_call_id) = tool_call_id.as_deref() {
-                        self.session_mgr
-                            .current_mut()
-                            .messages
-                            .pipeline
-                            .clear_running_hook(tool_call_id, &event);
-                    }
-                    // 失败的异步 hook 由失败行承载，不算「完成」，不参与计数。
-                    if ran > 0 {
-                        let update = self
-                            .session_mgr
-                            .current_mut()
-                            .messages
-                            .pipeline
-                            .record_async_hook(&event, std::time::Instant::now());
-                        self.apply_hook_note(update);
-                    }
+                    // 异步 hook 成功静默：从 spinner 行移除登记即完成展示。
+                    // 失败/阻断由失败行承载（可见性不降）。
+                    self.session_mgr.current_mut().finish_async_hook(&event);
                     for failure in &failures {
                         self.push_hook_failure_note(&event, failure);
                     }
