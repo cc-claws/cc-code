@@ -794,6 +794,11 @@ pub(super) fn visible_tail(app: &App) -> Vec<Line<'static>> {
         if !status_word.is_empty() {
             parts.push(Span::styled(format!(" · {status_word}"), status_style));
         }
+        // 运行中的异步 hook（完成即消失；成功静默，失败/阻断走失败行）
+        let hooks = session.running_async_hooks();
+        if !hooks.is_empty() {
+            parts.push(Span::styled(format!(" · {}", async_hook_tip(hooks)), gray));
+        }
         parts.push(Span::styled(")", gray));
         Some(Line::from(parts))
     } else if app
@@ -1285,6 +1290,35 @@ pub(crate) fn highlight_line_spans<'a>(
         cursor = span_end;
     }
     result
+}
+
+/// spinner 行的异步 hook 运行文案（完成即消失）。
+///
+/// - 单个：`Async hook PostToolUse running…`
+/// - 同事件多个：`2 async PostToolUse hooks running…`
+/// - 两种事件：`Async hooks PreToolUse, PostToolUse running…`
+/// - 三种以上收敛为纯计数：`3 async hooks running…`
+fn async_hook_tip(events: &[String]) -> String {
+    if events.is_empty() {
+        return String::new();
+    }
+    let total = events.len();
+    if total == 1 {
+        return format!("Async hook {} running…", events[0]);
+    }
+    let mut uniq: Vec<&str> = Vec::new();
+    for e in events {
+        if !uniq.contains(&e.as_str()) {
+            uniq.push(e.as_str());
+        }
+    }
+    if uniq.len() == 1 {
+        return format!("{total} async {} hooks running…", uniq[0]);
+    }
+    if uniq.len() == 2 {
+        return format!("Async hooks {}, {} running…", uniq[0], uniq[1]);
+    }
+    format!("{total} async hooks running…")
 }
 
 #[cfg(test)]

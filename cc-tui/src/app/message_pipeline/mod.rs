@@ -253,18 +253,6 @@ struct BatchInfo {
 
 // ─── hook 执行结果合并 ───────────────────────────────────────────────────────
 
-/// 异步 hook 的执行阶段。
-///
-/// 异步 hook 先上报开始（写 `Async hook X running…` 占位），完成时移除占位、
-/// 结果行写进会话级尾行；同步 hook 只在完成时上报，直接是 `Finished`。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum HookPhase {
-    /// 异步 hook 已开始、尚未回报结果
-    Running,
-    /// 已有最终结果（成功汇总 / 阻断 / 失败）
-    Finished,
-}
-
 /// 一次工具级 hook 执行结果（挂到工具块上的原始结构）。
 ///
 /// 同一个工具调用、同一个事件可能由多个 `HookMiddleware` 实例分别上报
@@ -272,15 +260,14 @@ pub(crate) enum HookPhase {
 /// `run_hooks`）。归档时按 `(tool_call_id, event)` 合并，
 /// 让 PRD C4 的「2 PreToolUse hooks ran」只占一行。
 ///
-/// 异步完成不进这里：异步 hook 可能在工具块冻结进历史前缀之后才回来，
-/// 结果行统一走会话级尾行（见 [`MessagePipeline::record_async_hook`]）。
+/// 异步 hook 不进这里：运行中状态由 spinner 行展示（`Async hook X running…`），
+/// 完成静默（失败/阻断走失败行）。
 #[derive(Debug, Clone)]
 pub(crate) struct HookExec {
     pub event: String,
     pub ran: usize,
     pub duration_ms: u64,
     pub failures: Vec<HookFailureInfo>,
-    pub phase: HookPhase,
 }
 
 impl HookExec {
@@ -295,21 +282,6 @@ impl HookExec {
             ran,
             duration_ms,
             failures,
-            phase: HookPhase::Finished,
-        }
-    }
-
-    /// 异步 hook 开始占位（`Async hook {event} running…`）。
-    ///
-    /// 只表达「还在跑」：完成结果由会话级尾行承载，占位在完成事件到达时移除
-    /// （见 [`MessagePipeline::clear_running_hook`]）。
-    pub(crate) fn running(event: impl Into<String>) -> Self {
-        Self {
-            event: event.into(),
-            ran: 0,
-            duration_ms: 0,
-            failures: Vec::new(),
-            phase: HookPhase::Running,
         }
     }
 
@@ -319,12 +291,6 @@ impl HookExec {
     /// 不再生成单行黄色 hook blocked 提示（避免与工具结果重复）。
     /// hook 自身失败行与汇总行都是 `detail_only`，普通模式不渲染。
     fn to_rows(&self) -> Vec<HookRow> {
-        if self.phase == HookPhase::Running {
-            return vec![HookRow::async_row_running(format!(
-                "Async hook {} running…",
-                self.event
-            ))];
-        }
         let mut rows: Vec<HookRow> = self
             .failures
             .iter()
@@ -352,70 +318,32 @@ impl HookExec {
 
 // ─── 会话级 hook 行 ─────────────────────────────────────────────────────────
 
-/// 跨事件异步完成的合并窗口。
-///
-/// 参考实现的形态是 `Async hook A completed, Async hook B completed`：同一时刻
-/// 触发的多个异步 hook 各跑各的，完成时刻前后脚到达，逐条成行会把界面刷成流水账。
-/// 只有不同事件之间才判窗口，同事件的多条完成无条件并进同一行。
-const HOOK_LINE_MERGE_WINDOW: Duration = Duration::from_secs(1);
-
 /// 同步汇总文案：`1 PostToolUse hook ran · 3ms` / `2 PostToolUse hooks ran · 8ms`。
 pub(crate) fn sync_summary_text(event: &str, ran: usize, duration_ms: u64) -> String {
     let noun = if ran == 1 { "hook" } else { "hooks" };
     format!("{ran} {event} {noun} ran · {duration_ms}ms")
 }
 
-/// 异步完成段文案。
-///
-/// 独占一行时带计数（`1 async Stop hook completed` / `2 async Stop hooks completed`）；
-/// 与其它事件并进同一行时用单数形式 `Async hook Stop completed`（与参考实现一致）。
-pub(crate) fn async_summary_text(event: &str, count: usize, merged: bool) -> String {
-    if merged && count == 1 {
-        return format!("Async hook {event} completed");
-    }
-    let noun = if count == 1 { "hook" } else { "hooks" };
-    format!("{count} async {event} {noun} completed")
-}
-
 /// 一条会话级 hook 行里的一个事件段（同一事件的多次上报合并成一段）。
 #[derive(Debug, Clone)]
 struct HookNoteSegment {
     event: String,
-    /// 异步段的完成次数；同步段恒为 1，不参与文案。
-    count: usize,
-    /// 同步段汇总的 hook 数与耗时；异步段不用。
+    /// 同步段汇总的 hook 数与耗时。
     ran: usize,
     duration_ms: u64,
-    is_async: bool,
 }
 
 impl HookNoteSegment {
     fn sync(event: &str, ran: usize, duration_ms: u64) -> Self {
         Self {
             event: event.to_string(),
-            count: 1,
             ran,
             duration_ms,
-            is_async: false,
         }
     }
 
-    fn async_once(event: &str) -> Self {
-        Self {
-            event: event.to_string(),
-            count: 1,
-            ran: 0,
-            duration_ms: 0,
-            is_async: true,
-        }
-    }
-
-    fn text(&self, merged: bool) -> String {
-        if self.is_async {
-            async_summary_text(&self.event, self.count, merged)
-        } else {
-            sync_summary_text(&self.event, self.ran, self.duration_ms)
-        }
+    fn text(&self) -> String {
+        sync_summary_text(&self.event, self.ran, self.duration_ms)
     }
 }
 
@@ -428,7 +356,7 @@ struct HookNoteLine {
     segments: Vec<HookNoteSegment>,
     /// 上一次写进视图的文案
     text: String,
-    /// 最近一次写入/改写时刻：跨事件异步完成的合并窗口依据
+    /// 最近一次写入/改写时刻
     updated_at: Instant,
 }
 
@@ -445,44 +373,22 @@ impl HookNoteLine {
 
     /// 当前段组合应显示的文案。
     fn render(&self) -> String {
-        // 行内有多个异步段说明发生了跨事件合并：各段改用单数形式。
-        let merged = self.segments.iter().filter(|seg| seg.is_async).count() > 1;
         self.segments
             .iter()
-            .map(|seg| seg.text(merged))
+            .map(HookNoteSegment::text)
             .collect::<Vec<_>>()
             .join(", ")
     }
 
-    fn has_async_segment(&self) -> bool {
-        self.segments.iter().any(|seg| seg.is_async)
-    }
-
-    fn has_async_segment_of(&self, event: &str) -> bool {
-        self.segments
-            .iter()
-            .any(|seg| seg.is_async && seg.event == event)
-    }
-
     fn has_sync_segment(&self, event: &str) -> bool {
-        self.segments
-            .iter()
-            .any(|seg| !seg.is_async && seg.event == event)
+        self.segments.iter().any(|seg| seg.event == event)
     }
 
     fn sync_segment_mut(&mut self, event: &str) -> Option<&mut HookNoteSegment> {
-        self.segments
-            .iter_mut()
-            .find(|seg| !seg.is_async && seg.event == event)
+        self.segments.iter_mut().find(|seg| seg.event == event)
     }
 
-    fn async_segment_mut(&mut self, event: &str) -> Option<&mut HookNoteSegment> {
-        self.segments
-            .iter_mut()
-            .find(|seg| seg.is_async && seg.event == event)
-    }
-
-    /// 就地改写：返回旧文案供调用方替换，并刷新合并窗口起点。
+    /// 就地改写：返回旧文案供调用方替换。
     fn rewrite(&mut self, now: Instant) -> HookNoteUpdate {
         let text = self.render();
         let previous = std::mem::replace(&mut self.text, text.clone());
@@ -494,7 +400,7 @@ impl HookNoteLine {
     }
 }
 
-/// [`MessagePipeline::record_sync_hook`] / [`MessagePipeline::record_async_hook`] 的结果。
+/// [`MessagePipeline::record_sync_hook`] 的结果。
 pub(crate) struct HookNoteUpdate {
     /// 上一次写进视图的文案；`Some` 表示应就地改写而非新增。
     pub previous: Option<String>,
@@ -665,27 +571,6 @@ impl MessagePipeline {
         }
     }
 
-    /// 异步 hook 开始：给该工具调用写一条 Running 占位行。
-    ///
-    /// 占位由 `Async hook {event} running…` 渲染，完成事件到达时移除
-    /// （见 [`Self::clear_running_hook`]）。轮次结束时由 [`Self::drop_running_hooks`] 清理。
-    pub(crate) fn start_hook_result(&mut self, tool_call_id: &str, event: impl Into<String>) {
-        self.hook_results
-            .entry(tool_call_id.to_string())
-            .or_default()
-            .push(HookExec::running(event));
-    }
-
-    /// 异步 hook 完成：移除工具块上的 `running…` 占位。
-    ///
-    /// 完成结果不进工具块——异步 hook 可能在工具块冻结进历史前缀之后才回来，
-    /// 结果行统一由 [`Self::record_async_hook`] 写在会话级尾行。
-    pub(crate) fn clear_running_hook(&mut self, tool_call_id: &str, event: &str) {
-        if let Some(execs) = self.hook_results.get_mut(tool_call_id) {
-            execs.retain(|exec| !(exec.phase == HookPhase::Running && exec.event == event));
-        }
-    }
-
     /// 记录一次会话级同步 hook 汇总。
     ///
     /// 同一事件在一轮内的多次上报（plugin / global / project 各配各的 hook）合并成
@@ -717,53 +602,6 @@ impl MessagePipeline {
         };
         self.hook_notes.push(line);
         update
-    }
-
-    /// 记录一次异步 hook 完成（会话级与工具级共用，都写在视图尾部）。
-    ///
-    /// 合并规则：
-    /// - 同一事件本轮已有异步行 → 就地累加计数（`2 async Stop hooks completed`）；
-    /// - 否则若末行是异步行且距上次写入不超过 [`HOOK_LINE_MERGE_WINDOW`] →
-    ///   并进同一行、用 `, ` 分隔（`Async hook A completed, Async hook B completed`）；
-    /// - 否则新开一行。
-    pub(crate) fn record_async_hook(&mut self, event: &str, now: Instant) -> HookNoteUpdate {
-        if let Some(index) = self
-            .hook_notes
-            .iter()
-            .rposition(|line| line.has_async_segment_of(event))
-        {
-            let line = &mut self.hook_notes[index];
-            if let Some(segment) = line.async_segment_mut(event) {
-                segment.count += 1;
-            }
-            return line.rewrite(now);
-        }
-        if let Some(line) = self.hook_notes.last_mut() {
-            let within_window =
-                now.saturating_duration_since(line.updated_at) <= HOOK_LINE_MERGE_WINDOW;
-            if line.has_async_segment() && within_window {
-                line.segments.push(HookNoteSegment::async_once(event));
-                return line.rewrite(now);
-            }
-        }
-        let line = HookNoteLine::new(HookNoteSegment::async_once(event), now);
-        let update = HookNoteUpdate {
-            previous: None,
-            text: line.text.clone(),
-        };
-        self.hook_notes.push(line);
-        update
-    }
-
-    /// 轮次结束清理：丢掉所有仍处于 Running 的异步 hook 占位。
-    ///
-    /// 异步 hook 不会回报超时，占位若留到下一轮就会永远显示 `running…`。
-    /// 已 Finished 的结果行不动——它们要随工具块一起展示。
-    fn drop_running_hooks(&mut self) {
-        self.hook_results.retain(|_, execs| {
-            execs.retain(|exec| exec.phase != HookPhase::Running);
-            !execs.is_empty()
-        });
     }
 
     /// 把归档的 hook 结果挂到对应 `ToolBlock`（含 SubAgent 内部的工具块）。
@@ -1541,7 +1379,6 @@ impl MessagePipeline {
         self.current_ai_finalized = false;
         self.pending_tools.clear();
         self.completed_tools.clear();
-        self.drop_running_hooks();
         self.adaptive_policy.reset();
         self.force_flush_block();
         self.throttle_last_fire = None;
@@ -1564,7 +1401,6 @@ impl MessagePipeline {
         self.current_ai_finalized = false;
         self.pending_tools.clear();
         self.completed_tools.clear();
-        self.drop_running_hooks();
         self.adaptive_policy.reset();
         self.force_flush_block();
         self.throttle_last_fire = None;

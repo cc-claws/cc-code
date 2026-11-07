@@ -3069,57 +3069,6 @@ fn test_session_hook_note_keeps_events_on_separate_rows() {
     assert_eq!(second.text, "2 Stop hooks ran · 8ms");
 }
 
-/// 不同事件的异步完成在合并窗口内到达：并成一行、用 `, ` 分隔。
-#[test]
-fn test_async_hook_completions_merge_across_events_within_window() {
-    let mut pipeline = MessagePipeline::new("/tmp".to_string());
-    let now = std::time::Instant::now();
-
-    let first = pipeline.record_async_hook("UserPromptSubmit", now);
-    assert_eq!(first.previous, None, "首次完成应新增一行");
-    assert_eq!(first.text, "1 async UserPromptSubmit hook completed");
-
-    let second = pipeline.record_async_hook("PreToolUse", now);
-    assert_eq!(
-        second.previous.as_deref(),
-        Some("1 async UserPromptSubmit hook completed"),
-        "窗口内应就地改写同一行"
-    );
-    assert_eq!(
-        second.text,
-        "Async hook UserPromptSubmit completed, Async hook PreToolUse completed"
-    );
-}
-
-/// 超出合并窗口：另起一行，不并进上一行。
-#[test]
-fn test_async_hook_completions_outside_window_start_new_row() {
-    let mut pipeline = MessagePipeline::new("/tmp".to_string());
-    let now = std::time::Instant::now();
-    let _ = pipeline.record_async_hook("PreToolUse", now);
-
-    let later = pipeline.record_async_hook("Stop", now + std::time::Duration::from_secs(2));
-
-    assert_eq!(later.previous, None, "超出窗口应另起一行");
-    assert_eq!(later.text, "1 async Stop hook completed");
-}
-
-/// 同一事件的异步完成无条件累加计数，不受合并窗口限制。
-#[test]
-fn test_async_hook_same_event_accumulates_count() {
-    let mut pipeline = MessagePipeline::new("/tmp".to_string());
-    let now = std::time::Instant::now();
-    let _ = pipeline.record_async_hook("SessionStart", now);
-
-    let later = pipeline.record_async_hook("SessionStart", now + std::time::Duration::from_secs(5));
-
-    assert_eq!(
-        later.previous.as_deref(),
-        Some("1 async SessionStart hook completed")
-    );
-    assert_eq!(later.text, "2 async SessionStart hooks completed");
-}
-
 /// 取当前尾部工具块上已挂的 hook 行（不新建工具块）。
 fn tail_hook_rows(
     pipeline: &MessagePipeline,
@@ -3139,66 +3088,17 @@ fn tail_hook_rows(
         .unwrap_or_default()
 }
 
-/// 异步 hook 开始时先挂一条 Running 占位行。
-#[test]
-fn test_async_hook_started_shows_running_row() {
-    let mut pipeline = MessagePipeline::new("/tmp".to_string());
-    pipeline.start_hook_result("tc_running", "PostToolUse");
-
-    let rows = tool_hook_rows(&mut pipeline, "tc_running");
-    assert_eq!(rows.len(), 1, "开始事件应写入一条占位行");
-    assert_eq!(rows[0].text, "Async hook PostToolUse running…");
-    assert!(rows[0].detail_only(), "占位行只在详细模式出现");
-    assert!(rows[0].async_row(), "占位行不参与汇总行折叠");
-}
-
-/// 异步 hook 完成时清掉工具块上的 Running 占位（结果行走会话级尾行）。
-#[test]
-fn test_async_hook_completed_clears_running_row() {
-    let mut pipeline = MessagePipeline::new("/tmp".to_string());
-    pipeline.start_hook_result("tc_clear", "PostToolUse");
-    let before = tool_hook_rows(&mut pipeline, "tc_clear");
-    assert_eq!(before.len(), 1, "开始事件应写入一条占位行");
-
-    pipeline.clear_running_hook("tc_clear", "PostToolUse");
-
-    assert!(
-        tail_hook_rows(&pipeline, "tc_clear").is_empty(),
-        "完成事件必须清掉占位，避免永远显示 running…"
-    );
-}
-
 /// 轮次结束清空会话级合并状态：下一轮同类事件另起一行。
 #[test]
 fn test_pipeline_done_resets_session_hook_notes() {
     let mut pipeline = MessagePipeline::new("/tmp".to_string());
     let now = std::time::Instant::now();
-    let _ = pipeline.record_async_hook("Stop", now);
+    let _ = pipeline.record_sync_hook("Stop", 1, 3, now);
 
     pipeline.done();
 
-    let next = pipeline.record_async_hook("PreToolUse", now);
+    let next = pipeline.record_sync_hook("PreToolUse", 1, 3, now);
     assert_eq!(next.previous, None, "跨轮不应并进上一轮的行");
-}
-
-/// 轮次结束时仍为 Running 的占位必须清掉，已完成的工具级行保留。
-#[test]
-fn test_pipeline_done_drops_stale_running_hooks() {
-    let mut pipeline = MessagePipeline::new("/tmp".to_string());
-    pipeline.start_hook_result("tc_stale", "PostToolUse");
-    pipeline.push_hook_result("tc_done", HookExec::new("PostToolUse", 1, 6, Vec::new()));
-
-    pipeline.done();
-
-    assert!(
-        !pipeline.hook_results.contains_key("tc_stale"),
-        "done() 必须移除僵尸占位，避免永远显示 running…"
-    );
-    assert_eq!(
-        pipeline.hook_results.get("tc_done").map(Vec::len),
-        Some(1),
-        "已完成行随工具块保留，不得被 done() 清掉"
-    );
 }
 
 /// 只读工具不展示 hook 行；Edit / Write 仍展示（用户需要知道自动格式化等是否跑了）。

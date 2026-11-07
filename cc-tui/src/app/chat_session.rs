@@ -63,9 +63,28 @@ pub struct ChatSession {
     pub(crate) bg_shell_steering: super::bg_shell_notifications::BgShellSteering,
     /// 当前最新会话回顾文本（在上一轮任务总结行下方展示，新一轮开始时清空）
     pub latest_recap: Option<String>,
+    /// 运行中的异步 hook（事件名列表）：spinner 行展示 `Async hook X running…`，
+    /// 完成即移除（成功静默，失败/阻断走失败行）。不写消息区占位行，避免闪烁。
+    pub running_async_hooks: Vec<String>,
 }
 
 impl ChatSession {
+    /// 异步 hook 开始：登记运行中事件，spinner 行展示。
+    pub(crate) fn start_async_hook(&mut self, event: &str) {
+        self.running_async_hooks.push(event.to_string());
+    }
+
+    /// 异步 hook 完成：移除一个同名登记（成功静默；失败/阻断由失败行呈现）。
+    pub(crate) fn finish_async_hook(&mut self, event: &str) {
+        if let Some(pos) = self.running_async_hooks.iter().position(|e| e == event) {
+            self.running_async_hooks.remove(pos);
+        }
+    }
+
+    pub(crate) fn running_async_hooks(&self) -> &[String] {
+        &self.running_async_hooks
+    }
+
     pub(crate) fn remember_viewport_display(&mut self) {
         let display = self.ui.display();
         if let Some(sub) = self
@@ -245,6 +264,7 @@ impl ChatSession {
             pending_bg_shell_notifications: VecDeque::new(),
             bg_shell_steering: Default::default(),
             latest_recap: None,
+            running_async_hooks: Vec::new(),
         }
     }
 

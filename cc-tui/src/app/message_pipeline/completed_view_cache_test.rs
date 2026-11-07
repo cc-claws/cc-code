@@ -133,24 +133,6 @@ fn test_completed_view_cache_applies_new_hook_rows_to_cached_history() {
 }
 
 #[test]
-fn test_completed_view_cache_removes_finished_async_hook_placeholder() {
-    let mut pipeline = MessagePipeline::new(".".into());
-    pipeline.set_completed(make_tool_history(
-        "bash",
-        "Bash",
-        json!({"command":"echo done"}),
-        "done",
-    ));
-    let _ = pipeline.build_tail_vms();
-    pipeline.start_hook_result("bash", "PostToolUse");
-    let running = pipeline.build_tail_vms();
-    pipeline.clear_running_hook("bash", "PostToolUse");
-    let finished = pipeline.build_tail_vms();
-    assert!(running.iter().any(|message| matches!(message, MessageViewModel::ToolBlock { tool_call_id, hook_rows, .. } if tool_call_id == "bash" && !hook_rows.is_empty())), "异步 hook 运行占位应叠加到缓存副本");
-    assert!(finished.iter().all(|message| !matches!(message, MessageViewModel::ToolBlock { hook_rows, .. } if !hook_rows.is_empty())), "异步 hook 完成后不能从缓存重放运行占位");
-}
-
-#[test]
 fn test_completed_view_cache_applies_shell_runtime_to_cached_background_marker() {
     let mut pipeline = MessagePipeline::new(".".into());
     let output = "<background-task-started><task-id>task-1</task-id><command>sleep 30</command><output>C:/tmp/task-1.log</output></background-task-started>";
