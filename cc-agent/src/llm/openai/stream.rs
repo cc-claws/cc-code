@@ -78,8 +78,10 @@ pub(super) async fn do_invoke_streaming(
     let mut stream = resp.bytes_stream();
     let mut parser = SseParser::new();
     let mut reasoning_text = String::new();
-    // 首条 reasoning chunk 到达时刻（用于计算 duration_ms）
-    let mut reasoning_started_at: Option<std::time::Instant> = None;
+    // 思考结束时刻（首个 content/tool delta 到达时定格）。
+    // duration 从请求发起（start）算到该时刻——含服务端思考的首 token 等待（TTFT），
+    // 与用户体感的"思考了多久"一致；纯思考回答（无 content/tool）算到流结束。
+    let mut reasoning_ended_at: Option<std::time::Instant> = None;
     let mut content_text = String::new();
     let mut repetition_detector = RepetitionDetector::new();
     let mut repetition_detected = false;
@@ -145,10 +147,6 @@ pub(super) async fn do_invoke_streaming(
                 .or_else(|| delta["reasoning"].as_str())
             {
                 if !r.is_empty() {
-                    // 首条 reasoning chunk：记起点
-                    if reasoning_started_at.is_none() {
-                        reasoning_started_at = Some(std::time::Instant::now());
-                    }
                     ctx.event_handler
                         .on_event(AgentEvent::AiReasoning(r.to_string()));
                     reasoning_text.push_str(r);
@@ -169,6 +167,8 @@ pub(super) async fn do_invoke_streaming(
             // Text delta
             if let Some(c) = delta["content"].as_str() {
                 if !c.is_empty() {
+                    // 思考结束：进入正文输出，定格 duration 终点
+                    reasoning_ended_at.get_or_insert_with(std::time::Instant::now);
                     ctx.event_handler.on_event(AgentEvent::TextChunk {
                         message_id: ctx.message_id,
                         chunk: c.to_string(),
@@ -180,6 +180,10 @@ pub(super) async fn do_invoke_streaming(
 
             // Tool call accumulation (multi-index interleaved)
             if let Some(tc_array) = delta["tool_calls"].as_array() {
+                if !tc_array.is_empty() {
+                    // 思考结束：进入工具调用，定格 duration 终点
+                    reasoning_ended_at.get_or_insert_with(std::time::Instant::now);
+                }
                 for tc in tc_array {
                     let idx = tc["index"].as_u64().unwrap_or(0) as usize;
                     let acc = tool_accums
@@ -234,9 +238,14 @@ pub(super) async fn do_invoke_streaming(
         .as_ref()
         .and_then(|u| extract_openai_usage(u, stream_request_id.clone()));
 
+    let reasoning_duration_ms = (!reasoning_text.is_empty()).then(|| {
+        let end = reasoning_ended_at.unwrap_or_else(std::time::Instant::now);
+        end.saturating_duration_since(start).as_millis() as u64
+    });
+
     Ok(build_stream_response(
         &reasoning_text,
-        reasoning_started_at.map(|t| t.elapsed().as_millis() as u64),
+        reasoning_duration_ms,
         &content_text,
         tool_call_requests,
         stop_reason,

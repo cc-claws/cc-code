@@ -248,9 +248,10 @@ pub(super) async fn do_invoke_streaming(
                             if let Some(ref sig) = thinking_signature {
                                 block["signature"] = json!(sig);
                             }
-                            // 记录本段 thinking 耗时（仅 UI 展示用）
-                            if let Some(started) = thinking_started_at.take() {
-                                block["duration_ms"] = json!(started.elapsed().as_millis() as u64);
+                            // 本段 thinking 耗时（仅 UI 展示用）：从请求发起算到本段结束，
+                            // 含服务端思考的首 token 等待（TTFT），与体感一致。
+                            if thinking_started_at.take().is_some() {
+                                block["duration_ms"] = json!(start.elapsed().as_millis() as u64);
                             }
                             accumulated_blocks.push(block);
                         }
