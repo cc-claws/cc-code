@@ -7,6 +7,12 @@
 
 ## 最近更新
 
+v0.6.249：**async hook 运行状态收进 spinner 与 hook 会话 ID 修复**——异步 hook 执行时不再插占位行，运行状态并入底部 spinner 行（`Async hook X running…` 等四种形态），完成即消失、失败/阻断行保留，消除占位行闪烁；修复 hook payload 的 session_id 被硬编码为空串导致外部 hook 生态（如 clawd 宠物）把所有 peri 会话合并成一条显示的问题，现传真实会话 ID（#935, #937）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
+v0.6.248：**默认模型升级至 Claude 5.5 / GPT-6 系列**——登录面板、Setup 向导与各 Provider 兜底默认模型更新为 `claude-opus-5-5` / `claude-sonnet-5-5` / `claude-haiku-5-5` / `claude-fable-5-1` 与 `gpt-6-astra` / `gpt-6.1-sol` / `gpt-6-luna`；另修复 slash 命令着色误染工具输出（收窄到提示位）与 `Thought for Ns` 计时漏算 TTFT（改为请求发起到思考结束的墙钟时间）（#929, #931, #933）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
+v0.6.247：**slash 命令输入高亮与后台 shell 输出保留**——输入框内 slash 命令识别着色（#925，后续经 #931 收窄到提示位）；后台 shell 命令输出不再被轮次结束清理丢弃，长任务输出可回看（#927）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.246：**Glob / Grep 工具头统一显示 Search 并补充 path**——消息区工具头把 Glob 与 Grep 统一显示为 `Search`，摘要改为 `pattern: "…", path: "…"`（cwd 内折叠为相对路径），`-n` / `-i` / `-A/-B/-C` / `output_mode` 等执行参数不进摘要；状态栏 `✓ Name ×N` 仍按真实工具名 `Glob` / `Grep` 计数，避免两条同名 `Search`（#923）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.244：**状态栏与工具名样式收敛、权限切换视觉稳定与 git diff 原始输出**——状态栏快捷键文案统一小写、权限名改为 `auto mode on` / `bypass permissions on`，移除 `Shift+Tab` 切换权限模式时的临时加粗与闪烁；`!git diff` 不再重排成带行号的 diff 卡片，保留 Git 原始输出与自带 ANSI 颜色；工具名配色按反馈恢复柔灰 `text_soft`（#906, #908, #910, #912, #914）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。

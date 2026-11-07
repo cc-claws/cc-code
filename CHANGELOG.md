@@ -4,6 +4,34 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.249 — 2026-11-07
+
+### Fixes
+
+- **async hook 去占位行，运行状态收进 spinner 行（#935）**：异步 hook 执行时原在消息区插入占位行（`HookRowKind::Async`），完成瞬间消失造成闪烁，与完成/失败行的混排节奏也割裂。现删除占位行机制，运行状态统一由底部 spinner 行表达（`Async hook X running…` / `2 async X hooks running…` / `Async hooks A, B running…` / `N async hooks running…` 四种形态），hook 完成即从 spinner 消失，成功静默、失败/阻断行保留；`HooksStarted`/`HooksCompleted` 不配对时在轮次结束兜底清空运行登记，防止 spinner 残留。
+- **Hook payload 传真实 session_id，修复外部 hook 多会话合并（#937）**：`build_agent_inner` 构造 `HookMiddleware` 时把 session_id / transcript_path 硬编码为空串，外部 hook 生态（如 clawd 宠物）按 session_id 聚合会话时全部 peri 会话上报成 `default` 并互相覆盖（实际 2 个会话只显示 1 个）。现 session_id 传入真实会话 ID；transcript_path 保持空串（peri 无 transcript JSONL 对应物，接收端对空值安全返回）。新增 SessionStart hook 落盘 stdin payload 的 session_id 并断言等于真实会话 ID 的回归测试。
+
+## v0.6.248 — 2026-11-07
+
+### Features
+
+- **默认模型升级至 Claude 5.5 / GPT-6 系列（#929）**：登录面板（DEFAULT_MODELS）、Setup 向导与 OpenAI / Anthropic 适配器兜底默认模型更新为 `claude-opus-5-5` / `claude-sonnet-5-5` / `claude-haiku-5-5` / `claude-fable-5-1` 与 `gpt-6-astra` / `gpt-6.1-sol` / `gpt-6-luna`。已核查 Claude 5.5 破坏性变更（temperature 400、forced tool use、thinking 不可关闭）对适配层无影响。
+
+### Fixes
+
+- **slash 命令着色收窄到提示位（#931）**：#925 把 slash 着色接入 `format_prefixed_text` 通用渲染路径，导致工具输出中的 `/tmp`、"和/或" 等被误染。现收窄到 tips / welcome / 队列提示 / System 消息普通行（/help）等提示位保留着色，工具输出恢复正常渲染。
+- **`Thought for Ns` 计时含 TTFT（#933）**：思考耗时原从首条 reasoning chunk 起算，漏算首 token 前的等待（TTFT）。改为「请求发起 → 思考结束」墙钟时间：OpenAI 流以 `reasoning_ended_at` 定格于首个 content / tool delta，Anthropic 流计时起点改为请求发起。
+
+## v0.6.247 — 2026-11-06
+
+### Features
+
+- **slash 命令输入高亮（#925）**：输入框内 slash 命令识别并着色显示（后续在 #931 收窄到提示位，工具输出不再误染）。
+
+### Fixes
+
+- **后台 shell 输出保留（#927）**：后台 shell 命令输出不再被轮次结束清理丢弃，长任务输出可回看。
+
 ## v0.6.246 — 2026-11-06
 
 ### Fixes
