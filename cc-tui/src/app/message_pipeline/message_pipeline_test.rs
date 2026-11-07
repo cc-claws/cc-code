@@ -3069,25 +3069,6 @@ fn test_session_hook_note_keeps_events_on_separate_rows() {
     assert_eq!(second.text, "2 Stop hooks ran · 8ms");
 }
 
-/// 取当前尾部工具块上已挂的 hook 行（不新建工具块）。
-fn tail_hook_rows(
-    pipeline: &MessagePipeline,
-    tool_call_id: &str,
-) -> Vec<crate::ui::message_view::HookRow> {
-    pipeline
-        .build_tail_vms()
-        .iter()
-        .find_map(|vm| match vm {
-            MessageViewModel::ToolBlock {
-                tool_call_id: id,
-                hook_rows,
-                ..
-            } if id == tool_call_id => Some(hook_rows.clone()),
-            _ => None,
-        })
-        .unwrap_or_default()
-}
-
 /// 轮次结束清空会话级合并状态：下一轮同类事件另起一行。
 #[test]
 fn test_pipeline_done_resets_session_hook_notes() {

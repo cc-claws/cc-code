@@ -75,6 +75,9 @@ impl App {
         // 分支切换（如 Agent 执行了 `git checkout`）尽快反映到状态栏。
         // 对齐 Codex 在 `turn_runtime` 中每轮结束调用 `request_status_line_branch_refresh`。
         self.invalidate_git_branch_cache();
+        // 异步 hook 登记兜底清理：HooksCompleted 可能因 hook 进程 panic 永远不来，
+        // 不清会残留 spinner 的 `Async hook X running…` 到下一轮。
+        self.session_mgr.current_mut().running_async_hooks.clear();
         self.session_mgr.current_mut().agent.retry_status = None;
         // 轮次结束也走"最短可见"：提示刚发出就 Done 时不该被立刻抹掉
         self.session_mgr
@@ -186,6 +189,8 @@ impl App {
         self.session_mgr.current_mut().agent.running_tools.clear();
         self.session_mgr.current_mut().agent.recent_tools.clear();
         self.session_mgr.current_mut().spinner_state.clear_summary();
+        // 中断同样兜底清理异步 hook 登记，避免 spinner 残留 running…
+        self.session_mgr.current_mut().running_async_hooks.clear();
         // When parent agent is interrupted while executing a sync SubAgent,
         // pipeline.in_subagent() returns true because the SubAgent UI state is active.
         // Previously this was silently ignored, leaving the UI stuck in loading forever
