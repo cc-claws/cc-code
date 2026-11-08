@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.250：**Bash 输出渲染性能修复与标题行配色**——折叠态先截断可见行再做 JSON 美化，消除"算完就扔"的无效解析（显示内容逐字节不变，流式与全量重建不再重复付全文美化成本）；`✻` 标题行配色加深，低对比度终端下更易辨认（#939, #940）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.249：**async hook 运行状态收进 spinner 与 hook 会话 ID 修复**——异步 hook 执行时不再插占位行，运行状态并入底部 spinner 行（`Async hook X running…` 等四种形态），完成即消失、失败/阻断行保留，消除占位行闪烁；修复 hook payload 的 session_id 被硬编码为空串导致外部 hook 生态（如 clawd 宠物）把所有 peri 会话合并成一条显示的问题，现传真实会话 ID（#935, #937）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.248：**默认模型升级至 Claude 5.5 / GPT-6 系列**——登录面板、Setup 向导与各 Provider 兜底默认模型更新为 `claude-opus-5-5` / `claude-sonnet-5-5` / `claude-haiku-5-5` / `claude-fable-5-1` 与 `gpt-6-astra` / `gpt-6.1-sol` / `gpt-6-luna`；另修复 slash 命令着色误染工具输出（收窄到提示位）与 `Thought for Ns` 计时漏算 TTFT（改为请求发起到思考结束的墙钟时间）（#929, #931, #933）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。

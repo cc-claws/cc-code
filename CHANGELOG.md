@@ -4,6 +4,13 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.250 — 2026-11-07
+
+### Fixes
+
+- **Bash 输出折叠态先截断源行再 JSON 美化（#940）**：修复 [#645](https://github.com/cc-claws/cc-code/issues/645)——渲染原先对**全文**做 JSON 美化后才截断显示（ToolBlock 折叠 3 行、流式实时输出留 5 行、组折叠错误摘要取 400 字符），98% 的美化工作算完就扔。现按 `BodyWindow` 窗口（`HeadLines`/`HeadChars`/`TailLines`）只对可见部分的源行做美化，可见输出与旧版逐字节一致（逐行变换独立保序 + 全文长度守卫不变）；`… +N lines` 计数改为源行口径（流式省略数保留展开行计入）。折叠渲染的无效 JSON 解析基本消除，流式输出每个 chunk 与全量重建时历史消息不再重复付全文美化成本。
+- **`✻` 标题行过暗修复（#939）**：Context compacted 等 `✻` 前缀标题行配色从 `subtle` 提升为 `inactive`，低对比度终端下不再难以辨认。
+
 ## v0.6.249 — 2026-11-07
 
 ### Fixes
