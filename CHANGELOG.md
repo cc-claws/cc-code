@@ -4,6 +4,12 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.251 — 2026-11-08
+
+### Fixes
+
+- **关窗/退出可靠触发 SessionEnd，hook payload session_id 全链路对齐（#941, #942）**：Windows 点 X 关窗时 `CTRL_CLOSE_EVENT` 无人处理，SessionEnd 从不触发，clawd 等按 session_id 聚合的外部 hook 消费方里会话永远停在 working；正常退出与 `/clear` 路径的 session_id 也硬编码为空串，异步 hook 通知可能因 runtime 提前 drop 被吞掉。现在关窗在 handler 线程从事件循环每 500ms 刷新的全局快照同步触发 SessionEnd（3.5s 超时 + `SESSION_END_FIRED` 原子互斥，与正常退出不重复触发）；三条 SessionEnd 路径均携带真实 session_id 与 CC 对齐的 reason（关窗 `other`、`/clear` `clear`、输入框可见时退出 `prompt_input_exit`）；退出路径等待异步 hook 完成（`EXIT_HOOK_WAIT` 总超时）。另补齐 SubagentStart/SubagentStop 的真实 session_id 透传（原硬编码 `""` 会把子 Agent 生命周期事件归到 "default" 会话），并新增 SessionEnd/subagent hook payload 与 blocking 等待行为的回归测试。
+
 ## v0.6.250 — 2026-11-07
 
 ### Fixes

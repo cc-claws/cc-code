@@ -121,6 +121,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **关窗/退出可靠触发 SessionEnd，hook session_id 全链路对齐** | v0.6.251 | Windows 点 X 关窗此前 `CTRL_CLOSE_EVENT` 无人处理、SessionEnd 从不触发，clawd 等按 session_id 聚合的外部 hook 消费方里会话永远停在 working；正常退出与 `/clear` 路径的 session_id 也硬编码为空串，异步 hook 通知可能被 runtime 提前 drop 吞掉。现在关窗在 handler 线程从 500ms 刷新的全局快照同步触发 SessionEnd（3.5s 超时 + 原子互斥，不与正常退出重复触发），三条 SessionEnd 路径均携带真实 session_id 与 CC 对齐的 reason（关窗 `other`、`/clear` `clear`、输入框可见时退出 `prompt_input_exit`），退出路径等待异步 hook 完成；另补齐 SubagentStart/SubagentStop 的真实 session_id，子任务生命周期事件不再归到 "default" 会话（#941, #942）。 |
 | **Glob / Grep 工具头统一显示 Search 并补充 path** | v0.6.246 | 消息区工具头把 Glob 与 Grep 统一显示为 `Search`（对齐参考实现的 `userFacingName`），摘要从裸 pattern 改为 `pattern: "…", path: "…"`，cwd 内路径折叠为相对形式；`-n` / `-i` / `-A/-B/-C` / `output_mode` 等只影响执行的参数不进入工具头；状态栏 `✓ Name ×N` 仍按真实工具名 `Glob` / `Grep` 计数，避免两条同名 `Search`（#923）。 |
 | **状态栏与工具名样式收敛、权限切换视觉稳定与 git diff 原始输出** | v0.6.244 | 统一状态栏快捷键文案为小写（`ctrl+o` / `ctrl+p` / `:detail` / `:settings`），权限名改为 `auto mode on` / `bypass permissions on`；移除 `Shift+Tab` 切换权限模式时权限标签的临时加粗与高亮计时，消除闪烁跳变；`!git diff` 不再自动重排为带摘要与行号的 diff 卡片，保留 Git 原始文件头、`@@` 区块、`+/-` 内容与自带 ANSI 颜色；工具名颜色按用户反馈从 `text` 恢复为柔灰 `text_soft`（#906, #908, #910, #912, #914）。 |
 | **支持运行时切换 cc / dsh / pi Agent 内核** | v0.6.241 | 支持通过配置项 `agent_kernel` 或 `/kernel` 命令在 `cc`（参考实现经典内核）、`dsh`（Devin-style shell）与 `pi`（流式轻量）Agent 内核间运行时无缝切换。内部统一规范名并由方言层双向翻译，对齐子代理能力与审批契约，cc 内核保持逐字节等价（#826, #903）；终端 Markdown 渲染同时新增 LaTeX 数学公式解析与 Unicode 提纯渲染（#901, #902）。 |
@@ -130,7 +131,6 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **移除 tool_result 非标准 id 字段与国产端点双向自适应** | v0.6.233 | 修复 `tool_result` 携带非标准 `id` 属性导致经严格校验的上游代理网关报错 `Extra inputs are not permitted` 的问题。默认遵循官方标准不发送 `id` 字段；同时新增 `detect_tool_result_id_requirement` 动态嗅探器，遇到特殊非标国产网关明确要求 `id` 时自动补齐重试，实现官方标准端点与非标国产端点双向兼容（#878, #879）。 |
 | **轻量模型 thinking 400 修复与多级降级自愈** | v0.6.232 | 针对 Haiku 3.x/4.x 系列等轻量模型原生不开放 Extended Thinking，修复全局开启 thinking 时请求直接报错的问题。静态预判轻量系列天生无 thinking 并彻底不传相关字段；协议自适应嗅探机制新增 `DisableThinking` 指示，当检测到模型或网关不支持思考时，自适应重试最多 2 级平滑降级（`Budget → Adaptive → Disabled`），自动关闭 thinking 并重试成功，彻底杜绝 400 报错（#875, #876）。 |
 | **Bash 输出 git diff 智能高亮渲染与 PHP 纯源码高亮修复** | v0.6.231 | 终端输入 `!git diff` 或 Agent 执行 `git diff` 时，输出自动接入内置 Diff 渲染管线，呈现带代码语法着色、单侧行号 Gutter 与词级对比（Word-diff）的高颜值视图；同时修复 syntect 将 `.php` 绑定到 HTML 嵌入语法导致脱离 `<?php` 后单行高亮全变白字的问题，优先使用纯源码语法 `"PHP Source"` 稳定高亮（#872, #873）。 |
-| **含 VS16 宽字形的表格行不再错位** | v0.6.228 | markdown 表格某行单元格含 `⚠️`（`U+26A0 U+FE0F`）时，该行的竖线分隔符与右侧边框曾整体右移 1 格、右边框冲出表格边界，滚动重绘后右侧残留悬空竖线。根因在输出层而非表格渲染：`Buffer::diff` 为宽字形额外补画的尾格，被 crossterm 后端按 cell 索引当作相邻格续写（不认宽字形已把光标推进 2 列）。现在下发 cell 前丢弃被宽字形覆盖的尾格，判断依据取实际下发的字形宽度（宽字形若被降级成 1 列 ASCII 则保留尾格）（#860）。 |
 > 更早版本（v0.6.0 – v0.6.224）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---
