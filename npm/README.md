@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.252：**思考耗时显示修复**——`Thought for 1s` 与实际思考近 1 分钟严重不符：TUI 侧组计时（不含 TTFT）每次渲染装配覆盖适配器回填的含 TTFT 计时。现 LLM 计时优先、组计时仅兜底（下限 1s）；组语义重构为「一段思考的墙钟」（工具运行时长不计入、每轮清零跨轮残留），多行冻结思考行耗时各自对齐（修复两行同值的错位），正文输出不再灌注近零组值（#945, #946）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.251：**关窗/退出可靠触发 SessionEnd，hook session_id 全链路对齐**——Windows 点 X 关窗此前 `CTRL_CLOSE_EVENT` 无人处理、SessionEnd 从不触发，clawd 等外部 hook 消费方里会话永远停在 working；现在关窗在 handler 线程从 500ms 刷新的全局快照同步触发 SessionEnd（3.5s 超时 + 原子互斥不与正常退出重复），关窗 `other`、`/clear` `clear`、输入框可见时退出 `prompt_input_exit` 三条路径均携带真实 session_id，退出路径等待异步 hook 完成；另补齐 SubagentStart/SubagentStop 的真实 session_id，子任务事件不再归错会话（#941, #942）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.250：**Bash 输出渲染性能修复与标题行配色**——折叠态先截断可见行再做 JSON 美化，消除"算完就扔"的无效解析（显示内容逐字节不变，流式与全量重建不再重复付全文美化成本）；`✻` 标题行配色加深，低对比度终端下更易辨认（#939, #940）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
