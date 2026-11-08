@@ -4,6 +4,12 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.252 — 2026-11-08
+
+### Fixes
+
+- **修复思考耗时显示被 TUI 组计时覆盖，LLM 计时优先（#945, #946）**：`Thought for 1s` 与实际思考时长严重不符（真机近 1 分钟思考仅显示 1s）。7a4abf80（v0.6.248）已让流式适配器回填「请求发起 → 思考结束」含 TTFT 的 `duration_ms`，但 TUI 的 `mark_live_thinking` 每次装配都用组计时覆盖该值，而组计时锚点为首条 reasoning chunk 到达（不含 TTFT），思考大头落在 TTFT 等待、token 末尾倾泻时显示仅 1s。现 `fill_group_duration` 统一填充——LLM 值优先、组计时仅兜底（下限 1s）；组语义重构为「一段思考的墙钟」：工具运行时长不计入思考耗时、组边界只在 reasoning / 工具边界开合、每轮清零跨轮残留；多行冻结思考行按 `finished_groups` 逐行消费修复 off-by-one 错位（两行曾显示同一数值）；正文 chunk 不再冻结组、终结近零值灌注。非流式路径 `duration_ms` 仍为 None（维持兜底显示），留待后续。
+
 ## v0.6.251 — 2026-11-08
 
 ### Fixes

@@ -121,6 +121,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **思考耗时显示修复：LLM 计时优先（含 TTFT）** | v0.6.252 | 修复 `Thought for 1s` 与实际思考时长严重不符（真机近 1 分钟思考显示 1s）：TUI 侧组计时（锚点为首条 reasoning chunk，不含 TTFT）每次渲染装配都覆盖适配器回填的含 TTFT `duration_ms`。现 LLM 值优先、组计时仅兜底（下限 1s）；组语义重构为「一段思考的墙钟」（工具运行时长不计入、组边界只在 reasoning / 工具边界开合、每轮清零跨轮残留）；多行冻结思考行各自消费对应组值（修复两行显示同一数值的 off-by-one 错位）；正文 chunk 不再冻结组、终结近零值灌注（#945, #946）。 |
 | **关窗/退出可靠触发 SessionEnd，hook session_id 全链路对齐** | v0.6.251 | Windows 点 X 关窗此前 `CTRL_CLOSE_EVENT` 无人处理、SessionEnd 从不触发，clawd 等按 session_id 聚合的外部 hook 消费方里会话永远停在 working；正常退出与 `/clear` 路径的 session_id 也硬编码为空串，异步 hook 通知可能被 runtime 提前 drop 吞掉。现在关窗在 handler 线程从 500ms 刷新的全局快照同步触发 SessionEnd（3.5s 超时 + 原子互斥，不与正常退出重复触发），三条 SessionEnd 路径均携带真实 session_id 与 CC 对齐的 reason（关窗 `other`、`/clear` `clear`、输入框可见时退出 `prompt_input_exit`），退出路径等待异步 hook 完成；另补齐 SubagentStart/SubagentStop 的真实 session_id，子任务生命周期事件不再归到 "default" 会话（#941, #942）。 |
 | **Glob / Grep 工具头统一显示 Search 并补充 path** | v0.6.246 | 消息区工具头把 Glob 与 Grep 统一显示为 `Search`（对齐参考实现的 `userFacingName`），摘要从裸 pattern 改为 `pattern: "…", path: "…"`，cwd 内路径折叠为相对形式；`-n` / `-i` / `-A/-B/-C` / `output_mode` 等只影响执行的参数不进入工具头；状态栏 `✓ Name ×N` 仍按真实工具名 `Glob` / `Grep` 计数，避免两条同名 `Search`（#923）。 |
 | **状态栏与工具名样式收敛、权限切换视觉稳定与 git diff 原始输出** | v0.6.244 | 统一状态栏快捷键文案为小写（`ctrl+o` / `ctrl+p` / `:detail` / `:settings`），权限名改为 `auto mode on` / `bypass permissions on`；移除 `Shift+Tab` 切换权限模式时权限标签的临时加粗与高亮计时，消除闪烁跳变；`!git diff` 不再自动重排为带摘要与行号的 diff 卡片，保留 Git 原始文件头、`@@` 区块、`+/-` 内容与自带 ANSI 颜色；工具名颜色按用户反馈从 `text` 恢复为柔灰 `text_soft`（#906, #908, #910, #912, #914）。 |
@@ -130,8 +131,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **自动会话回顾失败静默化与防死循环重试** | v0.6.234 | 修复上游代理网关偶发 503 等异常时，后台自动触发的会话回顾在主消息流反复输出红字刷屏的问题。区分后台自动与手动触发：自动回顾失败改为后台日志静默忽略，不污染对话界面；调度器新增连续失败上限 `MAX_AUTO_RETRY_COUNT = 1`，超限立即停止重试，杜绝无限死循环（#881, #882）。 |
 | **移除 tool_result 非标准 id 字段与国产端点双向自适应** | v0.6.233 | 修复 `tool_result` 携带非标准 `id` 属性导致经严格校验的上游代理网关报错 `Extra inputs are not permitted` 的问题。默认遵循官方标准不发送 `id` 字段；同时新增 `detect_tool_result_id_requirement` 动态嗅探器，遇到特殊非标国产网关明确要求 `id` 时自动补齐重试，实现官方标准端点与非标国产端点双向兼容（#878, #879）。 |
 | **轻量模型 thinking 400 修复与多级降级自愈** | v0.6.232 | 针对 Haiku 3.x/4.x 系列等轻量模型原生不开放 Extended Thinking，修复全局开启 thinking 时请求直接报错的问题。静态预判轻量系列天生无 thinking 并彻底不传相关字段；协议自适应嗅探机制新增 `DisableThinking` 指示，当检测到模型或网关不支持思考时，自适应重试最多 2 级平滑降级（`Budget → Adaptive → Disabled`），自动关闭 thinking 并重试成功，彻底杜绝 400 报错（#875, #876）。 |
-| **Bash 输出 git diff 智能高亮渲染与 PHP 纯源码高亮修复** | v0.6.231 | 终端输入 `!git diff` 或 Agent 执行 `git diff` 时，输出自动接入内置 Diff 渲染管线，呈现带代码语法着色、单侧行号 Gutter 与词级对比（Word-diff）的高颜值视图；同时修复 syntect 将 `.php` 绑定到 HTML 嵌入语法导致脱离 `<?php` 后单行高亮全变白字的问题，优先使用纯源码语法 `"PHP Source"` 稳定高亮（#872, #873）。 |
-> 更早版本（v0.6.0 – v0.6.224）见 [CHANGELOG](./CHANGELOG.md)。
+> 更早版本（v0.6.0 – v0.6.231）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---
 
