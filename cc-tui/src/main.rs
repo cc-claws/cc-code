@@ -1507,6 +1507,27 @@ fn draw_prepared_app(
         // Fixed resize 已负责清理目标区域并重置差分缓存，只执行一次物理清理。
         terminal.resize(plan.area)?;
     }
+    if !reflowed && (plan.shrink_top > 0 || plan.shrink_bottom > 0) {
+        // 视口收缩（面板关闭等瞬时块回收）释放的行留在屏幕上会形成留白/残影，
+        // Fixed 视口只清目标区域，必须显式擦掉新 area 之外的旧帧行。
+        if plan.shrink_top > 0 {
+            viewport::clear_owned_area(
+                terminal.backend_mut(),
+                Rect::new(
+                    0,
+                    plan.area.y.saturating_sub(plan.shrink_top),
+                    1,
+                    plan.shrink_top,
+                ),
+            )?;
+        }
+        if plan.shrink_bottom > 0 {
+            viewport::clear_owned_area(
+                terminal.backend_mut(),
+                Rect::new(0, plan.area.bottom(), 1, plan.shrink_bottom),
+            )?;
+        }
+    }
     viewport::record_owned_area(plan.area);
     let clear_requested = app
         .session_mgr
