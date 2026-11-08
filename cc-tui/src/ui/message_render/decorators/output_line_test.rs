@@ -197,3 +197,32 @@ fn test_decorate_passes_through_plain_text() {
     assert_eq!(out.above_the_fold, "hello\nworld");
     assert_eq!(out.remaining_lines, 0);
 }
+
+#[test]
+fn test_try_json_format_lines_guard_uses_whole_chars() {
+    // 窗口只有 1 行（7 字符），但长度守卫必须按全文口径判定
+    let lines = vec!["{\"a\":1}"];
+    assert!(
+        try_json_format_lines(&lines, 20_000).is_none(),
+        "全文超上限时应跳过美化，防止折叠态把原文漂移成美化版"
+    );
+    assert!(
+        try_json_format_lines(&lines, 100).is_some(),
+        "全文在上限内时窗口行应正常美化"
+    );
+}
+
+#[test]
+fn test_try_json_format_lines_matches_full_content_prefix() {
+    // 逐行变换独立保序：窗口美化结果必须是全文美化结果的前缀
+    let content = "{\"a\":1}\nplain line\n{\"b\":2}";
+    let full = try_json_format_content(content).expect("全文应美化");
+    let all: Vec<&str> = content.split('\n').collect();
+    let head = try_json_format_lines(&all[..2], content.chars().count()).expect("窗口应美化");
+    let full_head: Vec<&str> = full.split('\n').take(head.split('\n').count()).collect();
+    assert_eq!(
+        full_head,
+        head.split('\n').collect::<Vec<_>>(),
+        "窗口美化结果应与全文美化前缀逐字节一致"
+    );
+}

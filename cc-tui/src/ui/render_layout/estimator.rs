@@ -1,6 +1,8 @@
 //! 高度只用于滚动定位；可见区域始终由真实 renderer 计算。
 use super::super::message_view::{ContentBlockView, MessageViewModel, ToolPhase};
-use crate::ui::message_render::decorators::bash::{parse_exit_code, transform_bash_output_lines};
+use crate::ui::message_render::decorators::bash::{
+    parse_exit_code, transform_bash_output_lines, BodyWindow,
+};
 
 #[derive(Clone)]
 pub(super) struct LayoutSummary {
@@ -175,7 +177,9 @@ pub(super) fn summarize(vm: &MessageViewModel) -> LayoutSummary {
                                 &tool.content,
                                 parse_exit_code(&tool.content),
                                 &mut error_header,
+                                BodyWindow::All,
                             )
+                            .lines
                             .len()
                             .max(1)
                         } else {

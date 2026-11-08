@@ -137,7 +137,12 @@ pub(super) fn render_collapsed_skill(
         ),
     ]));
     if failed && !content.trim().is_empty() {
-        lines.extend(error_summary_lines(content, width, ERROR_SUMMARY_MAX_LINES));
+        lines.extend(error_summary_lines(
+            content,
+            width,
+            ERROR_SUMMARY_MAX_LINES,
+            None,
+        ));
     }
     lines
 }

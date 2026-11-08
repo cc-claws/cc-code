@@ -2904,7 +2904,7 @@ fn test_tool_block_long_json_wraps_with_hanging_indent() {
 fn test_error_summary_long_line_wraps_with_hanging_indent() {
     let content = "Tool execution failed: Grep - Invalid arguments for tool Grep:\nUnexpected parameter 'command' was provided (allowed parameters: [\"-A\", \"-B\", \"-C\", \"-i\", \"-n\", \"fixed_strings\", \"glob\", \"output_mode\", \"path\", \"pattern\", \"type\", \"whole_word\"])";
     let width = 80usize;
-    let text_lines: Vec<String> = error_summary_lines(content, width, usize::MAX)
+    let text_lines: Vec<String> = error_summary_lines(content, width, usize::MAX, None)
         .iter()
         .map(line_plain_text)
         .collect();
@@ -3189,7 +3189,7 @@ fn test_error_summary_limited_in_normal_mode() {
     let width = 80usize;
 
     // Act：非详细模式（上限 3）
-    let normal: Vec<String> = error_summary_lines(&content, width, 3)
+    let normal: Vec<String> = error_summary_lines(&content, width, 3, None)
         .iter()
         .map(line_plain_text)
         .collect();
@@ -3212,7 +3212,7 @@ fn test_error_summary_limited_in_normal_mode() {
     );
 
     // 详细模式（usize::MAX）：完整
-    let detail: Vec<String> = error_summary_lines(&content, width, usize::MAX)
+    let detail: Vec<String> = error_summary_lines(&content, width, usize::MAX, None)
         .iter()
         .map(line_plain_text)
         .collect();
@@ -4786,5 +4786,60 @@ fn test_active_thinking_row_shows_char_count() {
     assert!(
         frozen.contains("Thought for 5s, read 2 files"),
         "冻结后应由耗时取代字数: {frozen}"
+    );
+}
+
+#[test]
+fn test_push_visual_capped_hint_remaining_override() {
+    // issue #645：折叠态先截断后 items 只覆盖窗口，`… +N lines` 必须
+    // 使用调用方传回的源行口径而非 items 数
+    let items = ["a", "b", "c", "d", "e"];
+    let mut out: Vec<Line<'static>> = Vec::new();
+    push_visual_capped_output(
+        &mut out,
+        &items,
+        2,
+        Color::Reset,
+        Some(117),
+        |line, _i, _base| vec![Line::from((*line).to_string())],
+    );
+    let hint_text: String = out
+        .last()
+        .expect("应有展开提示行")
+        .spans
+        .iter()
+        .map(|s| s.content.as_ref())
+        .collect();
+    assert!(
+        hint_text.contains("+117 lines"),
+        "提示应使用源行口径 117，实际: {}",
+        hint_text
+    );
+}
+
+#[test]
+fn test_push_visual_capped_hint_defaults_to_items_count() {
+    // 不传覆盖值时保持既有 items 口径
+    let items = ["a", "b", "c", "d", "e"];
+    let mut out: Vec<Line<'static>> = Vec::new();
+    push_visual_capped_output(
+        &mut out,
+        &items,
+        2,
+        Color::Reset,
+        None,
+        |line, _i, _base| vec![Line::from((*line).to_string())],
+    );
+    let hint_text: String = out
+        .last()
+        .expect("应有展开提示行")
+        .spans
+        .iter()
+        .map(|s| s.content.as_ref())
+        .collect();
+    assert!(
+        hint_text.contains("+3 lines"),
+        "默认应按 items 口径计数（5-2=3），实际: {}",
+        hint_text
     );
 }
