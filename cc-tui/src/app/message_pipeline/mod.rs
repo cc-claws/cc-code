@@ -426,13 +426,13 @@ pub struct MessagePipeline {
     current_ai_reasoning: String,
     /// 当前这段思考的起始时刻：运行中用它把 Thinking 行的时间"走秒"
     reasoning_started_at: Option<std::time::Instant>,
-    /// 当前"思考+工具"组内累计的间隔耗时（对齐参考实现 thoughtForMs，单段封顶 600s）
+    /// 当前思考组已累计的耗时（组 = 一段思考的墙钟，单段封顶 600s）
     group_ms: u64,
-    /// 上一个事件（思考首 chunk / ToolStart / ToolEnd / 消息落库）的到达时刻
+    /// 事件时钟：上一个边界（思考首 chunk / ToolStart / ToolEnd / 消息落库）的到达时刻
     last_event_at: Option<std::time::Instant>,
-    /// 已冻结的组耗时，按时间顺序排列（每组在正文到达时冻结）
+    /// 已冻结的组耗时，按时间顺序排列（每组 = 一段思考，冻结于正文/工具边界/落库）
     finished_groups: Vec<u64>,
-    /// 当前组是否仍在进行（正文到达即结束）——决定整行显示 Thinking 还是 Thought
+    /// 当前思考组是否仍在进行（思考首 chunk 开组，正文/工具边界/落库冻结）——决定整行显示 Thinking 还是 Thought
     group_active: bool,
     /// 当前是否处于"思考中"：push_reasoning 置 true，正文到达（freeze_group）置 false
     thinking_now: bool,
@@ -959,7 +959,9 @@ impl MessagePipeline {
     /// 追加流式文本 chunk
     pub fn push_chunk(&mut self, chunk: &str) {
         // 正文开始 = 本组结束：冻结该组的间隔累计并开新组。
-        if !chunk.is_empty() {
+        // 只在有活跃组时冻结——正文每个 chunk 都冻结会把 finished_groups
+        // 灌满近零值，兜底耗时被污染成 1s。
+        if !chunk.is_empty() && self.group_active {
             self.freeze_group();
         }
         match self.streaming_mode {
@@ -983,8 +985,11 @@ impl MessagePipeline {
         // 思考一到达就进入 active（真机要求：切到思考立刻显示 ● Thinking）
         self.thinking_now = true;
         self.reasoning_flushed = false;
-        self.group_active = true;
-        if self.last_event_at.is_none() {
+        // 新思考段落才开组：组 = 一段思考的墙钟（段首 chunk → 冻结边界）。
+        // 工具边界只拨时钟不开组，避免产生无 Thought 行可贴的组、
+        // 也避免把工具运行时长算进思考耗时。
+        if !self.group_active {
+            self.group_active = true;
             self.note_event();
         }
         self.current_ai_reasoning.push_str(text);
@@ -1004,23 +1009,16 @@ impl MessagePipeline {
         self.thinking_now || !self.pending_tools.is_empty()
     }
 
-    /// 打一个事件边界：把"距上一个事件"的间隔累加进当前组（单段封顶 600s）。
-    /// 事件 = 思考首 chunk / ToolStart / ToolEnd / 消息落库，对应参考实现的相邻消息边界。
+    /// 拨事件时钟：只记录边界时刻，不吸收间隔、不开组。
+    /// 工具边界用它把工具运行时长排除在思考组之外；思考组的耗时
+    /// 在开组（段首锚点）与冻结（增量入组）两处计量。
     fn note_event(&mut self) {
-        let now = std::time::Instant::now();
-        if let Some(prev) = self.last_event_at {
-            self.group_ms = self
-                .group_ms
-                .saturating_add((now - prev).as_millis().min(600_000) as u64);
-        }
-        self.last_event_at = Some(now);
-        self.group_active = true;
+        self.last_event_at = Some(std::time::Instant::now());
     }
 
-    /// 正文到达 = 本组结束：冻结当前组耗时，开新组。
+    /// 冻结当前思考组：把"段首锚点到此刻"的增量计入后落盘。
     fn freeze_group(&mut self) {
-        // 冻结前把"最后一条事件到此刻"的增量也计入：这一段就是参考实现里
-        // 相邻消息（思考消息本身）的时间差，缺了它会让 `Thought for 20s` 冻结成
+        // 冻结前把"锚点到此刻"的增量也计入：缺了它会让 `Thought for 20s` 冻结成
         // `Thought for 1s`（数字跳水）。
         let now = std::time::Instant::now();
         if let Some(prev) = self.last_event_at {
@@ -1049,8 +1047,10 @@ impl MessagePipeline {
 
     fn flush_block_buffer(&mut self) {
         if !self.block_buffer.is_empty() {
-            // block 模式下正文从这里落库，同样意味着"本组结束"
-            self.freeze_group();
+            // block 模式下正文从这里落库，同样意味着"本组结束"（仅活跃组才冻结）
+            if self.group_active {
+                self.freeze_group();
+            }
             self.current_ai_text.push_str(&self.block_buffer);
             self.block_buffer.clear();
             self.block_scanner.reset();
@@ -1129,7 +1129,13 @@ impl MessagePipeline {
         is_background: bool,
     ) {
         self.finalize_current_ai();
-        self.note_event();
+        // 思考段落到工具调用即结束：冻结开口的组。没有开口组只拨时钟，
+        // 不让工具间隙产生无 Thought 行可贴的组。
+        if self.group_active {
+            self.freeze_group();
+        } else {
+            self.note_event();
+        }
         self.register_tool_call(tool_call_id, name, &input);
 
         if name == "Agent" {
@@ -1193,6 +1199,7 @@ impl MessagePipeline {
 
     /// 工具调用结束（内部版本，只更新状态，不返回 PipelineAction）
     fn tool_end_internal(&mut self, tool_call_id: &str, name: &str, output: &str, is_error: bool) {
+        // 拨时钟即可：工具运行时长不计入任何思考组
         self.note_event();
         let pending = self.pending_tools.remove(tool_call_id);
         let input = pending
@@ -1374,7 +1381,11 @@ impl MessagePipeline {
     pub fn done(&mut self) {
         self.finalize_current_ai();
         self.reasoning_started_at = None;
-        self.freeze_group();
+        // 只冻结还在开口的组（思考未出正文就被 Done/中断的场景）；
+        // 正文已到达的组早已在 push_chunk 冻结，这里再冻结只会灌入近零组。
+        if self.group_active || self.thinking_now {
+            self.freeze_group();
+        }
         self.last_event_at = None;
         self.current_ai_finalized = false;
         self.pending_tools.clear();
@@ -1537,6 +1548,9 @@ impl MessagePipeline {
         // 清空上一轮的 frozen_subagent_vms，防止跨轮次累积导致新轮次的
         // SubAgentGroup 按位置错误匹配到旧轮的 frozen VM（而非本轮的）。
         self.frozen_subagent_vms.clear();
+        // 清掉上一轮残留的组计时：跨轮残留会污染多思考行的"从后往前"对齐
+        self.finished_groups.clear();
+        self.group_ms = 0;
     }
 
     // ── 节流机制 ──────────────────────────────────────────────────────────────

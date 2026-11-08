@@ -3129,3 +3129,216 @@ fn test_edit_and_write_tools_show_hook_rows() {
         .count();
     assert_eq!(blocks_with_rows, 2, "Edit / Write 应各自带 hook 行");
 }
+
+/// 取第一行思考的冻结耗时（Thought 行的 duration_ms）。
+fn first_thinking_duration(vms: &[MessageViewModel]) -> Option<u64> {
+    for vm in vms {
+        match vm {
+            MessageViewModel::AssistantBubble { blocks, .. } => {
+                for b in blocks {
+                    if let ContentBlockView::Reasoning { duration_ms, .. } = b {
+                        return *duration_ms;
+                    }
+                }
+            }
+            MessageViewModel::ToolCallGroup {
+                thinking: Some(t), ..
+            } => {
+                return t.duration_ms;
+            }
+            _ => continue,
+        }
+    }
+    None
+}
+
+/// 测试：LLM 侧 duration_ms（含 TTFT 的真实墙钟）不被 TUI 组计时覆盖
+/// （回归：`Thought for 1s` 而实际思考近 1 分钟）。
+#[test]
+fn test_mark_live_thinking_keeps_llm_duration() {
+    // Arrange：模拟"服务端思考 60s、token 末尾倾泻"——组计时只有 ~1s，
+    // LLM 侧 duration_ms 是含 TTFT 的 60s
+    let mut pipeline = MessagePipeline::new("/p".to_string());
+    pipeline.completed = vec![BaseMessage::ai_from_blocks(vec![
+        ContentBlock::reasoning_with_duration("思考内容", 60_000),
+        ContentBlock::text("答案"),
+    ])];
+    pipeline.has_snapshot_this_round = true;
+    pipeline.finished_groups = vec![1_000];
+    pipeline.last_event_at = Some(std::time::Instant::now());
+    // Act
+    let vms = pipeline.build_tail_vms();
+    // Assert：冻结态 Thought 行保留 LLM 侧 60s，而不是被组计时覆盖成 1s
+    assert_eq!(
+        first_thinking_duration(&vms),
+        Some(60_000),
+        "LLM 侧耗时不应被组计时覆盖"
+    );
+}
+
+/// 测试：无 LLM 侧耗时时用组计时兜底（旧数据/非流式路径不回退成 chars）。
+#[test]
+fn test_mark_live_thinking_fills_group_duration_when_missing() {
+    // Arrange：思考块没有 duration_ms，组计时冻结值 12s
+    let mut pipeline = MessagePipeline::new("/p".to_string());
+    pipeline.completed = vec![BaseMessage::ai_from_blocks(vec![ContentBlock::reasoning(
+        "无耗时思考",
+    )])];
+    pipeline.has_snapshot_this_round = true;
+    pipeline.finished_groups = vec![12_000];
+    pipeline.last_event_at = Some(std::time::Instant::now());
+    // Act
+    let vms = pipeline.build_tail_vms();
+    // Assert：取组计时兜底
+    assert_eq!(
+        first_thinking_duration(&vms),
+        Some(12_000),
+        "无 LLM 耗时时应取组计时兜底"
+    );
+}
+
+/// 测试：流式中的思考行有实时耗时与活跃锚点（走秒依赖 duration_ms + active_since）。
+#[test]
+fn test_streaming_thinking_block_has_live_duration() {
+    // Arrange：思考刚开始流式
+    let mut pipeline = MessagePipeline::new("/p".to_string());
+    pipeline.push_reasoning("正在思考");
+    // Act
+    let vms = pipeline.build_tail_vms();
+    // Assert：活跃态 + 组计时填充 + 走秒锚点
+    let mut found = None;
+    for vm in &vms {
+        if let MessageViewModel::AssistantBubble { blocks, .. } = vm {
+            for b in blocks {
+                if let ContentBlockView::Reasoning {
+                    duration_ms,
+                    active,
+                    active_since,
+                    ..
+                } = b
+                {
+                    found = Some((*duration_ms, *active, *active_since));
+                }
+            }
+        }
+    }
+    let (dur, active, since) = found.expect("流式思考应渲染为 Reasoning 块");
+    assert_eq!(dur, Some(1000), "流式思考行应有组计时填充的耗时");
+    assert!(active, "流式思考行应为活跃态");
+    assert!(since.is_some(), "活跃思考行应有走秒锚点");
+}
+
+/// 测试：正文多 chunk 到达不各自冻结组（组计时被灌近零值 → Thought for 1s 回归之二）。
+#[test]
+fn test_text_chunks_do_not_flood_group_timing() {
+    // Arrange：思考后正文分多个 chunk 流式到达
+    let mut pipeline = MessagePipeline::new("/p".to_string());
+    pipeline.push_reasoning("思考内容");
+    // Act
+    pipeline.push_chunk("答案一");
+    pipeline.push_chunk("答案二");
+    pipeline.push_chunk("答案三");
+    pipeline.done();
+    // Assert：只有思考那一组被冻结，正文 chunk 不产生近零组
+    assert_eq!(
+        pipeline.finished_groups.len(),
+        1,
+        "正文 chunk 不应各自冻结组"
+    );
+}
+
+/// 测试：思考尚未出正文就结束时，done() 冻结未定稿的组。
+#[test]
+fn test_done_freezes_open_thinking_group() {
+    // Arrange：思考进行中直接 Done（中断/只思考场景）
+    let mut pipeline = MessagePipeline::new("/p".to_string());
+    pipeline.push_reasoning("思考内容");
+    // Act
+    pipeline.done();
+    // Assert：开口的组被冻结，兜底耗时可用
+    assert_eq!(
+        pipeline.finished_groups.len(),
+        1,
+        "done 应冻结未定稿的思考组"
+    );
+}
+
+/// 构造只带一行思考的助手气泡（无 LLM 耗时，走组计时兜底）。
+fn make_thinking_bubble(text: &str) -> MessageViewModel {
+    let mut vm = MessageViewModel::assistant();
+    if let MessageViewModel::AssistantBubble { blocks, .. } = &mut vm {
+        blocks.push(ContentBlockView::Reasoning {
+            char_count: text.chars().count(),
+            duration_ms: None,
+            action_summary: None,
+            text: text.to_string(),
+            active: false,
+            active_since: None,
+            hint: None,
+        });
+    }
+    vm
+}
+
+/// 测试：多行思考的冻结组按"从后往前"逐行对齐（回归：首行不消费迭代器导致两行拿同一组）。
+#[test]
+fn test_mark_live_thinking_aligns_rows_to_frozen_groups() {
+    // Arrange：两行思考都无 LLM 耗时，冻结组 [8s（旧）, 12s（新）]
+    let mut pipeline = MessagePipeline::new("/p".to_string());
+    pipeline.finished_groups = vec![8_000, 12_000];
+    pipeline.last_event_at = Some(std::time::Instant::now());
+    let mut vms = vec![make_thinking_bubble("旧思考"), make_thinking_bubble("新思考")];
+    // Act
+    pipeline.mark_live_thinking(&mut vms);
+    // Assert：新行取最新组、旧行取次新组，不重复消费同一组
+    assert_eq!(
+        first_thinking_duration(&vms[1..2]),
+        Some(12_000),
+        "新行应取最新冻结组"
+    );
+    assert_eq!(
+        first_thinking_duration(&vms[0..1]),
+        Some(8_000),
+        "旧行应取次新冻结组，而非与新行同值"
+    );
+}
+
+/// 测试：工具间隙不产生无 Thought 行可贴的组（回归：工具后无思考直接出正文时对齐错位）。
+#[test]
+fn test_tool_gap_does_not_create_extra_group() {
+    // Arrange：思考 → 正文 → 工具 →（无思考）直接出正文
+    let mut pipeline = MessagePipeline::new("/p".to_string());
+    pipeline.push_reasoning("思考内容");
+    pipeline.push_chunk("第一段答案");
+    // Act
+    pipeline.tool_start_internal("t1", "Read", serde_json::json!({ "file_path": "a.rs" }), false);
+    pipeline.tool_end_internal("t1", "Read", "ok", false);
+    pipeline.push_chunk("第二段答案");
+    pipeline.done();
+    // Assert：只有思考那一组，工具间隙不产生无主组
+    assert_eq!(
+        pipeline.finished_groups.len(),
+        1,
+        "工具边界不应产生无主组"
+    );
+}
+
+/// 测试：工具运行时长不混入思考耗时（回归：思考 → 工具 → 正文被算成一段）。
+#[test]
+fn test_tool_runtime_excluded_from_thinking_group() {
+    // Arrange：思考 → 工具（慢）→（无思考）直接出正文
+    let mut pipeline = MessagePipeline::new("/p".to_string());
+    pipeline.push_reasoning("思考内容");
+    // Act
+    pipeline.tool_start_internal("t1", "Read", serde_json::json!({ "file_path": "a.rs" }), false);
+    std::thread::sleep(std::time::Duration::from_millis(120));
+    pipeline.tool_end_internal("t1", "Read", "ok", false);
+    pipeline.push_chunk("答案");
+    pipeline.done();
+    // Assert：思考组在工具开始时就冻结，不含 120ms 的工具运行时长
+    assert_eq!(pipeline.finished_groups.len(), 1, "只应有思考一组");
+    assert!(
+        pipeline.finished_groups[0] < 120,
+        "工具运行时长不应混入思考耗时"
+    );
+}

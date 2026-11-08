@@ -53,7 +53,9 @@ impl MessagePipeline {
             let thinking_now = self.group_active && self.current_ai_text.trim().is_empty();
             blocks.push(ContentBlockView::Reasoning {
                 char_count: self.current_ai_reasoning.chars().count(),
-                duration_ms: Some(if thinking_now { self.group_ms } else { self.group_ms }),
+                // 置 None 由 mark_live_thinking 统一按组计时填充（活跃走秒/冻结兜底）；
+                // 定稿消息自带的 duration_ms（含 TTFT）不会被组计时覆盖。
+                duration_ms: None,
                 action_summary: None,
                 text: self.current_ai_reasoning.clone(),
                 active: thinking_now,
@@ -212,19 +214,20 @@ impl MessagePipeline {
                 if let Some(t) = thinking.as_mut() {
                     if first {
                         // 进行中用 group_ms（渲染层再叠加实时增量）；
-                        // 已冻结时必须用**最后一个冻结组**的值——group_ms 此时已归零，
-                        // 直接取它会把手里的 22s 覆盖成 1s（Codex 审计 P2）。
+                        // 已冻结时从同一迭代器取最新冻结组（group_ms 此时已归零，
+                        // 直接取它会把手里的 22s 覆盖成 1s），并消费迭代器项——
+                        // 否则第二行会重复拿到最新组，多思考行对齐错位。
                         let base = if active {
                             self.group_ms
                         } else {
-                            self.finished_groups.last().copied().unwrap_or(self.group_ms)
+                            groups.next().copied().unwrap_or(self.group_ms)
                         };
-                        t.duration_ms = Some(base.max(1000));
+                        t.duration_ms = fill_group_duration(t.duration_ms, base);
                         t.active = active;
                         t.active_since = self.last_event_at;
                         first = false;
                     } else if let Some(ms) = groups.next() {
-                        t.duration_ms = Some((*ms).max(1000));
+                        t.duration_ms = fill_group_duration(t.duration_ms, *ms);
                         t.active = false;
                         t.active_since = None;
                         // 更早的组不再补尾巴（窗口早已过，保留原值即可）
@@ -254,14 +257,15 @@ impl MessagePipeline {
                 let base = if active {
                     self.group_ms
                 } else {
-                    self.finished_groups.last().copied().unwrap_or(self.group_ms)
+                    // 与 ToolCallGroup 分支同语义：消费迭代器保持逐行对齐
+                    groups.next().copied().unwrap_or(self.group_ms)
                 };
-                *duration_ms = Some(base.max(1000));
+                *duration_ms = fill_group_duration(*duration_ms, base);
                 *a = active;
                 *active_since = self.last_event_at;
                 first = false;
             } else if let Some(ms) = groups.next() {
-                *duration_ms = Some((*ms).max(1000));
+                *duration_ms = fill_group_duration(*duration_ms, *ms);
                 *a = false;
                 *active_since = None;
             }
@@ -789,4 +793,11 @@ fn is_thinking_bubble_with_summary(vm: &MessageViewModel) -> bool {
                 ContentBlockView::Reasoning { action_summary: Some(_), .. }
             ))
     )
+}
+
+/// 思考行耗时的兜底填充：LLM 侧 `duration_ms`（请求发起→思考结束，含 TTFT）优先，
+/// 组计时只在无值时兜底。无条件覆盖会把真实墙钟抹成不含 TTFT 的组间隔
+/// （真机症状：`Thought for 1s` 而实际思考近 1 分钟）。
+fn fill_group_duration(existing: Option<u64>, group_ms: u64) -> Option<u64> {
+    existing.or_else(|| Some(group_ms.max(1000)))
 }
