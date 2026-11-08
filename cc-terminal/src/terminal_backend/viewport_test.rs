@@ -1,6 +1,59 @@
 use super::*;
 
 #[test]
+fn test_transient_panel_rows_shrink_back_at_bottom() {
+    let mut state = ViewportState::growing(2);
+    let plan = state.prepare(11, Size::new(80, 24));
+    assert_eq!(plan.area, Rect::new(0, 2, 80, 11));
+    // 面板打开：5 行瞬时块计入当帧高度
+    let plan = state.prepare_with_transient(16, 5, Size::new(80, 24));
+    assert_eq!(plan.area, Rect::new(0, 2, 80, 16));
+    assert_eq!(plan.shrink_top, 0);
+    assert_eq!(plan.shrink_bottom, 0);
+    // 关闭面板：视口立即回收瞬时块高度，页面继续紧贴内容
+    let plan = state.prepare_with_transient(11, 0, Size::new(80, 24));
+    assert_eq!(plan.area, Rect::new(0, 2, 80, 11), "关闭面板后视口应回缩");
+    assert_eq!(plan.shrink_top, 0);
+    assert_eq!(plan.shrink_bottom, 5, "回收的 5 行需上报给绘制层清理");
+}
+
+#[test]
+fn test_transient_panel_shrink_restores_scrolled_origin() {
+    let mut state = ViewportState::growing(2);
+    // 常驻内容 22 行贴底
+    let plan = state.prepare(22, Size::new(80, 24));
+    assert_eq!(plan.area, Rect::new(0, 2, 80, 22));
+    // 面板 1 行把视口顶边顶起 1 行
+    let plan = state.prepare_with_transient(23, 1, Size::new(80, 24));
+    assert_eq!(plan.scroll_rows, 1);
+    assert_eq!(plan.area, Rect::new(0, 1, 80, 23));
+    // 关闭面板：顶边回落到启动锚点，顶行释放给绘制层清理
+    let plan = state.prepare_with_transient(22, 0, Size::new(80, 24));
+    assert_eq!(plan.area, Rect::new(0, 2, 80, 22), "顶边应恢复到启动位置");
+    assert_eq!(plan.shrink_top, 1);
+    assert_eq!(plan.shrink_bottom, 0);
+}
+
+#[test]
+fn test_transient_shrink_mixed_origin_fall_and_bottom_release() {
+    let mut state = ViewportState::growing(2);
+    // 常驻 21 行（顶边 2，未贴底）
+    state.prepare(21, Size::new(80, 24));
+    // 面板 2 行把视口顶边顶起 1 行
+    let plan = state.prepare_with_transient(23, 2, Size::new(80, 24));
+    assert_eq!(
+        plan.area,
+        Rect::new(0, 1, 80, 23),
+        "面板打开只允许顶起必要行"
+    );
+    // 关闭：顶边回落 1 行 + 底边回收 1 行，合计回收 2 行
+    let plan = state.prepare_with_transient(21, 0, Size::new(80, 24));
+    assert_eq!(plan.area, Rect::new(0, 2, 80, 21));
+    assert_eq!(plan.shrink_top, 1);
+    assert_eq!(plan.shrink_bottom, 1);
+}
+
+#[test]
 fn test_growing_viewport_does_not_shrink_or_grow_while_idle() {
     let mut state = ViewportState::growing(3);
     assert_eq!(
@@ -169,7 +222,10 @@ fn test_clear_rows_from_top_with_zero_rows_writes_nothing() {
 #[test]
 fn test_owned_clear_area_starts_at_recorded_top_without_reflow() {
     let owned = (12u32 << 16) | 24u32;
-    assert_eq!(owned_clear_area(owned, false), Some(Rect::new(0, 12, 1, 12)));
+    assert_eq!(
+        owned_clear_area(owned, false),
+        Some(Rect::new(0, 12, 1, 12))
+    );
 }
 
 #[test]

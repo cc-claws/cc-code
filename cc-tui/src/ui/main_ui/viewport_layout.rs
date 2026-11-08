@@ -35,9 +35,12 @@ pub fn prepare_viewport(
     if !try_prepare_width(app, size.width, fullscreen) {
         return None;
     }
-    let required = required_rows(app, Rect::new(0, 0, size.width, size.height));
+    let host = Rect::new(0, 0, size.width, size.height);
+    let required = required_rows(app, host);
+    // 面板是开关型瞬时块：关闭后视口立即回收这部分高度，页面继续紧贴内容。
+    let transient = BottomHeights::measure(app, host).panel;
     let mut next_viewport = app.global_ui.viewport.clone();
-    let plan = next_viewport.prepare(required, size);
+    let plan = next_viewport.prepare_with_transient(required, transient, size);
     if plan.enter_fullscreen && !fullscreen {
         // 窄宽首帧就绪前不能锁定全屏或改变真实终端模式。
         app.session_mgr

@@ -22,6 +22,10 @@ pub struct ViewportState {
     pub allocated_rows: u16,
     pub fullscreen_latched: bool,
     pub startup_welcome: bool,
+    /// 上一帧计划的视口高度，用于计算收缩释放量。
+    last_area_rows: u16,
+    /// 视口顶边回落的上限行号（启动位置）；收缩恢复不得越过它。
+    origin_floor: u16,
     welcome_session: Option<uuid::Uuid>,
 }
 
@@ -34,6 +38,8 @@ impl Default for ViewportState {
             allocated_rows: 0,
             fullscreen_latched: true,
             startup_welcome: false,
+            last_area_rows: 0,
+            origin_floor: 0,
             welcome_session: None,
         }
     }
@@ -44,12 +50,17 @@ pub struct ViewportPlan {
     pub area: Rect,
     pub scroll_rows: u16,
     pub enter_fullscreen: bool,
+    /// 收缩时顶边回落释放的行数（位于新 area 顶部之上），需要显式清理避免残影。
+    pub shrink_top: u16,
+    /// 收缩时底边回收释放的行数（位于新 area 底部之下），需要显式清理避免留白。
+    pub shrink_bottom: u16,
 }
 
 impl ViewportState {
     pub fn growing(origin_row: u16) -> Self {
         Self {
             origin_row,
+            origin_floor: origin_row,
             fullscreen_latched: false,
             ..Self::default()
         }
@@ -63,18 +74,36 @@ impl ViewportState {
         }
     }
 
+    /// 计划下一帧视口区域。`required_rows` 全部计入持久记忆（只增不减）。
     pub fn prepare(&mut self, required_rows: u16, size: Size) -> ViewportPlan {
+        self.prepare_with_transient(required_rows, 0, size)
+    }
+
+    /// 计划下一帧视口区域。`transient_rows`（面板等开关型瞬时块）只影响当帧高度，
+    /// 不参与持久记忆；关闭后视口立即回收这部分高度，`shrink_top`/`shrink_bottom`
+    /// 上报释放行供绘制层显式清理，避免残影与留白。
+    pub fn prepare_with_transient(
+        &mut self,
+        total_rows: u16,
+        transient_rows: u16,
+        size: Size,
+    ) -> ViewportPlan {
         self.terminal_size = size;
         let mut scroll_rows = 0;
         let was_fullscreen = self.fullscreen_latched;
-        let next_rows = self.allocated_rows.max(required_rows).max(1);
+        self.origin_floor = self.origin_floor.min(size.height.saturating_sub(1));
+        let persistent_rows = total_rows.saturating_sub(transient_rows);
+        let next_rows = self.allocated_rows.max(persistent_rows).max(1);
+        let area_rows = next_rows.max(total_rows).max(1);
+        let old_top = self.origin_row;
+        let old_bottom = self.origin_row.saturating_add(self.last_area_rows);
         if !self.fullscreen_latched {
             self.origin_row = self.origin_row.min(size.height.saturating_sub(1));
-            if next_rows < size.height {
+            if area_rows < size.height {
                 // 每次增长都只滚动缺少的行，把应用起点上移；应用本身长满
                 // 宿主高度后才切全屏，不因启动位置靠近屏底提前锁定。
                 // 先减再比较，避免 origin + next_rows 在极大尺寸下溢出。
-                let last_origin = size.height - next_rows;
+                let last_origin = size.height - area_rows;
                 scroll_rows = self.origin_row.saturating_sub(last_origin);
                 self.origin_row = self.origin_row.saturating_sub(scroll_rows);
                 self.available_rows = size.height.saturating_sub(self.origin_row);
@@ -82,29 +111,35 @@ impl ViewportState {
                 self.fullscreen_latched = true;
             }
         }
+        let mut shrink_top = 0;
+        let mut shrink_bottom = 0;
         let area = if self.fullscreen_latched {
             self.available_rows = size.height;
             self.allocated_rows = size.height;
             Rect::new(0, 0, size.width, size.height)
         } else {
             self.allocated_rows = next_rows;
-            Rect::new(0, self.origin_row, size.width, next_rows)
+            // 瞬时块回收时顶边回落到启动锚点以内（面板打开时被顶起的部分），
+            // 底边随之回收；顶/底两段差集交给绘制层清行。
+            let last_origin = size.height.saturating_sub(area_rows);
+            self.origin_row = self
+                .origin_row
+                .saturating_add(self.last_area_rows.saturating_sub(area_rows))
+                .min(self.origin_floor)
+                .min(last_origin);
+            let area = Rect::new(0, self.origin_row, size.width, area_rows);
+            shrink_top = area.top().saturating_sub(old_top);
+            shrink_bottom = old_bottom.saturating_sub(area.bottom());
+            area
         };
+        self.last_area_rows = area.height;
         ViewportPlan {
             area,
             scroll_rows,
             enter_fullscreen: !was_fullscreen && self.fullscreen_latched,
+            shrink_top,
+            shrink_bottom,
         }
-    }
-
-    /// 向后兼容接口：临时浮层不再计入 `required_rows`，直接委托给 `prepare`。
-    pub fn prepare_persistent(
-        &mut self,
-        required_rows: u16,
-        _persistent_rows: u16,
-        size: Size,
-    ) -> ViewportPlan {
-        self.prepare(required_rows, size)
     }
 }
 
@@ -145,7 +180,7 @@ pub fn restore_title(writer: &mut impl Write) -> io::Result<()> {
 
 /// 只清理应用拥有的正常屏行，回到区域起点等待 Session ID 与 Resume 输出。
 /// 直接写入 ANSI 序列，测试可使用内存 writer，不访问真实终端或全局状态。
-fn clear_owned_area(writer: &mut impl Write, area: Rect) -> io::Result<()> {
+pub fn clear_owned_area(writer: &mut impl Write, area: Rect) -> io::Result<()> {
     if area.is_empty() {
         return Ok(());
     }

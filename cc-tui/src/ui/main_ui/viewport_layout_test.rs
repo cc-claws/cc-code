@@ -439,7 +439,7 @@ async fn test_tiny_terminal_renders_without_coordinates_outside_frame() {
 }
 
 #[tokio::test]
-async fn test_panel_uses_host_height_and_closing_keeps_allocated_rows() {
+async fn test_panel_uses_host_height_and_closing_shrinks_back() {
     let (mut app, _) = App::new_headless(80, 40).await;
     app.global_ui.viewport = ViewportState::growing(2);
     let host = Rect::new(0, 0, 80, 40);
@@ -452,19 +452,30 @@ async fn test_panel_uses_host_height_and_closing_keeps_allocated_rows() {
         "面板不能被当前紧凑区域递归压缩"
     );
     let required = required_rows(&mut app, host);
-    let expanded = app
-        .global_ui
-        .viewport
-        .prepare(required, Size::new(80, 40))
-        .area;
+    let transient = BottomHeights::measure(&app, host).panel;
+    let expanded =
+        app.global_ui
+            .viewport
+            .prepare_with_transient(required, transient, Size::new(80, 40));
     app.close_memory_panel();
     let required = required_rows(&mut app, host);
-    let closed = app
-        .global_ui
-        .viewport
-        .prepare(required, Size::new(80, 40))
-        .area;
-    assert_eq!(closed, expanded, "关闭面板后保留已占用区域");
+    let transient = BottomHeights::measure(&app, host).panel;
+    let closed =
+        app.global_ui
+            .viewport
+            .prepare_with_transient(required, transient, Size::new(80, 40));
+    assert!(
+        closed.area.height < expanded.area.height,
+        "关闭面板后视口应回收面板高度，页面继续紧贴内容"
+    );
+    assert_eq!(
+        closed.area.height, initial,
+        "关闭面板后高度恢复到打开前的紧凑高度"
+    );
+    assert!(
+        closed.shrink_top + closed.shrink_bottom > 0,
+        "回收行必须上报给绘制层清理，避免留白"
+    );
 }
 
 #[tokio::test]
