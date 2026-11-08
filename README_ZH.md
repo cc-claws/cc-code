@@ -121,6 +121,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **面板关闭后视口回缩，页面继续紧贴内容** | v0.6.254 | 修复 `Ctrl+P` 命令面板打开再取消后页面留白（欢迎卡片在顶部、输入框/状态栏浮在屏幕中部、下方大片空白）：growing 视口的高度记忆只增不减，面板撑出的高度被永久记住。现面板等开关型瞬时块只影响当帧高度、不进持久记忆，关闭立即回收并显式清理释放行（不留幽灵残影），视口顶边回落启动锚点；输入编辑防抖与全屏锁定语义不变（#951, #952）。 |
 | **思考耗时显示修复：LLM 计时优先（含 TTFT）** | v0.6.252 | 修复 `Thought for 1s` 与实际思考时长严重不符（真机近 1 分钟思考显示 1s）：TUI 侧组计时（锚点为首条 reasoning chunk，不含 TTFT）每次渲染装配都覆盖适配器回填的含 TTFT `duration_ms`。现 LLM 值优先、组计时仅兜底（下限 1s）；组语义重构为「一段思考的墙钟」（工具运行时长不计入、组边界只在 reasoning / 工具边界开合、每轮清零跨轮残留）；多行冻结思考行各自消费对应组值（修复两行显示同一数值的 off-by-one 错位）；正文 chunk 不再冻结组、终结近零值灌注（#945, #946）。 |
 | **关窗/退出可靠触发 SessionEnd，hook session_id 全链路对齐** | v0.6.251 | Windows 点 X 关窗此前 `CTRL_CLOSE_EVENT` 无人处理、SessionEnd 从不触发，clawd 等按 session_id 聚合的外部 hook 消费方里会话永远停在 working；正常退出与 `/clear` 路径的 session_id 也硬编码为空串，异步 hook 通知可能被 runtime 提前 drop 吞掉。现在关窗在 handler 线程从 500ms 刷新的全局快照同步触发 SessionEnd（3.5s 超时 + 原子互斥，不与正常退出重复触发），三条 SessionEnd 路径均携带真实 session_id 与 CC 对齐的 reason（关窗 `other`、`/clear` `clear`、输入框可见时退出 `prompt_input_exit`），退出路径等待异步 hook 完成；另补齐 SubagentStart/SubagentStop 的真实 session_id，子任务生命周期事件不再归到 "default" 会话（#941, #942）。 |
 | **Glob / Grep 工具头统一显示 Search 并补充 path** | v0.6.246 | 消息区工具头把 Glob 与 Grep 统一显示为 `Search`（对齐参考实现的 `userFacingName`），摘要从裸 pattern 改为 `pattern: "…", path: "…"`，cwd 内路径折叠为相对形式；`-n` / `-i` / `-A/-B/-C` / `output_mode` 等只影响执行的参数不进入工具头；状态栏 `✓ Name ×N` 仍按真实工具名 `Glob` / `Grep` 计数，避免两条同名 `Search`（#923）。 |
@@ -130,8 +131,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **解除 Bash 超时硬编码限制并支持 BASH_MAX_TIMEOUT_MS** | v0.6.235 | 修复 Bash 工具参数校验死板限制 10 分钟（600,000ms）导致模型执行大项目构建或长任务时被强行截断提前杀掉的问题。完全尊重调用方显式指定的更大超时，未传 `execution_timeout` 时自动取 `max(max_timeout, timeout_ms)` 不误杀长任务；同时新增 `BASH_DEFAULT_TIMEOUT_MS` 与 `BASH_MAX_TIMEOUT_MS` 环境变量，允许自定义默认与最大上限（#886, #887）。 |
 | **自动会话回顾失败静默化与防死循环重试** | v0.6.234 | 修复上游代理网关偶发 503 等异常时，后台自动触发的会话回顾在主消息流反复输出红字刷屏的问题。区分后台自动与手动触发：自动回顾失败改为后台日志静默忽略，不污染对话界面；调度器新增连续失败上限 `MAX_AUTO_RETRY_COUNT = 1`，超限立即停止重试，杜绝无限死循环（#881, #882）。 |
 | **移除 tool_result 非标准 id 字段与国产端点双向自适应** | v0.6.233 | 修复 `tool_result` 携带非标准 `id` 属性导致经严格校验的上游代理网关报错 `Extra inputs are not permitted` 的问题。默认遵循官方标准不发送 `id` 字段；同时新增 `detect_tool_result_id_requirement` 动态嗅探器，遇到特殊非标国产网关明确要求 `id` 时自动补齐重试，实现官方标准端点与非标国产端点双向兼容（#878, #879）。 |
-| **轻量模型 thinking 400 修复与多级降级自愈** | v0.6.232 | 针对 Haiku 3.x/4.x 系列等轻量模型原生不开放 Extended Thinking，修复全局开启 thinking 时请求直接报错的问题。静态预判轻量系列天生无 thinking 并彻底不传相关字段；协议自适应嗅探机制新增 `DisableThinking` 指示，当检测到模型或网关不支持思考时，自适应重试最多 2 级平滑降级（`Budget → Adaptive → Disabled`），自动关闭 thinking 并重试成功，彻底杜绝 400 报错（#875, #876）。 |
-> 更早版本（v0.6.0 – v0.6.231）见 [CHANGELOG](./CHANGELOG.md)。
+> 更早版本（v0.6.0 – v0.6.232）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---
 
