@@ -786,9 +786,9 @@ pub async fn fire_standalone_lifecycle_hooks(
 ///
 /// 进程退出路径（TUI 退出、窗口关闭）专用：async hook 是 fire-and-forget 的
 /// `tokio::spawn` 任务，若不等待，runtime 提前 drop 会把任务连同 SessionEnd
-/// 通知一起取消（clawd 永远收不到 "sleeping"）。内部对全部 hook 设置总超时
-/// `EXIT_HOOK_WAIT`——hook 自身的执行超时（默认 600s）在退出路径上必须
-/// 让位于进程终止，不能把退出卡死。
+/// 通知一起取消（clawd 永远收不到 "sleeping"）。`EXIT_HOOK_WAIT` 总超时只覆盖
+/// async hook 的 join；同步 hook 在 `with_tx` 内联执行、只受各自 hook 超时约束
+/// （默认 600s），关窗路径最终由 OS ~5s 强杀兜底，不能指望这里的超时兜底。
 #[allow(clippy::too_many_arguments)]
 pub async fn fire_standalone_lifecycle_hooks_blocking(
     registered_hooks: &[RegisteredHook],
@@ -887,8 +887,9 @@ pub async fn fire_standalone_lifecycle_hooks_with_tx(
             tool_use_id: None,
             tool_output: None,
             prompt: None,
-            // SessionEnd 的 reason：clear（/clear 新建 thread）、prompt_input_exit（TUI 退出）、
-            // resume（恢复其他会话导致当前会话结束）、other（/quit 等）。
+            // SessionEnd 的 reason：clear（/clear 新建 thread）、prompt_input_exit（输入框
+            // 可见时退出：/exit、/quit、双击 Ctrl+C）、resume（恢复其他会话导致当前会话
+            // 结束）、other（关窗等系统性退出）。
             // 调用方按场景传值，对齐 CC SessionEnd reason 字段。
             source: source.map(|s| s.to_string()),
             model: Some(current_model.to_string()),

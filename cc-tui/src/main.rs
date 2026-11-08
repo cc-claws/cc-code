@@ -1397,8 +1397,9 @@ async fn run_app(
                         "",
                         &provider_name,
                         None,
-                        // TUI 退出路径：对齐 CC SessionEnd reason
-                        // 双击 Ctrl+C 退出为 prompt_input_exit，/quit 为 other
+                        // TUI 退出路径（/exit、/quit、双击 Ctrl+C）都是输入框可见时
+                        // 退出，统一对齐 CC SessionEnd reason=prompt_input_exit
+                        // （关窗等系统性退出为 other）
                         Some("prompt_input_exit"),
                     )
                     .await;

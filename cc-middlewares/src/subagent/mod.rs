@@ -179,6 +179,8 @@ pub struct SubAgentMiddleware {
     thread_store: Option<Arc<dyn ThreadStore>>,
     /// Parent thread ID for child thread hierarchy
     parent_thread_id: Option<String>,
+    /// 所属会话的真实 session_id（透传给 SubAgentTool 的生命周期 hook payload）
+    session_id: Option<String>,
     /// Register callback: (thread_id, cancel_token, cancel_policy_str) → inserts into active_agents map
     #[allow(clippy::type_complexity)]
     register_runtime: Option<Arc<dyn Fn(String, AgentCancellationToken, String) + Send + Sync>>,
@@ -219,6 +221,7 @@ impl SubAgentMiddleware {
             bg_event_sender: None,
             thread_store: None,
             parent_thread_id: None,
+            session_id: None,
             register_runtime: None,
             deregister_runtime: None,
             inherited_instructions: None,
@@ -326,6 +329,12 @@ impl SubAgentMiddleware {
         self
     }
 
+    /// 注入所属会话的真实 session_id（SubagentStart/SubagentStop hook payload 使用）。
+    pub fn with_session_id(mut self, session_id: Option<String>) -> Self {
+        self.session_id = session_id;
+        self
+    }
+
     /// Set register callback: called when a child agent thread starts executing.
     /// Parameters: (thread_id, cancel_token, cancel_policy_str)
     #[allow(clippy::type_complexity)]
@@ -396,6 +405,7 @@ impl SubAgentMiddleware {
         if let Some(ref id) = self.parent_thread_id {
             tool = tool.with_parent_thread_id(id.clone());
         }
+        tool = tool.with_session_id(self.session_id.clone());
         if let Some(ref register) = self.register_runtime {
             tool = tool.with_register_runtime(Arc::clone(register));
         }
