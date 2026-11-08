@@ -495,6 +495,9 @@ fn build_agent_inner(
     .with_bg_event_sender(bg_event_tx)
     .with_registered_hooks(subagent_hooks)
     .with_inherited_instructions(inherited_instructions)
+    // 子 Agent 生命周期 hook 的 payload 必须带真实 session_id（与主链 SessionStart
+    // 同源），硬编码 "" 会把 SubagentStart/Stop 归到 "default" 会话（#941 同类）。
+    .with_session_id(session_id.clone())
     .with_permissions(&hitl);
     if let Some(ts) = thread_store {
         subagent = subagent.with_thread_store(ts);

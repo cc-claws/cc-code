@@ -94,6 +94,10 @@ mod permission;
 
 /// 独立（非方法）版本的 SubagentStart/SubagentStop hook 触发逻辑。
 ///
+/// `session_id` 必须是所属会话的真实 session_id：外部 hook 生态（如 clawd）按
+/// session_id 聚合会话，硬编码 "" 会把子 Agent 生命周期事件归到 "default" 会话，
+/// 与 SessionStart 上报对不上号（#941 同类问题）。
+///
 /// `event_tx` 用来上报执行结果（`AgentEvent::HooksCompleted`，`tool_call_id` 恒为
 /// `None`）；`None` 表示无 UI 订阅，静默执行。子 Agent 的 hook 行归属主 Agent 还是
 /// 子 Agent 事件流不在本函数职责内——这里只保证结果能上报、不丢。
@@ -101,6 +105,7 @@ async fn fire_subagent_lifecycle_hooks_static(
     registered_hooks: &[RegisteredHook],
     event: HookEvent,
     cwd: &str,
+    session_id: &str,
     subagent_name: &str,
     result: Option<&str>,
     event_tx: Option<tokio::sync::mpsc::UnboundedSender<cc_agent::agent::events::AgentEvent>>,
@@ -115,10 +120,10 @@ async fn fire_subagent_lifecycle_hooks_static(
 
     let input = match &event {
         HookEvent::SubagentStart => {
-            crate::hooks::types::HookInput::subagent_start("", "", cwd, subagent_name)
+            crate::hooks::types::HookInput::subagent_start(session_id, "", cwd, subagent_name)
         }
         HookEvent::SubagentStop => crate::hooks::types::HookInput::subagent_stop(
-            "",
+            session_id,
             "",
             cwd,
             subagent_name,

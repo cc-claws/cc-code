@@ -1798,6 +1798,7 @@ async fn test_subagent_lifecycle_hooks_report_success_summary() {
         &[make_registered_hook(HookEvent::SubagentStart, hook)],
         HookEvent::SubagentStart,
         env!("CARGO_MANIFEST_DIR"),
+        "sess-test",
         "general-purpose",
         None,
         Some(tx),
@@ -1837,6 +1838,7 @@ async fn test_subagent_lifecycle_hooks_report_block_failure() {
         &[make_registered_hook(HookEvent::SubagentStop, hook)],
         HookEvent::SubagentStop,
         env!("CARGO_MANIFEST_DIR"),
+        "sess-test",
         "general-purpose",
         Some("done"),
         Some(tx),
@@ -1860,6 +1862,60 @@ async fn test_subagent_lifecycle_hooks_report_block_failure() {
         }
         other => panic!("意外的 AgentEvent: {other:?}"),
     }
+}
+
+/// SubagentStart/Stop 的 stdin payload 必须携带真实 session_id（#941 同类问题：
+/// 硬编码 "" 会让 clawd 等按 session_id 聚合的消费方把子 Agent 事件归到 "default"）。
+#[cfg(unix)]
+#[tokio::test]
+async fn test_subagent_lifecycle_hooks_carry_session_id() {
+    let marker = "/tmp/peri_subagent_hook_session_payload.json";
+    let _ = std::fs::remove_file(marker);
+    let hook: crate::hooks::types::HookType = serde_json::from_value(serde_json::json!({
+        "type": "command",
+        "command": format!("cat > {marker}")
+    }))
+    .unwrap();
+    fire_subagent_lifecycle_hooks_static(
+        &[make_registered_hook(HookEvent::SubagentStart, hook.clone())],
+        HookEvent::SubagentStart,
+        env!("CARGO_MANIFEST_DIR"),
+        "sess-42",
+        "general-purpose",
+        None,
+        None,
+    )
+    .await;
+    let payload: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(marker).expect("SubagentStart hook 应收到 stdin payload"),
+    )
+    .expect("stdin 应为 HookInput JSON");
+    assert_eq!(
+        payload["session_id"], "sess-42",
+        "SubagentStart 必须携带真实 session_id"
+    );
+    assert_eq!(payload["hook_event_name"], "SubagentStart");
+    let _ = std::fs::remove_file(marker);
+    fire_subagent_lifecycle_hooks_static(
+        &[make_registered_hook(HookEvent::SubagentStop, hook)],
+        HookEvent::SubagentStop,
+        env!("CARGO_MANIFEST_DIR"),
+        "sess-42",
+        "general-purpose",
+        Some("done"),
+        None,
+    )
+    .await;
+    let payload: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(marker).expect("SubagentStop hook 应收到 stdin payload"),
+    )
+    .expect("stdin 应为 HookInput JSON");
+    assert_eq!(
+        payload["session_id"], "sess-42",
+        "SubagentStop 必须携带真实 session_id"
+    );
+    assert_eq!(payload["hook_event_name"], "SubagentStop");
+    let _ = std::fs::remove_file(marker);
 }
 
 /// 后台子 Agent 的事件通道必须真正接上：SubagentStart hook 的成功结果

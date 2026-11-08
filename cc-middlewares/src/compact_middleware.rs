@@ -119,7 +119,7 @@ impl CompactMiddleware {
         // compact 是生命周期旁路，没有 HookMiddleware 实例；把本中间件的事件通道
         // 透传下去，hook 执行结果才能以 HooksCompleted 出现在 UI（tool_call_id 为 None）。
         let event_tx = self.event_tx.lock().unwrap().clone();
-        hooks::middleware::fire_standalone_lifecycle_hooks_with_tx(
+        let _handles = hooks::middleware::fire_standalone_lifecycle_hooks_with_tx(
             &self.hooks,
             event,
             &self.cwd,
@@ -131,7 +131,7 @@ impl CompactMiddleware {
             None,
             event_tx,
         )
-        .await
+        .await;
     }
 
     /// 执行 full compact：full_compact + re_inject + hooks + 事件

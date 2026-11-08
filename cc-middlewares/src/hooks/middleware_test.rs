@@ -1367,3 +1367,72 @@ async fn test_session_end_hooks_do_not_report_to_ui() {
         "SessionEnd 不应向 UI 上报任何事件"
     );
 }
+
+/// SessionEnd 的 stdin payload 必须携带真实 session_id 与 source（#941）。
+#[cfg(unix)]
+#[tokio::test]
+async fn test_session_end_hook_input_carries_session_id_and_source() {
+    let marker = "/tmp/peri_session_end_hook_payload.json";
+    let _ = std::fs::remove_file(marker);
+    let hook: HookType = serde_json::from_value(serde_json::json!({
+        "type": "command",
+        "command": format!("cat > {marker}")
+    }))
+    .unwrap();
+    fire_standalone_lifecycle_hooks_blocking(
+        &[make_registered(HookEvent::SessionEnd, hook)],
+        HookEvent::SessionEnd,
+        TEST_CWD,
+        "sess-77",
+        "",
+        "test-model",
+        None,
+        Some("prompt_input_exit"),
+    )
+    .await;
+    let payload: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(marker).expect("SessionEnd hook 应收到 stdin payload"),
+    )
+    .expect("stdin 应为 HookInput JSON");
+    assert_eq!(
+        payload["session_id"], "sess-77",
+        "SessionEnd 必须携带真实 session_id"
+    );
+    assert_eq!(
+        payload["source"], "prompt_input_exit",
+        "SessionEnd 必须携带 reason（source）"
+    );
+    let _ = std::fs::remove_file(marker);
+}
+
+/// blocking 变体必须等待 async hook 完成再返回（#941 根因 3：fire-and-forget
+/// 会在 runtime drop 时丢通知）。
+#[cfg(unix)]
+#[tokio::test]
+async fn test_blocking_lifecycle_hooks_wait_for_async_hooks() {
+    let marker = "/tmp/peri_blocking_hook_wait_marker";
+    let _ = std::fs::remove_file(marker);
+    let hook: HookType = serde_json::from_value(serde_json::json!({
+        "type": "command",
+        "command": format!("sleep 0.3 && echo done > {marker}"),
+        "async": true
+    }))
+    .unwrap();
+    fire_standalone_lifecycle_hooks_blocking(
+        &[make_registered(HookEvent::SessionEnd, hook)],
+        HookEvent::SessionEnd,
+        TEST_CWD,
+        "sess-88",
+        "",
+        "test-model",
+        None,
+        Some("other"),
+    )
+    .await;
+    // 不做任何 sleep：blocking 返回即应看到 async hook 的落盘结果
+    assert!(
+        std::path::Path::new(marker).exists(),
+        "blocking 变体返回后 async hook 必须已完成"
+    );
+    let _ = std::fs::remove_file(marker);
+}

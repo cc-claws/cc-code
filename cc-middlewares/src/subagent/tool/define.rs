@@ -81,6 +81,9 @@ pub struct SubAgentTool {
     pub(crate) thread_store: Option<Arc<dyn ThreadStore>>,
     /// Parent thread ID for child thread hierarchy
     pub(crate) parent_thread_id: Option<String>,
+    /// 所属会话的真实 session_id（SubagentStart/SubagentStop hook payload 用；
+    /// 缺失时 hook 归到 "default" 会话，与 SessionStart 上报对不上号）
+    pub(crate) session_id: Option<String>,
     /// Register callback: (thread_id, cancel_token, cancel_policy_str) → inserts into active_agents map
     #[allow(clippy::type_complexity)]
     pub(crate) register_runtime:
@@ -155,6 +158,7 @@ impl SubAgentTool {
             bg_event_sender: None,
             thread_store: None,
             parent_thread_id: None,
+            session_id: None,
             register_runtime: None,
             deregister_runtime: None,
             inherited_instructions: None,
@@ -224,6 +228,12 @@ impl SubAgentTool {
 
     pub fn with_parent_thread_id(mut self, id: String) -> Self {
         self.parent_thread_id = Some(id);
+        self
+    }
+
+    /// 注入所属会话的真实 session_id（SubagentStart/SubagentStop hook payload 使用）。
+    pub fn with_session_id(mut self, session_id: Option<String>) -> Self {
+        self.session_id = session_id;
         self
     }
 

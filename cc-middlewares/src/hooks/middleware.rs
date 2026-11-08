@@ -782,6 +782,56 @@ pub async fn fire_standalone_lifecycle_hooks(
     .await;
 }
 
+/// 同 [`fire_standalone_lifecycle_hooks_with_tx`]，但等待所有异步 hook 完成。
+///
+/// 进程退出路径（TUI 退出、窗口关闭）专用：async hook 是 fire-and-forget 的
+/// `tokio::spawn` 任务，若不等待，runtime 提前 drop 会把任务连同 SessionEnd
+/// 通知一起取消（clawd 永远收不到 "sleeping"）。`EXIT_HOOK_WAIT` 总超时只覆盖
+/// async hook 的 join；同步 hook 在 `with_tx` 内联执行、只受各自 hook 超时约束
+/// （默认 600s），关窗路径最终由 OS ~5s 强杀兜底，不能指望这里的超时兜底。
+#[allow(clippy::too_many_arguments)]
+pub async fn fire_standalone_lifecycle_hooks_blocking(
+    registered_hooks: &[RegisteredHook],
+    event: HookEvent,
+    cwd: &str,
+    session_id: &str,
+    transcript_path: &str,
+    current_model: &str,
+    message_count: Option<usize>,
+    source: Option<&str>,
+) {
+    let handles = fire_standalone_lifecycle_hooks_with_tx(
+        registered_hooks,
+        event.clone(),
+        cwd,
+        session_id,
+        transcript_path,
+        current_model,
+        message_count,
+        source,
+        None,
+    )
+    .await;
+    let join_all = async {
+        for handle in handles {
+            // 单个 hook panic/取消不影响其余 hook
+            let _ = handle.await;
+        }
+    };
+    if tokio::time::timeout(EXIT_HOOK_WAIT, join_all).await.is_err() {
+        tracing::warn!(
+            event = ?event,
+            "standalone lifecycle hooks 超时未全部完成，继续退出"
+        );
+    }
+}
+
+/// 退出路径等待 hook 完成的总超时。
+///
+/// Windows `CTRL_CLOSE_EVENT` 只给约 5s 就强杀进程，控制台 handler 侧还要
+/// 留出进程收尾时间；正常退出路径 8s 也足够 node/脚本类 hook 跑完一次通知。
+pub(crate) const EXIT_HOOK_WAIT: std::time::Duration = std::time::Duration::from_secs(8);
+
 /// 同 [`fire_standalone_lifecycle_hooks`]，但把执行结果汇总上报到事件通道。
 ///
 /// 旁路调用点没有 `HookMiddleware` 实例，不能复用 `emit_hooks_completed`；这里用
@@ -789,6 +839,10 @@ pub async fn fire_standalone_lifecycle_hooks(
 /// 同步 hook 循环结束后上报一次（`is_async = false`），异步 hook 各自完成后单独
 /// 上报一次（`is_async = true`）。`tool_call_id` 恒为 `None`——生命周期事件不归属
 /// 任何工具调用，TUI 侧渲染成独立的 `⎿` 行。
+///
+/// 返回异步 hook 的 `JoinHandle`（同步 hook 结束时已完成，不包含在内）：调用方
+/// 可以选择等待它们完成（退出路径用 [`fire_standalone_lifecycle_hooks_blocking`]），
+/// 也可以忽略返回值保持 fire-and-forget 行为。
 #[allow(clippy::too_many_arguments)]
 pub async fn fire_standalone_lifecycle_hooks_with_tx(
     registered_hooks: &[RegisteredHook],
@@ -800,7 +854,7 @@ pub async fn fire_standalone_lifecycle_hooks_with_tx(
     message_count: Option<usize>,
     source: Option<&str>,
     event_tx: Option<tokio::sync::mpsc::UnboundedSender<AgentEvent>>,
-) {
+) -> Vec<tokio::task::JoinHandle<()>> {
     // SessionEnd 不上报：会话结束（退出或 /clear 切换）时没有稳定的渲染时机，
     // 展示出来也没有意义。PRD「决策记录」明确排除该事件。
     let event_tx = if event == HookEvent::SessionEnd {
@@ -816,7 +870,7 @@ pub async fn fire_standalone_lifecycle_hooks_with_tx(
         .collect();
 
     if matching.is_empty() {
-        return;
+        return Vec::new();
     }
 
     let input = match &event {
@@ -833,8 +887,9 @@ pub async fn fire_standalone_lifecycle_hooks_with_tx(
             tool_use_id: None,
             tool_output: None,
             prompt: None,
-            // SessionEnd 的 reason：clear（/clear 新建 thread）、prompt_input_exit（TUI 退出）、
-            // resume（恢复其他会话导致当前会话结束）、other（/quit 等）。
+            // SessionEnd 的 reason：clear（/clear 新建 thread）、prompt_input_exit（输入框
+            // 可见时退出：/exit、/quit、双击 Ctrl+C）、resume（恢复其他会话导致当前会话
+            // 结束）、other（关窗等系统性退出）。
             // 调用方按场景传值，对齐 CC SessionEnd reason 字段。
             source: source.map(|s| s.to_string()),
             model: Some(current_model.to_string()),
@@ -868,12 +923,13 @@ pub async fn fire_standalone_lifecycle_hooks_with_tx(
             subagent_result: None,
             message_count: None,
         },
-        _ => return,
+        _ => return Vec::new(),
     };
 
     let started = std::time::Instant::now();
     let mut ran = 0usize;
     let mut failures: Vec<HookFailureInfo> = Vec::new();
+    let mut async_handles = Vec::new();
 
     for registered in matching {
         if let Some(ref msg) = registered.hook.get_status_message() {
@@ -886,13 +942,14 @@ pub async fn fire_standalone_lifecycle_hooks_with_tx(
         }
 
         if registered.hook.is_async() {
-            // Fire-and-forget async hook：完成后单独上报 is_async summary
+            // Fire-and-forget async hook：完成后单独上报 is_async summary。
+            // handle 返回给调用方，退出路径可选择等待完成。
             let hook = registered.hook.clone();
             let input = input.clone();
             let registered = registered.clone();
             let event_name = event.as_str().to_string();
             let event_tx = event_tx.clone();
-            tokio::spawn(async move {
+            let handle = tokio::spawn(async move {
                 let started = std::time::Instant::now();
                 let action = match &hook {
                     HookType::Command { .. } => {
@@ -912,6 +969,7 @@ pub async fn fire_standalone_lifecycle_hooks_with_tx(
                     None,
                 );
             });
+            async_handles.push(handle);
             continue;
         }
 
@@ -947,6 +1005,7 @@ pub async fn fire_standalone_lifecycle_hooks_with_tx(
         false,
         None,
     );
+    async_handles
 }
 
 #[cfg(test)]

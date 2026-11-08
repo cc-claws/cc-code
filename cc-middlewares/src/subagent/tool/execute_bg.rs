@@ -181,6 +181,7 @@ impl super::SubAgentTool {
         let spawn_cwd = cwd.clone();
         let store = self.thread_store.clone();
         let hooks = self.registered_hooks.clone();
+        let spawn_session_id = self.session_id.clone();
         let sender = self.bg_event_sender.clone();
         let fallback = self.event_handler.clone();
         let deregister = self.deregister_runtime.clone();
@@ -281,6 +282,7 @@ impl super::SubAgentTool {
                 &hooks,
                 HookEvent::SubagentStop,
                 &spawn_cwd,
+                spawn_session_id.as_deref().unwrap_or(""),
                 &spawn_name,
                 Some(&result.output),
                 // 与会话事件同一通道上报 hook 结果，避免旁路静默
@@ -327,6 +329,7 @@ impl super::SubAgentTool {
             &self.registered_hooks,
             HookEvent::SubagentStart,
             &cwd,
+            self.session_id.as_deref().unwrap_or(""),
             &agent_name,
             None,
             self.bg_event_sender.clone(),
