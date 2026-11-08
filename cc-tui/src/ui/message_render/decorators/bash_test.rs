@@ -106,7 +106,7 @@ fn test_transform_head_lines_window_matches_full_prefix() {
 fn test_transform_head_window_skips_prettify_when_over_limit() {
     // 全文超 MAX_JSON_FORMAT_LENGTH 时整段跳过美化的行为必须保持
     let line = format!("{{\"pad\":\"{}\"}}", "x".repeat(2488));
-    let input = vec![line.as_str(); 5].join("\n");
+    let input = [line.as_str(); 5].join("\n");
     let mut buf_full = String::new();
     let full = transform_bash_output_lines(&input, None, &mut buf_full, BodyWindow::All);
     let mut buf_head = String::new();

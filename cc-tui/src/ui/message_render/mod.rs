@@ -13,7 +13,6 @@ use decorators::{
     bash::{parse_exit_code, strip_exit_code_suffix, transform_bash_output_lines, BodyWindow},
     glob::glob_summary,
     read::{format_display_path_for_memory, read_summary},
-    ToolDisplayLine,
 };
 pub(crate) use streaming_bash::render_live_output;
 pub(crate) use streaming_bash::shell_output_status_text;
