@@ -518,6 +518,15 @@ impl App {
         if !self.validate_thread_context_switch(&cwd) {
             return false;
         }
+        // 关闭 ACP session 前捕获旧 session id：SessionEnd hook 的 session_id
+        // 必须与 SessionStart（builder.rs）发给 clawd 的一致，否则归到 "default"
+        // 会话，clawd HUD 收不到 "sleeping"（#941）。
+        let old_session_id = self
+            .session_mgr
+            .current()
+            .current_thread_id
+            .clone()
+            .or_else(|| self.acp_client.as_ref().and_then(|c| c.session_id()));
         if let Some(client) = self.acp_client.clone() {
             if let Err(error) = tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(client.close_current_session())
@@ -558,12 +567,13 @@ impl App {
             if !hooks.is_empty() {
                 let cwd = self.services.cwd.clone();
                 let provider_name = self.services.provider_name.clone();
+                let hook_session_id = old_session_id.clone().unwrap_or_default();
                 tokio::spawn(async move {
-                    cc_middlewares::hooks::middleware::fire_standalone_lifecycle_hooks(
+                    cc_middlewares::hooks::middleware::fire_standalone_lifecycle_hooks_blocking(
                         &hooks,
                         cc_middlewares::hooks::types::HookEvent::SessionEnd,
                         &cwd,
-                        "",
+                        &hook_session_id,
                         "",
                         &provider_name,
                         None,

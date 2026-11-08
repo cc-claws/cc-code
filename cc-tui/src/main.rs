@@ -460,6 +460,94 @@ fn main() -> Result<()> {
 
 // ─── TUI 模式 ──────────────────────────────────────────────────────────────
 
+/// SessionEnd 是否已触发：正常退出块与关窗 ctrl_handler 互斥，防重复触发。
+/// /clear 的 SessionEnd（会话切换）不参与此标记。
+static SESSION_END_FIRED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// 原子认领 SessionEnd 触发权；已触发过返回 false。
+fn claim_session_end_fire() -> bool {
+    use std::sync::atomic::Ordering;
+    !SESSION_END_FIRED.swap(true, Ordering::SeqCst)
+}
+
+/// Windows 点 X 关窗的 SessionEnd 兜底（#941）。
+///
+/// 关窗发 `CTRL_CLOSE_EVENT`，ctrl_handler 在系统专用线程执行、无法访问 App
+/// 状态，且约 5s 后进程被强杀——正常退出块的 SessionEnd hook 跑不到。事件循环
+/// 定期把 hook 触发所需上下文刷进全局快照，ctrl_handler 从快照触发。
+#[cfg(target_os = "windows")]
+mod session_end_guard {
+    use super::claim_session_end_fire;
+    use cc_middlewares::hooks::types::{HookEvent, RegisteredHook};
+    use std::sync::{Mutex, MutexGuard};
+    use std::time::Duration;
+
+    /// ctrl_handler 触发 SessionEnd 的等待上限：Windows 对 CTRL_CLOSE_EVENT
+    /// 约 5s 后强杀进程，留 1.5s 给进程收尾。
+    const CLOSE_FIRE_TIMEOUT: Duration = Duration::from_millis(3500);
+
+    /// 事件循环定期刷新的 hook 触发上下文。
+    pub(super) struct Snapshot {
+        pub(super) hooks: Vec<RegisteredHook>,
+        pub(super) cwd: String,
+        pub(super) provider_name: String,
+        pub(super) session_id: String,
+    }
+
+    static SNAPSHOT: Mutex<Option<Snapshot>> = Mutex::new(None);
+
+    /// 事件循环定期调用，刷新 ctrl_handler 可用的快照。
+    pub(super) fn refresh(snapshot: Snapshot) {
+        *lock() = Some(snapshot);
+    }
+
+    /// `CTRL_CLOSE_EVENT`（点 X 关窗）时在 handler 线程触发 SessionEnd hook。
+    pub(super) fn fire_on_window_close() {
+        if !claim_session_end_fire() {
+            return;
+        }
+        let Some(snapshot) = lock().take() else {
+            return;
+        };
+        if snapshot.hooks.is_empty() {
+            return;
+        }
+        // ctrl_handler 是 FFI 回调，panic 穿越 extern "system" 边界是 UB，必须兜住。
+        let fired = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build();
+            let Ok(rt) = rt else {
+                return;
+            };
+            rt.block_on(async {
+                let fire =
+                    cc_middlewares::hooks::middleware::fire_standalone_lifecycle_hooks_blocking(
+                        &snapshot.hooks,
+                        HookEvent::SessionEnd,
+                        &snapshot.cwd,
+                        &snapshot.session_id,
+                        "",
+                        &snapshot.provider_name,
+                        None,
+                        // 窗口被系统关闭，不是"从 prompt 输入退出"，对齐 CC reason="other"
+                        Some("other"),
+                    );
+                if tokio::time::timeout(CLOSE_FIRE_TIMEOUT, fire).await.is_err() {
+                    tracing::warn!("SessionEnd hook（关窗路径）超时未完成");
+                }
+            });
+        }));
+        if fired.is_err() {
+            tracing::error!("SessionEnd hook（关窗路径）panic，已忽略");
+        }
+    }
+
+    fn lock() -> MutexGuard<'static, Option<Snapshot>> {
+        SNAPSHOT.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
 /// TUI 模式启动选项
 #[allow(dead_code)] // 部分 CLI 桥接字段尚未接入
 struct TuiOptions {
@@ -527,11 +615,17 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
         // 事件到 STD_INPUT，让 crossterm event::read 能读到；return 1 阻止默认终止。
         unsafe extern "system" fn ctrl_handler(ctrl_type: u32) -> i32 {
             use windows_sys::Win32::System::Console::{
-                GetStdHandle, WriteConsoleInputW, CTRL_BREAK_EVENT, CTRL_C_EVENT, INPUT_RECORD,
-                INPUT_RECORD_0, KEY_EVENT, KEY_EVENT_RECORD, KEY_EVENT_RECORD_0, LEFT_CTRL_PRESSED,
-                STD_INPUT_HANDLE,
+                GetStdHandle, WriteConsoleInputW, CTRL_BREAK_EVENT, CTRL_C_EVENT, CTRL_CLOSE_EVENT,
+                INPUT_RECORD, INPUT_RECORD_0, KEY_EVENT, KEY_EVENT_RECORD, KEY_EVENT_RECORD_0,
+                LEFT_CTRL_PRESSED, STD_INPUT_HANDLE,
             };
 
+            if ctrl_type == CTRL_CLOSE_EVENT {
+                // 点 X 关窗：约 5s 后进程被强杀，正常退出块跑不到。
+                // 从全局快照同步触发 SessionEnd hook（#941）。
+                crate::session_end_guard::fire_on_window_close();
+                return 1;
+            }
             if ctrl_type != CTRL_C_EVENT && ctrl_type != CTRL_BREAK_EVENT {
                 return 0;
             }
@@ -1200,6 +1294,52 @@ async fn run_app(
                 }
             }
         }
+        // ── Windows 关窗 SessionEnd 快照定期刷新（#941）───────────────────────
+        // ctrl_handler 线程无法访问 App 状态，把 hook 触发所需上下文定期刷进全局
+        // 快照，点 X 关窗时从快照触发 SessionEnd。
+        #[cfg(target_os = "windows")]
+        {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static LAST_SNAPSHOT_MS: AtomicU64 = AtomicU64::new(0);
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            let last_ms = LAST_SNAPSHOT_MS.load(Ordering::Relaxed);
+            if now_ms.saturating_sub(last_ms) >= 500 && LAST_SNAPSHOT_MS
+                .compare_exchange(last_ms, now_ms, Ordering::Relaxed, Ordering::Relaxed)
+                .is_ok()
+            {
+                let mut hooks = app
+                    .services
+                    .plugin_data
+                    .as_ref()
+                    .map(|pd| pd.all_hooks.clone())
+                    .unwrap_or_default();
+                hooks.extend(cc_middlewares::hooks::loader::load_global_settings_hooks());
+                hooks.extend(cc_middlewares::hooks::loader::load_settings_project_hooks(
+                    &app.services.cwd,
+                ));
+                hooks.extend(cc_middlewares::hooks::loader::load_settings_local_hooks(
+                    &app.services.cwd,
+                ));
+                let thread_id = app.session_mgr.current().current_thread_id.clone();
+                let acp_sid = app.acp_client.as_ref().and_then(|c| c.session_id());
+                let sid = select_exit_session_id(
+                    thread_id,
+                    acp_sid,
+                    tui_opts.resume_session.clone(),
+                    tui_opts.session_id.clone(),
+                )
+                .unwrap_or_default();
+                session_end_guard::refresh(session_end_guard::Snapshot {
+                    hooks,
+                    cwd: app.services.cwd.clone(),
+                    provider_name: app.services.provider_name.clone(),
+                    session_id: sid,
+                });
+            }
+        }
         // /exit 或 /quit 命令设置的退出标志
         if app.global_ui.quit_requested {
             break 'event_loop;
@@ -1208,6 +1348,24 @@ async fn run_app(
 
     // 用户已退出，耗时清理期间不得继续读走给 shell 的预输入。
     event_reader.stop();
+    // 尽早读取 session ID（避免后续清理逻辑影响）
+    // 优先从 current_thread_id 读取，兜底从 ACP client 读取。
+    // 必须先于 SessionEnd hook 触发：hook 的 session_id 要和 SessionStart
+    // 时 builder.rs 传给 clawd 的一致，否则 SessionEnd 归到 "default" 会话，
+    // clawd 的 HUD 永远收不到 "sleeping"（#941）。
+    let thread_id = app.session_mgr.current().current_thread_id.clone();
+    let acp_sid = app.acp_client.as_ref().and_then(|c| c.session_id());
+    tracing::info!(
+        current_thread_id = ?thread_id,
+        acp_session_id = ?acp_sid,
+        "退出: session ID 读取"
+    );
+    let session_id = select_exit_session_id(
+        thread_id,
+        acp_sid,
+        tui_opts.resume_session.clone(),
+        tui_opts.session_id.clone(),
+    );
     // Fire SessionEnd hooks before shutdown
     {
         let mut hooks = app
@@ -1223,16 +1381,19 @@ async fn run_app(
         hooks.extend(cc_middlewares::hooks::loader::load_settings_local_hooks(
             &app.services.cwd,
         ));
-        if !hooks.is_empty() {
+        if !hooks.is_empty() && claim_session_end_fire() {
             let cwd = app.services.cwd.clone();
             let provider_name = app.services.provider_name.clone();
+            let hook_session_id = session_id.clone().unwrap_or_default();
             tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(async {
-                    cc_middlewares::hooks::middleware::fire_standalone_lifecycle_hooks(
+                    // blocking 变体：等待 async hook 完成，否则 runtime drop
+                    // 会取消 fire-and-forget 任务，SessionEnd 通知发不出去。
+                    cc_middlewares::hooks::middleware::fire_standalone_lifecycle_hooks_blocking(
                         &hooks,
                         cc_middlewares::hooks::types::HookEvent::SessionEnd,
                         &cwd,
-                        "",
+                        &hook_session_id,
                         "",
                         &provider_name,
                         None,
@@ -1245,22 +1406,6 @@ async fn run_app(
             });
         }
     }
-
-    // 尽早读取 session ID（避免后续清理逻辑影响）
-    // 优先从 current_thread_id 读取，兜底从 ACP client 读取
-    let thread_id = app.session_mgr.current().current_thread_id.clone();
-    let acp_sid = app.acp_client.as_ref().and_then(|c| c.session_id());
-    tracing::info!(
-        current_thread_id = ?thread_id,
-        acp_session_id = ?acp_sid,
-        "退出: session ID 读取"
-    );
-    let session_id = select_exit_session_id(
-        thread_id,
-        acp_sid,
-        tui_opts.resume_session.clone(),
-        tui_opts.session_id.clone(),
-    );
 
     // 关闭 MCP 连接池（断开所有 MCP 服务器连接，清理子进程）
     if let Some(pool) = app.services.mcp_pool.take() {
