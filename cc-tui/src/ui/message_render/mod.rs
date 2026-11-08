@@ -10,7 +10,7 @@ mod skill;
 mod streaming_bash;
 use decorators::{
     ask_user::parse_ask_user_qa_items,
-    bash::{parse_exit_code, strip_exit_code_suffix, transform_bash_output_lines},
+    bash::{parse_exit_code, strip_exit_code_suffix, transform_bash_output_lines, BodyWindow},
     glob::glob_summary,
     read::{format_display_path_for_memory, read_summary},
     ToolDisplayLine,
@@ -224,6 +224,8 @@ pub(crate) fn is_shell_running_status_line(line: &Line<'static>) -> bool {
 
 /// 非详细模式下错误摘要的最大显示行数（避免长错误污染页面）
 const ERROR_SUMMARY_MAX_LINES: usize = 3;
+/// 错误摘要的字符级截断上限（`error_summary_lines` 取前 N 个字符）。
+const ERROR_SUMMARY_MAX_CHARS: usize = 400;
 
 /// 非详细模式下工具 Header 命令摘要占可用宽度的比例（16:19 ≈ 84%）。
 /// 命令不再一路顶到消息区最右侧才截断，避免用户需要在屏幕最右边缘阅读
@@ -843,17 +845,22 @@ fn push_visual_capped_output<T, F>(
     items: &[T],
     max_lines: usize,
     border_color: Color,
+    hint_remaining: Option<usize>,
     mut format_line: F,
 ) where
     F: FnMut(&T, usize, usize) -> Vec<Line<'static>>,
 {
     let total = items.len();
+    // 折叠态先截断源行再美化（issue #645）后，items 只覆盖可见窗口；
+    // `… +N lines` 的 N 改用调用方传回的源行口径，不再按 items 数计。
+    let remaining_of = |consumed_items: usize| -> usize {
+        hint_remaining.unwrap_or_else(|| total.saturating_sub(consumed_items))
+    };
     let mut rendered_visual = 0;
     for (i, item) in items.iter().enumerate() {
         let available = max_lines.saturating_sub(rendered_visual);
         if available == 0 {
-            let remaining_logical = total.saturating_sub(i);
-            let hint = format_expand_hint(remaining_logical);
+            let hint = format_expand_hint(remaining_of(i));
             out.push(Line::from(vec![
                 Span::styled(BranchPrefix::HANG, Style::default().fg(border_color)),
                 Span::styled(hint, Style::default().fg(theme::cur().subtle)),
@@ -868,8 +875,7 @@ fn push_visual_capped_output<T, F>(
             rendered_visual += wlines.len();
             out.extend(wlines);
             if rendered_visual >= max_lines && i + 1 < total {
-                let remaining_logical = total - (i + 1);
-                let hint = format_expand_hint(remaining_logical);
+                let hint = format_expand_hint(remaining_of(i + 1));
                 out.push(Line::from(vec![
                     Span::styled(BranchPrefix::HANG, Style::default().fg(border_color)),
                     Span::styled(hint, Style::default().fg(theme::cur().subtle)),
@@ -878,13 +884,22 @@ fn push_visual_capped_output<T, F>(
             }
         } else {
             out.extend(wlines.into_iter().take(available));
-            let remaining_logical = total.saturating_sub(i + 1);
-            let hint = format_expand_hint(remaining_logical);
+            let hint = format_expand_hint(remaining_of(i + 1));
             out.push(Line::from(vec![
                 Span::styled(BranchPrefix::HANG, Style::default().fg(border_color)),
                 Span::styled(hint, Style::default().fg(theme::cur().subtle)),
             ]));
             return;
+        }
+    }
+    // 折叠态窗口只装了可见源行：items 耗尽但调用方声明仍有隐藏源行时补提示。
+    if let Some(remaining) = hint_remaining {
+        if remaining > 0 {
+            let hint = format_expand_hint(remaining);
+            out.push(Line::from(vec![
+                Span::styled(BranchPrefix::HANG, Style::default().fg(border_color)),
+                Span::styled(hint, Style::default().fg(theme::cur().subtle)),
+            ]));
         }
     }
 }
@@ -895,14 +910,21 @@ fn push_visual_capped_output<T, F>(
 ///
 /// `max_lines` 控制**显示行数上限**（非详细模式传小值避免污染页面；传入 `usize::MAX` 显示完整）。
 /// 超出时追加 `… +N lines (ctrl+o to expand)` 提示。字符级截断兜底防止超长单行。
-fn error_summary_lines(content: &str, width: usize, max_lines: usize) -> Vec<Line<'static>> {
-    let truncated: String = content.chars().take(400).collect();
+/// `hidden_override` 覆盖提示的 N（源行口径，见 issue #645：折叠态先截断再美化后
+/// `all.len()` 只是窗口内行数，调用方须传回真实隐藏行数）。
+fn error_summary_lines(
+    content: &str,
+    width: usize,
+    max_lines: usize,
+    hidden_override: Option<usize>,
+) -> Vec<Line<'static>> {
+    let truncated: String = content.chars().take(ERROR_SUMMARY_MAX_CHARS).collect();
     let content_width = BranchPrefix::content_width(width);
     let all: Vec<&str> = truncated.lines().collect();
     let mut out = Vec::new();
     for (i, line) in all.iter().enumerate() {
         if i >= max_lines {
-            let hidden = all.len() - max_lines;
+            let hidden = hidden_override.unwrap_or_else(|| all.len() - max_lines);
             let hint = format_expand_hint(hidden);
             out.push(Line::from(Span::styled(
                 format!("{}{hint}", BranchPrefix::HANG),
@@ -1497,6 +1519,7 @@ fn render_shell_command(
             &output_lines,
             max_lines,
             theme::cur().subtle,
+            None,
             |(line, is_error), idx, _out_base| {
                 // 与 Bash 工具结果行口径一致：成功输出用 TEXT_SOFT，非零退出码用 ERROR。
                 let default_style = if *is_error && exit_code != Some(0) {
@@ -2198,23 +2221,33 @@ pub fn render_view_model_with_flags(
                 let mut error_header = String::new();
                 // Bash 工具结果（含 `git diff`）一律按普通命令输出逐行展示，
                 // 不再把 patch 文本重排成带摘要/行号的 diff 卡片（与 `!` 命令口径一致）。
-                let bash_display_lines: Option<Vec<ToolDisplayLine>> = if tool_name == "Bash" {
+                // 折叠态先截断源行再美化（issue #645）：只对覆盖前 max_lines 个
+                // 视觉行的源行做 JSON 美化，`… +N lines` 改用源行口径计数。
+                let bash_display_lines = if tool_name == "Bash" {
+                    let window = if detail_mode {
+                        BodyWindow::All
+                    } else {
+                        BodyWindow::HeadLines(max_lines)
+                    };
                     Some(transform_bash_output_lines(
                         content,
                         parse_exit_code(content),
                         &mut error_header,
+                        window,
                     ))
                 } else {
                     None
                 };
 
                 let content_width = BranchPrefix::content_width(width);
-                if let Some(ref b_lines) = bash_display_lines {
+                if let Some(ref b_out) = bash_display_lines {
                     push_visual_capped_output(
                         &mut lines,
-                        b_lines,
+                        &b_out.lines,
                         max_lines,
                         border_color,
+                        (!detail_mode)
+                            .then(|| b_out.source_total.saturating_sub(b_out.source_taken)),
                         |item, _i, _out_base| {
                             let text_color = if item.is_error_header {
                                 theme::cur().error
@@ -2236,6 +2269,7 @@ pub fn render_view_model_with_flags(
                         &result_lines,
                         max_lines,
                         border_color,
+                        None,
                         |line, i, out_base| {
                             let first_prefix = if i == 0 && tool_name != "Glob" {
                                 BranchPrefix::PREFIX
@@ -2317,6 +2351,7 @@ pub fn render_view_model_with_flags(
                     } else {
                         ERROR_SUMMARY_MAX_LINES
                     },
+                    None,
                 ));
             }
             // Read 工具折叠态：显示行数或记忆召回摘要
@@ -2589,6 +2624,7 @@ pub fn render_view_model_with_flags(
                                 } else {
                                     ERROR_SUMMARY_MAX_LINES
                                 },
+                                None,
                             ));
                         }
                     }
@@ -3212,10 +3248,11 @@ pub fn render_view_model_with_flags(
                             continue;
                         }
                         let mut error_header = String::new();
-                        let bash_lines = transform_bash_output_lines(
+                        let bash_out = transform_bash_output_lines(
                             &entry.content,
                             parse_exit_code(&entry.content),
                             &mut error_header,
+                            BodyWindow::All,
                         );
                         let content_width = BranchPrefix::content_width(width);
                         let border_color = if entry_is_error {
@@ -3223,7 +3260,7 @@ pub fn render_view_model_with_flags(
                         } else {
                             theme::cur().inactive
                         };
-                        for item in bash_lines {
+                        for item in bash_out.lines {
                             let text_color = if item.is_error_header || entry_is_error {
                                 theme::cur().error
                             } else {
@@ -3277,18 +3314,33 @@ pub fn render_view_model_with_flags(
                     if tool_entry_is_error(entry) && !entry.content.is_empty() {
                         let bash_summary;
                         let mut error_header = String::new();
+                        let hidden_override;
                         let content = if entry.tool_name == "Bash" {
-                            bash_summary = transform_bash_output_lines(
+                            // 折叠态先截断源行再美化（issue #645）：摘要只显示前
+                            // 400 字符，对覆盖它的源行做美化即可。
+                            let window = if detail_mode {
+                                BodyWindow::All
+                            } else {
+                                BodyWindow::HeadChars(ERROR_SUMMARY_MAX_CHARS)
+                            };
+                            let b_out = transform_bash_output_lines(
                                 &entry.content,
                                 parse_exit_code(&entry.content),
                                 &mut error_header,
-                            )
-                            .iter()
-                            .map(|line| line.text.as_ref())
-                            .collect::<Vec<_>>()
-                            .join("\n");
+                                window,
+                            );
+                            hidden_override = (!detail_mode).then(|| {
+                                b_out.source_total.saturating_sub(ERROR_SUMMARY_MAX_LINES)
+                            });
+                            bash_summary = b_out
+                                .lines
+                                .iter()
+                                .map(|line| line.text.as_ref())
+                                .collect::<Vec<_>>()
+                                .join("\n");
                             bash_summary.as_str()
                         } else {
+                            hidden_override = None;
                             &entry.content
                         };
                         lines.extend(error_summary_lines(
@@ -3299,6 +3351,7 @@ pub fn render_view_model_with_flags(
                             } else {
                                 ERROR_SUMMARY_MAX_LINES
                             },
+                            hidden_override,
                         ));
                     }
                 }

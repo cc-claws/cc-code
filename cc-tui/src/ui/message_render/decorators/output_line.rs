@@ -58,20 +58,33 @@ fn normalize_json(s: &str) -> String {
 /// 返回 `None` 表示没有任何一行被美化（调用方可继续零拷贝借用原文本）；
 /// 返回 `Some` 时是整段替换文本——被美化的行会从 1 行展开成多行。
 pub fn try_json_format_content(content: &str) -> Option<String> {
+    let lines: Vec<&str> = content.split('\n').collect();
+    try_json_format_lines(&lines, content.chars().count())
+}
+
+/// [`try_json_format_content`] 的窗口版：只对传入的源行做美化。
+///
+/// 长度守卫按 `whole_chars`（**全文**字符数）判定而非窗口大小——
+/// 折叠态「先截断源行、再美化」（issue #645）不能改变超长内容整段
+/// 跳过美化的既有行为，否则可见输出会从原文漂移成美化版。
+///
+/// 逐行变换独立且保序，窗口外的行不在显示区，跳过它们的美化对
+/// 可见输出前缀零影响。
+pub fn try_json_format_lines(lines: &[&str], whole_chars: usize) -> Option<String> {
     // CC 用 JS 的 `content.length`（UTF-16 码元）。用字符数最接近同一量级；
     // 若按字节数算，中文内容会提前三倍触发跳过。
-    if content.chars().count() > MAX_JSON_FORMAT_LENGTH {
+    if whole_chars > MAX_JSON_FORMAT_LENGTH {
         return None;
     }
     let mut changed = false;
     let mut out: Vec<String> = Vec::new();
-    for line in content.split('\n') {
+    for line in lines {
         match try_format_json(line) {
             Some(pretty) => {
                 changed = true;
                 out.extend(pretty.split('\n').map(str::to_string));
             }
-            None => out.push(line.to_string()),
+            None => out.push((*line).to_string()),
         }
     }
     changed.then(|| out.join("\n"))
