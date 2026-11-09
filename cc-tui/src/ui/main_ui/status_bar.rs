@@ -907,12 +907,12 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
             } else if app.session_mgr.current().ui.detail_mode {
                 vec![
                     ("● Verbose".to_string(), String::new()),
-                    ("ctrl+o".to_string(), lc.tr("key-exit-detail")),
+                    ("Ctrl+o".to_string(), lc.tr("key-exit-detail")),
                 ]
             } else {
                 vec![
-                    ("ctrl+o".to_string(), lc.tr("key-status-detail")),
-                    ("ctrl+p".to_string(), lc.tr("key-status-settings")),
+                    ("Ctrl+o".to_string(), lc.tr("key-status-detail")),
+                    ("Ctrl+p".to_string(), lc.tr("key-status-settings")),
                 ]
             };
             format_hints(&hints, key_style, desc_style)
