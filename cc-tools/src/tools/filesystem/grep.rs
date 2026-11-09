@@ -32,7 +32,7 @@ const GREP_DESCRIPTION: &str = r#"Search file contents on disk using ripgrep, wi
 Usage:
 - Required: pattern. Optional: path. Example: Grep({"pattern":"TODO","path":"src"}).
 - Grep searches text inside files. Use Glob to find files by name.
-- Use Bash for Git/CLI commands and filtering command output.
+- NEVER send shell commands to Grep — executing commands is Bash's job, not a valid Grep call.
 - Supports full regex syntax (e.g. "log.*Error", "function\s+\w+").
 - Pattern syntax: Uses ripgrep (not grep) — escape literal braces (use `interface\{\}` to find `interface{}` in Go code). Use fixed_strings=true for literal text.
 - Filter with `glob` parameter (e.g. "*.js", "**/*.tsx") or `type` parameter (e.g. "js", "py", "rust"). The `glob` field filters files within this Grep call; it does not switch to the Glob tool.

@@ -7,6 +7,7 @@ use super::resolve_path;
 const WRITE_FILE_DESCRIPTION: &str = r#"Create or overwrite a local file, or append content when append=true.
 
 Usage:
+- NEVER use Write to execute shell commands or scripts — that is Bash. `command` is not a valid parameter here.
 - Inspect an existing file before overwriting it; use Edit for targeted changes. Preserve unrelated user changes.
 - Provide file_path and content. Parent directories are created automatically.
 - Default writes replace the full file using a temporary file and rename. append=true adds content directly to the end.

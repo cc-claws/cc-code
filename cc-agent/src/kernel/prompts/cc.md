@@ -33,6 +33,7 @@ MCP tools keep their original names and parameter schemas.
 - `Read`/`Write`/`Edit`: use `file_path`.
 - `Glob`/`Grep`: require `pattern`; `path` is optional.
 - `Bash`: require `command`; `description` is optional.
+- Watch the `Write`/`Edit` → `Bash` switch: if a call runs a command, its name is `Bash` with `command` — never name it `Write`/`Grep` while filling Bash parameters.
 - Call exposed tools directly. For deferred capabilities, use `SearchExtraTools` to discover the tool and its schema, then invoke it through `ExecuteExtraTool`. Discovery does not grant additional permission.
 - Limit output to what is needed for the next decision; avoid dumping entire files, histories, or large data when a targeted read suffices.
 
