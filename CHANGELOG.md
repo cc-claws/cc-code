@@ -4,6 +4,16 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.255 — 2026-11-09
+
+### Features
+
+- **command hook 支持 exec form args（#954, #955）**：Windows 上 `~/.claude/settings.json` 中的 hook 常被第三方桌面工具写成 `command` + `args` 的 exec form（参考实现 2.1.139+ 语义），而 `HookType::Command` 此前没有 `args` 字段，serde 会静默丢弃参数并把 `command` 整串交给 `cmd /C`——可执行路径含空格（如 `C:\Program Files\nodejs\node.exe`）时被切碎，此类 hook 全部以 exit 1 失败。现 `args` 非空时直接以 `command` 为可执行文件、`args` 为 argv 启动（不经过 shell），逐项做 `${CLAUDE_PLUGIN_ROOT}` / `${CLAUDE_PLUGIN_DATA}` / `$ARGUMENTS` 变量替换；`args` 为空的旧配置行为不变，exec form 下 `shell` 字段被忽略（与参考实现语义一致）。
+
+### Fixes
+
+- **状态栏无 LLM 响应时不再显示 Cache 占位（#956, #957）**：状态栏在「有对话消息但尚无 LLM 响应」时渲染 `Cache -` 灰色占位，既非数据也非状态，且与真实读数 `Cache 0%` 混在一起无法区分「还没有数据」与「命中为 0」。现 Cache 段仅在存在真实 LLM 响应（`last_usage` 存在）时渲染（含 ` · ` 分隔符），MEM 段不受影响；`Cache 0%` 作为真实读数继续保留（命中为 0 可诊断缓存失效）。
+
 ## v0.6.254 — 2026-11-08
 
 ### Fixes
