@@ -52,6 +52,53 @@ fn test_notification_poll_budget_preserves_progress_and_bounds_each_batch() {
 }
 
 #[tokio::test]
+async fn test_kernel_pending_preserves_background_continuation_until_ready() {
+    let (mut app, _handle) = App::new_headless(100, 30).await;
+    app.session_mgr
+        .current_mut()
+        .metadata
+        .kernel_request_pending = true;
+    app.session_mgr.current_mut().agent.pending_bg_continuation =
+        Some(vec![cc_agent::agent::BackgroundTaskResult {
+            task_id: "kernel-pending-result".into(),
+            agent_name: "reviewer".into(),
+            prompt_summary: "review".into(),
+            success: true,
+            output: "done".into(),
+            tool_calls_count: 1,
+            duration_ms: 10,
+            child_thread_id: None,
+        }]);
+
+    app.poll_agent();
+    let session = app.session_mgr.current();
+    assert_eq!(
+        session
+            .agent
+            .pending_bg_continuation
+            .as_ref()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(!session.ui.loading);
+    assert!(session.messages.view_messages.is_empty());
+
+    app.session_mgr
+        .current_mut()
+        .metadata
+        .kernel_request_pending = false;
+    assert!(app.poll_agent(), "内核请求完成后恢复后台结果提交");
+    assert!(app
+        .session_mgr
+        .current()
+        .agent
+        .pending_bg_continuation
+        .is_none());
+    assert!(!app.session_mgr.current().messages.view_messages.is_empty());
+}
+
+#[tokio::test]
 async fn test_poll_agent_yields_backlog_and_preserves_fifo_through_done() {
     let (mut app, _handle) = App::new_headless(100, 30).await;
     let (sender, receiver) = mpsc::unbounded_channel();

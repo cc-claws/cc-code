@@ -376,6 +376,21 @@ impl App {
                     self.handle_agent_event(event)
                 }
             }
+            "config_option_update" => {
+                if let Some(id) = update
+                    .get("configOptions")
+                    .and_then(|options| options.as_array())
+                    .and_then(|options| {
+                        options.iter().find(|option| option["id"] == "agent_kernel")
+                    })
+                    .and_then(|option| option["currentValue"].as_str())
+                {
+                    self.session_mgr.current_mut().metadata.kernel_id = Some(id.to_string());
+                    self.render_rebuild();
+                    return (true, false, false);
+                }
+                (false, false, false)
+            }
             "session_info_update" => (false, false, false),
             "available_commands_update" => {
                 // 从 ACP AvailableCommandsUpdate 学习 Agent 命令列表

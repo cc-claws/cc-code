@@ -220,6 +220,23 @@ impl AcpTuiClient {
 
     // ── High-level RPC wrappers ──
 
+    fn publish_session_config_options(&self, session_id: &str, result: &Value) {
+        let Some(config_options) = result.get("configOptions").and_then(Value::as_array) else {
+            return;
+        };
+        let params = json!({
+            "sessionId": session_id,
+            "update": {
+                "sessionUpdate": "config_option_update",
+                "configOptions": config_options,
+            },
+        });
+        let _ = self.notification_tx.send(AcpNotification::SessionUpdate {
+            session_id: session_id.to_string(),
+            params,
+        });
+    }
+
     /// Create a new agent session.
     ///
     /// Closes the previous session (if any) to release its history, AgentPool,
@@ -240,6 +257,7 @@ impl AcpTuiClient {
             .ok_or("no session_id in response")?
             .to_string();
         *self.current_session_id.lock().unwrap() = Some(session_id.clone());
+        self.publish_session_config_options(&session_id, &result);
         if let Some(old_sid) = old_id.filter(|id| id != &session_id) {
             let _ = self
                 .transport
@@ -261,12 +279,13 @@ impl AcpTuiClient {
     ) -> Result<String, String> {
         let old_id = self.session_id();
         let params = json!({ "sessionId": session_id, "cwd": cwd, "model": model });
-        let _ = self
+        let result = self
             .transport
             .send_request("session/load", params)
             .await
             .map_err(|e| e.to_string())?;
         *self.current_session_id.lock().unwrap() = Some(session_id.to_string());
+        self.publish_session_config_options(session_id, &result);
         if let Some(old_sid) = old_id.filter(|id| id != session_id) {
             let _ = self
                 .transport

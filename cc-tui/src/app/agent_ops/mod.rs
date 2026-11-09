@@ -90,25 +90,50 @@ impl App {
                 kernel_id,
                 message,
             } => {
-                if let Some(id) = kernel_id {
+                if let Some(id) = &kernel_id {
                     self.services
                         .peri_config
                         .get_or_insert_with(Default::default)
                         .config
-                        .agent_kernel = Some(id);
+                        .agent_kernel = Some(id.clone());
                 }
                 if self
-                    .acp_client
-                    .as_ref()
-                    .and_then(|client| client.session_id())
+                    .session_mgr
+                    .current()
+                    .current_thread_id
+                    .clone()
+                    .or_else(|| {
+                        self.acp_client
+                            .as_ref()
+                            .and_then(|client| client.session_id())
+                    })
                     == session_id
                 {
                     self.session_mgr
                         .current_mut()
-                        .messages
-                        .view_messages
-                        .push(crate::ui::message_view::MessageViewModel::system(message));
+                        .metadata
+                        .kernel_request_pending = false;
+                    if let Some(id) = kernel_id {
+                        let toast = self.services.lc.tr_args(
+                            "app-kernel-switched",
+                            &[("kernel".into(), id.clone().into())],
+                        );
+                        self.session_mgr.current_mut().metadata.kernel_id = Some(id);
+                        self.session_mgr
+                            .current_mut()
+                            .ui
+                            .set_toast(toast, std::time::Duration::from_millis(2500));
+                    } else {
+                        self.session_mgr
+                            .current_mut()
+                            .messages
+                            .view_messages
+                            .push(crate::ui::message_view::MessageViewModel::system(message));
+                    }
                     self.render_rebuild();
+                    if !self.session_mgr.current().ui.loading {
+                        self.flush_pending_messages();
+                    }
                 }
                 (true, false, false)
             }

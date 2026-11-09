@@ -48,6 +48,38 @@
     }
 
     #[tokio::test]
+    async fn test_kernel_pending_enter_preserves_draft_until_completion() {
+        let (mut app, _handle) = App::new_headless(80, 24).await;
+        app.session_mgr
+            .current_mut()
+            .metadata
+            .kernel_request_pending = true;
+        app.paste_text_into_textarea("草稿第一行\n第二行");
+        let draft = input_text(&app);
+        let blocks = app.session_mgr.current().ui.pasted_text_blocks.len();
+        let messages = app.session_mgr.current().messages.view_messages.len();
+
+        assert!(matches!(
+            handle_normal_keys(&mut app, make_enter()).unwrap(),
+            Some(Action::Redraw)
+        ));
+        assert_eq!(input_text(&app), draft);
+        assert_eq!(
+            app.session_mgr.current().ui.pasted_text_blocks.len(),
+            blocks
+        );
+        assert_eq!(queued_count(&app), 0);
+        assert_eq!(
+            app.session_mgr.current().messages.view_messages.len(),
+            messages
+        );
+        assert_eq!(
+            app.session_mgr.current().ui.toast.as_ref().unwrap().0,
+            app.services.lc.tr("app-kernel-pending")
+        );
+    }
+
+    #[tokio::test]
     async fn test_busy_ui_command_is_rejected_and_input_preserved() {
         let mut app = make_busy_app().await;
         set_input(&mut app, "/theme");

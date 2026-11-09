@@ -14,6 +14,46 @@ fn make_image(id: usize) -> PendingAttachment {
 }
 
 #[tokio::test]
+async fn test_kernel_pending_buffers_background_input_without_consuming_draft() {
+    let (mut app, _handle) = App::new_headless(80, 24).await;
+    app.session_mgr
+        .current_mut()
+        .metadata
+        .kernel_request_pending = true;
+    app.paste_text_into_textarea("新的草稿\n保留粘贴映射");
+    let draft = app.session_mgr.current().ui.textarea.lines().join("\n");
+    let blocks = app.session_mgr.current().ui.pasted_text_blocks.len();
+    app.session_mgr.current_mut().metadata.pending_attachments = vec![make_image(1), make_image(2)];
+
+    app.submit_message("   ".into());
+    assert!(app
+        .session_mgr
+        .current()
+        .messages
+        .pending_messages
+        .is_empty());
+    app.submit_message("后台补充 [Image #1]".into());
+    app.flush_pending_messages();
+
+    let session = app.session_mgr.current();
+    assert!(
+        session.current_thread_id.is_none(),
+        "切换完成前不应创建 ACP 会话"
+    );
+    assert!(!session.ui.loading);
+    assert!(session.messages.view_messages.is_empty());
+    assert_eq!(session.messages.pending_messages.len(), 1);
+    let message = &session.messages.pending_messages[0];
+    assert_eq!(message.text, "后台补充 [Image #1]");
+    assert_eq!(message.attachments.len(), 1);
+    assert_eq!(message.attachments[0].image_id, 1);
+    assert_eq!(session.metadata.pending_attachments.len(), 1);
+    assert_eq!(session.metadata.pending_attachments[0].image_id, 2);
+    assert_eq!(session.ui.textarea.lines().join("\n"), draft);
+    assert_eq!(session.ui.pasted_text_blocks.len(), blocks);
+}
+
+#[tokio::test]
 async fn test_queue_user_message_owns_images_and_expands_pasted_text() {
     let (mut app, _handle) = App::new_headless(80, 24).await;
     app.session_mgr.current_mut().ui.loading = true;

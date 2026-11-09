@@ -274,7 +274,8 @@ async fn test_welcome_border_closes_on_every_row_in_both_languages() {
 }
 
 #[tokio::test]
-async fn test_welcome_tiny_regions_do_not_overflow() {    let (app, mut handle) = App::new_headless(16, 12).await;
+async fn test_welcome_tiny_regions_do_not_overflow() {
+    let (app, mut handle) = App::new_headless(16, 12).await;
     for (width, height) in [(0, 0), (1, 1), (2, 2), (3, 4), (4, 3), (10, 3)] {
         handle
             .terminal
@@ -392,10 +393,11 @@ fn app_with_thinking(model: &str, effort: &str) -> impl std::future::Future<Outp
     }
 }
 
-/// 标题行：品牌名 ACCENT+BOLD，版本号降级 MUTED（同一行两个 Span）。
+/// 标题行：品牌名 ACCENT+BOLD，版本号与当前内核使用 MUTED。
 #[tokio::test]
 async fn test_welcome_title_splits_brand_accent_and_version_muted() {
-    let (app, _handle) = App::new_headless(80, 12).await;
+    let (mut app, _handle) = App::new_headless(80, 12).await;
+    app.services.peri_config = None;
     let lines = welcome_lines(&app, 60);
     let title = &lines[0];
     assert_eq!(title.spans.len(), 2, "标题应拆成品牌名与版本号两段");
@@ -413,8 +415,8 @@ async fn test_welcome_title_splits_brand_accent_and_version_muted() {
 
     assert_eq!(
         title.spans[1].content.as_ref(),
-        format!("v{}", env!("CARGO_PKG_VERSION")),
-        "第二段只应包含版本号"
+        format!("v{} · Agent Kernel: cc", env!("CARGO_PKG_VERSION")),
+        "第二段应包含版本号和当前内核"
     );
     assert_eq!(
         title.spans[1].style.fg,
@@ -425,6 +427,94 @@ async fn test_welcome_title_splits_brand_accent_and_version_muted() {
         !title.spans[1].style.add_modifier.contains(Modifier::BOLD),
         "版本号不应继承 BOLD"
     );
+}
+
+#[tokio::test]
+async fn test_welcome_kernel_updates_after_success_with_model_style_toast() {
+    for (language, prefix) in [("en", "Kernel switched to:"), ("zh-CN", "内核已切换为:")] {
+        let (mut app, mut handle) = App::new_headless(80, 12).await;
+        app.services.lc.switch(language).unwrap();
+        let message_count = app.session_mgr.current().messages.view_messages.len();
+        for id in ["cc", "dsh", "pi", "cc"] {
+            app.handle_agent_event(crate::app::AgentEvent::KernelCommandCompleted {
+                session_id: None,
+                kernel_id: Some(id.to_string()),
+                message: "unused success detail".to_string(),
+            });
+            handle
+                .terminal
+                .draw(|frame| render_welcome(frame, &app, frame.area()))
+                .unwrap();
+            let snapshot = handle.snapshot().join("\n");
+            assert!(
+                snapshot.contains(&format!(
+                    "CC Code  v{} · Agent Kernel: {id}",
+                    env!("CARGO_PKG_VERSION")
+                )),
+                "{snapshot}"
+            );
+            assert_eq!(
+                app.session_mgr.current().messages.view_messages.len(),
+                message_count
+            );
+            let toast = &app.session_mgr.current().ui.toast.as_ref().unwrap().0;
+            assert!(toast.starts_with(prefix), "{toast}");
+            assert!(toast.contains(id), "{toast}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_welcome_kernel_ignores_late_notifications_from_other_sessions() {
+    use crate::acp_client::AcpNotification;
+    let (mut app, _handle) = App::new_headless(80, 12).await;
+    app.session_mgr.current_mut().current_thread_id = Some("current".to_string());
+    app.session_mgr.current_mut().metadata.kernel_id = Some("pi".to_string());
+    let notification = |session: &str, kernel: &str| AcpNotification::SessionUpdate {
+        session_id: session.to_string(),
+        params: serde_json::json!({"sessionId":session, "update":{
+            "sessionUpdate":"config_option_update",
+            "configOptions":[{"id":"agent_kernel","currentValue":kernel}]
+        }}),
+    };
+    app.handle_acp_notification(notification("old", "cc"));
+    app.handle_agent_event(crate::app::AgentEvent::KernelCommandCompleted {
+        session_id: Some("old".to_string()),
+        kernel_id: Some("dsh".to_string()),
+        message: "old session completed".to_string(),
+    });
+    assert!(welcome_lines(&app, 60)[0]
+        .to_string()
+        .ends_with("Agent Kernel: pi"));
+    assert!(app.session_mgr.current().ui.toast.is_none());
+
+    app.handle_acp_notification(notification("current", "cc"));
+    assert!(welcome_lines(&app, 60)[0]
+        .to_string()
+        .ends_with("Agent Kernel: cc"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_welcome_kernel_restores_history_and_resets_for_a_new_draft() {
+    let (mut app, _handle) = App::new_headless(80, 12).await;
+    let project = tempfile::tempdir().unwrap();
+    let cwd = project.path().to_string_lossy().to_string();
+    app.services.peri_config = Some(crate::config::PeriConfig::default());
+    for id in ["pi", "dsh", "cc"] {
+        let mut meta = cc_agent::thread::ThreadMeta::new(&cwd);
+        meta.kernel_id = Some(id.to_string());
+        let thread = app.services.thread_store.create_thread(meta).await.unwrap();
+        assert!(app.open_thread(thread));
+        assert!(welcome_lines(&app, 60)[0]
+            .to_string()
+            .ends_with(&format!("Agent Kernel: {id}")));
+    }
+    app.session_mgr.current_mut().metadata.kernel_id = Some("pi".to_string());
+    assert!(app.new_thread_in_cwd(cwd));
+    assert!(app.session_mgr.current().metadata.kernel_id.is_none());
+    assert!(welcome_lines(&app, 60)[0]
+        .to_string()
+        .ends_with("Agent Kernel: cc"));
 }
 
 #[tokio::test]

@@ -82,9 +82,10 @@ impl App {
             }
         }
         // 优先处理延迟的后台任务 continuation（由 BackgroundTaskCompleted 处理器设置）
-        // 只有在 loading=false 时才 take()，避免 loading=true（如 compact 中）时
-        // continuation 被消费但未使用而永久丢失
-        if !self.session_mgr.current_mut().ui.loading {
+        // 空闲且内核操作已完成后才 take()，避免提前消费结果或与切换并发启动下一轮。
+        if !self.session_mgr.current().ui.loading
+            && !self.session_mgr.current().metadata.kernel_request_pending
+        {
             if let Some(results) = self
                 .session_mgr
                 .current_mut()

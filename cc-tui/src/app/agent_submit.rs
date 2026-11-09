@@ -98,6 +98,25 @@ impl App {
     }
 
     pub fn submit_message(&mut self, input: String) {
+        if self.session_mgr.current().metadata.kernel_request_pending {
+            // 后台输入可暂存；保留用户尚未发送的草稿、粘贴块及不相关图片。
+            let input = self.expand_pasted_text(&input);
+            if input.trim().is_empty() {
+                return;
+            }
+            let image_ids = crate::clipboard::image_placeholder::parse_placeholders(&input);
+            let session = self.session_mgr.current_mut();
+            let (attachments, remaining) =
+                std::mem::take(&mut session.metadata.pending_attachments)
+                    .into_iter()
+                    .partition(|image| image_ids.contains(&image.image_id));
+            session.metadata.pending_attachments = remaining;
+            session
+                .messages
+                .pending_messages
+                .push(QueuedMessage::new(input, attachments));
+            return;
+        }
         let display_input = input;
         let expanded_input = self.expand_pasted_text(&display_input);
         let shell_notification_display = super::shell_notification_display_text(&display_input);
@@ -417,6 +436,9 @@ impl App {
 
     /// 每次发送一条排队消息；正在等待插入确认时先保留队列，避免重复提交。
     pub(crate) fn flush_pending_messages(&mut self) {
+        if self.session_mgr.current().metadata.kernel_request_pending {
+            return;
+        }
         let messages = &self.session_mgr.current().messages.pending_messages;
         if messages.is_empty() || messages.iter().any(|message| message.sending) {
             return;
