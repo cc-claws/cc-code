@@ -83,6 +83,13 @@ pub enum HookType {
     /// Shell 命令执行 (bash/powershell)
     Command {
         command: String,
+        /// exec form 参数（参考实现 2.1.139+）：非空时 `command` 按可执行
+        /// 文件路径解释，`args` 原样作为 argv，不经过 shell。
+        ///
+        /// Windows 上含空格的路径（`C:\Program Files\nodejs\node.exe`）走
+        /// `cmd /C` 会被按空格切碎，exec form 是官方给出的规避方式。
+        #[serde(default)]
+        args: Vec<String>,
         #[serde(default)]
         shell: Option<String>,
         #[serde(default)]

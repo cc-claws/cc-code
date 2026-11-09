@@ -235,3 +235,47 @@ async fn test_command_hook_native_cmd_and_powershell_still_work() {
         "cmd-ok"
     );
 }
+
+/// exec form：`command` 是可执行文件，`args` 作为 argv 直接传入。
+///
+/// 临时目录故意带空格：一旦实现退回「拼 shell 字符串」，参数会在空格处被切碎。
+#[tokio::test]
+async fn test_command_hook_exec_form_passes_args_without_shell() {
+    let dir = tempfile::Builder::new()
+        .prefix("hook exec ")
+        .tempdir()
+        .expect("创建临时目录");
+    let output = dir.path().join("decision output.json");
+    std::fs::write(&output, r#"{"decision":"block","reason":"exec ok"}"#).expect("写入 hook 输出");
+
+    let (mut hook, input, registered) = make_script_hook(dir.path(), "exit 0");
+    if let HookType::Command {
+        command,
+        args,
+        shell,
+        ..
+    } = &mut hook
+    {
+        #[cfg(windows)]
+        {
+            *command = "cmd.exe".into();
+            *args = vec![
+                "/C".into(),
+                "type".into(),
+                output.to_string_lossy().into_owned(),
+            ];
+        }
+        #[cfg(not(windows))]
+        {
+            *command = "cat".into();
+            *args = vec![output.to_string_lossy().into_owned()];
+        }
+        *shell = None;
+    }
+
+    let action = execute_command_hook(&hook, &input, &registered).await;
+    assert!(
+        matches!(action, HookAction::Block { ref reason } if reason == "exec ok"),
+        "exec form 必须把 args 原样交给可执行文件：{action:?}"
+    );
+}
