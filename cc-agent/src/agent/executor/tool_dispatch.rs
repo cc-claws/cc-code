@@ -380,6 +380,12 @@ pub(crate) struct SchemaFailureTracker {
     call_window: VecDeque<ToolCallOutcome>,
     /// 跨工具聚合下一次触发熔断的窗口内失败次数阈值（指数退避）
     aggregate_next_threshold: usize,
+    /// 历史累计出现过 Schema 校验失败的工具（按首次失败顺序，不受滑动窗口淘汰影响）
+    seen_failure_tools: Vec<String>,
+    /// 跨工具首现提示是否已发出（全局仅一次）
+    cross_tool_hint_emitted: bool,
+    /// 待消费的跨工具首现提示（刚达到第 2 个不同工具时写入）
+    pending_cross_tool_hint: Option<Vec<String>>,
 }
 
 impl Default for SchemaFailureTracker {
@@ -394,6 +400,9 @@ impl SchemaFailureTracker {
             tool_states: HashMap::new(),
             call_window: VecDeque::new(),
             aggregate_next_threshold: AGGREGATE_SCHEMA_FAILURE_THRESHOLD,
+            seen_failure_tools: Vec::new(),
+            cross_tool_hint_emitted: false,
+            pending_cross_tool_hint: None,
         }
     }
 
@@ -410,6 +419,18 @@ impl SchemaFailureTracker {
         tool_name: &str,
     ) -> (usize, Option<SchemaBreakerEvent>) {
         self.push_outcome(tool_name, true);
+
+        // 跨工具首现：历史累计第 2 个不同工具出现 Schema 失败时，产生一次性「模式点破」提示。
+        // 与聚合熔断分层——熔断从第 3 次起强制止动，这里让模型在第 2 次就感知趋势。
+        // 用历史累计而非滑动窗口：窗口淘汰后不应把同一个模式重复当作「首现」。
+        if !self.cross_tool_hint_emitted && !self.seen_failure_tools.iter().any(|t| t == tool_name)
+        {
+            self.seen_failure_tools.push(tool_name.to_string());
+            if self.seen_failure_tools.len() >= 2 {
+                self.cross_tool_hint_emitted = true;
+                self.pending_cross_tool_hint = Some(self.seen_failure_tools.clone());
+            }
+        }
 
         // 单工具：统计该工具在窗口内的失败次数（而非“连续失败”）
         let per_tool_count = self
@@ -456,6 +477,11 @@ impl SchemaFailureTracker {
         };
 
         (per_tool_count, event)
+    }
+
+    /// 取走「跨工具首现」提示：历史累计第 2 个不同工具首次 Schema 失败后仅返回一次。
+    pub fn take_cross_tool_first_hint(&mut self) -> Option<Vec<String>> {
+        self.pending_cross_tool_hint.take()
     }
 
     /// 工具调用成功：复位该工具的退避阈值，并把成功记入窗口参与淘汰。
@@ -846,6 +872,26 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
             if kind == ToolErrorKind::SchemaValidation {
                 let (_schema_count, breaker_event) =
                     schema_failure_tracker.record_failure_detailed(&result.tool_name);
+                // 跨工具首现提醒（issue #959）：第 2 个不同工具首次参数错误时点破模式。
+                // 本结果已触发熔断提示时不再追加，避免同一 ToolResult 上出现两条语义重叠的警告。
+                let cross_tool_hint = schema_failure_tracker.take_cross_tool_first_hint();
+                if breaker_event.is_none() {
+                    if let Some(tools) = cross_tool_hint {
+                        let tools_str = tools.join(", ");
+                        let text = format!(
+                            "You already passed invalid arguments to {} different tools ({}). \
+                             Stop guessing; re-read each tool's schema before the next call.",
+                            tools.len(),
+                            tools_str
+                        );
+                        tracing::warn!(
+                            tools = %tools_str,
+                            injected = %truncate_for_log(&text),
+                            "跨工具 Schema 校验首次失败，注入模式提醒"
+                        );
+                        hints.push(text);
+                    }
+                }
                 if let Some(event) = breaker_event {
                     match event {
                         SchemaBreakerEvent::PerTool { tool_name, count } => {

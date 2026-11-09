@@ -1313,6 +1313,37 @@ fn test_schema_failure_tracker_aggregate_across_different_tools() {
     assert!(event4.is_none(), "处于退避期内不应重复触发聚合熔断");
 }
 
+/// 验证跨工具首现提醒：第 2 个不同工具首次 Schema 失败时返回一次提示（issue #959）
+#[test]
+fn test_schema_failure_tracker_cross_tool_first_hint() {
+    // Arrange
+    let mut tracker = super::SchemaFailureTracker::new();
+    // Act & Assert: 第 1 个工具首次失败不提示
+    tracker.record_failure("Bash");
+    assert_eq!(tracker.take_cross_tool_first_hint(), None);
+    // 第 2 个不同工具首次失败触发一次性提示，工具名按出现顺序排列
+    tracker.record_failure("Grep");
+    assert_eq!(
+        tracker.take_cross_tool_first_hint(),
+        Some(vec!["Bash".to_string(), "Grep".to_string()])
+    );
+    // 后续工具再失败不重复提示
+    tracker.record_failure("Read");
+    assert_eq!(tracker.take_cross_tool_first_hint(), None);
+}
+
+/// 验证同一工具重复失败不触发跨工具首现提醒（由单工具熔断覆盖）
+#[test]
+fn test_schema_failure_tracker_cross_tool_hint_ignores_single_tool() {
+    // Arrange
+    let mut tracker = super::SchemaFailureTracker::new();
+    // Act
+    tracker.record_failure("Grep");
+    tracker.record_failure("Grep");
+    // Assert
+    assert_eq!(tracker.take_cross_tool_first_hint(), None);
+}
+
 /// 验证成功调用**不**抹除滑动窗口内已发生的失败（#404 回归保护）
 #[test]
 fn test_schema_failure_tracker_success_keeps_window_failures() {
@@ -1611,6 +1642,125 @@ async fn test_schema_failure_circuit_breaker_injects_warning_across_different_to
         text.contains("across different tools"),
         "提示文案应指出跨工具聚合失败"
     );
+}
+
+/// 验证 issue #959 场景：两个不同工具各失败 1 次时，第 2 次即注入跨工具提醒，
+/// 不再等到聚合熔断阈值（3 次）才给反馈。
+#[tokio::test]
+async fn test_cross_tool_schema_hint_injected_on_second_tool() {
+    struct ToolOne;
+    #[async_trait::async_trait]
+    impl BaseTool for ToolOne {
+        fn name(&self) -> &str {
+            "ToolOne"
+        }
+        fn description(&self) -> &str {
+            "one"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": { "param_one": { "type": "string" } },
+                "required": ["param_one"]
+            })
+        }
+        async fn invoke(
+            &self,
+            _: serde_json::Value,
+        ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+            Ok("ok".to_string())
+        }
+    }
+
+    struct ToolTwo;
+    #[async_trait::async_trait]
+    impl BaseTool for ToolTwo {
+        fn name(&self) -> &str {
+            "ToolTwo"
+        }
+        fn description(&self) -> &str {
+            "two"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": { "param_two": { "type": "string" } },
+                "required": ["param_two"]
+            })
+        }
+        async fn invoke(
+            &self,
+            _: serde_json::Value,
+        ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+            Ok("ok".to_string())
+        }
+    }
+
+    struct TwoToolMistakeLLM;
+    #[async_trait::async_trait]
+    impl ReactLLM for TwoToolMistakeLLM {
+        async fn generate_reasoning(
+            &self,
+            messages: &[BaseMessage],
+            _tools: &[&dyn BaseTool],
+            _streaming: Option<crate::llm::types::StreamingContext>,
+        ) -> AgentResult<Reasoning> {
+            // 看到跨工具提醒后停止，避免继续触发聚合熔断
+            if messages_contains_hint(messages, "different tools") {
+                return Ok(Reasoning::with_answer(
+                    "done",
+                    "I will re-read the schemas.",
+                ));
+            }
+
+            let tool_results_count = messages
+                .iter()
+                .filter(|m| matches!(m, BaseMessage::Tool { .. }))
+                .count();
+            let (target_tool, args) = match tool_results_count {
+                0 => ("ToolOne", serde_json::json!({ "wrong_one": "x" })),
+                _ => ("ToolTwo", serde_json::json!({ "wrong_two": "x" })),
+            };
+
+            Ok(Reasoning::with_tools(
+                "calling with wrong params",
+                vec![ToolCall::new(
+                    format!("id_{}", messages.len()),
+                    target_tool,
+                    args,
+                )],
+            ))
+        }
+    }
+
+    let agent = ReActAgent::new(TwoToolMistakeLLM)
+        .max_iterations(10)
+        .register_tool(Box::new(ToolOne))
+        .register_tool(Box::new(ToolTwo));
+
+    let mut state = AgentState::new("/tmp");
+    let result = agent
+        .execute(AgentInput::text("run"), &mut state, None)
+        .await;
+
+    assert!(
+        result.is_ok(),
+        "Agent 应在跨工具提醒后正常结束，实际: {:?}",
+        result
+    );
+    let hint_msg = state.messages().iter().find(|m| {
+        m.message_content()
+            .text_content()
+            .contains("2 different tools")
+    });
+    let hint_msg = hint_msg.expect("第 2 个不同工具失败时应注入跨工具提醒");
+    assert!(
+        matches!(hint_msg, BaseMessage::Tool { .. }),
+        "提醒应随 ToolResult 正文下发（issue #495）"
+    );
+    let text = hint_msg.content();
+    assert!(text.contains("ToolOne"), "提醒应列出首个失败的工具名");
+    assert!(text.contains("ToolTwo"), "提醒应列出当前失败的工具名");
 }
 
 /// 验证 ToolResult 与熔断 System 消息的严格顺序：ToolResult 必须紧邻 ToolUse，System 提示追加在后
