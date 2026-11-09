@@ -121,6 +121,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **状态栏快捷键提示首字母大写** | v0.6.261 | 状态栏第二行默认与详细模式的快捷键提示此前为小写 `ctrl+o` / `ctrl+p`，与文档及其余快捷键表述（`Ctrl+O` / `Ctrl+P`）大小写不一致，现统一为 `Ctrl+o ::详情` / `Ctrl+p ::设置` 首字母大写形式，仅文案变化、无行为改动（#975）。 |
 | **思考行数字加粗与 diff 上下文行号提亮** | v0.6.260 | 推理思考摘要行（`Thought for 11s, listed 1 directory`）的时长与动作计数数字此前和普通文字同字重、扫读抓不到重点，现把文本中连续数字拆分为独立 span 单独加粗——时长 `Ns` 整体加粗，字数仅数字加粗（单位词如 `chars` 保持常规）；ToolCallGroup 自带思考行、活跃/冻结状态同款处理，无亮度跳变，底部 `Brewed` 总结行与 unit 词不加粗。Edit/Write diff 视图的上下文行号由最暗灰阶 `theme.dim()`（#505050）提亮为 `theme.muted()`（#999999，与 tip 提示同色阶），仅影响 diff 上下文行，+/- 行 decoration 色不动（#971, #970）。 |
 | **diff 行号前多余空格与提前折行修复** | v0.6.259 | 把 diff 加减号 marker 移到行号右侧时行号前多加了一个空格，致行号、marker 与正文右移一列并使长行提前一列折行；本修复恢复参考截图 ` 17 +### Docs` 布局——上下文与增删行前导空格由两格恢复为一格、gutter 宽度由 n+4 恢复为 n+3，续行 marker 前占位由 n+3 恢复为 n+2 与首行对齐；修正原有布局断言，新增第 17 行列位置与折行边界回归测试（40 列宽下 35 字符正文完整显示，36 字符才折行），同步审批预览删除标记转换处的布局注释（#969）。 |
 | **欢迎页显示当前内核并完善 `/kernel` 切换交互** | v0.6.258 | 欢迎页按当前会话显示 Agent Kernel，`/kernel` 提供 cc / dsh / pi 选择列表面板，切换成功复用与模型切换一致的短暂通知（同 toast 位置、2.5 秒时长）；欢迎页、session metadata 与 ACP 客户端同步当前会话内核，覆盖新建、历史恢复和切换回执；内核请求期间阻止重复操作与会话切换，保留草稿并延后队列（#967）。 |
@@ -130,8 +131,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **思考耗时显示修复：LLM 计时优先（含 TTFT）** | v0.6.252 | 修复 `Thought for 1s` 与实际思考时长严重不符（真机近 1 分钟思考显示 1s）：TUI 侧组计时（锚点为首条 reasoning chunk，不含 TTFT）每次渲染装配都覆盖适配器回填的含 TTFT `duration_ms`。现 LLM 值优先、组计时仅兜底（下限 1s）；组语义重构为「一段思考的墙钟」（工具运行时长不计入、组边界只在 reasoning / 工具边界开合、每轮清零跨轮残留）；多行冻结思考行各自消费对应组值（修复两行显示同一数值的 off-by-one 错位）；正文 chunk 不再冻结组、终结近零值灌注（#945, #946）。 |
 | **关窗/退出可靠触发 SessionEnd，hook session_id 全链路对齐** | v0.6.251 | Windows 点 X 关窗此前 `CTRL_CLOSE_EVENT` 无人处理、SessionEnd 从不触发，clawd 等按 session_id 聚合的外部 hook 消费方里会话永远停在 working；正常退出与 `/clear` 路径的 session_id 也硬编码为空串，异步 hook 通知可能被 runtime 提前 drop 吞掉。现在关窗在 handler 线程从 500ms 刷新的全局快照同步触发 SessionEnd（3.5s 超时 + 原子互斥，不与正常退出重复触发），三条 SessionEnd 路径均携带真实 session_id 与 CC 对齐的 reason（关窗 `other`、`/clear` `clear`、输入框可见时退出 `prompt_input_exit`），退出路径等待异步 hook 完成；另补齐 SubagentStart/SubagentStop 的真实 session_id，子任务生命周期事件不再归到 "default" 会话（#941, #942）。 |
 | **支持运行时切换 cc / dsh / pi Agent 内核** | v0.6.241 | 支持通过配置项 `agent_kernel` 或 `/kernel` 命令在 `cc`（参考实现经典内核）、`dsh`（Devin-style shell）与 `pi`（流式轻量）Agent 内核间运行时无缝切换。内部统一规范名并由方言层双向翻译，对齐子代理能力与审批契约，cc 内核保持逐字节等价（#826, #903）；终端 Markdown 渲染同时新增 LaTeX 数学公式解析与 Unicode 提纯渲染（#901, #902）。 |
-| **文件工具支持 MSYS 盘符路径** | v0.6.240 | Windows 下传入 Git Bash 习惯的 `/c/Users/...` 时无法定位真实文件：这类路径有 root 但无盘符，`is_absolute()` 为 false，`Path::join` 会丢弃 cwd 落到「当前驱动器根」，解析结果随进程状态漂移，最终报 `File not found`，且错误只回显原始入参，容易误判为路径写法被拒绝。新增 `msys_drive_path()` 在 `resolve_path` 前把 `/c/foo` 还原为 `C:/foo`，Grep / rg_engine 的搜索路径构造同样接入；not found 提示改为回显 resolved 路径。仅 Windows 生效，`/cc/...`、`/1/...` 与相对路径不受影响（#899, #900）。 |
-> 更早版本（v0.6.0 – v0.6.240）见 [CHANGELOG](./CHANGELOG.md)。
+> 更早版本（v0.6.0 – v0.6.241）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---
 
