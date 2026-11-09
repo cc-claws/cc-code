@@ -17,6 +17,19 @@ use cc_agent::{
     messages::BaseMessage,
 };
 
+/// 构造 exec form 命令：`command` 按可执行文件解释，`args` 原样作为 argv。
+///
+/// 这条路径不经过 shell，可执行路径里的空格（`C:\Program Files\nodejs\node.exe`）
+/// 不会被 `cmd /C` 重新切分。对应参考实现 2.1.139+ 的 hook `args` 语义。
+fn exec_form_command(program: &str, args: &[String]) -> tokio::process::Command {
+    #[allow(unused_mut)]
+    let mut cmd = tokio::process::Command::new(program);
+    #[cfg(windows)]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    cmd.args(args);
+    cmd
+}
+
 /// Execute a command hook (shell script).
 ///
 /// - shell: platform default with Git Bash routing on Windows; timeout default 600s
@@ -28,13 +41,19 @@ pub async fn execute_command_hook(
     input: &HookInput,
     registered: &RegisteredHook,
 ) -> HookAction {
-    let (command, shell, timeout_secs) = match hook {
+    let (command, args, shell, timeout_secs) = match hook {
         HookType::Command {
             command,
+            args,
             shell,
             timeout,
             ..
-        } => (command.clone(), shell.clone(), timeout.unwrap_or(600)),
+        } => (
+            command.clone(),
+            args.clone(),
+            shell.clone(),
+            timeout.unwrap_or(600),
+        ),
         _ => {
             return HookAction::Allow;
         }
@@ -48,19 +67,31 @@ pub async fn execute_command_hook(
         }
     };
 
-    // Resolve ${CLAUDE_PLUGIN_ROOT}, ${CLAUDE_PLUGIN_DATA}, ${ARGUMENTS} in command string
+    // Resolve ${CLAUDE_PLUGIN_ROOT}, ${CLAUDE_PLUGIN_DATA}, ${ARGUMENTS} in the
+    // command string and exec-form args.
     let command = resolve_hook_variables(
         &command,
         &registered.plugin_root,
         &registered.plugin_data_dir,
         &input_json,
     );
+    let args: Vec<String> = args
+        .iter()
+        .map(|arg| {
+            resolve_hook_variables(
+                arg,
+                &registered.plugin_root,
+                &registered.plugin_data_dir,
+                &input_json,
+            )
+        })
+        .collect();
 
     let plugin_root_str = registered.plugin_root.to_string_lossy().to_string();
     let plugin_data_str = registered.plugin_data_dir.to_string_lossy().to_string();
     let hook_event_str = format!("{:?}", input.hook_event_name);
 
-    let mut cmd =
+    let mut cmd = if args.is_empty() {
         match crate::process::try_shell_command_with_shell(&command, &[], shell.as_deref()) {
             Ok(command) => command,
             Err(error) => {
@@ -69,7 +100,11 @@ pub async fn execute_command_hook(
                     reason: hook_error_reason("hook failed to run", &error.to_string()),
                 };
             }
-        };
+        }
+    } else {
+        // exec form：command 是可执行文件，args 原样作为 argv，不经过 shell。
+        exec_form_command(&command, &args)
+    };
     cmd.current_dir(&input.cwd)
         .env("CLAUDE_PROJECT_DIR", &input.cwd)
         .env("CLAUDE_PLUGIN_ROOT", &plugin_root_str)

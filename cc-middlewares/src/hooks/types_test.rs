@@ -11,6 +11,33 @@ fn test_hooktype_deser_command() {
 }
 
 #[test]
+fn test_hooktype_deser_command_exec_form_args() {
+    let json = r#"{
+        "type": "command",
+        "command": "C:\\Program Files\\nodejs\\node.exe",
+        "args": ["C:/hooks/clawd-hook.js", "SessionStart"]
+    }"#;
+    let hook: HookType = serde_json::from_str(json).unwrap();
+    match hook {
+        HookType::Command { command, args, .. } => {
+            assert_eq!(command, r"C:\Program Files\nodejs\node.exe");
+            assert_eq!(args, vec!["C:/hooks/clawd-hook.js", "SessionStart"]);
+        }
+        _ => panic!("Expected Command variant"),
+    }
+}
+
+#[test]
+fn test_hooktype_deser_command_without_args_defaults_empty() {
+    let json = r#"{"type": "command", "command": "echo test"}"#;
+    let hook: HookType = serde_json::from_str(json).unwrap();
+    match hook {
+        HookType::Command { args, .. } => assert!(args.is_empty()),
+        _ => panic!("Expected Command variant"),
+    }
+}
+
+#[test]
 fn test_hooktype_deser_prompt() {
     let json = r#"{"type": "prompt", "prompt": "analyze this"}"#;
     let hook: HookType = serde_json::from_str(json).unwrap();
