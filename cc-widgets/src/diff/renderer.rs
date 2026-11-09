@@ -655,8 +655,10 @@ pub fn render_diff_result(
                     old_line_num: _,
                     new_line_num,
                 } => {
-                    // context 行用新文件行号，marker 位为空格（行号右侧）
-                    let gutter_style = Style::default().fg(theme.dim());
+                    // context 行用新文件行号，marker 位为空格（行号右侧）。
+                    // 行号用 muted（inactive #999999）：与 tip 提示同色阶，
+                    // 比 dim 清晰但不抢 +/- 行 decoration 色的视觉重点。
+                    let gutter_style = Style::default().fg(theme.muted());
                     let gutter = GutterLayout::new(
                         format!("  {:>n$}  ", new_line_num, n = n),
                         " ",

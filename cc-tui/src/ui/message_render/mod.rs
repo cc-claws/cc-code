@@ -969,6 +969,32 @@ fn uppercase_first_char(s: &str) -> String {
     }
 }
 
+/// 把文本中的连续数字拆成独立 span 加粗、其余保持常规字重（同一暗色）。
+///
+/// 用于思考行的动作计数（如 `, read 1 file, listed 1 directory`）：
+/// 数字是扫一眼要抓的关键值，与 `Thought for 9s` 的时长同为加粗。
+fn digit_accent_spans(text: &str, dim: Style, hot: Style) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    let mut in_digits = false;
+    let mut run_start = 0usize;
+    for (i, c) in text.char_indices() {
+        let d = c.is_ascii_digit();
+        if d != in_digits {
+            if i > run_start {
+                let st = if in_digits { hot } else { dim };
+                spans.push(Span::styled(text[run_start..i].to_string(), st));
+            }
+            run_start = i;
+            in_digits = d;
+        }
+    }
+    if run_start < text.len() {
+        let st = if in_digits { hot } else { dim };
+        spans.push(Span::styled(text[run_start..].to_string(), st));
+    }
+    spans
+}
+
 /// 把已完成态的动作摘要改成进行时（`read 2 files` → `reading 2 files`），
 /// 用于运行中的 Thinking 行（`Thinking for 3629 chars, reading 2 files…`）。
 fn present_tense_summary(summary: &str) -> String {
@@ -1810,21 +1836,24 @@ pub fn render_view_model_with_flags(
                         } else {
                             " (ctrl+o to expand)"
                         };
-                        let (prefix, timing) = if active {
+                        // value 拆「加粗数值 + 常规单位」：`Ns` 整体加粗（紧凑时间写法），
+                        // `N chars` 只数字加粗、单位词保持常规字重。
+                        let (prefix, verb, value_num, value_unit) = if active {
                             // 活跃态恒显 `∴ ` 前缀（不再做 500ms 显隐闪烁）
-                            let dot = "∴ ".to_string();
-                            (dot, format!("Thinking for {char_count} chars"))
+                            ("∴ ", "Thinking for ", char_count.to_string(), " chars")
                         } else {
                             // 有耗时 → `Thought for Ns`；无耗时（历史旧数据）→ 回退字数
                             // 冻结后不再带符号，只保留缩进（与活跃行对齐）
                             (
-                                "  ".to_string(),
+                                "  ",
+                                "Thought for ",
                                 match duration_ms {
                                     Some(ms) => {
-                                        format!("Thought for {}s", ms.div_ceil(1000).max(1))
+                                        format!("{}s", ms.div_ceil(1000).max(1))
                                     }
-                                    None => format!("Thought for {char_count} chars"),
+                                    None => char_count.to_string(),
                                 },
+                                if duration_ms.is_some() { "" } else { " chars" },
                             )
                         };
                         // 紧随的只读工具计数（如 `read 1 file, listed 1 directory`）
@@ -1839,14 +1868,20 @@ pub fn render_view_model_with_flags(
                             })
                             .unwrap_or_default();
                         let ellipsis = if active { "…" } else { "" };
-                        let title = format!("{prefix}{timing}{actions}{ellipsis}{hint}");
                         // 活跃与冻结同色（统一压暗）：冻结瞬间不再有亮度跳变。
                         // 活跃态靠行首 `∴ ` 与末尾省略号区分，不靠颜色。
-                        let title_color = theme::cur().inactive;
-                        lines.push(Line::from(vec![Span::styled(
-                            title,
-                            Style::default().fg(title_color),
-                        )]));
+                        // 时长与动作计数里的数字单独加粗，扫一眼能抓到关键数值。
+                        let dim = theme::cur().inactive;
+                        let dim_style = Style::default().fg(dim);
+                        let hot_style = dim_style.add_modifier(Modifier::BOLD);
+                        let mut spans = vec![
+                            Span::styled(format!("{prefix}{verb}"), dim_style),
+                            Span::styled(value_num, hot_style),
+                            Span::styled(value_unit.to_string(), dim_style),
+                        ];
+                        spans.extend(digit_accent_spans(&actions, dim_style, hot_style));
+                        spans.push(Span::styled(format!("{ellipsis}{hint}"), dim_style));
+                        lines.push(Line::from(spans));
                         // 普通模式：只留这一行摘要，**不渲染任何思考正文**。
                         // 详细模式：显示完整 reasoning，走 markdown 解析 + DIM overlay
                         if detail_mode {
@@ -3016,20 +3051,29 @@ pub fn render_view_model_with_flags(
                 } else {
                     " (ctrl+o to expand)"
                 };
-                let (prefix, timing) = if active {
+                // value 拆「加粗数值 + 常规单位」：`Ns` 整体加粗（紧凑时间写法），
+                // `N chars` 只数字加粗、单位词保持常规字重。
+                let (prefix, verb, value_num, value_unit) = if active {
                     // 活跃态恒显 `∴ ` 前缀（不再做 500ms 显隐闪烁）
-                    let dot = "∴ ".to_string();
                     (
-                        dot,
-                        format!("Thinking for {} chars", t.text.chars().count()),
+                        "∴ ",
+                        "Thinking for ",
+                        t.text.chars().count().to_string(),
+                        " chars",
                     )
                 } else {
                     // 冻结后不再带符号，只保留缩进（与活跃行对齐）
                     (
-                        "  ".to_string(),
+                        "  ",
+                        "Thought for ",
                         match t.duration_ms {
-                            Some(ms) => format!("Thought for {}s", ms.div_ceil(1000).max(1)),
-                            None => format!("Thought for {} chars", t.text.chars().count()),
+                            Some(ms) => format!("{}s", ms.div_ceil(1000).max(1)),
+                            None => t.text.chars().count().to_string(),
+                        },
+                        if t.duration_ms.is_some() {
+                            ""
+                        } else {
+                            " chars"
                         },
                     )
                 };
@@ -3047,11 +3091,18 @@ pub fn render_view_model_with_flags(
                     .unwrap_or_default();
                 let ellipsis = if active { "…" } else { "" };
                 // 活跃与冻结同色（统一压暗）：冻结瞬间不再有亮度跳变。
-                let title_color = theme::cur().inactive;
-                lines.push(Line::from(Span::styled(
-                    format!("{prefix}{timing}{actions}{ellipsis}{hint}"),
-                    Style::default().fg(title_color),
-                )));
+                // 时长与动作计数里的数字单独加粗，与 AssistantBubble 思考行同款。
+                let dim = theme::cur().inactive;
+                let dim_style = Style::default().fg(dim);
+                let hot_style = dim_style.add_modifier(Modifier::BOLD);
+                let mut spans = vec![
+                    Span::styled(format!("{prefix}{verb}"), dim_style),
+                    Span::styled(value_num, hot_style),
+                    Span::styled(value_unit.to_string(), dim_style),
+                ];
+                spans.extend(digit_accent_spans(&actions, dim_style, hot_style));
+                spans.push(Span::styled(format!("{ellipsis}{hint}"), dim_style));
+                lines.push(Line::from(spans));
                 // 详细模式：思考正文与 AssistantBubble 保持同一条渲染管线
                 // （markdown 解析 + DIM 压暗 + 折行），避免组内/组外观感不一致。
                 if detail_mode {
