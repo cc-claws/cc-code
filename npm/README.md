@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.255：**command hook 支持 exec form args**——Windows 上第三方桌面工具常把 hook 写成 `command` + `args` 的 exec form，此前 `args` 被静默丢弃、整串 `command` 交 `cmd /C` 执行，路径含空格时全部 exit 1 失败。现 `args` 非空时直接以 argv 启动（不经过 shell）并做变量替换，旧配置行为不变（#954, #955）；另移除状态栏无 LLM 响应时的 `Cache -` 无信息量占位，`Cache 0%` 真实读数保留（#956, #957）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.254：**面板关闭后视口回缩**——修复 `Ctrl+P` 面板取消后页面留白（输入框/状态栏浮在中部、下方空白）：面板等瞬时块不再进视口持久记忆，关闭立即回收高度并清理释放行，页面继续紧贴内容（#951, #952）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.253：**状态栏 Verbose 标识首字母恢复大写**——详细模式状态栏的 `● verbose` 标识恢复为 `● Verbose`（历史文案即为大写，v0.6.244 状态栏文案小写化时被一并误改）（#948, #949）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
