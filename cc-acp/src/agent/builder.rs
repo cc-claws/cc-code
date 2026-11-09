@@ -534,7 +534,7 @@ fn build_agent_inner(
     let system_prompt = finalize_system_prompt(system_prompt, kernel, &model_name);
     // 注意：这里**不能**对整段 system_prompt 做方言替换——它包含用户记忆、
     // CLAUDE.md 指令、cwd 等动态数据，替换会污染用户内容。内核方言只通过
-    // `prompt_for` 追加的内核段落与 `dialectize_known_hints` 定点提示语生效。
+    // spec 指定位置的内核段落与 `dialectize_known_hints` 定点提示语生效。
 
     // 构建 ReActAgent
     let executor = ReActAgent::new(model)
@@ -733,7 +733,7 @@ fn build_agent_inner(
 
 /// Shared by execution and the session prompt inspector.
 pub fn finalize_system_prompt(system_prompt: String, kernel: Kernel, model_name: &str) -> String {
-    let kernel_prompt = kernel.prompt_for(model_name);
+    let kernel_prompt = kernel.appended_prompt_for(model_name);
     let system_prompt = if kernel_prompt.is_empty() {
         system_prompt
     } else {

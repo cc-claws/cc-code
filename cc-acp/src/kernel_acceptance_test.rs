@@ -39,7 +39,9 @@ fn test_cc_kernel_equivalence() {
     let before = serde_json::to_string(&defs).unwrap();
     let after = serde_json::to_string(&Kernel::cc().translate_definitions(defs)).unwrap();
     assert_eq!(before, after);
-    assert!(Kernel::cc().prompt_for("any-model").is_empty());
+    assert!(Kernel::cc()
+        .prompt_for("any-model")
+        .contains("# Tool usage policy"));
 }
 
 #[test]
@@ -197,9 +199,19 @@ fn test_agent_kernel_config_field() {
 
 #[test]
 fn test_system_prompt_no_accumulation_on_switch() {
-    // 切换只替换 kernel_id（不追加 system 消息/段落），连切 5 次仍只有一个身份。
+    // 同一会话切换后重建当前提示词，保留 cc 基础快照且不累计旧内核规则。
+    let directory = tempfile::tempdir().unwrap();
+    let cwd = directory.path().to_str().unwrap();
+    let base = crate::prompt::build_system_prompt(
+        None,
+        cwd,
+        crate::prompt::PromptFeatures::none(),
+        &[],
+        Some("2026-11-05"),
+        None,
+    );
     let mut frozen = FrozenSessionData {
-        system_prompt: "base".to_string(),
+        system_prompt: base.clone(),
         instructions: None,
         jev_rule_loader: None,
         skill_summary: None,
@@ -210,15 +222,83 @@ fn test_system_prompt_no_accumulation_on_switch() {
         memory_dir: None,
         kernel_id: Some("cc".to_string()),
     };
-    for id in ["dsh", "pi", "cc", "dsh", "pi"] {
+    let initial =
+        crate::agent::builder::finalize_system_prompt(base.clone(), Kernel::cc(), "test-model");
+    for id in ["cc", "dsh", "pi", "cc", "dsh", "pi", "cc"] {
         frozen.kernel_id = Some(id.to_string());
+        let kernel = resolve_kernel(Some(&frozen), &Default::default()).unwrap();
+        let prompt = crate::session::frozen::system_prompt_for_kernel(&frozen, kernel, cwd, &[]);
+        let prompt = crate::agent::builder::finalize_system_prompt(prompt, kernel, "test-model");
+        for other in ALL_SPECS {
+            let other = Kernel::try_from_id(other.id).unwrap();
+            assert_eq!(
+                prompt.matches(other.prompt_for("test-model")).count(),
+                usize::from(id == other.id()),
+                "{id} must contain only the current kernel policy ({})",
+                other.id()
+            );
+        }
+        if id == "cc" {
+            assert_eq!(
+                prompt, initial,
+                "switching back restores the cc prompt exactly"
+            );
+        }
+        assert_eq!(frozen.system_prompt, base);
+        assert_eq!(frozen.date, "2026-11-05");
+        assert_eq!(frozen.language, None);
+        assert_eq!(frozen.memory_entrypoint, None);
+        assert_eq!(frozen.memory_dir, None);
+        assert_eq!(kernel.id(), id);
     }
-    assert_eq!(frozen.kernel_id.as_deref(), Some("pi"));
-    assert_eq!(frozen.system_prompt, "base");
+    assert_eq!(frozen.kernel_id.as_deref(), Some("cc"));
     assert_eq!(
         resolve_kernel(Some(&frozen), &Default::default())
             .unwrap()
             .id(),
-        "pi"
+        "cc"
     );
+}
+
+#[test]
+fn test_session_started_with_another_kernel_can_switch_back_to_cc() {
+    let directory = tempfile::tempdir().unwrap();
+    let cwd = directory.path().to_str().unwrap();
+    for id in ["dsh", "pi"] {
+        let mut frozen = crate::session::frozen::build_frozen_session_data(
+            cwd,
+            AppConfig {
+                agent_kernel: Some(id.to_string()),
+                language: Some("zh-CN".to_string()),
+                ..AppConfig::default()
+            },
+            &[],
+            &[],
+            "2026-11-05",
+            None,
+        );
+        assert_eq!(frozen.kernel_id.as_deref(), Some(id));
+        let cc_base = frozen.system_prompt.clone();
+        let memory_entrypoint = frozen.memory_entrypoint.clone();
+        let memory_dir = frozen.memory_dir.clone();
+        let selected = Kernel::try_from_id(id).unwrap();
+        let prompt = crate::session::frozen::system_prompt_for_kernel(&frozen, selected, cwd, &[]);
+        let prompt = crate::agent::builder::finalize_system_prompt(prompt, selected, "test-model");
+        assert!(prompt.contains(selected.prompt_for("test-model")));
+        assert!(!prompt.contains("# Tool usage policy"));
+
+        frozen.kernel_id = Some("cc".to_string());
+        let cc = resolve_kernel(Some(&frozen), &Default::default()).unwrap();
+        let prompt = crate::session::frozen::system_prompt_for_kernel(&frozen, cc, cwd, &[]);
+        assert_eq!(prompt, cc_base);
+        let prompt = crate::agent::builder::finalize_system_prompt(prompt, cc, "test-model");
+        let boundary = prompt.find("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__").unwrap();
+        assert_eq!(prompt.matches(cc.prompt_for("test-model")).count(), 1);
+        assert!(prompt[..boundary].contains(cc.prompt_for("test-model")));
+        assert!(!prompt.contains(selected.prompt_for("test-model")));
+        assert_eq!(frozen.date, "2026-11-05");
+        assert_eq!(frozen.language.as_deref(), Some("zh-CN"));
+        assert_eq!(frozen.memory_entrypoint, memory_entrypoint);
+        assert_eq!(frozen.memory_dir, memory_dir);
+    }
 }

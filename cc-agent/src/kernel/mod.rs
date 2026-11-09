@@ -50,7 +50,9 @@ impl std::error::Error for UnknownKernel {}
 /// 系统提示词来源。
 #[derive(Debug, PartialEq, Eq)]
 pub enum PromptSource {
-    /// 所有模型共用一份（当前 cc / dsh / pi 三个内核）
+    /// 所有模型共用的工具规则，放在主 Agent 的静态工具策略段。
+    StaticToolPolicy(&'static str),
+    /// 所有模型共用一份，追加到基础系统提示词之后。
     Single(&'static str),
     /// 按模型匹配，未命中用 default（预留给按模型分提示词的内核）
     ByModel {
@@ -184,7 +186,7 @@ impl Kernel {
     /// 按模型解析系统提示词：精确 → 最长前缀 → 失败回 default。
     pub fn prompt_for(&self, model: &str) -> &'static str {
         match &self.spec().prompt {
-            PromptSource::Single(p) => p,
+            PromptSource::StaticToolPolicy(p) | PromptSource::Single(p) => p,
             PromptSource::ByModel { default, overrides } => {
                 if let Some((_, p)) = overrides.iter().find(|(m, _)| *m == model) {
                     return p;
@@ -200,6 +202,22 @@ impl Kernel {
                     .map(|(_, p)| *p)
                     .unwrap_or(*default)
             }
+        }
+    }
+
+    /// 静态工具策略由提示词组装器放入缓存边界之前；子 Agent 使用自己的工具规则。
+    pub fn static_tool_policy(&self) -> &'static str {
+        match &self.spec().prompt {
+            PromptSource::StaticToolPolicy(p) => p,
+            _ => "",
+        }
+    }
+
+    /// 已在静态段组装的工具规则不再追加，其他来源保留按模型解析的行为。
+    pub fn appended_prompt_for(&self, model: &str) -> &'static str {
+        match &self.spec().prompt {
+            PromptSource::StaticToolPolicy(_) => "",
+            _ => self.prompt_for(model),
         }
     }
 
@@ -287,9 +305,6 @@ impl Kernel {
     /// 出站：改写工具定义的 name / description / parameters。
     /// cc 内核是恒等变换（逐字节等价回归基线）。
     pub fn translate_definitions(&self, defs: Vec<ToolDefinition>) -> Vec<ToolDefinition> {
-        if self.is_cc() {
-            return defs;
-        }
         defs.into_iter()
             .map(|mut def| {
                 if let Some(spec) = self.tool_spec(&def.name) {

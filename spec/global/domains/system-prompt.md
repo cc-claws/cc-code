@@ -5,7 +5,7 @@
 系统提示词领域负责 Agent 系统提示词的架构设计，将单体提示词拆分为独立段落文件，支持基于功能的条件注入。
 
 核心职责：
-- 14 个 .md 段落文件：6 个静态，8 个位于动态边界之后（按平台和功能条件注入）
+- 共享段落位于 cc-tui/prompts/sections/；内核提示位于 cc-agent/src/kernel/prompts/，由各自 spec 声明
 - include_str! 编译时嵌入，零运行时开销
 - PromptFeatures 共 6 个开关（hitl/subagent/cron/skills/channel/memory）：仅 hitl 经 YOLO_MODE 环境变量推断，其余构建时硬编码 true
 - 动态覆盖块从 AgentOverrides 生成
@@ -16,7 +16,7 @@
 
 ```
 build_system_prompt(overrides, cwd, features)
-  → 静态段落（01-06）: 固定缓存前缀
+  → 共享静态段落（01-04、06）+ spec 声明的静态工具策略: 固定缓存前缀
   → __SYSTEM_PROMPT_DYNAMIC_BOUNDARY__
   → AgentOverrides 覆盖块 + 环境（07）+ Windows（08，按平台）+ 提醒（14）
   → Feature-gated 段落（10-13、15）: PromptFeatures 条件判断
@@ -28,14 +28,16 @@ build_system_prompt(overrides, cwd, features)
 
 | 维度 | 选型 |
 |------|------|
-| 段落文件 | cc-tui/prompts/sections/ 目录，14 个 .md 文件 |
-| 静态段落 | 01_intro, 02_system, 03_doing_tasks, 04_actions, 05_using_tools, 06_tone_style |
+| 段落文件 | cc-tui/prompts/sections/ 共享段落；cc-agent/src/kernel/prompts/ 内核提示 |
+| 静态段落 | 01_intro, 02_system, 03_doing_tasks, 04_actions, spec 静态工具策略, 06_tone_style |
 | 动态边界后 | 07_env, 08_windows（Windows）, 14_system_reminder，覆盖块及语言设置 |
 | Feature-gated | 10_hitl, 11_subagent, 12_cron, 13_skills, 15_channel |
 | 编译嵌入 | include_str! 宏，零运行时开销 |
 | 条件注入 | PromptFeatures::detect()；HITL 使用运行时的 !is_yolo_mode()，默认启用审批说明；其余开关硬编码 true |
 | Memory 块 | memory_enabled 门控的精简读取规则及最多 20 KB（20,000 UTF-8 字节）索引，保留入口 200 行限制（非段落文件） |
 | 环境变量 | 会话创建时捕获；07 中日期为 session date，不代表实时日期 |
+
+cc 的工具规则由 `spec/cc.rs` 引用 `kernel/prompts/cc.md`，替代原 `05_using_tools.md`，静态段位置保持不变。三份内核提示统一采用 `# Agent Kernel`、身份及命名声明、`<tools>` 和 `<rules>` 结构；cc 保留工具调用正例和参数错误恢复规则，工具可用性与完整参数仍以实际暴露的 schema 为准。`PromptSource::StaticToolPolicy` 在主 Agent 静态段组装一次，不在最终提示词末尾重复追加；dsh/pi 的 `Single` 和按模型选择的 `ByModel` 保留原追加方式。子 Agent 仍按权限过滤后的实际工具集生成指引。原对话内切换内核仍保留历史，并在下一轮使用选定内核的提示词和工具定义，不要求新建会话。
 
 记忆索引在会话创建时读取一次，提示词和兼容元数据共用同一份快照；空索引也冻结。ACP 会话与 print 路径通过 `build_agent_with_embedded_memory` 跳过独立 `MemoryMiddleware`，避免同一索引再次注入或被 fork 继承。相关任务遇到空预览、截断或未命中时，提示模型先用关键词搜索磁盘完整索引，索引缺失或无匹配再搜索记忆目录，按需读取相关主题或分页详情；此检索规则在空索引时同样保留。写入、更新与删除必须由用户明确提出，不要求每轮总结，不触发后台记忆模型调用。旧完整自动记忆提示词 API 与独立中间件保留给兼容调用方。
 
