@@ -75,7 +75,7 @@ fn test_prompt_source_single() {
 fn test_cc_tool_policy_has_one_assembly_location() {
     let kernel = Kernel::cc();
     let policy = kernel.prompt_for("any-model");
-    assert!(policy.contains("# Tool usage policy"));
+    assert!(policy.contains("# Agent Kernel: cc"));
     assert!(policy.contains("Bash({\"command\":\"git status --short\"})"));
     assert_eq!(kernel.static_tool_policy(), policy);
     assert!(kernel.appended_prompt_for("any-model").is_empty());
