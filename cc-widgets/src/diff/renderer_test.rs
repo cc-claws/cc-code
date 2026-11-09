@@ -491,28 +491,28 @@ fn test_render_diff_unknown_lang_falls_back() {
     assert!(has_green_bg, "未识别语言回退后仍应保留绿底");
 }
 
-/// 对齐 CC color-diff：行号 gutter 为单行号，marker + 空格 + 右对齐行号 + 空格，无竖线
+/// 行号 gutter 为单行号，两空格前缀 + 右对齐行号 + 空格 + marker（marker 在行号右侧），无竖线
 #[test]
 fn test_render_diff_gutter_matches_cc_single_line_number() {
     let input = make_basic_input();
     let lines = render_diff_impl(&input, 80, &DarkTheme);
     let texts: Vec<String> = lines.iter().map(joined_text).collect();
-    // Add 行（第 2 行）："+ 2 " 前缀
+    // Add 行（第 2 行）："  2 +" 前缀
     assert!(
-        texts.iter().any(|t| t.starts_with("+ 2 ")),
-        "Add 行 gutter 应为 \"+ 2 \"，实际:\n{}",
+        texts.iter().any(|t| t.starts_with("  2 +")),
+        "Add 行 gutter 应为 \"  2 +\"，实际:\n{}",
         texts.join("\n")
     );
-    // Remove 行（旧文件第 2 行）："- 2 " 前缀
+    // Remove 行（旧文件第 2 行）："  2 -" 前缀
     assert!(
-        texts.iter().any(|t| t.starts_with("- 2 ")),
-        "Remove 行 gutter 应为 \"- 2 \"，实际:\n{}",
+        texts.iter().any(|t| t.starts_with("  2 -")),
+        "Remove 行 gutter 应为 \"  2 -\"，实际:\n{}",
         texts.join("\n")
     );
-    // Context 行（第 1 行）：两空格 + 行号 + 空格
+    // Context 行（第 1 行）：两空格 + 行号 + 分隔空格 + marker 空格
     assert!(
-        texts.iter().any(|t| t.starts_with("  1 ")),
-        "Context 行 gutter 应为 \"  1 \"，实际:\n{}",
+        texts.iter().any(|t| t.starts_with("  1  ")),
+        "Context 行 gutter 应为 \"  1  \"，实际:\n{}",
         texts.join("\n")
     );
     // 不应再出现旧的竖线分隔符
@@ -1156,8 +1156,8 @@ fn test_render_diff_wrapped_add_line_pads_and_indents_continuation() {
     }
     assert_eq!(
         add_lines[1].spans[0].content.as_ref(),
-        "+   ",
-        "续行 gutter 应为 marker + 空格占位（n=1 时共 4 列）"
+        "    +",
+        "续行 gutter 应为空格占位 + marker 保持原列（n=1 时共 5 列）"
     );
 }
 

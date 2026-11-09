@@ -448,7 +448,8 @@ fn wrap_spans(spans: Vec<Span<'static>>, width: usize) -> Vec<Vec<Span<'static>>
     out
 }
 
-/// diff 行的 gutter 布局：首行显示行号，续行用 marker + 空格占位保持列对齐
+/// diff 行的 gutter 布局：首行显示行号 + marker（marker 在行号右侧），
+/// 续行在行号位填空格、marker 保持在原列
 struct GutterLayout {
     first: String,
     continuation: String,
@@ -456,11 +457,11 @@ struct GutterLayout {
 }
 
 impl GutterLayout {
-    /// `n` 为行号最大位数；续行宽度与首行一致（CC `addLineNumber` 的 i > 0 分支）
+    /// `n` 为行号最大位数；续行宽度与首行一致，marker 落在行号后的同一列
     fn new(first: String, marker: &str, n: usize, style: Style) -> Self {
         Self {
             first,
-            continuation: format!("{}{}", marker, " ".repeat(n + 2)),
+            continuation: format!("{}{}", " ".repeat(n + 3), marker),
             style,
         }
     }
@@ -468,7 +469,7 @@ impl GutterLayout {
 
 /// 把一条 diff 行按显示宽度折行后推入 `lines`（对齐 CC `wrapText` + `addLineNumber`）。
 ///
-/// - 首段用完整 gutter，续段的 gutter 位置用 marker + 空格占位，保持列对齐
+/// - 首段用完整 gutter，续段的 gutter 位置用空格占位、marker 保持原列，保持列对齐
 /// - `pad_bg` 为 `Some(bg)`（改动行）时每段 padding 到 `content_width`，
 ///   让底色延伸到右边；上下文行不 padding，与 CC 一致
 fn push_wrapped_line(
@@ -626,8 +627,8 @@ pub fn render_diff_result(
     }
 
     let n = digit_count(max_line_num).max(1);
-    // 对齐 CC color-diff：单行号，格式 marker + ' ' + 右对齐行号 + ' '，无竖线分隔符
-    let gutter_width = 1 + 1 + n + 1;
+    // gutter：两空格前缀 + 右对齐行号 + 空格 + marker（marker 在行号右侧），无竖线分隔符
+    let gutter_width = 2 + n + 1 + 1;
 
     // 语法高亮：从文件扩展名推导语言
     #[cfg(feature = "markdown-highlight")]
@@ -654,10 +655,10 @@ pub fn render_diff_result(
                     old_line_num: _,
                     new_line_num,
                 } => {
-                    // CC 单行号：context 行用新文件行号，marker 位为空格
+                    // context 行用新文件行号，marker 位为空格（行号右侧）
                     let gutter_style = Style::default().fg(theme.dim());
                     let gutter = GutterLayout::new(
-                        format!("  {:>n$} ", new_line_num, n = n),
+                        format!("  {:>n$}  ", new_line_num, n = n),
                         " ",
                         n,
                         gutter_style,
@@ -682,8 +683,8 @@ pub fn render_diff_result(
                     word_diff,
                 } => {
                     let marker = "+";
-                    // CC 单行号：marker + ' ' + 右对齐行号 + ' '
-                    // 分层（CC color-diff）：marker 与行号用 decoration 色，
+                    // gutter：两空格前缀 + 右对齐行号 + 空格 + marker（marker 在行号右侧）
+                    // 分层：marker 与行号用 decoration 色，
                     // 代码正文用语法高亮/正文色，不再三处共用一个前景色。
                     let deco = theme.diff_add_decoration();
                     let fg = theme.diff_add();
@@ -693,7 +694,7 @@ pub fn render_diff_result(
                         gutter_style = gutter_style.bg(bg_col);
                     }
                     let gutter = GutterLayout::new(
-                        format!("{} {:>n$} ", marker, line_num, n = n),
+                        format!("  {:>n$} {}", line_num, marker, n = n),
                         marker,
                         n,
                         gutter_style,
@@ -751,8 +752,8 @@ pub fn render_diff_result(
                     word_diff,
                 } => {
                     let marker = "-";
-                    // CC 单行号：marker + ' ' + 右对齐行号 + ' '
-                    // 分层（CC color-diff `marker === '-'` 分支）：marker 与行号用
+                    // gutter：两空格前缀 + 右对齐行号 + 空格 + marker（marker 在行号右侧）
+                    // 分层（`marker === '-'` 分支）：marker 与行号用
                     // deleteDecoration 暗红；在无整行底色（如 ANSI 模式）下代码正文用 dim，
                     // 有整行暗红底时用 text 正文色。
                     let deco = theme.diff_remove_decoration();
@@ -767,7 +768,7 @@ pub fn render_diff_result(
                         gutter_style = gutter_style.bg(bg_col);
                     }
                     let gutter = GutterLayout::new(
-                        format!("{} {:>n$} ", marker, line_num, n = n),
+                        format!("  {:>n$} {}", line_num, marker, n = n),
                         marker,
                         n,
                         gutter_style,

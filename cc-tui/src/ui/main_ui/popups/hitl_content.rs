@@ -737,7 +737,7 @@ fn cached_file_content(file_path: &str, project_cwd: &str) -> Option<String> {
     Some(text)
 }
 
-/// 把 diff 行里的 ASCII 删除标记 `- ` 换成 U+2212 `−`（对齐参考实现的减号）。
+/// 把 diff 行里的删除标记换成 U+2212 `−`（对齐参考实现的减号）。
 fn replace_remove_marker(line: Line<'static>) -> Line<'static> {
     let spans = line
         .spans
@@ -745,6 +745,14 @@ fn replace_remove_marker(line: Line<'static>) -> Line<'static> {
         .map(|mut span| {
             if span.content.contains("- ") {
                 span.content = span.content.replace("- ", "− ").into();
+            } else if let Some(head) = span.content.strip_suffix('-') {
+                // remove gutter 形态：两空格前缀 + 行号 + 空格 + marker（marker 在行号右侧）
+                if head.starts_with(' ')
+                    && head.ends_with(' ')
+                    && head.trim().chars().all(|c| c.is_ascii_digit())
+                {
+                    span.content = format!("{head}−").into();
+                }
             }
             span
         })
