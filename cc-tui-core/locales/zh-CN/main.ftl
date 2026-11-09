@@ -179,7 +179,7 @@ welcome-shortcut-mode = :模式
 welcome-shortcut-model = :模型
 welcome-skills-available = { $count } 个 skills 可用
 
-# ---- Tips (18 items) ----
+# ---- Tips (19 items) ----
 
 tip-0 = 按 / 输入命令，Tab 补全
 tip-1 = Ctrl+C 中断 Agent，Shift+Tab 切换权限模式
@@ -199,6 +199,7 @@ tip-14 = /plugin 管理 CC 插件
 tip-15 = 在 .claude/skills/ 中添加自定义 Skills
 tip-16 = 在 .claude/agents/ 中定义 SubAgent
 tip-17 = 对复杂任务让 Agent 先制定计划再执行
+tip-18 = /kernel 切换 Agent 内核（cc、dsh、pi）
 tip-clear-override = 切换话题时用 /clear 重新开始，并释放上下文
 
 # ---- Setup Wizard ----
