@@ -4,6 +4,22 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.260 — 2026-11-09
+
+### Features
+
+- **思考行数字加粗与 diff 上下文行号提亮（#971, #970）**：对齐参考实现视觉强调。推理思考摘要行（`Thought for 11s, listed 1 directory`）的时长与动作计数数字此前与普通文字同字重、扫读抓不到重点，现将文本中连续数字拆分为独立 span 单独加粗——时长 `Ns` 整体加粗、字数仅数字加粗（单位词如 `chars` 保持常规）；ToolCallGroup 自带思考行、活跃 / 冻结状态同款处理，无亮度跳变；底部 `Brewed` 总结行与 unit 词不加粗。Edit/Write diff 视图的上下文行号由最暗灰阶 `theme.dim()`（#505050）提亮为 `theme.muted()`（#999999，与 tip 提示同色阶），仅影响 diff 上下文行，+/- 行 decoration 色不动。验证：`cargo check -p cc-tui --lib`；`cargo test -p cc-tui --lib message_render`（240 passed）；`cargo test -p cc-widgets --features markdown-highlight diff`（63 passed）；改动文件 `rustfmt --check` 无差异。
+
+### Fixes
+
+- **工具描述加反向锚定压制工具名参数错配（#972, #973）**：Write/Edit 写文件与 Bash 跑命令高频交替时，模型会输出 Bash 的参数（`command` / `description`）却把工具名抽成 Write/Grep，触发 schema 校验报错，单会话可连续发生 3 次以上——rules 里的参数签名表（先选工具再按 schema 组参、Grep 不执行命令等）虽存在却失守，因为串台发生在「填参数」时刻，那时视野里只有工具描述与参数 schema。现锚定下沉到工具描述：`cc-tools/src/tools/filesystem/write.rs` 的 `WRITE_FILE_DESCRIPTION` Usage 首行加 NEVER 反向锚定「NEVER use Write to execute shell commands or scripts — that is Bash. `command` is not a valid parameter here.」（直接点名错配时填的参数名，锚定距离最近）；`grep.rs` 弱句「Use Bash for Git/CLI commands…」升级为「NEVER send shell commands to Grep — executing commands is Bash's job, not a valid Grep call.」；`cc-agent/src/kernel/prompts/cc.md` Tool usage policy 补一行邻接扳机提示（Write/Edit 后接 Bash 的切换点核对工具名与参数绑定）。设计取舍：不做 runtime 自动纠正，schema 校验维持 fail-fast，错配由模型自行纠正——自动改写是权限放大（写文件→执行命令）且掩盖模型输出质量问题。验证：`cargo test -p cc-tools` 263 + 5 passed（改动前基线）；`cargo test -p cc-agent -p cc-acp`（kernel / prompt 断言）本地 D 盘空间不足编译失败未能运行，待 CI 全量验证。
+
+## v0.6.259 — 2026-11-09
+
+### Fixes
+
+- **修正 diff 行号前多余空格与提前折行（#970, #969）**：把 diff 加减号 marker 移到行号右侧行号前多加了一个空格，致行号、marker 与正文整体右移一列，并使长行提前一列折行；本修复恢复参考截图 ` 17 +### Docs` 布局——上下文与增删行前导空格由两格恢复为一格、gutter 宽度由 n+4 恢复为 n+3，续行 marker 前占位由 n+3 恢复为 n+2，保持与首行同列；修正原有布局断言，新增固定第 17 行列位置与折行边界测试（40 列宽下 35 字符正文完整显示、36 字符才折行）。同步审批预览删除标记转换处的布局注释。验证：回归测试修复前复现失败、修复后通过；`cargo test -p cc-widgets --features markdown-highlight --lib` 306 passed；两处 Rust 文件 `rustfmt --check` 与 `git diff --check` 通过；按本机资源约束仅完成组件验证，未跑 TUI / 全量构建。
+
 ## v0.6.258 — 2026-11-09
 
 ### Features
