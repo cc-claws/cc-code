@@ -49,6 +49,7 @@ fn is_virtual_fs_root(_path: &Path) -> bool {
 const GLOB_FILES_DESCRIPTION: &str = r#"Fast file pattern matching tool that works with any codebase size.
 
 Usage:
+- Provide pattern and optional path. Do not pass file_path, command, or description.
 - Supports glob patterns like "**/*.js" or "src/**/*.ts". Use ** for recursive matching.
 - path defaults to the working directory. If specified, must be a valid directory path (omit or leave empty to use current directory; DO NOT pass "undefined" or "null").
 - Returns matching file paths sorted by modification time (newest first), with at most 1000 paths returned.

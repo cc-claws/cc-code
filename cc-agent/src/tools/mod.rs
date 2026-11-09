@@ -6,6 +6,8 @@ mod invocation;
 pub use invocation::ToolInvocationContext;
 mod output;
 pub use output::{ToolOutputContext, ToolOutputStream};
+mod schema;
+pub use schema::{validate_against_schema, validate_deferred_arguments};
 
 /// 工具执行前的文件快照，仅供展示，不写入工具参数或模型历史。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

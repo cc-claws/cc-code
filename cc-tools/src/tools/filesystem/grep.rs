@@ -30,6 +30,7 @@ impl GrepTool {
 const GREP_DESCRIPTION: &str = r#"A powerful search tool built on ripgrep. Prefer this over `grep` or `rg` via Bash, because results integrate with the permission UI and clickable file links.
 
 Usage:
+- Provide pattern and optional path. Do not pass file_path, command, or description.
 - ALWAYS use Grep for content search. NEVER invoke `grep` or `rg` as a Bash command; Grep is optimized for correct permissions, ignore rules, and output limits.
 - Supports full regex syntax (e.g. "log.*Error", "function\s+\w+").
 - Pattern syntax: Uses ripgrep (not grep) — escape literal braces (use `interface\{\}` to find `interface{}` in Go code). Use fixed_strings=true for literal text.

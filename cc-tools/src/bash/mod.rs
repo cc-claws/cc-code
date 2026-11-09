@@ -14,6 +14,7 @@ use crate::tools::output_persist::truncate_shell_output;
 const BASH_DESCRIPTION: &str = r#"Executes one command using Bash (Git Bash on Windows) and returns its output.
 
 Usage:
+- Provide command and optional description. Do not pass file_path, path, or pattern.
 - Each invocation starts in the configured working directory. Changes made with cd, environment assignments, and shell state do not persist across calls. Commands use bash -c, not a login shell
 - Prefer a dedicated tool over Bash for read-only work, unless none can accomplish the task; use Bash for commands, builds, scripts, and operations that need shell execution. Mapping: read files → Read (NOT cat/head/tail); edit files → Edit (NOT sed/awk); write files → Write (NOT echo >/cat <<EOF); search contents → Grep (NOT grep/rg, Grep integrates with permissions and clickable links); find files → Glob (NOT find/ls); reply to the user → return text directly (NOT echo/printf).
 - You can specify an optional timeout in milliseconds (default is 120000ms / 2 minutes). In hosts with background support, timeout limits foreground waiting and the command continues in the background; without background support, timeout cancels the command

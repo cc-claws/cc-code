@@ -31,7 +31,7 @@
             &self.desc_str
         }
         fn parameters(&self) -> Value {
-            json!({"type": "object", "properties": {}})
+            json!({"type": "object", "properties": {}, "additionalProperties": true})
         }
         async fn invoke(
             &self,
@@ -368,4 +368,285 @@
             .invoke(json!({"tool_name": "CronXxx", "params": {}}))
             .await;
         assert!(result.is_err());
+    }
+
+    struct SchemaCheckedTool {
+        name: &'static str,
+        calls: Arc<std::sync::atomic::AtomicUsize>,
+        fail_execution: bool,
+        schema: Value,
+    }
+
+    #[async_trait]
+    impl BaseTool for SchemaCheckedTool {
+        fn name(&self) -> &str {
+            self.name
+        }
+
+        fn description(&self) -> &str {
+            "A deferred tool with required and nested parameters"
+        }
+
+        fn parameters(&self) -> Value {
+            self.schema.clone()
+        }
+
+        async fn invoke(
+            &self,
+            _input: Value,
+        ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if self.fail_execution {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "target permission denied",
+                )
+                .into());
+            }
+            Ok("target executed".to_string())
+        }
+    }
+
+    fn schema_checked_registry(
+        name: &'static str,
+        fail_execution: bool,
+    ) -> (
+        Arc<RwLock<HashMap<String, Arc<dyn BaseTool>>>>,
+        Arc<std::sync::atomic::AtomicUsize>,
+    ) {
+        schema_checked_registry_with_schema(
+            name,
+            fail_execution,
+            json!({
+                "type": "object",
+                "properties": {
+                    "file_path": {"type": "string"},
+                    "options": {
+                        "type": "object",
+                        "properties": {"limit": {"type": "integer"}},
+                        "required": ["limit"]
+                    }
+                },
+                "required": ["file_path"],
+                "additionalProperties": false
+            }),
+        )
+    }
+
+    fn schema_checked_registry_with_schema(
+        name: &'static str,
+        fail_execution: bool,
+        schema: Value,
+    ) -> (
+        Arc<RwLock<HashMap<String, Arc<dyn BaseTool>>>>,
+        Arc<std::sync::atomic::AtomicUsize>,
+    ) {
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let target: Arc<dyn BaseTool> = Arc::new(SchemaCheckedTool {
+            name,
+            calls: Arc::clone(&calls),
+            fail_execution,
+            schema,
+        });
+        let registry = Arc::new(RwLock::new(HashMap::from([(name.to_string(), target)])));
+        (registry, calls)
+    }
+
+    #[tokio::test]
+    async fn test_invalid_target_arguments_never_execute_and_preserve_schema_error() {
+        let (registry, calls) = schema_checked_registry("StrictDeferredTool", false);
+        let tool = ExecuteExtraTool::new(Arc::clone(&registry));
+        for (params, expected_error) in [
+            (json!({}), "required parameter 'file_path' is missing"),
+            (
+                json!({"filePath": "a.rs"}),
+                "Unexpected parameter 'filePath'",
+            ),
+            (
+                json!({"file_path": 17}),
+                "parameter 'file_path' type is expected as string",
+            ),
+            (
+                json!({"file_path": "a.rs", "options": {}}),
+                "Invalid nested arguments at 'options'",
+            ),
+            (
+                json!({"file_path": "a.rs", "options": {"limit": "many"}}),
+                "parameter 'limit' type is expected as integer",
+            ),
+            (json!("a.rs"), "expected an object for arguments"),
+        ] {
+            // 模糊解析成功后，诊断与发现示例必须使用目标真实名称。
+            let error = tool
+                .invoke(json!({"tool_name": "strictdeferredtool", "params": params}))
+                .await
+                .expect_err("目标参数不合法时应在调用前返回错误");
+            let AgentError::ToolSchemaValidationFailed { tool, reason } = error
+                .downcast_ref::<AgentError>()
+                .expect("必须保留结构化参数错误")
+            else {
+                panic!("预期目标 schema 错误，实际: {error}");
+            };
+            assert_eq!(tool, "StrictDeferredTool");
+            assert!(reason.contains(expected_error), "{reason}");
+            assert!(reason.contains("Received keys:"), "{reason}");
+            assert!(reason.contains("If you have not obtained the target schema"));
+            assert!(reason.contains("select:StrictDeferredTool"));
+            assert!(reason.contains("ExecuteExtraTool("));
+            assert!(!reason.contains("camelCase"));
+            assert_eq!(
+                calls.load(std::sync::atomic::Ordering::SeqCst),
+                0,
+                "参数错误不得触发目标工具副作用"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_valid_target_arguments_execute_without_discovery() {
+        let (registry, calls) = schema_checked_registry("StrictDeferredTool", false);
+        let tool = ExecuteExtraTool::new(Arc::clone(&registry));
+        let output = tool
+            .invoke(json!({
+                "tool_name": "StrictDeferredTool",
+                "params": {"file_path": "a.rs", "options": {"limit": 3}}
+            }))
+            .await
+            .expect("正确参数不应被强制搜索拦截");
+        assert_eq!(output, "target executed");
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_non_search_kernels_do_not_receive_unavailable_discovery_hints() {
+        let (registry, calls) = schema_checked_registry("StrictDeferredTool", false);
+        let tool = ExecuteExtraTool::new(Arc::clone(&registry));
+        for id in ["dsh", "pi"] {
+            let invocation = ToolInvocationContext {
+                tool_call_id: format!("invalid-{id}"),
+                source_agent_id: None,
+            };
+            let error = invocation
+                .scope_with_kernel(
+                    cc_agent::kernel::Kernel::try_from_id(id).unwrap(),
+                    tool.invoke(json!({"tool_name": "StrictDeferredTool", "params": {}})),
+                )
+                .await
+                .expect_err("非法目标参数仍应拒绝执行");
+            let text = error.to_string();
+            assert!(text.contains("file_path"), "{text}");
+            assert!(!text.contains("SearchExtraTools"), "{id}: {text}");
+            assert!(!text.contains("ExecuteExtraTool"), "{id}: {text}");
+        }
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn test_non_discoverable_target_errors_do_not_suggest_deferred_discovery() {
+        for name in ["Read", "AgentResult"] {
+            let (registry, calls) = schema_checked_registry(name, false);
+            let tool = ExecuteExtraTool::new(Arc::clone(&registry));
+            let error = tool
+                .invoke(json!({"tool_name": name, "params": {}}))
+                .await
+                .expect_err("不可发现的目标仍应校验参数");
+            assert!(!error.to_string().contains("SearchExtraTools"), "{name}: {error}");
+            assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_deferred_schema_allows_dynamic_keys_without_additional_properties() {
+        let (registry, calls) = schema_checked_registry_with_schema(
+            "DynamicDeferredTool",
+            false,
+            json!({
+                "type": "object",
+                "properties": {"file_path": {"type": "string"}},
+                "required": ["file_path"]
+            }),
+        );
+        let tool = ExecuteExtraTool::new(Arc::clone(&registry));
+        let output = tool
+            .invoke(json!({
+                "tool_name": "DynamicDeferredTool",
+                "params": {"file_path": "a.rs", "plugin_option": {"enabled": true}}
+            }))
+            .await
+            .expect("外部 schema 未禁止的动态参数必须允许执行");
+        assert_eq!(output, "target executed");
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_deferred_schema_accepts_required_nullable_anyof_value() {
+        let (registry, calls) = schema_checked_registry_with_schema(
+            "NullableDeferredTool",
+            false,
+            json!({
+                "type": "object",
+                "properties": {
+                    "file_path": {"anyOf": [{"type": "string"}, {"type": "null"}]}
+                },
+                "required": ["file_path"]
+            }),
+        );
+        let tool = ExecuteExtraTool::new(Arc::clone(&registry));
+        let output = tool
+            .invoke(json!({
+                "tool_name": "NullableDeferredTool",
+                "params": {"file_path": null}
+            }))
+            .await
+            .expect("必填但允许 null 的外部参数不能被误拒绝");
+        assert_eq!(output, "target executed");
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_target_execution_error_preserves_type_without_schema_guidance() {
+        let (registry, calls) = schema_checked_registry("StrictDeferredTool", true);
+        let tool = ExecuteExtraTool::new(Arc::clone(&registry));
+        let error = tool
+            .invoke(json!({
+                "tool_name": "StrictDeferredTool",
+                "params": {"file_path": "a.rs"}
+            }))
+            .await
+            .expect_err("目标执行错误仍应原样返回");
+        assert_eq!(error.to_string(), "target permission denied");
+        assert_eq!(
+            error.downcast_ref::<std::io::Error>().unwrap().kind(),
+            std::io::ErrorKind::PermissionDenied
+        );
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_discovery_examples_escape_target_names_as_json() {
+        let name = "mcp__server__quoted\"name";
+        let (registry, _) = schema_checked_registry(name, false);
+        let tool = ExecuteExtraTool::new(Arc::clone(&registry));
+        let error = tool
+            .invoke(json!({"tool_name": name, "params": {}}))
+            .await
+            .expect_err("缺失目标参数应返回发现指引");
+        let text = error.to_string();
+        let search = text
+            .lines()
+            .find_map(|line| line.strip_prefix("1. SearchExtraTools("))
+            .unwrap()
+            .strip_suffix(')')
+            .unwrap();
+        let search: Value = serde_json::from_str(search).expect("搜索示例必须是合法 JSON");
+        assert_eq!(search["query"], format!("select:{name}"));
+        let execute = text
+            .lines()
+            .find_map(|line| line.strip_prefix("2. ExecuteExtraTool("))
+            .unwrap()
+            .split_once("), replacing params")
+            .unwrap()
+            .0;
+        let execute: Value = serde_json::from_str(execute).expect("执行示例必须是合法 JSON");
+        assert_eq!(execute["tool_name"], name);
     }

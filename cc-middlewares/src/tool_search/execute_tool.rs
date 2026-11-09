@@ -6,12 +6,17 @@ use std::{
 };
 
 use async_trait::async_trait;
-use cc_agent::tools::BaseTool;
+use cc_agent::{
+    error::AgentError,
+    tools::{validate_deferred_arguments, BaseTool, ToolInvocationContext},
+};
 use parking_lot::RwLock;
 use serde_json::{json, Value};
 
 use super::{
-    core_tools::{EXECUTE_EXTRA_TOOL_NAME, EXTRA_TOOL_NAME_FIELD, EXTRA_TOOL_PARAMS_FIELD},
+    core_tools::{
+        is_deferred_tool, EXECUTE_EXTRA_TOOL_NAME, EXTRA_TOOL_NAME_FIELD, EXTRA_TOOL_PARAMS_FIELD,
+    },
     keyword_search::split_camel_case,
 };
 
@@ -144,6 +149,42 @@ impl BaseTool for ExecuteExtraTool {
                 EXECUTE_EXTRA_TOOL_NAME, tool_name
             ))?
         };
+
+        // 校验目标 schema，而非仅依赖外层 tool_name / params 的校验。
+        // 此时已释放注册表，校验失败不得触发目标工具的副作用。
+        if let Err(message) = validate_deferred_arguments(&params, &tool.parameters()) {
+            let target_name = tool.name();
+            let keys: Vec<_> = params
+                .as_object()
+                .map(|params| {
+                    let mut keys: Vec<_> = params.keys().collect();
+                    keys.sort();
+                    keys
+                })
+                .unwrap_or_default();
+            let mut reason = format!(
+                "Invalid arguments for tool {target_name}:\n{message}\n\
+                 Received keys: {keys:?}. Rewrite the call to satisfy the target schema and retry."
+            );
+            if ToolInvocationContext::kernel().exposes_tool_search()
+                && is_deferred_tool(target_name)
+                && target_name != "AgentResult"
+            {
+                let search = json!({"query": format!("select:{target_name}")});
+                let execute = json!({"tool_name": target_name, "params": {}});
+                reason.push_str(&format!(
+                    "\nIf you have not obtained the target schema, discover it before retrying:\n\
+                     1. SearchExtraTools({search})\n\
+                     2. ExecuteExtraTool({execute}), replacing params with arguments matching the returned schema.\n\
+                     Use the exact parameter names returned by discovery."
+                ));
+            }
+            return Err(AgentError::ToolSchemaValidationFailed {
+                tool: target_name.to_string(),
+                reason,
+            }
+            .into());
+        }
 
         let result = tool.invoke(params).await?;
         Ok(result)

@@ -2212,3 +2212,96 @@ async fn test_circuit_breaker_hint_survives_system_filter() {
         "熔断提示必须在 is_system() 过滤后仍然可见（否则 StateSnapshot 与 /export 都会丢失它）"
     );
 }
+
+#[tokio::test]
+async fn test_proxy_schema_error_preserves_classification_target_and_call_identity() {
+    struct ProxyTool {
+        schema_error: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl BaseTool for ProxyTool {
+        fn name(&self) -> &str {
+            "ExecuteExtraTool"
+        }
+        fn description(&self) -> &str {
+            "Proxy for a deferred tool"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object"})
+        }
+        async fn invoke(
+            &self,
+            _: serde_json::Value,
+        ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+            if self.schema_error {
+                Err(AgentError::ToolSchemaValidationFailed {
+                    tool: "DeferredTarget".into(),
+                    reason: "Invalid arguments for tool DeferredTarget: missing file_path".into(),
+                }
+                .into())
+            } else {
+                // 即使执行错误正文像参数错误，也不能靠字符串把它误判为校验错误。
+                Err("Invalid arguments for tool mentioned in runtime output".into())
+            }
+        }
+    }
+
+    struct ErrorObserver(Arc<Mutex<Vec<String>>>);
+
+    #[async_trait::async_trait]
+    impl Middleware<AgentState> for ErrorObserver {
+        fn name(&self) -> &str {
+            "ErrorObserver"
+        }
+        async fn on_error(&self, _: &mut AgentState, error: &AgentError) -> AgentResult<()> {
+            if let AgentError::ToolSchemaValidationFailed { tool, .. } = error {
+                self.0.lock().unwrap().push(tool.clone());
+            }
+            Ok(())
+        }
+    }
+
+    for schema_error in [true, false] {
+        let targets = Arc::new(Mutex::new(Vec::new()));
+        let agent = ReActAgent::new(crate::llm::MockLLM::always_answer("done"))
+            .add_middleware(Box::new(ErrorObserver(Arc::clone(&targets))));
+        let proxy = ProxyTool { schema_error };
+        let tools = HashMap::from([("ExecuteExtraTool".to_string(), &proxy as &dyn BaseTool)]);
+        let mut state = AgentState::new(".");
+        let (results, cancelled, deferred_error) = collect_tool_results(
+            &agent,
+            &mut state,
+            vec![ToolCall::new(
+                "proxy-call",
+                "ExecuteExtraTool",
+                serde_json::json!({}),
+            )],
+            &tools,
+            &CancellationToken::new(),
+            MessageId::new(),
+        )
+        .await
+        .unwrap();
+        assert!(!cancelled);
+        assert!(deferred_error.is_none());
+        let result = &results[0].1;
+        assert_eq!(result.tool_call_id, "proxy-call");
+        assert_eq!(result.tool_name, "ExecuteExtraTool", "外层调用身份保持不变");
+        assert_eq!(
+            result.error_kind,
+            Some(if schema_error {
+                ToolErrorKind::SchemaValidation
+            } else {
+                ToolErrorKind::ExecutionFailed
+            })
+        );
+        let targets = targets.lock().unwrap();
+        if schema_error {
+            assert_eq!(targets.as_slice(), ["DeferredTarget"]);
+            assert!(result.output.contains("DeferredTarget"));
+        } else {
+            assert!(targets.is_empty());
+        }
+    }
+}
