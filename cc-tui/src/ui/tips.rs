@@ -14,8 +14,8 @@ use std::path::PathBuf;
 use cc_acp::provider::config::{SpinnerTipEntry, SpinnerTipsOverride};
 use serde::{Deserialize, Serialize};
 
-/// 内置 tip 数量（i18n key `tip-0`..`tip-17`，中英双语）。
-pub const BUILTIN_TIP_COUNT: usize = 18;
+/// 内置 tip 数量（i18n key `tip-0`..`tip-18`，中英双语）。
+pub const BUILTIN_TIP_COUNT: usize = 19;
 /// 内置 tip 的会话冷却（取 CC 内置 tip 的众数 10）。
 pub const BUILTIN_COOLDOWN_SESSIONS: u64 = 10;
 /// 时间覆盖 tip 阈值：本轮运行超过 30 分钟提示 /clear（对齐 CC 的 1_800_000ms）。
@@ -95,7 +95,7 @@ pub fn builtin_candidates(lc: &crate::i18n::LcRegistry) -> Vec<TipCandidate> {
                 text: lc.tr(&key),
                 id: key,
                 cooldown_sessions: BUILTIN_COOLDOWN_SESSIONS,
-                priority: 0,
+                priority: if i == 18 { 1 } else { 0 },
                 label: None,
             }
         })

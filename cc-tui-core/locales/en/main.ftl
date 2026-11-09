@@ -180,7 +180,7 @@ welcome-shortcut-mode = :Mode
 welcome-shortcut-model = :Model
 welcome-skills-available = { $count } skills available
 
-# ---- Tips (18 items) ----
+# ---- Tips (19 items) ----
 
 tip-0 = Type / to enter commands, Tab to autocomplete
 tip-1 = Ctrl+C interrupts Agent, Shift+Tab toggles permission mode
@@ -200,6 +200,7 @@ tip-14 = /plugin manages CC plugins
 tip-15 = Add custom Skills in .claude/skills/
 tip-16 = Define SubAgents in .claude/agents/
 tip-17 = For complex tasks, have Agent plan first before executing
+tip-18 = Use /kernel to switch Agent kernels (cc, dsh, pi)
 tip-clear-override = Use /clear to start fresh when switching topics and free up context
 
 # ---- Setup Wizard ----
