@@ -22,7 +22,7 @@ DeepSeek-V4-Pro + Mimo-2.5Pro + GLM-5.1 驱动，`.claude/` 配置零迁移。
 
 </div>
 
-## ❤️Sponsor
+## ❤️ Sponsor
 
 > [想出现在这里？](mailto:wismyzhizi2018@gmail.com)
 
@@ -121,6 +121,8 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **欢迎页显示当前内核并完善 `/kernel` 切换交互** | v0.6.258 | 欢迎页按当前会话显示 Agent Kernel，`/kernel` 提供 cc / dsh / pi 选择列表面板，切换成功复用与模型切换一致的短暂通知（同 toast 位置、2.5 秒时长）；欢迎页、session metadata 与 ACP 客户端同步当前会话内核，覆盖新建、历史恢复和切换回执；内核请求期间阻止重复操作与会话切换，保留草稿并延后队列（#967）。 |
+| **diff 行加减号 marker 移到行号右侧** | v0.6.256 | diff 展示的 `+` / `-` marker 此前渲染在行号左侧（`+ 25 内容`），现按参考样式移到行号右侧（`  25 + 内容`）——两空格前缀 + 右对齐行号 + 空格 + marker，context 行的 marker 位同步右移、行号列保持对齐。影响所有 diff 渲染路径（工具结果详情、HITL 审批弹窗，删除行仍显示 U+2212 减号），新建文件预览不受影响，marker/行号仍共用 decoration 色分层，正文高亮与底色逻辑不变（#964, #965）。 |
 | **command hook 支持 exec form args** | v0.6.255 | Windows 上第三方桌面工具常把 hook 写成 `command` + `args` 的 exec form（参考实现 2.1.139+ 语义），而 `HookType::Command` 此前没有 `args` 字段，serde 会静默丢弃参数并把整串 `command` 交给 `cmd /C`——可执行路径含空格（如 `C:\Program Files\nodejs\node.exe`）时被切碎，此类 hook 全部以 exit 1 失败。现 `args` 非空时直接以 `command` 为可执行文件、`args` 为 argv 启动（不经过 shell），逐项做 `${CLAUDE_PLUGIN_ROOT}` / `${CLAUDE_PLUGIN_DATA}` / `$ARGUMENTS` 变量替换；`args` 为空的旧配置行为不变，exec form 下 `shell` 字段被忽略（与参考实现语义一致）（#954, #955）。 |
 | **面板关闭后视口回缩，页面继续紧贴内容** | v0.6.254 | 修复 `Ctrl+P` 命令面板打开再取消后页面留白（欢迎卡片在顶部、输入框/状态栏浮在屏幕中部、下方大片空白）：growing 视口的高度记忆只增不减，面板撑出的高度被永久记住。现面板等开关型瞬时块只影响当帧高度、不进持久记忆，关闭立即回收并显式清理释放行（不留幽灵残影），视口顶边回落启动锚点；输入编辑防抖与全屏锁定语义不变（#951, #952）。 |
 | **思考耗时显示修复：LLM 计时优先（含 TTFT）** | v0.6.252 | 修复 `Thought for 1s` 与实际思考时长严重不符（真机近 1 分钟思考显示 1s）：TUI 侧组计时（锚点为首条 reasoning chunk，不含 TTFT）每次渲染装配都覆盖适配器回填的含 TTFT `duration_ms`。现 LLM 值优先、组计时仅兜底（下限 1s）；组语义重构为「一段思考的墙钟」（工具运行时长不计入、组边界只在 reasoning / 工具边界开合、每轮清零跨轮残留）；多行冻结思考行各自消费对应组值（修复两行显示同一数值的 off-by-one 错位）；正文 chunk 不再冻结组、终结近零值灌注（#945, #946）。 |
@@ -129,9 +131,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **状态栏与工具名样式收敛、权限切换视觉稳定与 git diff 原始输出** | v0.6.244 | 统一状态栏快捷键文案为小写（`ctrl+o` / `ctrl+p` / `:detail` / `:settings`），权限名改为 `auto mode on` / `bypass permissions on`；移除 `Shift+Tab` 切换权限模式时权限标签的临时加粗与高亮计时，消除闪烁跳变；`!git diff` 不再自动重排为带摘要与行号的 diff 卡片，保留 Git 原始文件头、`@@` 区块、`+/-` 内容与自带 ANSI 颜色；工具名颜色按用户反馈从 `text` 恢复为柔灰 `text_soft`（#906, #908, #910, #912, #914）。 |
 | **支持运行时切换 cc / dsh / pi Agent 内核** | v0.6.241 | 支持通过配置项 `agent_kernel` 或 `/kernel` 命令在 `cc`（参考实现经典内核）、`dsh`（Devin-style shell）与 `pi`（流式轻量）Agent 内核间运行时无缝切换。内部统一规范名并由方言层双向翻译，对齐子代理能力与审批契约，cc 内核保持逐字节等价（#826, #903）；终端 Markdown 渲染同时新增 LaTeX 数学公式解析与 Unicode 提纯渲染（#901, #902）。 |
 | **文件工具支持 MSYS 盘符路径** | v0.6.240 | Windows 下传入 Git Bash 习惯的 `/c/Users/...` 时无法定位真实文件：这类路径有 root 但无盘符，`is_absolute()` 为 false，`Path::join` 会丢弃 cwd 落到「当前驱动器根」，解析结果随进程状态漂移，最终报 `File not found`，且错误只回显原始入参，容易误判为路径写法被拒绝。新增 `msys_drive_path()` 在 `resolve_path` 前把 `/c/foo` 还原为 `C:/foo`，Grep / rg_engine 的搜索路径构造同样接入；not found 提示改为回显 resolved 路径。仅 Windows 生效，`/cc/...`、`/1/...` 与相对路径不受影响（#899, #900）。 |
-| **解除 Bash 超时硬编码限制并支持 BASH_MAX_TIMEOUT_MS** | v0.6.235 | 修复 Bash 工具参数校验死板限制 10 分钟（600,000ms）导致模型执行大项目构建或长任务时被强行截断提前杀掉的问题。完全尊重调用方显式指定的更大超时，未传 `execution_timeout` 时自动取 `max(max_timeout, timeout_ms)` 不误杀长任务；同时新增 `BASH_DEFAULT_TIMEOUT_MS` 与 `BASH_MAX_TIMEOUT_MS` 环境变量，允许自定义默认与最大上限（#886, #887）。 |
-| **自动会话回顾失败静默化与防死循环重试** | v0.6.234 | 修复上游代理网关偶发 503 等异常时，后台自动触发的会话回顾在主消息流反复输出红字刷屏的问题。区分后台自动与手动触发：自动回顾失败改为后台日志静默忽略，不污染对话界面；调度器新增连续失败上限 `MAX_AUTO_RETRY_COUNT = 1`，超限立即停止重试，杜绝无限死循环（#881, #882）。 |
-> 更早版本（v0.6.0 – v0.6.233）见 [CHANGELOG](./CHANGELOG.md)。
+> 更早版本（v0.6.0 – v0.6.235）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---
 
