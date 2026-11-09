@@ -27,13 +27,15 @@ impl GrepTool {
     }
 }
 
-const GREP_DESCRIPTION: &str = r#"A powerful search tool built on ripgrep. Prefer this over `grep` or `rg` via Bash, because results integrate with the permission UI and clickable file links.
+const GREP_DESCRIPTION: &str = r#"Search file contents on disk using ripgrep, with permission UI integration and clickable file links.
 
 Usage:
-- ALWAYS use Grep for content search. NEVER invoke `grep` or `rg` as a Bash command; Grep is optimized for correct permissions, ignore rules, and output limits.
+- Required: pattern. Optional: path. Example: Grep({"pattern":"TODO","path":"src"}).
+- Grep searches text inside files. Use Glob to find files by name.
+- Use Bash for Git/CLI commands and filtering command output.
 - Supports full regex syntax (e.g. "log.*Error", "function\s+\w+").
 - Pattern syntax: Uses ripgrep (not grep) — escape literal braces (use `interface\{\}` to find `interface{}` in Go code). Use fixed_strings=true for literal text.
-- Filter with `glob` parameter (e.g. "*.js", "**/*.tsx") or `type` parameter (e.g. "js", "py", "rust").
+- Filter with `glob` parameter (e.g. "*.js", "**/*.tsx") or `type` parameter (e.g. "js", "py", "rust"). The `glob` field filters files within this Grep call; it does not switch to the Glob tool.
 - output_mode defaults to "files_with_matches" (paths only). "content" returns matching lines, "count" returns per-file counts, and "files_without_matches" returns unmatched paths.
 - In content mode, line numbers are enabled by default; -C adds surrounding context and -A/-B override each side. Lines over 500 bytes are omitted.
 - Multiline matching: By default patterns match within single lines only. For cross-line patterns like `struct \{[\s\S]*?field`, use `multiline: true`.

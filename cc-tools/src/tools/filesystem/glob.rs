@@ -46,9 +46,11 @@ fn is_virtual_fs_root(_path: &Path) -> bool {
     false
 }
 
-const GLOB_FILES_DESCRIPTION: &str = r#"Fast file pattern matching tool that works with any codebase size.
+const GLOB_FILES_DESCRIPTION: &str = r#"Glob finds file paths matching a filename pattern.
 
 Usage:
+- Glob accepts only pattern (required) and path (optional). Example: Glob({"pattern":"**/README.md"}).
+- To search text inside files, use Grep with its own input schema.
 - Supports glob patterns like "**/*.js" or "src/**/*.ts". Use ** for recursive matching.
 - path defaults to the working directory. If specified, must be a valid directory path (omit or leave empty to use current directory; DO NOT pass "undefined" or "null").
 - Returns matching file paths sorted by modification time (newest first), with at most 1000 paths returned.
