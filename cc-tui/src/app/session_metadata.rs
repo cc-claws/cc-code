@@ -4,6 +4,10 @@ use std::{collections::HashMap, path::PathBuf};
 /// 会话元数据：低频访问的会话状态。
 pub struct SessionMetadata {
     pub session_id: uuid::Uuid,
+    /// 后端确认或历史快照中的当前会话内核；空白草稿沿用默认配置。
+    pub kernel_id: Option<String>,
+    /// 内核查询或切换正在等待后端；期间不改变会话上下文。
+    pub kernel_request_pending: bool,
     pub pending_attachments: Vec<PendingAttachment>,
     pub last_human_message: Option<String>,
     pub pre_submit_state_len: usize,
@@ -24,6 +28,8 @@ impl SessionMetadata {
     pub fn new() -> Self {
         Self {
             session_id: uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)),
+            kernel_id: None,
+            kernel_request_pending: false,
             pending_attachments: Vec::new(),
             last_human_message: None,
             pre_submit_state_len: 0,

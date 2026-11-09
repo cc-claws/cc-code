@@ -5,6 +5,7 @@ pub mod command_palette_panel;
 pub mod config_panel;
 pub mod hooks_panel;
 pub mod input_history_panel;
+pub mod kernel_panel;
 pub mod login_panel;
 pub mod mcp_panel;
 pub mod memory_panel;
@@ -385,6 +386,24 @@ impl App {
     /// 获取当前激活 session 的可变引用
     pub fn active_mut(&mut self) -> &mut ChatSession {
         self.session_mgr.current_mut()
+    }
+
+    /// 当前会话快照优先于默认配置；未建会话的草稿使用默认内核。
+    pub(crate) fn current_kernel_id(&self) -> &str {
+        self.session_mgr
+            .current()
+            .metadata
+            .kernel_id
+            .as_deref()
+            .unwrap_or_else(|| {
+                cc_agent::kernel::Kernel::from_config(
+                    self.services
+                        .peri_config
+                        .as_ref()
+                        .and_then(|config| config.config.agent_kernel.as_deref()),
+                )
+                .id()
+            })
     }
 
     /// 创建新 session 并替换当前 session（用于 /clear）

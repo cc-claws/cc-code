@@ -104,10 +104,13 @@ fn welcome_lines(app: &App, width: u16) -> Vec<Line<'static>> {
         .peri_config
         .as_ref()
         .is_some_and(|config| !config.config.providers.is_empty());
-    // 标题行拆两段：品牌名用 ACCENT 强调，版本号降级为 MUTED 次要信息。
-    // 品牌名恒定不截断（窄卡片下优先保住它），只有版本号按剩余宽度收口。
+    // 品牌名用 ACCENT 强调；版本号和当前会话内核用 MUTED，并按剩余宽度收口。
     const BRAND: &str = "CC Code  ";
-    let version = format!("v{}", env!("CARGO_PKG_VERSION"));
+    let version = format!(
+        "v{} · Agent Kernel: {}",
+        env!("CARGO_PKG_VERSION"),
+        app.current_kernel_id()
+    );
     let version_width = (width as usize).saturating_sub(BRAND.len());
     let mut lines = vec![Line::from(vec![
         Span::styled(

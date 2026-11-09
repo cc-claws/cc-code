@@ -211,6 +211,14 @@ pub(super) fn handle_normal_keys(app: &mut App, input: Input) -> anyhow::Result<
         Input {
             key: Key::Enter, ..
         } => {
+            if app.session_mgr.current().metadata.kernel_request_pending {
+                let message = app.services.lc.tr("app-kernel-pending");
+                app.session_mgr
+                    .current_mut()
+                    .ui
+                    .set_toast(message, std::time::Duration::from_millis(2500));
+                return Ok(Some(Action::Redraw));
+            }
             // 关闭可能残留的 @ mention 弹窗
             if app.session_mgr.current_mut().ui.at_mention.active {
                 app.session_mgr.current_mut().ui.at_mention.close();

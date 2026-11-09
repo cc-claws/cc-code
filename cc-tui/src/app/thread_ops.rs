@@ -190,6 +190,7 @@ impl App {
     pub fn can_switch_thread_context(&self) -> bool {
         let session = self.session_mgr.current();
         !session.ui.loading
+            && !session.metadata.kernel_request_pending
             && session.agent.cancel_token.is_none()
             && session.agent.interaction_prompt.is_none()
             && session.agent.pending_hitl_items.is_none()
@@ -369,6 +370,7 @@ impl App {
                 return false;
             }
         }
+        self.session_mgr.current_mut().metadata.kernel_id = thread_meta.kernel_id.clone();
         self.session_mgr.current_mut().metadata.session_id =
             uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext));
         self.session_mgr.current_mut().metadata.image_paths.clear();
@@ -614,6 +616,7 @@ impl App {
             .pipeline
             .shrink_to_fit();
         self.session_mgr.current_mut().current_thread_id = None;
+        self.session_mgr.current_mut().metadata.kernel_id = None;
         self.session_mgr.current_mut().todo_items.clear();
         self.session_mgr
             .current_mut()
