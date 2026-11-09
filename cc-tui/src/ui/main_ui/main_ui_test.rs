@@ -201,7 +201,7 @@ async fn test_status_bar_first_row_uses_codebuddy_compact_shape() {
 
 #[tokio::test]
 async fn test_status_bar_hides_cache_and_mem_before_conversation_starts() {
-    // 空会话首屏：Cache 恒为 `Cache -`、MEM 只是空转基线，二者都不该出现在状态栏。
+    // 空会话首屏：尚无 LLM 响应 Cache 无数据可展示、MEM 只是空转基线，二者都不该出现在状态栏。
     let (mut app, mut handle) = crate::app::App::new_headless(120, 24).await;
     assert!(
         app.session_mgr.current().current_view_messages().is_empty(),
@@ -230,7 +230,7 @@ async fn test_status_bar_hides_cache_and_mem_before_conversation_starts() {
 }
 
 #[tokio::test]
-async fn test_status_bar_shows_cache_and_mem_after_conversation_starts() {
+async fn test_status_bar_shows_mem_and_hides_cache_until_first_llm_response() {
     let (mut app, mut handle) = crate::app::App::new_headless(120, 24).await;
     app.session_mgr
         .current_mut()
@@ -245,13 +245,39 @@ async fn test_status_bar_shows_cache_and_mem_after_conversation_starts() {
     let height = super::status_bar::status_bar_height(&app) as usize;
     let rows: Vec<String> = snapshot[snapshot.len() - height..].to_vec();
     let joined = rows.join("\n");
+    // 有消息但尚无 LLM 响应：不渲染 `Cache -` 占位（无信息量），MEM 照常显示
     assert!(
-        joined.contains("Cache"),
-        "对话开始后应恢复 Cache 指标，实际状态栏:\n{joined}"
+        !joined.contains("Cache"),
+        "尚无 LLM 响应时不应出现 Cache 占位，实际状态栏:\n{joined}"
     );
     assert!(
         joined.contains("MEM "),
         "对话开始后应恢复 MEM 指标，实际状态栏:\n{joined}"
+    );
+
+    // 首个 LLM 响应到达后（含 cache_read=0 的真实读数）恢复 Cache 展示
+    app.push_agent_event(crate::app::AgentEvent::TokenUsageUpdate {
+        usage: cc_agent::llm::types::TokenUsage {
+            input_tokens: 1_200,
+            output_tokens: 80,
+            cache_creation_input_tokens: None,
+            cache_read_input_tokens: Some(0),
+            request_id: None,
+        },
+        model: "test-model".into(),
+        stop_reason: None,
+    });
+    app.process_pending_events();
+    handle
+        .terminal
+        .draw(|f| crate::ui::main_ui::render(f, &mut app))
+        .unwrap();
+    let snapshot = handle.snapshot();
+    let rows: Vec<String> = snapshot[snapshot.len() - height..].to_vec();
+    let joined = rows.join("\n");
+    assert!(
+        joined.contains("Cache 0%"),
+        "有 LLM 响应后即使命中为 0 也应展示真实读数，实际状态栏:\n{joined}"
     );
 }
 
