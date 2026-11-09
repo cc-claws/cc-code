@@ -491,28 +491,28 @@ fn test_render_diff_unknown_lang_falls_back() {
     assert!(has_green_bg, "未识别语言回退后仍应保留绿底");
 }
 
-/// 行号 gutter 为单行号，两空格前缀 + 右对齐行号 + 空格 + marker（marker 在行号右侧），无竖线
+/// 行号 gutter 为单行号，一个空格 + 右对齐行号 + 空格 + marker（marker 在行号右侧），无竖线
 #[test]
 fn test_render_diff_gutter_matches_cc_single_line_number() {
     let input = make_basic_input();
     let lines = render_diff_impl(&input, 80, &DarkTheme);
     let texts: Vec<String> = lines.iter().map(joined_text).collect();
-    // Add 行（第 2 行）："  2 +" 前缀
+    // Add 行（第 2 行）：" 2 +" 前缀
     assert!(
-        texts.iter().any(|t| t.starts_with("  2 +")),
-        "Add 行 gutter 应为 \"  2 +\"，实际:\n{}",
+        texts.iter().any(|t| t.starts_with(" 2 +")),
+        "Add 行 gutter 应为 \" 2 +\"，实际:\n{}",
         texts.join("\n")
     );
-    // Remove 行（旧文件第 2 行）："  2 -" 前缀
+    // Remove 行（旧文件第 2 行）：" 2 -" 前缀
     assert!(
-        texts.iter().any(|t| t.starts_with("  2 -")),
-        "Remove 行 gutter 应为 \"  2 -\"，实际:\n{}",
+        texts.iter().any(|t| t.starts_with(" 2 -")),
+        "Remove 行 gutter 应为 \" 2 -\"，实际:\n{}",
         texts.join("\n")
     );
-    // Context 行（第 1 行）：两空格 + 行号 + 分隔空格 + marker 空格
+    // Context 行（第 1 行）：一个空格 + 行号 + 分隔空格 + marker 空格
     assert!(
-        texts.iter().any(|t| t.starts_with("  1  ")),
-        "Context 行 gutter 应为 \"  1  \"，实际:\n{}",
+        texts.iter().any(|t| t.starts_with(" 1  ")),
+        "Context 行 gutter 应为 \" 1  \"，实际:\n{}",
         texts.join("\n")
     );
     // 不应再出现旧的竖线分隔符
@@ -521,6 +521,55 @@ fn test_render_diff_gutter_matches_cc_single_line_number() {
         "diff 行不应含竖线分隔符，实际:\n{}",
         texts.join("\n")
     );
+}
+
+/// 参考截图的第 17 行：行号、marker、正文各占固定列，marker 直接接正文。
+/// 40 列下两位行号仍能容纳 35 列正文，增加一个字符才应折行。
+#[test]
+fn test_render_diff_gutter_matches_reference_screenshot_columns() {
+    let context = "c".repeat(35);
+    let removed = "r".repeat(35);
+    let added = "a".repeat(35);
+    for suffix in ["", "!"] {
+        let prefix = format!("{}{context}\n", "keep\n".repeat(15));
+        let input = DiffInput {
+            file_path: "CHANGELOG.md".to_string(),
+            old_content: format!("{prefix}{removed}{suffix}\n"),
+            new_content: format!("{prefix}{added}{suffix}\n"),
+            is_new_file: false,
+            is_deleted_file: false,
+            is_binary: false,
+        };
+        let lines = render_diff_impl(&input, 40, &DarkTheme);
+        let texts: Vec<String> = lines.iter().map(joined_text).collect();
+        for expected in [
+            format!(" 16  {context}"),
+            format!(" 17 -{removed}"),
+            format!(" 17 +{added}"),
+        ] {
+            assert!(
+                texts.contains(&expected),
+                "参考列布局不应多一格或提前折行，缺少 {expected:?}，实际:\n{}",
+                texts.join("\n")
+            );
+        }
+        if suffix.is_empty() {
+            assert_eq!(
+                texts.len(),
+                7,
+                "3 行上下文和2行改动各只占一行，加上标题和摘要"
+            );
+        } else {
+            for marker in ['-', '+'] {
+                let expected = format!("    {marker}!");
+                assert!(texts.iter().any(|text| text.trim_end() == expected));
+            }
+            assert_eq!(texts.len(), 9, "两条改动各增加一条续行");
+        }
+        for line in lines.iter().skip(2) {
+            assert!(line_display_width(line) <= 40, "行号和正文总宽不得溢出");
+        }
+    }
 }
 
 /// 新建文件不输出 "Added N lines" 摘要行（与 Write 工具结果的 "Wrote N lines" 重复）
@@ -1156,8 +1205,8 @@ fn test_render_diff_wrapped_add_line_pads_and_indents_continuation() {
     }
     assert_eq!(
         add_lines[1].spans[0].content.as_ref(),
-        "    +",
-        "续行 gutter 应为空格占位 + marker 保持原列（n=1 时共 5 列）"
+        "   +",
+        "续行 gutter 应为空格占位 + marker 保持原列（n=1 时共 4 列）"
     );
 }
 

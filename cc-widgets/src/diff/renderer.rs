@@ -461,7 +461,7 @@ impl GutterLayout {
     fn new(first: String, marker: &str, n: usize, style: Style) -> Self {
         Self {
             first,
-            continuation: format!("{}{}", " ".repeat(n + 3), marker),
+            continuation: format!("{}{}", " ".repeat(n + 2), marker),
             style,
         }
     }
@@ -627,8 +627,8 @@ pub fn render_diff_result(
     }
 
     let n = digit_count(max_line_num).max(1);
-    // gutter：两空格前缀 + 右对齐行号 + 空格 + marker（marker 在行号右侧），无竖线分隔符
-    let gutter_width = 2 + n + 1 + 1;
+    // gutter：一个空格 + 右对齐行号 + 空格 + marker（marker 在行号右侧），无竖线分隔符
+    let gutter_width = 1 + n + 1 + 1;
 
     // 语法高亮：从文件扩展名推导语言
     #[cfg(feature = "markdown-highlight")]
@@ -658,7 +658,7 @@ pub fn render_diff_result(
                     // context 行用新文件行号，marker 位为空格（行号右侧）
                     let gutter_style = Style::default().fg(theme.dim());
                     let gutter = GutterLayout::new(
-                        format!("  {:>n$}  ", new_line_num, n = n),
+                        format!(" {:>n$}  ", new_line_num, n = n),
                         " ",
                         n,
                         gutter_style,
@@ -683,7 +683,7 @@ pub fn render_diff_result(
                     word_diff,
                 } => {
                     let marker = "+";
-                    // gutter：两空格前缀 + 右对齐行号 + 空格 + marker（marker 在行号右侧）
+                    // gutter：一个空格 + 右对齐行号 + 空格 + marker（marker 在行号右侧）
                     // 分层：marker 与行号用 decoration 色，
                     // 代码正文用语法高亮/正文色，不再三处共用一个前景色。
                     let deco = theme.diff_add_decoration();
@@ -694,7 +694,7 @@ pub fn render_diff_result(
                         gutter_style = gutter_style.bg(bg_col);
                     }
                     let gutter = GutterLayout::new(
-                        format!("  {:>n$} {}", line_num, marker, n = n),
+                        format!(" {:>n$} {}", line_num, marker, n = n),
                         marker,
                         n,
                         gutter_style,
@@ -752,7 +752,7 @@ pub fn render_diff_result(
                     word_diff,
                 } => {
                     let marker = "-";
-                    // gutter：两空格前缀 + 右对齐行号 + 空格 + marker（marker 在行号右侧）
+                    // gutter：一个空格 + 右对齐行号 + 空格 + marker（marker 在行号右侧）
                     // 分层（`marker === '-'` 分支）：marker 与行号用
                     // deleteDecoration 暗红；在无整行底色（如 ANSI 模式）下代码正文用 dim，
                     // 有整行暗红底时用 text 正文色。
@@ -768,7 +768,7 @@ pub fn render_diff_result(
                         gutter_style = gutter_style.bg(bg_col);
                     }
                     let gutter = GutterLayout::new(
-                        format!("  {:>n$} {}", line_num, marker, n = n),
+                        format!(" {:>n$} {}", line_num, marker, n = n),
                         marker,
                         n,
                         gutter_style,
