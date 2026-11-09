@@ -778,17 +778,21 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
 
     // Cache/MEM（左侧块，右侧留给快捷键）
     //
-    // 对话尚未开始时这两个指标没有可解释的含义：Cache 一定是 `Cache -`（还没有
-    // 任何 LLM 响应可供命中），MEM 只是空转进程的基线值，二者只会给启动首屏添噪。
+    // 对话尚未开始时这两个指标没有可解释的含义：Cache 还没有任何 LLM 响应可供
+    // 命中，MEM 只是空转进程的基线值，二者只会给启动首屏添噪。
     // 判定沿用消息区欢迎卡的口径（`current_view_messages()` 为空即视为未开始），
     // 因此恢复历史会话/聚焦子 Agent 视口时只要已有消息就照常显示。
+    //
+    // 有消息但尚无 LLM 响应时不渲染 Cache 段（含分隔符），避免 `Cache -`
+    // 这类无信息量占位；`Cache 0%` 是真实读数（最近一次调用命中为 0，
+    // 可诊断缓存失效），照常展示。
     if !app.session_mgr.current().current_view_messages().is_empty() {
         let tracker = &app
             .session_mgr
             .current()
             .viewport_agent()
             .session_token_tracker;
-        let (cache_str, cache_color) = if tracker.last_usage.is_some() {
+        let cache_segment = tracker.last_usage.as_ref().map(|_| {
             let rate_pct = tracker.cache_hit_rate() * 100.0;
             let color = if rate_pct >= 80.0 {
                 colors.success
@@ -798,9 +802,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
                 colors.muted
             };
             (format!("Cache {:.0}%", rate_pct), color)
-        } else {
-            ("Cache -".to_string(), colors.muted)
-        };
+        });
 
         let mut monitor = app.services.resource_monitor.lock();
         monitor.refresh_if_needed();
@@ -816,8 +818,10 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
         };
 
         left_spans.push(Span::styled("  ", Style::default()));
-        left_spans.push(Span::styled(cache_str, Style::default().fg(cache_color)));
-        left_spans.push(Span::styled(" · ", Style::default().fg(colors.muted)));
+        if let Some((cache_str, cache_color)) = cache_segment {
+            left_spans.push(Span::styled(cache_str, Style::default().fg(cache_color)));
+            left_spans.push(Span::styled(" · ", Style::default().fg(colors.muted)));
+        }
         left_spans.push(Span::styled(
             format!("MEM {}MB", mem),
             Style::default().fg(mem_color),
