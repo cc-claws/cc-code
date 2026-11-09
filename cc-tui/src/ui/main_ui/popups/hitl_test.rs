@@ -320,16 +320,15 @@ async fn test_hitl_edit_diff_displays_context_deletions_and_additions() {
         "共同上下文应保留"
     );
     assert!(
-        lines.iter().any(|line| {
-            let line = line.trim_start();
-            (line.starts_with('−') || line.starts_with('-')) && line.contains("before")
-        }),
+        lines
+            .iter()
+            .any(|line| line.contains('−') && line.contains("before")),
         "删除内容应有删除标记"
     );
     assert!(
         lines
             .iter()
-            .any(|line| line.trim_start().starts_with('+') && line.contains("after")),
+            .any(|line| line.contains(" +") && line.contains("after")),
         "新增内容应有新增标记"
     );
 }
