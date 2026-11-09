@@ -110,12 +110,10 @@ static CC_TOOLS: &[ToolSpec] = &[
     ),
 ];
 
-/// cc 内核：工具定义恒等变换，提示词为空段落（逐字节等价回归基线）。
+/// cc 内核：沿用工具自身定义，工具规则由 spec 放入主 Agent 的静态提示段。
 pub static CC: KernelSpec = KernelSpec {
     id: "cc",
-    // cc 内核的提示词是空段落：出站/提示词组装对 cc 保持逐字节等价，
-    // 现有系统提示词（sections/*.md）原样生效，不追加任何内核内容。
-    prompt: PromptSource::Single(""),
+    prompt: PromptSource::StaticToolPolicy(include_str!("../prompts/cc.md")),
     tools: CC_TOOLS,
     governed_tools: GOVERNED_CORE,
     meta_tools: &["SearchExtraTools", "ExecuteExtraTool"],

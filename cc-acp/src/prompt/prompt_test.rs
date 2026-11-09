@@ -250,6 +250,51 @@ fn test_detect_default_values() {
 // ─── boundary marker tests ──────────────────────────────────────────────
 
 #[test]
+fn test_kernel_policy_placement_and_subagent_isolation() {
+    for id in ["cc", "dsh", "pi"] {
+        let kernel = Kernel::try_from_id(id).unwrap();
+        let base = build_system_prompt_for_kernel(
+            None,
+            "/tmp",
+            PromptFeatures::none(),
+            &[],
+            Some("2026-11-05"),
+            None,
+            kernel,
+        );
+        let prompt = crate::agent::builder::finalize_system_prompt(base, kernel, "test-model");
+        let boundary = prompt.find("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__").unwrap();
+        let policy = kernel.prompt_for("test-model");
+        assert_eq!(prompt.matches(policy).count(), 1, "{id}");
+        if id == "cc" {
+            assert!(prompt[..boundary].contains(policy));
+            assert!(!prompt[boundary..].contains(policy));
+        } else {
+            // Existing dsh/pi placement stays unchanged.
+            assert!(!prompt[..boundary].contains(policy));
+            assert!(prompt[boundary..].contains(policy));
+            assert!(!prompt.contains("# Tool usage policy"));
+        }
+
+        let child = build_subagent_system_prompt(
+            None,
+            "/tmp",
+            Some("2026-11-05"),
+            None,
+            kernel,
+            &["Read".to_string()],
+        );
+        assert!(
+            !child.contains(policy),
+            "{id}: no main-agent policy in children"
+        );
+        assert!(!child.contains("SearchExtraTools"), "{id}");
+        assert!(!child.contains("ExecuteExtraTool"), "{id}");
+        assert!(child.contains("# Subagent tool policy"), "{id}");
+    }
+}
+
+#[test]
 fn test_boundary_marker_present() {
     let result = build_system_prompt(None, "/tmp", PromptFeatures::none(), &[], None, None);
     assert!(

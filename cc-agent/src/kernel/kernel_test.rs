@@ -67,6 +67,18 @@ fn test_prompt_source_single() {
     let b = kernel.prompt_for("claude-sonnet");
     assert_eq!(a, b);
     assert!(a.contains("pi"));
+    assert_eq!(kernel.appended_prompt_for("gpt-4o"), a);
+    assert!(kernel.static_tool_policy().is_empty());
+}
+
+#[test]
+fn test_cc_tool_policy_has_one_assembly_location() {
+    let kernel = Kernel::cc();
+    let policy = kernel.prompt_for("any-model");
+    assert!(policy.contains("# Tool usage policy"));
+    assert!(policy.contains("Bash({\"command\":\"git status --short\"})"));
+    assert_eq!(kernel.static_tool_policy(), policy);
+    assert!(kernel.appended_prompt_for("any-model").is_empty());
 }
 
 #[test]
@@ -77,6 +89,8 @@ fn test_prompt_source_by_model() {
     assert_eq!(kernel.prompt_for("gpt-5.2-codex"), "gpt52 prompt");
     assert_eq!(kernel.prompt_for("gpt-52-legacy"), BY_MODEL_PROMPT);
     assert_eq!(kernel.prompt_for("openai/gpt-5"), BY_MODEL_PROMPT);
+    assert_eq!(kernel.appended_prompt_for("gpt-5.2-codex"), "gpt52 prompt");
+    assert!(kernel.static_tool_policy().is_empty());
 }
 
 #[test]
@@ -116,11 +130,47 @@ fn test_kernel_canonical_superset() {
 
 #[test]
 fn test_cc_kernel_equivalence() {
-    let defs = vec![make_def("Read", read_schema()), make_def("Bash", json!({}))];
+    let mut defs: Vec<_> = CC
+        .tools
+        .iter()
+        .map(|tool| make_def(tool.canonical, read_schema()))
+        .collect();
+    defs.push(make_def("mcp__external__lookup", read_schema()));
+    defs.push(ToolDefinition {
+        name: "custom_raw_tool".to_string(),
+        description: "External raw-text tool".to_string(),
+        parameters: ToolParameters::RawText,
+    });
     let before = serde_json::to_string(&defs).unwrap();
     let after = serde_json::to_string(&Kernel::cc().translate_definitions(defs.clone())).unwrap();
     assert_eq!(before, after);
     assert_eq!(Kernel::cc().translate_definitions(defs)[0].name, "Read");
+}
+
+#[test]
+fn test_cc_definitions_consume_spec_overrides() {
+    static OVERRIDE_TOOLS: &[ToolSpec] = &[ToolSpec {
+        canonical: "Read",
+        exposed: "Read",
+        description: "Read with a spec-owned description",
+        prompt_snippet: "Read a file",
+        prompt_guidelines: &[],
+        params: ParamSpec::Rename(&[]),
+        signature_hints: &[],
+        mutation_form: None,
+        parameters_kind: ToolParametersKind::JsonSchema,
+    }];
+    static OVERRIDE_CC: KernelSpec = KernelSpec {
+        id: "cc",
+        prompt: PromptSource::Single(""),
+        tools: OVERRIDE_TOOLS,
+        governed_tools: CC.governed_tools,
+        meta_tools: CC.meta_tools,
+        exposes_tool_search: true,
+    };
+    let out = Kernel(&OVERRIDE_CC).translate_definitions(vec![make_def("Read", read_schema())]);
+    assert_eq!(out[0].description, OVERRIDE_TOOLS[0].description);
+    assert_eq!(out[0].parameters.as_json().unwrap(), &read_schema());
 }
 
 #[test]

@@ -3,8 +3,8 @@
 //! Assembles system prompt from section files with feature-gated conditional
 //! injection. Uses `PromptFeatures` to control which sections are included.
 //!
-//! Sections are loaded from cc-tui's `prompts/sections/` directory using
-//! `include_str!` with paths relative to the cc-acp crate root.
+//! Shared sections are loaded from cc-tui's `prompts/sections/` directory.
+//! Kernel-specific tool policies come from the selected kernel spec.
 
 use cc_agent::kernel::Kernel;
 use cc_middlewares::AgentOverrides;
@@ -117,7 +117,7 @@ fn format_available_agents(cwd: &str, extra_agent_dirs: &[std::path::PathBuf]) -
 
 /// 构建系统提示词。
 ///
-/// 从 `prompts/sections/` 加载静态段落（01-06），在缓存边界后注入环境、
+/// 加载共享静态段落与 spec 的工具策略，在缓存边界后注入环境、
 /// Windows、提醒及 feature-gated 段落，并替换环境占位符。
 ///
 /// `overrides` 存在时，将 agent.md 中定义的角色/风格/主动性拼成一个覆盖块，
@@ -301,7 +301,7 @@ fn build_system_prompt_inner(
         PromptEnv::detect(cwd)
     };
 
-    // 静态段落（编译时嵌入，按编号顺序）—— 01-06 为缓存稳定内容
+    // 共享静态段落与 spec 提供的工具策略，保持缓存前缀及段落顺序。
     // include_str! 路径相对于 source file，从 cc-acp/src/prompt/mod.rs 出发
     let static_sections: &[&str] = &[
         include_str!(concat!(
@@ -320,10 +320,11 @@ fn build_system_prompt_inner(
             env!("CARGO_MANIFEST_DIR"),
             "/../cc-tui/prompts/sections/04_actions.md"
         )),
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../cc-tui/prompts/sections/05_using_tools.md"
-        )),
+        if subagent {
+            ""
+        } else {
+            kernel.static_tool_policy()
+        },
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../cc-tui/prompts/sections/06_tone_style.md"
@@ -435,13 +436,11 @@ fn build_system_prompt_inner(
     // overrides_block 放在边界之后——不同 SubAgent 的 persona/tone 不同，
     // 若放在静态段之前会导致每个 agent 的缓存前缀完全失效。
     let mut result = String::new();
-    for (i, section) in static_sections.iter().enumerate() {
-        // Each non-cc kernel supplies its own tool policy. Keep shared task and
-        // permission rules, without the cc-only deferred-tool instructions.
-        if i == 4 && (!kernel.is_cc() || subagent) {
+    for section in static_sections {
+        if section.is_empty() {
             continue;
         }
-        if i > 0 {
+        if !result.is_empty() {
             result.push_str("\n\n");
         }
         result.push_str(&render_section(section));
