@@ -208,6 +208,72 @@ const TOOL_SIGNATURE_HINTS: &[(&[&str], &str)] = &[
     (&["prompt", "description"], "Agent"),
 ];
 
+/// 自动改道白名单：只有当 LLM 调用的工具**不在白名单**、但参数 100% 符合
+/// 白名单中某个工具的 schema（且仅符合这一个）时，才静默把调用改到该只读工具上执行。
+///
+/// 安全边界：白名单只包含只读工具（Grep/Glob/Read），改道不会把参数指向任何写/执行类工具。
+/// 方向永远是"降级到只读"，不会出现"调 Grep 实际执行了 Bash"这类危险跃迁。
+const AUTO_RESCUE_WHITELIST: &[&str] = &["Grep", "Glob", "Read"];
+
+/// 尝试把一次 Schema 校验失败的调用自动改道到白名单只读工具执行。
+///
+/// 判定条件（「参数 100% 符合唯一工具」的字面实现）：
+/// 1. 输入为 JSON 对象且非空；
+/// 2. 对白名单逐个跑严格 schema 校验，**恰好一个**工具校验通过；
+///    —— 复用 validate_against_schema 的 Strict 语义：缺必填参数、多余参数、类型不符
+///    都不算「符合」；0 个或 ≥2 个通过（如 `{pattern, path}` 同时符合 Grep 与 Glob）
+///    属歧义/不匹配，不改道；
+/// 3. 目标工具已注册；
+/// 4. 原工具与改道工具不同。
+///
+/// 满足条件时返回 `(新工具名，新参数)`，并在 trace 层记录（不影响工具结果、不触发熔断计数）。
+fn try_auto_rescue(
+    tool_name: &str,
+    input: &serde_json::Value,
+    all_tools: &HashMap<String, &dyn BaseTool>,
+) -> Option<(String, serde_json::Value)> {
+    let input_map = input.as_object()?;
+
+    if input_map.is_empty() {
+        return None;
+    }
+
+    let mut matched: Option<&str> = None;
+    for candidate in AUTO_RESCUE_WHITELIST {
+        // 原工具与目标相同不构成改道
+        if tool_name.eq_ignore_ascii_case(candidate) {
+            continue;
+        }
+        // 目标工具必须已注册
+        let Some(candidate_tool) = all_tools.get(*candidate) else {
+            continue;
+        };
+        if validate_against_schema(input, &candidate_tool.parameters()).is_ok() {
+            // 第二个命中 = 歧义输入，按「唯一」语义放弃改道
+            if matched.is_some() {
+                tracing::trace!(
+                    tool.from = tool_name,
+                    params = ?input_map.keys().collect::<Vec<_>>(),
+                    "自动改道放弃：参数同时符合多个只读工具（歧义）"
+                );
+                return None;
+            }
+            matched = Some(candidate);
+        }
+    }
+
+    matched.map(|name| {
+        tracing::trace!(
+            tool.from = tool_name,
+            tool.to = name,
+            "自动改道：LLM 调用了 '{}'，但参数 100% 符合唯一只读工具 '{}'",
+            tool_name,
+            name
+        );
+        (name.to_string(), input.clone())
+    })
+}
+
 /// 单工具 Schema 校验失败阈值：滑动窗口内失败 ≥ 此次数时注入强提示。
 ///
 /// 注意是**滑动窗口**而非“连续”：模型常在多个工具间交替犯错（配错一次 WebSearch、
@@ -919,7 +985,28 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                         match tool {
                             Some(t) => {
                                 let schema = t.parameters();
-                                if let Err(msg) = validate_against_schema(&input, &schema) {
+                                let (tool_to_run, input_to_run) = if let Err(msg) = validate_against_schema(&input, &schema) {
+                                    // 1. 尝试自动改道到白名单只读工具（Grep/Glob/Read）：
+                                    //    当参数特征 100% 符合唯一只读工具时静默改道，不触发任何熔断/提示。
+                                    if let Some((new_name, new_input)) =
+                                        try_auto_rescue(&tool_name, &input, all_tools)
+                                    {
+                                        if let Some(to_) = all_tools.get(&new_name) {
+                                            tracing::warn!(
+                                                tool.from = %echo,
+                                                tool.to = %kernel.echo_name(&new_name),
+                                                call_id = %call_id,
+                                                "Schema 校验失败后自动改道到只读工具执行：{} -> {}",
+                                                echo,
+                                                kernel.echo_name(&new_name)
+                                            );
+                                            (*to_, new_input)
+                                        } else {
+                                            // 改道目标不在注册表中，回退为原工具（走下面的错误路径）
+                                            (t, input)
+                                        }
+                                    } else {
+                                    // 2. 未改道：按原路径返回结构化参数错误。
                                     let keys: Vec<String> = match &input {
                                         serde_json::Value::Object(map) => {
                                             let mut k: Vec<_> = map.keys().cloned().collect();
@@ -958,10 +1045,13 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                                              Received keys: {keys_text}. Rewrite the call to satisfy the schema and retry.{hint}"
                                         ),
                                     });
-                                }
+                                    }
+                                } else {
+                                    (t, input)
+                                };
                                 crate::tools::ToolOutputContext::scope_invocation(
                                     output_context,
-                                    invocation.scope_with_kernel(kernel, t.invoke_content(input)),
+                                    invocation.scope_with_kernel(kernel, tool_to_run.invoke_content(input_to_run)),
                                 ).await.map_err(|e| {
                                     // 代理工具的目标参数错误保留结构化分类与目标名，
                                     // 避免退化为普通执行失败而绕过 Schema 纠错。

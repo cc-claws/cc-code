@@ -2305,3 +2305,519 @@ async fn test_proxy_schema_error_preserves_classification_target_and_call_identi
         }
     }
 }
+
+
+// ============================================================================
+// Auto-rescue tests — 工具纠错：调错工具但参数 100% 符合唯一只读工具时静默改道。
+//
+// mock schema 与 cc-tools 真实工具对齐（glob.rs/grep.rs/read.rs）：
+//   Grep: pattern(必填), path, glob, type, output_mode, ...
+//   Glob: pattern(必填), path —— 是 Grep 的真子集，{pattern, path} 两者都过 → 歧义
+//   Read: file_path(必填), offset, limit
+// ============================================================================
+
+/// 一个"错误工具"：schema 只收 `wrong`，模型误用其他工具的参数调用它时校验必失败。
+struct StrictWrongTool {
+    name: &'static str,
+}
+
+#[async_trait::async_trait]
+impl BaseTool for StrictWrongTool {
+    fn name(&self) -> &str {
+        self.name
+    }
+    fn description(&self) -> &str {
+        "Wrong tool that rejects everything but 'wrong'"
+    }
+    fn parameters(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {"wrong": {"type": "string"}},
+            "required": ["wrong"],
+        })
+    }
+    async fn invoke(
+        &self,
+        _input: serde_json::Value,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        unreachable!("auto-rescue 改道后绝不应执行错误工具")
+    }
+}
+
+/// 与真实 Grep/Glob/Read 对齐的 mock 工具，记录收到的参数。
+struct MockReadonlyTool {
+    name: &'static str,
+    schema: serde_json::Value,
+    output: &'static str,
+    received: Arc<Mutex<Option<serde_json::Value>>>,
+}
+
+#[async_trait::async_trait]
+impl BaseTool for MockReadonlyTool {
+    fn name(&self) -> &str {
+        self.name
+    }
+    fn description(&self) -> &str {
+        "mock readonly tool"
+    }
+    fn parameters(&self) -> serde_json::Value {
+        self.schema.clone()
+    }
+    async fn invoke(
+        &self,
+        input: serde_json::Value,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        *self.received.lock().unwrap() = Some(input);
+        Ok(self.output.to_string())
+    }
+}
+
+fn grep_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "pattern": {"type": "string"},
+            "path": {"type": "string"},
+            "glob": {"type": "string"},
+            "type": {"type": "string"},
+            "output_mode": {"type": "string"},
+        },
+        "required": ["pattern"],
+    })
+}
+
+fn glob_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "pattern": {"type": "string"},
+            "path": {"type": "string"},
+        },
+        "required": ["pattern"],
+    })
+}
+
+fn read_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "file_path": {"type": "string"},
+            "offset": {"type": "number"},
+            "limit": {"type": "number"},
+        },
+        "required": ["file_path"],
+    })
+}
+
+fn readonly_tool(
+    name: &'static str,
+    schema: serde_json::Value,
+    output: &'static str,
+) -> MockReadonlyTool {
+    MockReadonlyTool {
+        name,
+        schema,
+        output,
+        received: Arc::new(Mutex::new(None)),
+    }
+}
+
+#[tokio::test]
+async fn test_auto_rescue_grep_with_unique_grep_params() {
+    // {pattern, output_mode} 同时含 Grep 独有参数 output_mode：
+    // Glob 不收 output_mode、Read 不收 pattern → 唯一命中 Grep → 静默改道。
+    let wrong = StrictWrongTool { name: "WrongTool" };
+    let grep = readonly_tool("Grep", grep_schema(), "grep output");
+    let glob = readonly_tool("Glob", glob_schema(), "glob output");
+    let read = readonly_tool("Read", read_schema(), "read output");
+    let tools = HashMap::from([
+        ("WrongTool".to_string(), &wrong as &dyn BaseTool),
+        ("Grep".to_string(), &grep as &dyn BaseTool),
+        ("Glob".to_string(), &glob as &dyn BaseTool),
+        ("Read".to_string(), &read as &dyn BaseTool),
+    ]);
+
+    let agent = ReActAgent::new(crate::llm::MockLLM::always_answer("done"));
+    let mut state = AgentState::new(".");
+    let (results, _cancelled, _deferred_error) = collect_tool_results(
+        &agent,
+        &mut state,
+        vec![ToolCall::new("call-1", "WrongTool", serde_json::json!({
+            "pattern": "error",
+            "output_mode": "content",
+        }))],
+        &tools,
+        &CancellationToken::new(),
+        MessageId::new(),
+    )
+    .await
+    .unwrap();
+
+    assert!(results.len() == 1);
+    let result = &results[0].1;
+    // 外层调用身份保持 LLM 声明的工具名；内部实际执行 Grep。
+    assert_eq!(result.tool_name, "WrongTool");
+    assert_eq!(result.output, "grep output");
+    assert!(!result.is_error);
+    let v = grep.received.lock().unwrap().take().expect("Grep 应被实际执行");
+    assert_eq!(v.get("pattern").and_then(|v| v.as_str()), Some("error"));
+    assert!(glob.received.lock().unwrap().is_none(), "Glob 不应执行");
+    assert!(read.received.lock().unwrap().is_none(), "Read 不应执行");
+}
+
+#[tokio::test]
+async fn test_no_auto_rescue_on_ambiguous_pattern_path() {
+    // {pattern, path} 同时通过 Grep 与 Glob 校验（Glob 是 Grep 的真子集）：
+    // 按「唯一」语义属歧义输入 → 不改道，回退参数错误。
+    let wrong = StrictWrongTool { name: "WrongTool" };
+    let grep = readonly_tool("Grep", grep_schema(), "grep output");
+    let glob = readonly_tool("Glob", glob_schema(), "glob output");
+    let read = readonly_tool("Read", read_schema(), "read output");
+    let tools = HashMap::from([
+        ("WrongTool".to_string(), &wrong as &dyn BaseTool),
+        ("Grep".to_string(), &grep as &dyn BaseTool),
+        ("Glob".to_string(), &glob as &dyn BaseTool),
+        ("Read".to_string(), &read as &dyn BaseTool),
+    ]);
+
+    let agent = ReActAgent::new(crate::llm::MockLLM::always_answer("done"));
+    let mut state = AgentState::new(".");
+    let (results, _cancelled, _deferred_error) = collect_tool_results(
+        &agent,
+        &mut state,
+        vec![ToolCall::new("call-1", "WrongTool", serde_json::json!({
+            "pattern": "*.rs",
+            "path": "/virtual/project",
+        }))],
+        &tools,
+        &CancellationToken::new(),
+        MessageId::new(),
+    )
+    .await
+    .unwrap();
+
+    assert!(results.len() == 1);
+    assert_eq!(results[0].1.error_kind.unwrap(), ToolErrorKind::SchemaValidation);
+    assert!(results[0].1.output.contains("Invalid arguments for tool"));
+    assert!(grep.received.lock().unwrap().is_none(), "歧义输入不应改道执行 Grep");
+    assert!(glob.received.lock().unwrap().is_none(), "歧义输入不应改道执行 Glob");
+}
+
+#[tokio::test]
+async fn test_auto_rescue_glob_when_glob_is_the_unique_match() {
+    // 白名单中只注册 Glob 时，{pattern, path} 唯一命中 Glob → 改道。
+    // 覆盖子 agent 工具白名单只开部分只读工具的场景。
+    let wrong = StrictWrongTool { name: "WrongTool" };
+    let glob = readonly_tool("Glob", glob_schema(), "glob output");
+    let tools = HashMap::from([
+        ("WrongTool".to_string(), &wrong as &dyn BaseTool),
+        ("Glob".to_string(), &glob as &dyn BaseTool),
+    ]);
+
+    let agent = ReActAgent::new(crate::llm::MockLLM::always_answer("done"));
+    let mut state = AgentState::new(".");
+    let (results, _cancelled, _deferred_error) = collect_tool_results(
+        &agent,
+        &mut state,
+        vec![ToolCall::new("call-1", "WrongTool", serde_json::json!({
+            "pattern": "**/*.rs",
+            "path": "/virtual/project",
+        }))],
+        &tools,
+        &CancellationToken::new(),
+        MessageId::new(),
+    )
+    .await
+    .unwrap();
+
+    assert!(results.len() == 1);
+    assert_eq!(&results[0].1.output, "glob output");
+    let v = glob.received.lock().unwrap().take().expect("Glob 应被实际执行");
+    assert_eq!(v.get("pattern").and_then(|v| v.as_str()), Some("**/*.rs"));
+}
+
+#[tokio::test]
+async fn test_auto_rescue_read_with_unique_read_params() {
+    // {file_path, limit} 只符合 Read（Grep/Glob 不收 file_path）→ 唯一命中 → 改道。
+    let wrong = StrictWrongTool { name: "WrongTool" };
+    let grep = readonly_tool("Grep", grep_schema(), "grep output");
+    let glob = readonly_tool("Glob", glob_schema(), "glob output");
+    let read = readonly_tool("Read", read_schema(), "read output");
+    let tools = HashMap::from([
+        ("WrongTool".to_string(), &wrong as &dyn BaseTool),
+        ("Grep".to_string(), &grep as &dyn BaseTool),
+        ("Glob".to_string(), &glob as &dyn BaseTool),
+        ("Read".to_string(), &read as &dyn BaseTool),
+    ]);
+
+    let agent = ReActAgent::new(crate::llm::MockLLM::always_answer("done"));
+    let mut state = AgentState::new(".");
+    let (results, _cancelled, _deferred_error) = collect_tool_results(
+        &agent,
+        &mut state,
+        vec![ToolCall::new("call-1", "WrongTool", serde_json::json!({
+            "file_path": "/virtual/project/README.md",
+            "limit": 100,
+        }))],
+        &tools,
+        &CancellationToken::new(),
+        MessageId::new(),
+    )
+    .await
+    .unwrap();
+
+    assert!(results.len() == 1);
+    assert_eq!(&results[0].1.output, "read output");
+    let v = read.received.lock().unwrap().take().expect("Read 应被实际执行");
+    assert_eq!(v.get("file_path").and_then(|v| v.as_str()), Some("/virtual/project/README.md"));
+    assert!(grep.received.lock().unwrap().is_none());
+    assert!(glob.received.lock().unwrap().is_none());
+}
+
+#[tokio::test]
+async fn test_no_auto_rescue_when_target_is_not_readonly_tool() {
+    // {command} 唯一符合 Bash 的参数特征，但 Bash 不在白名单 → 绝不改道执行。
+    let wrong = StrictWrongTool { name: "WrongTool" };
+    struct BashTool {
+        executed: Arc<Mutex<bool>>,
+    }
+    #[async_trait::async_trait]
+    impl BaseTool for BashTool {
+        fn name(&self) -> &str {
+            "Bash"
+        }
+        fn description(&self) -> &str {
+            "Bash"
+        }
+        fn parameters(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]})
+        }
+        async fn invoke(
+            &self,
+            _input: serde_json::Value,
+        ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+            *self.executed.lock().unwrap() = true;
+            Ok("shell output".into())
+        }
+    }
+
+    let executed = Arc::new(Mutex::new(false));
+    let bash_tool = BashTool {
+        executed: Arc::clone(&executed),
+    };
+    let tools = HashMap::from([
+        ("WrongTool".to_string(), &wrong as &dyn BaseTool),
+        ("Bash".to_string(), &bash_tool as &dyn BaseTool),
+    ]);
+
+    let agent = ReActAgent::new(crate::llm::MockLLM::always_answer("done"));
+    let mut state = AgentState::new(".");
+    let (results, _cancelled, _deferred_error) = collect_tool_results(
+        &agent,
+        &mut state,
+        vec![ToolCall::new("call-1", "WrongTool", serde_json::json!({
+            "command": "echo hello",
+        }))],
+        &tools,
+        &CancellationToken::new(),
+        MessageId::new(),
+    )
+    .await
+    .unwrap();
+
+    assert!(!*executed.lock().unwrap(), "Bash 绝不应被执行");
+    assert!(results.len() == 1);
+    assert_eq!(results[0].1.error_kind.unwrap(), ToolErrorKind::SchemaValidation);
+    assert!(!results[0].1.output.contains("shell output"));
+}
+
+#[tokio::test]
+async fn test_no_auto_rescue_when_input_matches_no_tool() {
+    // 空对象 / 多余键：对白名单逐个校验均不通过 → 回退参数错误。
+    let wrong = StrictWrongTool { name: "WrongTool" };
+    let grep = readonly_tool("Grep", grep_schema(), "grep output");
+    let glob = readonly_tool("Glob", glob_schema(), "glob output");
+    let read = readonly_tool("Read", read_schema(), "read output");
+    let tools = HashMap::from([
+        ("WrongTool".to_string(), &wrong as &dyn BaseTool),
+        ("Grep".to_string(), &grep as &dyn BaseTool),
+        ("Glob".to_string(), &glob as &dyn BaseTool),
+        ("Read".to_string(), &read as &dyn BaseTool),
+    ]);
+
+    for input in [
+        serde_json::json!({}),
+        serde_json::json!({"pattern": "x", "unknown_extra_key": 1}),
+    ] {
+        let agent = ReActAgent::new(crate::llm::MockLLM::always_answer("done"));
+        let mut state = AgentState::new(".");
+        let (results, _cancelled, _deferred_error) = collect_tool_results(
+            &agent,
+            &mut state,
+            vec![ToolCall::new("call-1", "WrongTool", input)],
+            &tools,
+            &CancellationToken::new(),
+            MessageId::new(),
+        )
+        .await
+        .unwrap();
+
+        assert!(results.len() == 1);
+        assert_eq!(results[0].1.error_kind.unwrap(), ToolErrorKind::SchemaValidation);
+        assert!(results[0].1.output.contains("Invalid arguments for tool"));
+    }
+    assert!(grep.received.lock().unwrap().is_none());
+    assert!(glob.received.lock().unwrap().is_none());
+    assert!(read.received.lock().unwrap().is_none());
+}
+
+#[tokio::test]
+async fn test_auto_rescue_does_not_trigger_circuit_breaker() {
+    // 连续多次成功改道不计入 Schema 熔断窗口（熔断只统计真正的校验失败）。
+    let wrong = StrictWrongTool { name: "WrongTool" };
+    let grep = readonly_tool("Grep", grep_schema(), "ok");
+    let glob = readonly_tool("Glob", glob_schema(), "glob output");
+    let read = readonly_tool("Read", read_schema(), "read output");
+    let tools = HashMap::from([
+        ("WrongTool".to_string(), &wrong as &dyn BaseTool),
+        ("Grep".to_string(), &grep as &dyn BaseTool),
+        ("Glob".to_string(), &glob as &dyn BaseTool),
+        ("Read".to_string(), &read as &dyn BaseTool),
+    ]);
+
+    let agent = ReActAgent::new(crate::llm::MockLLM::always_answer("done")).max_iterations(5);
+    let mut state = AgentState::new(".");
+    for i in 0..5 {
+        let (res, _cancelled, _deferred_error) = collect_tool_results(
+            &agent,
+            &mut state,
+            vec![ToolCall::new(format!("call-{i}"), "WrongTool", serde_json::json!({
+                "pattern": "x",
+                "output_mode": "content",
+            }))],
+            &tools,
+            &CancellationToken::new(),
+            MessageId::new(),
+        )
+        .await
+        .unwrap();
+
+        assert!(res[0].1.output == "ok", "第 {i} 轮应成功改道执行 Grep");
+    }
+    // 5 次改道后 state 中不应出现任何熔断提示
+    assert!(
+        !state_contains_hint(&state, "SCHEMA VALIDATION CIRCUIT BREAKER"),
+        "成功改道不应触发 Schema 熔断"
+    );
+}
+
+#[tokio::test]
+async fn test_uppercase_tool_name_resolves_without_rescue() {
+    // LLM 用大写工具名 "GREP" 调用、参数合法：resolve_tool 大小写无关解析
+    // 直达 Grep，根本不需要改道。
+    let grep = readonly_tool("Grep", grep_schema(), "grep output");
+    let glob = readonly_tool("Glob", glob_schema(), "glob output");
+    let read = readonly_tool("Read", read_schema(), "read output");
+    let tools = HashMap::from([
+        ("Grep".to_string(), &grep as &dyn BaseTool),
+        ("Glob".to_string(), &glob as &dyn BaseTool),
+        ("Read".to_string(), &read as &dyn BaseTool),
+    ]);
+
+    let agent = ReActAgent::new(crate::llm::MockLLM::always_answer("done"));
+    let mut state = AgentState::new(".");
+    let (results, _cancelled, _deferred_error) = collect_tool_results(
+        &agent,
+        &mut state,
+        vec![ToolCall::new("call-1", "GREP", serde_json::json!({
+            "pattern": "error",
+            "output_mode": "content",
+        }))],
+        &tools,
+        &CancellationToken::new(),
+        MessageId::new(),
+    )
+    .await
+    .unwrap();
+
+    assert!(results.len() == 1);
+    assert_eq!(&results[0].1.output, "grep output");
+    assert!(grep.received.lock().unwrap().is_some(), "GREP 应大小写无关地解析到 Grep 执行");
+}
+
+#[tokio::test]
+async fn test_auto_rescue_from_uppercase_tool_name() {
+    // LLM 用大写 "READ" 调用但传了 Grep 的参数：READ 大小写无关解析到 Read、
+    // 校验失败，再改道到唯一命中的 Grep。改道目标排除用 eq_ignore_ascii_case，
+    // 不会把 "READ" 误当成与 Read 不同的工具而回改到 Read。
+    let wrong = StrictWrongTool { name: "WrongTool" };
+    let grep = readonly_tool("Grep", grep_schema(), "grep output");
+    let glob = readonly_tool("Glob", glob_schema(), "glob output");
+    let read = readonly_tool("Read", read_schema(), "read output");
+    let tools = HashMap::from([
+        ("WrongTool".to_string(), &wrong as &dyn BaseTool),
+        ("Grep".to_string(), &grep as &dyn BaseTool),
+        ("Glob".to_string(), &glob as &dyn BaseTool),
+        ("Read".to_string(), &read as &dyn BaseTool),
+    ]);
+
+    let agent = ReActAgent::new(crate::llm::MockLLM::always_answer("done"));
+    let mut state = AgentState::new(".");
+    let (results, _cancelled, _deferred_error) = collect_tool_results(
+        &agent,
+        &mut state,
+        vec![ToolCall::new("call-1", "READ", serde_json::json!({
+            "pattern": "error",
+            "output_mode": "content",
+        }))],
+        &tools,
+        &CancellationToken::new(),
+        MessageId::new(),
+    )
+    .await
+    .unwrap();
+
+    assert!(results.len() == 1);
+    assert_eq!(&results[0].1.output, "grep output");
+    assert!(grep.received.lock().unwrap().is_some(), "应改道执行 Grep");
+    assert!(read.received.lock().unwrap().is_none(), "不应执行 Read");
+    assert!(!results[0].1.is_error);
+}
+
+#[tokio::test]
+async fn test_no_rescue_on_parameter_name_case_mismatch() {
+    // 参数名大小写敏感：schema 是 output_mode，LLM 给 Output_Mode。
+    // 键匹配是精确匹配 → 原工具和全部 rescue 候选都校验失败 → 回退报错，不自愈。
+    let wrong = StrictWrongTool { name: "WrongTool" };
+    let grep = readonly_tool("Grep", grep_schema(), "grep output");
+    let glob = readonly_tool("Glob", glob_schema(), "glob output");
+    let read = readonly_tool("Read", read_schema(), "read output");
+    let tools = HashMap::from([
+        ("WrongTool".to_string(), &wrong as &dyn BaseTool),
+        ("Grep".to_string(), &grep as &dyn BaseTool),
+        ("Glob".to_string(), &glob as &dyn BaseTool),
+        ("Read".to_string(), &read as &dyn BaseTool),
+    ]);
+
+    let agent = ReActAgent::new(crate::llm::MockLLM::always_answer("done"));
+    let mut state = AgentState::new(".");
+    let (results, _cancelled, _deferred_error) = collect_tool_results(
+        &agent,
+        &mut state,
+        vec![ToolCall::new("call-1", "WrongTool", serde_json::json!({
+            "pattern": "error",
+            "Output_Mode": "content",
+        }))],
+        &tools,
+        &CancellationToken::new(),
+        MessageId::new(),
+    )
+    .await
+    .unwrap();
+
+    assert!(results.len() == 1);
+    assert_eq!(results[0].1.error_kind.unwrap(), ToolErrorKind::SchemaValidation);
+    assert!(grep.received.lock().unwrap().is_none(), "参数名大小写不符不应改道执行");
+    assert!(glob.received.lock().unwrap().is_none());
+    assert!(read.received.lock().unwrap().is_none());
+}
