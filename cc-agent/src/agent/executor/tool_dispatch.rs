@@ -13,6 +13,7 @@ use crate::{
     },
     error::{AgentError, AgentResult},
     messages::{message::MessageId, BaseMessage, ContentBlock, MessageContent, ToolCallRequest},
+    shell::is_readonly_shell_command,
     tools::{validate_against_schema, BaseTool},
 };
 
@@ -212,7 +213,11 @@ const TOOL_SIGNATURE_HINTS: &[(&[&str], &str)] = &[
 /// 白名单中某个工具的 schema（且仅符合这一个）时，才静默把调用改到该只读工具上执行。
 ///
 /// 安全边界：白名单只包含只读工具（Grep/Glob/Read），改道不会把参数指向任何写/执行类工具。
-/// 方向永远是"降级到只读"，不会出现"调 Grep 实际执行了 Bash"这类危险跃迁。
+/// 方向永远是"降级到只读"。
+///
+/// `Bash` 是**唯一**的例外（见 [`try_auto_rescue`] 内的 Bash 分支）：执行类工具
+/// 只有在 schema 匹配**且**命令经 [`is_readonly_shell_command`] 判定为只读查看时
+/// 才允许改道，因此仍不越过「不把参数引向写/执行类工具」的边界。
 const AUTO_RESCUE_WHITELIST: &[&str] = &["Grep", "Glob", "Read"];
 
 /// 尝试把一次 Schema 校验失败的调用自动改道到白名单只读工具执行。
@@ -227,6 +232,14 @@ const AUTO_RESCUE_WHITELIST: &[&str] = &["Grep", "Glob", "Read"];
 /// 4. 原工具与改道工具不同。
 ///
 /// 满足条件时返回 `(新工具名，新参数)`，并在 trace 层记录（不影响工具结果、不触发熔断计数）。
+///
+/// # Bash 例外（受只读判定约束）
+///
+/// 模型把 Bash 参数（`{command, description}`）发给只读工具是高频错配。此处额外允许
+/// 改道到 `Bash`，但**必须同时满足**：schema 严格匹配，且 `command` 经
+/// [`is_readonly_shell_command`] 判定为只读查看（`ls`/`grep`/`sed -n` 等）。
+/// 因此改道后的命令不会写盘、不会执行任意程序，仍守住「只读」边界；
+/// 判定属启发式而非沙箱，调用方不可据此替代审批环节。
 fn try_auto_rescue(
     tool_name: &str,
     input: &serde_json::Value,
@@ -238,14 +251,27 @@ fn try_auto_rescue(
         return None;
     }
 
+    // Bash 是否构成候选：仅当命令被判定为只读查看时才纳入，与只读工具共用「唯一」判定。
+    let bash_eligible = tool_name != "Bash"
+        && all_tools.contains_key("Bash")
+        && input
+            .get("command")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(is_readonly_shell_command);
+
+    let candidates = AUTO_RESCUE_WHITELIST
+        .iter()
+        .copied()
+        .chain(bash_eligible.then_some("Bash"));
+
     let mut matched: Option<&str> = None;
-    for candidate in AUTO_RESCUE_WHITELIST {
+    for candidate in candidates {
         // 原工具与目标相同不构成改道
         if tool_name.eq_ignore_ascii_case(candidate) {
             continue;
         }
         // 目标工具必须已注册
-        let Some(candidate_tool) = all_tools.get(*candidate) else {
+        let Some(candidate_tool) = all_tools.get(candidate) else {
             continue;
         };
         if validate_against_schema(input, &candidate_tool.parameters()).is_ok() {
@@ -254,7 +280,7 @@ fn try_auto_rescue(
                 tracing::trace!(
                     tool.from = tool_name,
                     params = ?input_map.keys().collect::<Vec<_>>(),
-                    "自动改道放弃：参数同时符合多个只读工具（歧义）"
+                    "自动改道放弃：参数同时符合多个候选工具（歧义）"
                 );
                 return None;
             }
@@ -266,12 +292,54 @@ fn try_auto_rescue(
         tracing::trace!(
             tool.from = tool_name,
             tool.to = name,
-            "自动改道：LLM 调用了 '{}'，但参数 100% 符合唯一只读工具 '{}'",
+            "自动改道：LLM 调用了 '{}'，但参数 100% 符合唯一候选工具 '{}'",
             tool_name,
             name
         );
         (name.to_string(), input.clone())
     })
+}
+
+/// 阶段零的改道包装：schema 校验失败的调用改道到唯一候选工具，并**替换调用身份**。
+///
+/// 只有 schema 校验失败才尝试改道（校验通过 = 参数本就合法，无需纠正）；改道失败
+/// 或目标工具未注册时原样返回，交由后续阶段按原有错误路径处理。
+///
+/// 替换 `name` 是有意为之：事件（ToolPending/ToolStart/ToolEnd）、HITL 审批、
+/// 熔断归因都读 `ToolCall.name`，只有在此处一次改对，下游才会一致地把调用
+/// 当作真正执行的工具看待。返回给 LLM 的历史不受影响——`dispatch_tools` 的 AI 消息
+/// 由 `reasoning.tool_calls`（模型原始声明）构造，tool_result 仅按 `tool_call_id` 关联。
+fn rescue_mismatched_call<L: ReactLLM, S: State>(
+    agent: &ReActAgent<L, S>,
+    call: ToolCall,
+    all_tools: &HashMap<String, &dyn BaseTool>,
+) -> ToolCall {
+    let Some(tool) = resolve_tool(&call.name, all_tools) else {
+        return call;
+    };
+    let input = normalize_params(&call.name, call.input.clone());
+    if validate_against_schema(&input, &tool.parameters()).is_ok() {
+        return call;
+    }
+    let Some((new_name, new_input)) = try_auto_rescue(&call.name, &input, all_tools) else {
+        return call;
+    };
+    if !all_tools.contains_key(&new_name) {
+        return call;
+    }
+    tracing::warn!(
+        tool.from = %agent.kernel.echo_name(&call.name),
+        tool.to = %agent.kernel.echo_name(&new_name),
+        call_id = %call.id,
+        "Schema 校验失败后自动改道执行：{} -> {}",
+        agent.kernel.echo_name(&call.name),
+        agent.kernel.echo_name(&new_name)
+    );
+    ToolCall {
+        name: new_name,
+        input: new_input,
+        ..call
+    }
 }
 
 /// 单工具 Schema 校验失败阈值：滑动窗口内失败 ≥ 此次数时注入强提示。
@@ -853,6 +921,14 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
     cancel: &CancellationToken,
     ai_msg_id: MessageId,
 ) -> AgentResult<(Vec<(ToolCall, ToolResult)>, bool, Option<String>)> {
+    // 阶段零：schema 错配自动改道。**必须早于所有事件与审批**——ToolPending/ToolStart
+    // 携带的工具名与参数、以及 HITL 看到的调用，都要与实际执行的工具一致；否则界面会
+    // 显示「原名 + 改道后参数」的杂交体，审批也会因原名不在敏感名单而静默放行。
+    let original_calls: Vec<ToolCall> = original_calls
+        .into_iter()
+        .map(|call| rescue_mismatched_call(agent, call, all_tools))
+        .collect();
+
     let mut ready_calls: Vec<ToolCall> = Vec::with_capacity(original_calls.len());
     let mut settled_results: Vec<(ToolCall, ToolResult)> = Vec::new();
 
@@ -986,27 +1062,8 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                             Some(t) => {
                                 let schema = t.parameters();
                                 let (tool_to_run, input_to_run) = if let Err(msg) = validate_against_schema(&input, &schema) {
-                                    // 1. 尝试自动改道到白名单只读工具（Grep/Glob/Read）：
-                                    //    当参数特征 100% 符合唯一只读工具时静默改道，不触发任何熔断/提示。
-                                    if let Some((new_name, new_input)) =
-                                        try_auto_rescue(&tool_name, &input, all_tools)
-                                    {
-                                        if let Some(to_) = all_tools.get(&new_name) {
-                                            tracing::warn!(
-                                                tool.from = %echo,
-                                                tool.to = %kernel.echo_name(&new_name),
-                                                call_id = %call_id,
-                                                "Schema 校验失败后自动改道到只读工具执行：{} -> {}",
-                                                echo,
-                                                kernel.echo_name(&new_name)
-                                            );
-                                            (*to_, new_input)
-                                        } else {
-                                            // 改道目标不在注册表中，回退为原工具（走下面的错误路径）
-                                            (t, input)
-                                        }
-                                    } else {
-                                    // 2. 未改道：按原路径返回结构化参数错误。
+                                    // 改道已在阶段零（rescue_mismatched_call）处理完毕，
+                                    // 走到这里说明无候选工具可改道：按原路径返回结构化参数错误。
                                     let keys: Vec<String> = match &input {
                                         serde_json::Value::Object(map) => {
                                             let mut k: Vec<_> = map.keys().cloned().collect();
@@ -1045,7 +1102,6 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
                                              Received keys: {keys_text}. Rewrite the call to satisfy the schema and retry.{hint}"
                                         ),
                                     });
-                                    }
                                 } else {
                                     (t, input)
                                 };

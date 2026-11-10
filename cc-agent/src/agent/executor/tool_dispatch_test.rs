@@ -2422,6 +2422,18 @@ fn readonly_tool(
     }
 }
 
+fn bash_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "command": {"type": "string"},
+            "description": {"type": "string"},
+            "timeout": {"type": "number"},
+        },
+        "required": ["command"],
+    })
+}
+
 #[tokio::test]
 async fn test_auto_rescue_grep_with_unique_grep_params() {
     // {pattern, output_mode} 同时含 Grep 独有参数 output_mode：
@@ -2455,8 +2467,9 @@ async fn test_auto_rescue_grep_with_unique_grep_params() {
 
     assert!(results.len() == 1);
     let result = &results[0].1;
-    // 外层调用身份保持 LLM 声明的工具名；内部实际执行 Grep。
-    assert_eq!(result.tool_name, "WrongTool");
+    // 改道在阶段零即替换调用身份（见 rescue_mismatched_call）：结果名、事件与审批
+    // 都按实际执行的工具呈现，避免界面显示「原名 + 改道后参数」的杂交体。
+    assert_eq!(result.tool_name, "Grep");
     assert_eq!(result.output, "grep output");
     assert!(!result.is_error);
     let v = grep.received.lock().unwrap().take().expect("Grep 应被实际执行");
@@ -2820,4 +2833,257 @@ async fn test_no_rescue_on_parameter_name_case_mismatch() {
     assert!(grep.received.lock().unwrap().is_none(), "参数名大小写不符不应改道执行");
     assert!(glob.received.lock().unwrap().is_none());
     assert!(read.received.lock().unwrap().is_none());
+}
+
+#[tokio::test]
+async fn test_auto_rescue_bash_when_readonly_command_sent_to_grep() {
+    // 模型把 Bash 参数发给 Grep：{command, description} 仅通过 Bash 的 schema，
+    // 且 command 为只读查看（ls）→ 改道到 Bash 执行。
+    let wrong = StrictWrongTool { name: "Grep" };
+    let glob = readonly_tool("Glob", glob_schema(), "glob output");
+    let read = readonly_tool("Read", read_schema(), "read output");
+    let bash = readonly_tool("Bash", bash_schema(), "bash output");
+    let tools = HashMap::from([
+        ("Grep".to_string(), &wrong as &dyn BaseTool),
+        ("Glob".to_string(), &glob as &dyn BaseTool),
+        ("Read".to_string(), &read as &dyn BaseTool),
+        ("Bash".to_string(), &bash as &dyn BaseTool),
+    ]);
+
+    let agent = ReActAgent::new(crate::llm::MockLLM::always_answer("done"));
+    let mut state = AgentState::new(".");
+    let (results, _cancelled, _deferred_error) = collect_tool_results(
+        &agent,
+        &mut state,
+        vec![ToolCall::new(
+            "call-1",
+            "Grep",
+            serde_json::json!({
+                "command": "ls -la",
+                "description": "List files",
+            }),
+        )],
+        &tools,
+        &CancellationToken::new(),
+        MessageId::new(),
+    )
+    .await
+    .unwrap();
+
+    assert!(results.len() == 1);
+    let result = &results[0].1;
+    assert!(!result.is_error, "只读命令应改道成功而非报错");
+    assert_eq!(result.output, "bash output");
+    let v = bash
+        .received
+        .lock()
+        .unwrap()
+        .take()
+        .expect("Bash 应被实际执行");
+    assert_eq!(v.get("command").and_then(|v| v.as_str()), Some("ls -la"));
+    assert!(glob.received.lock().unwrap().is_none(), "Glob 不应执行");
+    assert!(read.received.lock().unwrap().is_none(), "Read 不应执行");
+}
+
+#[tokio::test]
+async fn test_no_auto_rescue_to_bash_when_command_writes() {
+    // 同样把 Bash 参数发给 Grep，但 command 带写盘重定向（非只读）→
+    // 不得改道到 Bash，仍回退参数错误。
+    let wrong = StrictWrongTool { name: "Grep" };
+    let glob = readonly_tool("Glob", glob_schema(), "glob output");
+    let read = readonly_tool("Read", read_schema(), "read output");
+    let bash = readonly_tool("Bash", bash_schema(), "bash output");
+    let tools = HashMap::from([
+        ("Grep".to_string(), &wrong as &dyn BaseTool),
+        ("Glob".to_string(), &glob as &dyn BaseTool),
+        ("Read".to_string(), &read as &dyn BaseTool),
+        ("Bash".to_string(), &bash as &dyn BaseTool),
+    ]);
+
+    let agent = ReActAgent::new(crate::llm::MockLLM::always_answer("done"));
+    let mut state = AgentState::new(".");
+    let (results, _cancelled, _deferred_error) = collect_tool_results(
+        &agent,
+        &mut state,
+        vec![ToolCall::new(
+            "call-1",
+            "Grep",
+            serde_json::json!({
+                "command": "cat a.txt > b.txt",
+                "description": "Copy file",
+            }),
+        )],
+        &tools,
+        &CancellationToken::new(),
+        MessageId::new(),
+    )
+    .await
+    .unwrap();
+
+    assert!(results.len() == 1);
+    assert_eq!(
+        results[0].1.error_kind.unwrap(),
+        ToolErrorKind::SchemaValidation
+    );
+    assert!(
+        bash.received.lock().unwrap().is_none(),
+        "非只读命令不得改道执行"
+    );
+}
+
+#[tokio::test]
+async fn test_no_auto_rescue_to_bash_when_command_executes_program() {
+    // command 是构建类命令（首词不在只读白名单）→ 不得改道到 Bash。
+    let wrong = StrictWrongTool { name: "Grep" };
+    let bash = readonly_tool("Bash", bash_schema(), "bash output");
+    let tools = HashMap::from([
+        ("Grep".to_string(), &wrong as &dyn BaseTool),
+        ("Bash".to_string(), &bash as &dyn BaseTool),
+    ]);
+
+    let agent = ReActAgent::new(crate::llm::MockLLM::always_answer("done"));
+    let mut state = AgentState::new(".");
+    let (results, _cancelled, _deferred_error) = collect_tool_results(
+        &agent,
+        &mut state,
+        vec![ToolCall::new(
+            "call-1",
+            "Grep",
+            serde_json::json!({
+                "command": "cargo test -j 1",
+                "description": "Run tests",
+            }),
+        )],
+        &tools,
+        &CancellationToken::new(),
+        MessageId::new(),
+    )
+    .await
+    .unwrap();
+
+    assert!(results.len() == 1);
+    assert_eq!(
+        results[0].1.error_kind.unwrap(),
+        ToolErrorKind::SchemaValidation
+    );
+    assert!(
+        bash.received.lock().unwrap().is_none(),
+        "非只读命令不得改道执行"
+    );
+}
+
+/// 改道前移后，ToolStart/ToolEnd 事件必须携带改道后的工具名与参数，
+/// 使 TUI 渲染、审批与熔断归因都按实际执行的工具进行。
+#[tokio::test]
+async fn test_auto_rescue_events_carry_rescued_tool_name() {
+    let wrong = StrictWrongTool { name: "Grep" };
+    let bash = readonly_tool("Bash", bash_schema(), "bash output");
+    let tools = HashMap::from([
+        ("Grep".to_string(), &wrong as &dyn BaseTool),
+        ("Bash".to_string(), &bash as &dyn BaseTool),
+    ]);
+
+    let events: Arc<Mutex<Vec<AgentEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let events_clone = events.clone();
+    let agent = ReActAgent::new(crate::llm::MockLLM::always_answer("done")).with_event_handler(
+        Arc::new(FnEventHandler(move |event| {
+            events_clone.lock().unwrap().push(event);
+        })),
+    );
+    let mut state = AgentState::new(".");
+    let (_results, _cancelled, _deferred_error) = collect_tool_results(
+        &agent,
+        &mut state,
+        vec![ToolCall::new(
+            "call-1",
+            "Grep",
+            serde_json::json!({
+                "command": "ls -la",
+                "description": "List files",
+            }),
+        )],
+        &tools,
+        &CancellationToken::new(),
+        MessageId::new(),
+    )
+    .await
+    .unwrap();
+
+    let captured = events.lock().unwrap();
+    let tool_start = captured
+        .iter()
+        .find_map(|e| match e {
+            AgentEvent::ToolStart { name, input, .. } => Some((name.clone(), input.clone())),
+            _ => None,
+        })
+        .expect("应发出 ToolStart");
+    assert_eq!(tool_start.0, "Bash", "ToolStart 应携带改道后的工具名");
+    assert_eq!(
+        tool_start.1.get("command").and_then(|v| v.as_str()),
+        Some("ls -la"),
+        "ToolStart 应携带改道后的参数"
+    );
+
+    let tool_end_name = captured
+        .iter()
+        .find_map(|e| match e {
+            AgentEvent::ToolEnd { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .expect("应发出 ToolEnd");
+    assert_eq!(tool_end_name, "Bash", "ToolEnd 应携带改道后的工具名");
+}
+
+/// 改道前移的**核心前提**：before_tool（HITL 审批所在阶段）看到的必须是改道后的
+/// 工具名。否则审批会因原名不在敏感名单而静默放行，改道后的 Bash 绕过审批执行。
+#[tokio::test]
+async fn test_auto_rescue_before_tool_receives_rescued_name() {
+    struct ApprovalRecorder(Arc<Mutex<Vec<String>>>);
+    #[async_trait::async_trait]
+    impl<S: State> Middleware<S> for ApprovalRecorder {
+        fn name(&self) -> &str {
+            "ApprovalRecorder"
+        }
+        async fn before_tool(&self, _state: &mut S, tool_call: &ToolCall) -> AgentResult<ToolCall> {
+            self.0.lock().unwrap().push(tool_call.name.clone());
+            Ok(tool_call.clone())
+        }
+    }
+
+    let wrong = StrictWrongTool { name: "Grep" };
+    let bash = readonly_tool("Bash", bash_schema(), "bash output");
+    let tools = HashMap::from([
+        ("Grep".to_string(), &wrong as &dyn BaseTool),
+        ("Bash".to_string(), &bash as &dyn BaseTool),
+    ]);
+
+    let seen: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let agent = ReActAgent::new(crate::llm::MockLLM::always_answer("done"))
+        .add_middleware(Box::new(ApprovalRecorder(Arc::clone(&seen))));
+
+    let mut state = AgentState::new(".");
+    collect_tool_results(
+        &agent,
+        &mut state,
+        vec![ToolCall::new(
+            "call-1",
+            "Grep",
+            serde_json::json!({
+                "command": "ls -la",
+                "description": "List files",
+            }),
+        )],
+        &tools,
+        &CancellationToken::new(),
+        MessageId::new(),
+    )
+    .await
+    .unwrap();
+
+    let recorded = seen.lock().unwrap().clone();
+    assert_eq!(
+        recorded,
+        vec!["Bash".to_string()],
+        "审批阶段必须看到改道后的工具名，否则 Bash 会绕过审批"
+    );
 }

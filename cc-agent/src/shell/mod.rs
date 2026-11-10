@@ -33,6 +33,9 @@ use tokio::sync::{oneshot, Notify};
 mod handoff;
 pub use handoff::ShellHandoff;
 
+mod readonly;
+pub use readonly::is_readonly_shell_command;
+
 // ─── ShellAbortHandle ────────────────────────────────────────────────────────
 
 /// 可复制的 shell kill 句柄。
