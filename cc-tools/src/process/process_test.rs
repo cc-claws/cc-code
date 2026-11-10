@@ -7,6 +7,22 @@ use crate::process::{
 };
 use std::path::Path;
 
+#[test]
+fn test_rtk_rewrite_succeeded_accepts_exit_0_and_3_only() {
+    use super::rtk_rewrite_succeeded;
+    // 0 = 重写且 allow 全覆盖；3 = 重写但审批交宿主（默认无规则时即 3）——都打印了重写命令
+    assert!(rtk_rewrite_succeeded(Some(0)));
+    assert!(rtk_rewrite_succeeded(Some(3)));
+    // 1 = 无重写；2 = deny 命中 —— 均无可用重写结果
+    assert!(!rtk_rewrite_succeeded(Some(1)));
+    assert!(!rtk_rewrite_succeeded(Some(2)));
+    // 被信号终止等无退出码的情形
+    assert!(!rtk_rewrite_succeeded(None));
+    // 其余非文档化码一律不采纳
+    assert!(!rtk_rewrite_succeeded(Some(4)));
+    assert!(!rtk_rewrite_succeeded(Some(255)));
+}
+
 #[cfg(windows)]
 #[test]
 fn test_managed_bash_missing_interpreter_is_error_not_cmd() {

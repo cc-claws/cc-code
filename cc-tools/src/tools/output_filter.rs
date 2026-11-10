@@ -30,7 +30,7 @@ fn is_git_status_noise(line: &str) -> bool {
         || trimmed.starts_with("nothing added to commit")
         || trimmed == "nothing to commit, working tree clean"
         // RTK 格式化后的干净工作区提示（`rtk git status` 输出 `clean — nothing to commit`）
-        // RTK 源码三个版本（v0.44.2 / v0.49.0 / develop）均为 em dash，无 ASCII 变体
+        // RTK 源码四个版本（v0.44.2 / v0.49.0 / v1.2.0 / develop）均为 em dash，无 ASCII 变体
         || trimmed == "clean — nothing to commit"
 }
 
