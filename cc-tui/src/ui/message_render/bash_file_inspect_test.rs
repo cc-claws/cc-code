@@ -201,18 +201,41 @@ fn test_bash_inspect_group_collapsed_promotes_exit_code_before_summary_limit() {
     let (_, group) = make_bash_inspect_views("grep needle missing.txt", &output);
     let actual = make_rendered_text(&[group], false);
     assert!(
-        actual.starts_with("  Ran 1 shell command (ctrl+o to expand)\n  ⎿  Error: Exit code 2\n"),
-        "退出码必须先提升为错误头，不能被摘要长度上限吞掉: {actual}"
+        actual.starts_with(concat!(
+            "  Ran 1 shell command (ctrl+o to expand)\n",
+            "● Bash(grep needle missing.txt)\n",
+            "  ⎿  Error: Exit code 2\n",
+        )),
+        "折叠态必须先给出失败命令头，再提升退出码错误头: {actual}"
     );
     assert!(
-        actual.contains("(ctrl+o to expand)"),
+        actual.contains("lines (ctrl+o to expand)"),
         "截断的错误摘要应提示展开"
     );
     assert!(
         !actual.contains("[Exit code: 2]"),
         "退出码标记应转换成错误头"
     );
-    assert!(!actual.contains("● Bash("), "折叠态不得展开命令头");
+    assert!(
+        !actual.contains("missing file"),
+        "普通模式不展开完整 stderr，避免满屏错误: {actual}"
+    );
+}
+
+#[test]
+fn test_bash_failed_group_collapsed_keeps_command_header_and_truncated_summary() {
+    let output = format_command_output(&"context\n".repeat(100), "missing file", 2);
+    let (_, group) = make_bash_inspect_views("grep needle missing.txt", &output);
+    let actual = make_rendered_text(&[group], false);
+    // 普通模式下失败的调用必须带命令头，否则用户无从判断是哪条命令失败。
+    assert!(
+        actual.contains("● Bash(grep needle missing.txt)"),
+        "折叠态必须显示失败命令头: {actual}"
+    );
+    assert!(
+        actual.contains("  ⎿  Error: Exit code 2"),
+        "折叠态必须提升退出码错误头: {actual}"
+    );
 }
 
 #[test]
@@ -225,13 +248,14 @@ fn test_render_bash_inspect_group_collapsed_snapshot() {
         actual,
         concat!(
             "  Thought for 19s, read 1 file, ran 3 shell commands (ctrl+o to expand)\n",
+            "● Bash(grep needle missing.txt)\n",
             "  ⎿  Error: Exit code 2\n",
             "     [stderr]\n",
             "     grep: missing.txt: No such file or directory\n",
             "● Bash(cargo check)\n",
             "  ⎿  Finished dev profile"
         ),
-        "折叠态应隐藏文件查询明细、保留错误，并保持普通 Bash 展示"
+        "折叠态应隐藏文件查询明细、保留失败命令头与错误摘要，并保持普通 Bash 展示"
     );
 }
 

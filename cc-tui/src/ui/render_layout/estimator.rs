@@ -1,5 +1,6 @@
 //! 高度只用于滚动定位；可见区域始终由真实 renderer 计算。
 use super::super::message_view::{ContentBlockView, MessageViewModel, ToolPhase};
+use super::super::message_render::ERROR_SUMMARY_MAX_LINES;
 use crate::ui::message_render::decorators::bash::{
     parse_exit_code, transform_bash_output_lines, BodyWindow,
 };
@@ -165,33 +166,41 @@ pub(super) fn summarize(vm: &MessageViewModel) -> LayoutSummary {
             (rows(content) + 1, rows(content) + 1, content.len(), true)
         }
         MessageViewModel::ToolCallGroup { tools, .. } => {
-            let count = tools
-                .iter()
-                .map(|tool| {
-                    if tool.tool_name == "Read" {
-                        3
-                    } else {
-                        let output_rows = if tool.tool_name == "Bash" {
-                            let mut error_header = String::new();
-                            transform_bash_output_lines(
-                                &tool.content,
-                                parse_exit_code(&tool.content),
-                                &mut error_header,
-                                BodyWindow::All,
-                            )
-                            .lines
-                            .len()
-                            .max(1)
-                        } else {
-                            rows(&tool.content)
-                        };
-                        output_rows + 3
+            let mut count = 0usize;
+            // 普通模式下失败的 Bash 会额外渲染命令头 + 截断摘要 + 展开提示，
+            // 折叠态行数必须把这部分算进去，否则首帧高度偏小、滚动定位会漂。
+            let mut failed_bash_rows = 0usize;
+            for tool in tools {
+                if tool.tool_name == "Read" {
+                    count += 3;
+                    continue;
+                }
+                let output_rows = if tool.tool_name == "Bash" {
+                    let mut error_header = String::new();
+                    let lines = transform_bash_output_lines(
+                        &tool.content,
+                        parse_exit_code(&tool.content),
+                        &mut error_header,
+                        BodyWindow::All,
+                    )
+                    .lines
+                    .len()
+                    .max(1);
+                    let failed = tool.is_error
+                        || parse_exit_code(&tool.content).is_some_and(|code| code != 0);
+                    if failed {
+                        // 普通模式下失败的 Bash 渲染为：命令头 + 截断摘要 + 展开提示。
+                        failed_bash_rows += 1 + ERROR_SUMMARY_MAX_LINES + 1;
                     }
-                })
-                .sum::<usize>();
+                    lines
+                } else {
+                    rows(&tool.content)
+                };
+                count += output_rows + 3;
+            }
             (
                 count + 1,
-                4,
+                4 + failed_bash_rows,
                 tools.iter().map(|t| t.content.len()).sum(),
                 true,
             )

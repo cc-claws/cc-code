@@ -222,7 +222,7 @@ pub(crate) fn is_shell_running_status_line(line: &Line<'static>) -> bool {
 }
 
 /// 非详细模式下错误摘要的最大显示行数（避免长错误污染页面）
-const ERROR_SUMMARY_MAX_LINES: usize = 3;
+pub(crate) const ERROR_SUMMARY_MAX_LINES: usize = 3;
 /// 错误摘要的字符级截断上限（`error_summary_lines` 取前 N 个字符）。
 const ERROR_SUMMARY_MAX_CHARS: usize = 400;
 
@@ -952,6 +952,144 @@ fn tool_entry_is_error(entry: &ToolEntry) -> bool {
     entry.is_error
         || (entry.tool_name == "Bash"
             && parse_exit_code(&entry.content).is_some_and(|code| code != 0))
+}
+
+/// 工具组内单条调用的命令头：`● {name}` + `({args 摘要})`。
+///
+/// 详细模式逐条渲染与普通模式下**失败的 Bash** 共用：普通模式下失败的
+/// 调用也要显示是哪条命令失败，聚合组里不能只留一行错误摘要。
+fn push_group_entry_header(
+    lines: &mut Vec<Line<'static>>,
+    entry: &ToolEntry,
+    entry_is_error: bool,
+    width: usize,
+    detail_mode: bool,
+    link_hits: &mut Vec<cc_widgets::markdown::LinkHit>,
+) {
+    use unicode_segmentation::UnicodeSegmentation;
+
+    let entry_color = if entry_is_error {
+        theme::cur().error
+    } else {
+        theme::cur().success
+    };
+    // 与主路径（单条 ToolBlock）统一：状态只由 ● 表达，工具名恒为中性色
+    // （此前失败用 ✗、名字为白色粗体，与主路径两套体系）
+    let indicator = theme::SYMBOL_DOT;
+    lines.push(Line::from(vec![
+        Span::styled(indicator.to_string(), Style::default().fg(entry_color)),
+        Span::raw(" "),
+        Span::styled(
+            entry.display_name.clone(),
+            Style::default().fg(theme::cur().text_soft),
+        ),
+    ]));
+    let Some(args) = &entry.args_display else {
+        return;
+    };
+    if args.is_empty() {
+        return;
+    }
+    let prefix_width = UnicodeWidthStr::width(indicator)
+        + 1
+        + UnicodeWidthStr::width(entry.display_name.as_str())
+        + 2;
+    let max_args_width = header_args_width(width, prefix_width + 2, detail_mode);
+    // 与单条 ToolBlock 的详细模式一致：Write/Edit/Read 显示完整绝对路径
+    let verbose = verbose_tool_args(&entry.tool_name, args);
+    let summary = tool_args_header(&verbose, max_args_width);
+    let header_line = lines.len().saturating_sub(1);
+    let args_start_g = indicator.graphemes(true).count()
+        + 1
+        + entry.display_name.graphemes(true).count()
+        + 1;
+    // 只读工具组里的 Read 路径同样可点：命中区只覆盖路径本身
+    if let (Some(url), Some(path_text)) = (
+        tool_file_url(&entry.tool_name, args),
+        tool_path_text(&entry.tool_name, args),
+    ) {
+        let path_display = verbose_display_path(path_text).unwrap_or_else(|| path_text.to_string());
+        let path_g = path_display.graphemes(true).count();
+        let visible_g = summary.graphemes(true).count();
+        let truncated = verbose.graphemes(true).count() > visible_g;
+        let visible = path_g.min(visible_g.saturating_sub(usize::from(truncated)));
+        if visible > 0 {
+            link_hits.push(cc_widgets::markdown::LinkHit {
+                line: header_line,
+                g_start: args_start_g,
+                g_end: args_start_g + visible,
+                url,
+                recolor: false,
+            });
+        }
+    }
+    if let Some(last_line) = lines.last_mut() {
+        if entry.tool_name == "Bash" {
+            last_line.spans.extend([
+                Span::raw("("),
+                Span::styled(
+                    summary,
+                    Style::default().fg(theme::cur().text_soft),
+                ),
+                Span::raw(")"),
+            ]);
+        } else {
+            last_line.spans.push(Span::styled(
+                format!("({})", summary),
+                Style::default().fg(theme::cur().text_soft),
+            ));
+        }
+    }
+}
+
+/// 工具组内一条 Bash 调用的输出正文（详细模式用，完整输出不截断）。
+///
+/// `Error: Exit code N` 提升为首行，其余行按 `⎿` 悬挂缩进；普通模式改走
+/// 截断摘要（见聚合组折叠分支）。
+fn render_group_bash_body(
+    entry: &ToolEntry,
+    entry_is_error: bool,
+    width: usize,
+) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    let empty_output = entry.content.trim().is_empty()
+        || (!entry_is_error && strip_exit_code_suffix(&entry.content).is_empty());
+    if empty_output && !entry_is_error {
+        lines.push(Line::from(vec![
+            BranchPrefix::span(false),
+            Span::styled("(No output)", Style::default().fg(theme::cur().inactive)),
+        ]));
+        return lines;
+    }
+    let mut error_header = String::new();
+    let bash_out = transform_bash_output_lines(
+        &entry.content,
+        parse_exit_code(&entry.content),
+        &mut error_header,
+        BodyWindow::All,
+    );
+    let content_width = BranchPrefix::content_width(width);
+    let border_color = if entry_is_error {
+        theme::cur().error
+    } else {
+        theme::cur().inactive
+    };
+    for item in bash_out.lines {
+        let text_color = if item.is_error_header || entry_is_error {
+            theme::cur().error
+        } else {
+            theme::cur().text_soft
+        };
+        push_prefixed_text(
+            &mut lines,
+            item.text.as_ref(),
+            item.prefix,
+            Style::default().fg(border_color),
+            Style::default().fg(text_color),
+            content_width,
+        );
+    }
+    lines
 }
 
 pub(crate) use cc_tui_core::text_width::truncate_to_display_width;
@@ -3177,79 +3315,14 @@ pub fn render_view_model_with_flags(
                 // Read 工具只显示行数摘要，不展开文件内容
                 for entry in tools {
                     let entry_is_error = tool_entry_is_error(entry);
-                    let entry_color = if entry_is_error {
-                        theme::cur().error
-                    } else {
-                        theme::cur().success
-                    };
-                    // 与主路径（单条 ToolBlock）统一：状态只由 ● 表达，工具名恒为中性色
-                    // （此前失败用 ✗、名字为白色粗体，与主路径两套体系）
-                    let indicator = theme::SYMBOL_DOT;
-                    lines.push(Line::from(vec![
-                        Span::styled(indicator.to_string(), Style::default().fg(entry_color)),
-                        Span::raw(" "),
-                        Span::styled(
-                            entry.display_name.clone(),
-                            Style::default().fg(theme::cur().text_soft),
-                        ),
-                    ]));
-                    if let Some(args) = &entry.args_display {
-                        if !args.is_empty() {
-                            let prefix_width = UnicodeWidthStr::width(indicator)
-                                + 1
-                                + UnicodeWidthStr::width(entry.display_name.as_str())
-                                + 2;
-                            let max_args_width =
-                                header_args_width(width, prefix_width + 2, detail_mode);
-                            // 与单条 ToolBlock 的详细模式一致：Write/Edit/Read 显示完整绝对路径
-                            let verbose = verbose_tool_args(&entry.tool_name, args);
-                            let summary = tool_args_header(&verbose, max_args_width);
-                            let header_line = lines.len().saturating_sub(1);
-                            let args_start_g = indicator.graphemes(true).count()
-                                + 1
-                                + entry.display_name.graphemes(true).count()
-                                + 1;
-                            // 只读工具组里的 Read 路径同样可点：命中区只覆盖路径本身
-                            if let (Some(url), Some(path_text)) = (
-                                tool_file_url(&entry.tool_name, args),
-                                tool_path_text(&entry.tool_name, args),
-                            ) {
-                                let path_display = verbose_display_path(path_text)
-                                    .unwrap_or_else(|| path_text.to_string());
-                                let path_g = path_display.graphemes(true).count();
-                                let visible_g = summary.graphemes(true).count();
-                                let truncated = verbose.graphemes(true).count() > visible_g;
-                                let visible =
-                                    path_g.min(visible_g.saturating_sub(usize::from(truncated)));
-                                if visible > 0 {
-                                    link_hits.push(cc_widgets::markdown::LinkHit {
-                                        line: header_line,
-                                        g_start: args_start_g,
-                                        g_end: args_start_g + visible,
-                                        url,
-                                        recolor: false,
-                                    });
-                                }
-                            }
-                            if let Some(last_line) = lines.last_mut() {
-                                if entry.tool_name == "Bash" {
-                                    last_line.spans.extend([
-                                        Span::raw("("),
-                                        Span::styled(
-                                            summary,
-                                            Style::default().fg(theme::cur().text_soft),
-                                        ),
-                                        Span::raw(")"),
-                                    ]);
-                                } else {
-                                    last_line.spans.push(Span::styled(
-                                        format!("({})", summary),
-                                        Style::default().fg(theme::cur().text_soft),
-                                    ));
-                                }
-                            }
-                        }
-                    }
+                    push_group_entry_header(
+                        &mut lines,
+                        entry,
+                        entry_is_error,
+                        width,
+                        detail_mode,
+                        &mut link_hits,
+                    );
                     if entry.tool_name == "Read" {
                         // Read 工具：显示行数或记忆召回摘要
                         let is_mem = entry
@@ -3284,47 +3357,7 @@ pub fn render_view_model_with_flags(
                             );
                         }
                     } else if entry.tool_name == "Bash" {
-                        let empty_output = entry.content.trim().is_empty()
-                            || (!entry_is_error
-                                && strip_exit_code_suffix(&entry.content).is_empty());
-                        if empty_output && !entry_is_error {
-                            lines.push(Line::from(vec![
-                                BranchPrefix::span(false),
-                                Span::styled(
-                                    "(No output)",
-                                    Style::default().fg(theme::cur().inactive),
-                                ),
-                            ]));
-                            continue;
-                        }
-                        let mut error_header = String::new();
-                        let bash_out = transform_bash_output_lines(
-                            &entry.content,
-                            parse_exit_code(&entry.content),
-                            &mut error_header,
-                            BodyWindow::All,
-                        );
-                        let content_width = BranchPrefix::content_width(width);
-                        let border_color = if entry_is_error {
-                            theme::cur().error
-                        } else {
-                            theme::cur().inactive
-                        };
-                        for item in bash_out.lines {
-                            let text_color = if item.is_error_header || entry_is_error {
-                                theme::cur().error
-                            } else {
-                                theme::cur().text_soft
-                            };
-                            push_prefixed_text(
-                                &mut lines,
-                                item.text.as_ref(),
-                                item.prefix,
-                                Style::default().fg(border_color),
-                                Style::default().fg(text_color),
-                                content_width,
-                            );
-                        }
+                        lines.extend(render_group_bash_body(entry, entry_is_error, width));
                     } else if !entry.content.is_empty() {
                         for (i, line) in entry.content.lines().enumerate() {
                             let first_prefix = if i == 0 {
@@ -3361,49 +3394,54 @@ pub fn render_view_model_with_flags(
                     )));
                 }
                 for entry in tools {
-                    if tool_entry_is_error(entry) && !entry.content.is_empty() {
-                        let bash_summary;
-                        let mut error_header = String::new();
-                        let hidden_override;
-                        let content = if entry.tool_name == "Bash" {
-                            // 折叠态先截断源行再美化（issue #645）：摘要只显示前
-                            // 400 字符，对覆盖它的源行做美化即可。
-                            let window = if detail_mode {
-                                BodyWindow::All
-                            } else {
-                                BodyWindow::HeadChars(ERROR_SUMMARY_MAX_CHARS)
-                            };
-                            let b_out = transform_bash_output_lines(
-                                &entry.content,
-                                parse_exit_code(&entry.content),
-                                &mut error_header,
-                                window,
-                            );
-                            hidden_override = (!detail_mode).then(|| {
-                                b_out.source_total.saturating_sub(ERROR_SUMMARY_MAX_LINES)
-                            });
-                            bash_summary = b_out
-                                .lines
-                                .iter()
-                                .map(|line| line.text.as_ref())
-                                .collect::<Vec<_>>()
-                                .join("\n");
-                            bash_summary.as_str()
-                        } else {
-                            hidden_override = None;
-                            &entry.content
-                        };
-                        lines.extend(error_summary_lines(
-                            content,
-                            width,
-                            if detail_mode {
-                                usize::MAX
-                            } else {
-                                ERROR_SUMMARY_MAX_LINES
-                            },
-                            hidden_override,
-                        ));
+                    if !tool_entry_is_error(entry) || entry.content.is_empty() {
+                        continue;
                     }
+                    if entry.tool_name == "Bash" {
+                        // 普通模式下失败的 Bash 也要显示命令头：聚合组折叠后
+                        // 只剩一行错误摘要，用户无从判断是哪条命令失败了。
+                        // 报错正文仍是截断摘要，避免满屏都是错误。
+                        push_group_entry_header(
+                            &mut lines,
+                            entry,
+                            true,
+                            width,
+                            false,
+                            &mut link_hits,
+                        );
+                    }
+                    let bash_summary;
+                    let mut error_header = String::new();
+                    let hidden_override;
+                    let content = if entry.tool_name == "Bash" {
+                        // 折叠态先截断源行再美化（issue #645）：摘要只显示前
+                        // 400 字符，对覆盖它的源行做美化即可。
+                        let window = BodyWindow::HeadChars(ERROR_SUMMARY_MAX_CHARS);
+                        let b_out = transform_bash_output_lines(
+                            &entry.content,
+                            parse_exit_code(&entry.content),
+                            &mut error_header,
+                            window,
+                        );
+                        hidden_override =
+                            Some(b_out.source_total.saturating_sub(ERROR_SUMMARY_MAX_LINES));
+                        bash_summary = b_out
+                            .lines
+                            .iter()
+                            .map(|line| line.text.as_ref())
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        bash_summary.as_str()
+                    } else {
+                        hidden_override = None;
+                        &entry.content
+                    };
+                    lines.extend(error_summary_lines(
+                        content,
+                        width,
+                        ERROR_SUMMARY_MAX_LINES,
+                        hidden_override,
+                    ));
                 }
             }
 
