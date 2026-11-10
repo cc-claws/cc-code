@@ -437,7 +437,7 @@ impl BaseTool for GrepTool {
             "properties": {
                 "pattern": {
                     "type": "string",
-                    "description": "The regular expression pattern to search for in file contents. Supports full regex syntax (e.g. \"log.*Error\", \"function\\s+\\w+\")"
+                    "description": "The regular expression pattern to search for in file contents. Supports full regex syntax (e.g. \"log.*Error\", \"function\\s+\\w+\"). This field is matched against file contents as a regex, never against file paths — a path or glob such as \"src/*.rs\" will not match file contents. To find files by path/name, use the Glob tool instead."
                 },
                 "path": {
                     "type": "string",
@@ -593,15 +593,21 @@ impl BaseTool for GrepTool {
             if let Some(output) =
                 super::rg_engine::execute_rg_grep(rg_path, &parsed, &cwd, head_limit, offset).await
             {
+                let output = suggest_glob_when_zero_match(&parsed, &cwd, output);
                 return Ok(crate::tools::output_persist::truncate_tool_output(&output));
             }
             tracing::debug!("rg engine returned None, falling back to Rust engine");
         }
 
         // Fallback: 纯 Rust 引擎
+        // 闭包按值捕获，克隆副本以免占用出口后处理所需的 parsed/cwd。
+        let parsed_for_fallback = parsed.clone();
+        let cwd_for_fallback = cwd.clone();
         let result = timeout(
             Duration::from_secs(15),
-            tokio::task::spawn_blocking(move || execute_search(&parsed, &cwd, head_limit, offset)),
+            tokio::task::spawn_blocking(move || {
+                execute_search(&parsed_for_fallback, &cwd_for_fallback, head_limit, offset)
+            }),
         )
         .await;
 
@@ -611,10 +617,39 @@ impl BaseTool for GrepTool {
                     .into(),
             ),
             Ok(Err(e)) => Err(format!("Error: {e}").into()),
-            Ok(Ok(Ok(output))) => Ok(output),
+            Ok(Ok(Ok(output))) => {
+                let output = suggest_glob_when_zero_match(&parsed, &cwd, output);
+                Ok(output)
+            }
             Ok(Ok(Err(e))) => Err(format!("Error: {e}").into()),
         }
     }
+}
+
+/// 零匹配兜底：当 `pattern` 更像 glob 而非正则、且当作 glob 能命中文件时，
+/// 追加一条指向 Glob 工具的建议。
+///
+/// 三重收窄，避免对「真阴性」误报（详见 issue）：
+/// 1. 仅在零匹配时介入——有命中的正常搜索逐字节不动；
+/// 2. 仅在 `pattern` 含 glob 元字符（`*`/`?`/`[`）时试探——纯字面路径
+///    （如 `cc-tools/src/lib.rs`）两种解释都自洽，试探只会产生噪音；
+/// 3. 当作 glob 也零命中即为真阴性，保持原样输出。
+fn suggest_glob_when_zero_match(parsed: &ParsedArgs, cwd: &str, output: String) -> String {
+    let zero_match = output.starts_with("No files found") || output.starts_with("No matches found");
+    if !zero_match || !parsed.pattern.contains(['*', '?', '[']) {
+        return output;
+    }
+    let hits = super::glob::count_glob_hits(cwd, &parsed.pattern);
+    if hits == 0 {
+        return output;
+    }
+    format!(
+        "{output}\n\n💡 Did you mean to use 'Glob'? '{pattern}' matched 0 file contents, \
+         but matches {hits} file name(s). The Grep 'pattern' field is matched against file \
+         contents as a regex; a path or glob like this one belongs in Glob.",
+        pattern = parsed.pattern,
+        hits = hits
+    )
 }
 
 #[cfg(test)]

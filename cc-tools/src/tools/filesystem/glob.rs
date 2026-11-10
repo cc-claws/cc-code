@@ -174,6 +174,16 @@ fn collect_files(base: &Path, cwd: &Path, pattern: &str) -> (Vec<String>, usize,
     )
 }
 
+/// 供 Grep 零匹配兜底反查：统计 `pattern` 当作 glob 时的文件命中数。
+///
+/// 复用 `collect_files` 以继承其 .gitignore 过滤与 `MAX_WALK_ENTRIES`/`MAX_WALK_DURATION`
+/// 安全上限，避免为一行提示引入无界遍历。
+pub(crate) fn count_glob_hits(cwd: &str, pattern: &str) -> usize {
+    let base = Path::new(cwd);
+    let (_, total_matched, _) = collect_files(base, base, pattern);
+    total_matched
+}
+
 #[async_trait::async_trait]
 impl BaseTool for GlobFilesTool {
     fn name(&self) -> &str {
@@ -190,7 +200,7 @@ impl BaseTool for GlobFilesTool {
             "properties": {
                 "pattern": {
                     "type": "string",
-                    "description": "The glob pattern to match files against (e.g. \"**/*.js\", \"src/**/*.rs\", \"*.config.json\"). Use ** for recursive matching."
+                    "description": "The glob pattern to match files against (e.g. \"**/*.js\", \"src/**/*.rs\", \"*.config.json\"). Use ** for recursive matching. This field matches file names only — it never searches file contents. To search inside files, use the Grep tool instead."
                 },
                 "path": {
                     "type": "string",

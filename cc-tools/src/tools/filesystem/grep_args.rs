@@ -1,4 +1,5 @@
 /// 从 args 数组中解析搜索参数
+#[derive(Clone)]
 pub(crate) struct ParsedArgs {
     pub(crate) pattern: String,
     pub(crate) path: Option<String>,        // 搜索路径，None 表示 cwd
