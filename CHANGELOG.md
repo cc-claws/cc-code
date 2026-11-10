@@ -4,6 +4,18 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.268 — 2026-11-10
+
+### Fixes
+
+- **RTK 重写的 `exit 3` 被当作失败丢弃，git 类命令的 RTK 压缩未生效（#999, #1000）**：Bash 工具在执行前调 `rtk rewrite "<cmd>"` 重写命令以获取 RTK 的输出压缩能力，但判断重写是否成功时只接受 `exit code 0`。RTK 文档化了四个退出码——`0`（重写且 allow 规则覆盖命令链每个命令）、`1`（无重写）、`2`（deny 命中）、`3`（**打印了重写命令**，但命中 ask 规则或 allow 未全覆盖，含「根本没有配置任何规则」）。`0` 与 `3` 都打印了重写命令、都须采纳，区别只在「是否可由 hook 自动放行」——而调用点处于**审批之后**的执行阶段，审批已由 HITL 门控独立完成。由于 `exit 3` 覆盖「未配置任何规则」的默认情形，此前常见的 git 类命令（`git status` / `log` / `diff` 等）的重写被整体丢弃。现新增 `rtk_rewrite_succeeded()` 认可 `0`/`3`、拒绝 `1`/`2` 与其余非文档化码。实测对照（RTK 1.2.0）：`git status` / `git log` / `git diff` / `cargo test` 均为 `exit 3`，修复前全部丢弃、修复后全部采纳。**不改变审批语义**：HITL 门控仍用纯字符串预测 `predict_rtk_rewrite`（零子进程，见 #288 约束），不因本改动获得任何自动放行能力。改动文件：`cc-tools/src/process/{mod.rs,process_test.rs}`、`cc-tools/src/tools/output_filter.rs`（版本基准注释补 `v1.2.0`，实测该版本 `rtk git status` 仍输出 U+2014 em dash）。验证：`cargo test -p cc-tools --lib` 267 passed；`cargo clippy -p cc-tools --all-targets -- -D warnings` 无告警。
+
+### Refactor
+
+- **抽出 `cc-compress` 叶子 crate 承载 CLI 输出压缩（#1001, #1002）**：CLI 输出压缩过滤器此前内嵌在 `cc-tools/src/tools/output_filter.rs`，仅含 3 个过滤器，而规则量将按命令持续扩充；同时 `cc-middlewares` 的 hooks 侧需要 `strip_ansi`，得绕道 `cc-tools` 取。现抽出独立叶子 crate（与 `cc-widgets` 同级：零 workspace 内部依赖，纯函数库，不 spawn 进程 / 不读环境 / 不碰文件系统）。本次迁入三个通用设施：`ansi`（`strip_ansi`：ANSI 剥离 + `\r` 覆盖规范化）、`guard`（`estimate_tokens` 按 `bytes/4` 估算 + `never_worse` 守卫：过滤结果更费 token 时回退原文，避免小输出场景追加标记行后反向膨胀）、`dedup`（`dedup_adjacent_lines`：相邻 ≥3 相同行折叠为 `[xN]`，空行豁免、不跨距离）。`cc-tools/src/tools/output_filter.rs` 删除本地 `strip_ansi` 实现（约 30 行）改为转出新 crate、`filter_command_output` 出口接上 `never_worse` 守卫。**本次未新增按命令的过滤器**；`git log` / `diff` / `show` 的压缩需改写 argv 额外拉取（上游会注入 `--pretty=format:` 并多取一条判截断），与 HITL 的「门控评估 == 审批展示 == 实际执行」不变量冲突，需单独设计。改动文件：`cc-compress/`（新建）、`cc-tools/src/tools/output_filter.rs`、`cc-tools/Cargo.toml`、`Cargo.toml`。另补充上游压缩规则提炼文档（`docs/2026-11-10-cli-output-compression-rules.md`、`docs/designs/2026-11-10-git-output-filter-rules.md`，上游引擎为 BUSL-1.1，仅记录行为判据与自造示例、未复制代码）。验证：`cargo test -p cc-compress --lib` 12 passed；`cargo test -p cc-tools --lib` 266 passed；`cargo test -p cc-middlewares --lib` 1114 passed；`cargo clippy -p cc-compress -p cc-tools --all-targets -- -D warnings` 无告警。
+
+---
+
 ## v0.6.267 — 2026-11-10
 
 ### Features
