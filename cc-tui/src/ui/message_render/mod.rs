@@ -28,7 +28,7 @@ use super::{
 use crate::app::tool_display::sanitize_display_text;
 
 pub(crate) const CONTROL_B_BACKGROUND_HINT: &str = "(ctrl+b to run in background)";
-const BACKGROUND_RUNNING_STATUS: &str = "Running in the background (↓ to manage)";
+const BACKGROUND_RUNNING_STATUS: &str = "🔄 Running in the background (↓ to manage)";
 
 /// hook 汇总行（`N <Event> hooks ran · Xms` / `Async hook <Event> completed`）的折叠上限。
 const HOOK_SUMMARY_MAX_ROWS: usize = 4;
