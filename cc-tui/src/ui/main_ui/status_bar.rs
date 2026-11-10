@@ -907,7 +907,7 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
             } else if app.session_mgr.current().ui.detail_mode {
                 vec![
                     ("● Verbose".to_string(), String::new()),
-                    ("Ctrl+o".to_string(), lc.tr("key-exit-detail")),
+                    ("Ctrl+O".to_string(), lc.tr("key-exit-detail")),
                 ]
             } else {
                 vec![
