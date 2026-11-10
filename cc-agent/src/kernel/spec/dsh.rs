@@ -1,4 +1,4 @@
-// <!-- upstream: deepseek-harness (dsh) @ main, checked 2026-06-01 -->
+// <!-- upstream: deepseek-ai/deepseek-harness @ dsh-v0.2.2-rc.1 (66491b05), branch master, checked 2026-11-10 -->
 
 use super::tool;
 use crate::kernel::{KernelSpec, ParamSpec, PromptSource, ToolSpec};
@@ -6,11 +6,18 @@ use crate::kernel::{KernelSpec, ParamSpec, PromptSource, ToolSpec};
 const RENAME_NONE: ParamSpec = ParamSpec::Rename(&[]);
 /// dsh 的 grep 用 `include` 表达 peri 的 `glob` 过滤参数。
 const RENAME_GREP: ParamSpec = ParamSpec::Rename(&[("include", "glob")]);
+const RENAME_BASH: ParamSpec = ParamSpec::Rename(&[("timeoutMs", "timeout")]);
+const RENAME_SKILL: ParamSpec = ParamSpec::Rename(&[("name", "skill")]);
+const RENAME_QUESTIONS: ParamSpec = ParamSpec::RenameWithArrayFields {
+    top: &[],
+    array_key: "questions",
+    fields: &[("multi_select", "multiSelect")],
+};
 static DSH_TOOLS: &[ToolSpec] = &[
     tool(
         "Read",
         "read",
-        "Read a file from the local filesystem. Use read before edit.",
+        "Read a file from the local filesystem. Use read before edit. offset is 0-based: number of lines to skip (0 reads the first line), not an upstream 1-based line number.",
         "read: read a file",
         RENAME_NONE,
         &[],
@@ -55,9 +62,9 @@ static DSH_TOOLS: &[ToolSpec] = &[
     tool(
         "Bash",
         "bash",
-        "Execute a shell command with an optional timeout.",
+        "Execute a shell command. timeoutMs is in milliseconds. It limits foreground waiting; with background support the command may continue. execution_timeout is the hard runtime limit, also in milliseconds. Uses the session working directory; workdir is not supported. To change directory, include an explicit cd in command.",
         "bash: run a command",
-        RENAME_NONE,
+        RENAME_BASH,
         &[],
         None,
     ),
@@ -91,18 +98,18 @@ static DSH_TOOLS: &[ToolSpec] = &[
     tool(
         "AskUserQuestion",
         "ask_user_question",
-        "Ask the user a batch of questions with options.",
+        "Ask the user a batch of questions. Each questions[] item requires question, header and options (2-4 labeled choices), with optional multi_select. Per-question id is not supported.",
         "ask_user_question: ask the user",
-        RENAME_NONE,
+        RENAME_QUESTIONS,
         &[],
         None,
     ),
     tool(
         "Skill",
         "skill",
-        "Invoke a named skill.",
+        "Invoke a named skill. Pass the required name and optional args.",
         "skill: invoke a skill",
-        RENAME_NONE,
+        RENAME_SKILL,
         &[],
         None,
     ),

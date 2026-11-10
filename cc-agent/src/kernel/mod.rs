@@ -15,6 +15,7 @@ use crate::agent::react::Reasoning;
 use crate::messages::BaseMessage;
 use crate::tools::{ToolDefinition, ToolParameters, ToolParametersKind};
 
+mod find;
 mod policy;
 mod spec;
 pub mod text;
@@ -149,6 +150,18 @@ const EXTRA_ALIASES: &[(&str, &str)] = &[
 ];
 
 impl Kernel {
+    /// 只包装有执行能力差异的内核工具；其余工具和 cc 基线直接透传。
+    pub(crate) fn adapt_tool<'a>(
+        &self,
+        tool: &'a dyn crate::tools::BaseTool,
+    ) -> Option<Box<dyn crate::tools::BaseTool + 'a>> {
+        if self.0 == &PI && tool.name() == "Glob" {
+            Some(Box::new(find::PiFindTool(tool)))
+        } else {
+            None
+        }
+    }
+
     pub fn cc() -> Self {
         Self(&CC)
     }
