@@ -122,6 +122,7 @@ statusbar-permission-auto = auto mode on
 statusbar-permission-bypass = bypass permissions on
 statusbar-permission-cycle-hint = (shift+tab to cycle)
 statusbar-copied = Copied { $count } chars to clipboard
+statusbar-copy-failed = Failed to copy to clipboard: { $error }
 scroll-back-to-bottom = ↓ Back to bottom · End
 scroll-back-to-bottom-new = ↓ New activity · End
 statusbar-retrying = Retry { $attempt }/{ $max } ({ $delay }s): { $error }

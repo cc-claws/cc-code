@@ -1,7 +1,8 @@
 //! 剪贴板抽象层
 //!
 //! 参照 openai/codex 的 `clipboard_copy.rs` 实现多层 fallback：
-//! 1. SSH 远程会话：优先 tmux clipboard，回落 OSC 52 转义
+//! 1. SSH 远程会话：优先 tmux clipboard，回落 OSC 52 转义；若本地显示已转发
+//!    （Linux `DISPLAY` / `WAYLAND_DISPLAY`），先试 arboard（写的正是用户本机剪贴板）
 //! 2. 本地：优先 arboard（native clipboard）
 //! 3. WSL 本地：arboard 失败时回落到 powershell.exe Set-Clipboard
 //! 4. 都失败：tmux / OSC 52 兜底
