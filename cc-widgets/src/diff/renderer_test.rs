@@ -96,7 +96,7 @@ fn test_render_diff_add_line_is_green() {
     );
 }
 
-/// 删除行三档配色对齐 CC `color-diff`（`packages/color-diff-napi/src/index.ts`）：
+/// 删除行三档配色对齐参考实现的 diff 配色：
 ///
 /// - `marker === '-'` 的代码正文走 `defaultStyle(theme)` → `theme.foreground`（正文色）；
 /// - marker `-` 与行号走 `deleteDecoration`（暗红）；
@@ -1060,7 +1060,7 @@ fn test_render_new_file_code_empty_content_placeholder() {
     assert_eq!(text, " 1 (No content)");
 }
 
-/// 对齐 CC `HighlightedCode/Fallback.tsx`：预览内容同样行首 tab → 2 空格
+/// 对齐参考实现：预览内容同样行首 tab → 2 空格
 #[test]
 fn test_render_new_file_code_converts_leading_tabs() {
     let lines = crate::diff::render_new_file_code("a.txt", "\techo hi\n", 80, &DarkTheme, 10);

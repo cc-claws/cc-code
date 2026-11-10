@@ -43,8 +43,8 @@ fn enabled_from(disable: Option<&str>) -> bool {
 ///
 /// Markdown 层只为 `[文字](url)` 产出 [`LinkHit`]；工具结果、`!` 命令输出，
 /// 以及「没有显示文字」而退化成纯 URL 的链接都只有文本，终端无从得知它是链接。
-/// 这里按 [`crate::ui::message_render::find_url_ranges`] 的口径（与 CC
-/// `OutputLine.tsx::URL_IN_JSON` 同源）逐行补齐命中区。
+/// 这里按 [`crate::ui::message_render::find_url_ranges`] 的口径（与参考实现
+/// 的 URL 识别正则同源）逐行补齐命中区。
 ///
 /// `line` 是调用方行空间（消息区即 `RenderCache` 的全局逻辑行号）里的下标，
 /// 原样写回 `LinkHit.line`。

@@ -2,8 +2,8 @@
 //!
 //! 七套主题：`default` 是 cc-code 现行配色（本模块前身 `theme.rs` 的常量集），
 //! 其余六套（`dark` / `light` / `light-daltonized` / `dark-daltonized` /
-//! `light-ansi` / `dark-ansi`）的名称与配色与 claude-code-best/claude-code
-//! 的 `src/utils/theme.ts` 逐值一致，见 `palettes.rs` 与一致性测试。
+//! `light-ansi` / `dark-ansi`）的名称与配色与参考实现
+//! 的调色板逐值一致，见 `palettes.rs` 与一致性测试。
 //!
 //! 渲染代码统一通过 [`cur`] 读取当前调色板字段（如 `theme::cur().inactive`），
 //! 不再引用编译期颜色常量；`/theme` 命令切换后写入进程级当前主题并持久化到
@@ -196,8 +196,8 @@ pub fn widgets_theme() -> cc_widgets::CustomTheme {
     }
 }
 
-/// 语法高亮主题名，对齐 CC `defaultSyntaxThemeName`
-/// （`color-diff-napi/src/index.ts:183-187`）：名称含 ansi → `ansi`；
+/// 语法高亮主题名，对齐参考实现的默认语法主题名映射：
+/// 名称含 ansi → `ansi`；
 /// 含 dark → `Monokai Extended`；其余（light 系列）→ `GitHub`。
 ///
 /// peri 的 `Default` 是深色配色（`text` 为白色），按 dark 处理。

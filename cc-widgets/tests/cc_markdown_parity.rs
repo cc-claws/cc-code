@@ -1,8 +1,7 @@
-//! 与 Claude Code（`src/utils/markdown.ts` + `src/components/MarkdownTable.tsx`）
-//! 的 Markdown 渲染对拍测试。
+//! 与参考实现的 Markdown 渲染对拍测试。
 //!
-//! fixture `fixtures/cc_markdown_golden.json` 由 CC 真实源码生成：
-//! `marked@17` 词法分析 → `formatToken` / `MarkdownTable` 渲染 → 抽取
+//! fixture `fixtures/cc_markdown_golden.json` 由参考实现真实源码生成：
+//! `marked@17` 词法分析 → token 分级 / 表格渲染 → 抽取
 //! 「纯文本 + 归一化样式标签」。样式被压缩成便于断言的字符标签：
 //!
 //! ```text

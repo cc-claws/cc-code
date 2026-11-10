@@ -5,7 +5,7 @@ pub use loader::{list_skills, load_skill_metadata, SkillMetadata};
 
 use std::path::PathBuf;
 
-/// CC SkillTool/prompt.ts 的发现列表上限；全文只在调用时加载。
+/// 参考实现 Skill 工具的发现列表上限；全文只在调用时加载。
 pub const MAX_LISTING_DESC_CHARS: usize = 1536;
 const DEFAULT_LISTING_CHAR_BUDGET: usize = 8_000;
 

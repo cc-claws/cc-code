@@ -1,9 +1,9 @@
-//! `OutputLine` 装饰器：对齐 CC `src/components/shell/OutputLine.tsx`。
+//! `OutputLine` 装饰器：对齐参考实现的工具结果输出组件。
 //!
-//! CC 的 Bash / MCP 工具结果都过这一层，它负责四件事：
+//! 参考实现的 Bash / MCP 工具结果都过这一层，它负责四件事：
 //!
 //! 1. **JSON 逐行美化** —— `tryJsonFormatContent`：单行 JSON 展开成 2 空格缩进；
-//! 2. **URL 超链接** —— `linkifyUrlsInText`（与 CC 一致：文本层不动 URL，
+//! 2. **URL 超链接** —— URL 美化（与参考实现一致：文本层不动 URL，
 //!    可点击性由消息区注入的 OSC 8 转义序列提供，见 `crate::ui::osc8`）；
 //! 3. **行数截断** —— `renderTruncatedContent`：只留前 3 行 + `… +N lines (ctrl+o to expand)`；
 //! 4. **宽度预折行 + 每行 trimEnd**。
@@ -12,17 +12,17 @@
 //! 着色由调用方（`format_prefixed_text` / `format_shell_output_lines`）后续施加，
 //! 这样 JSON 美化、截断测算与调用方的着色共享同一份文本，口径不会各自漂移。
 
-/// CC `terminal.ts::MAX_LINES_TO_SHOW`：折叠态只显示 3 行。
+/// MAX_LINES_TO_SHOW：折叠态只显示 3 行（对齐参考实现）。
 pub const MAX_LINES_TO_SHOW: usize = 3;
-/// CC `terminal.ts::PADDING_TO_PREVENT_OVERFLOW`：给 `BranchPrefix::PREFIX` 前缀与父级缩进留的余量。
+/// PADDING_TO_PREVENT_OVERFLOW：给 `BranchPrefix::PREFIX` 前缀与父级缩进留的余量（对齐参考实现）。
 pub const PADDING_TO_PREVENT_OVERFLOW: usize = 10;
-/// CC `OutputLine.tsx::MAX_JSON_FORMAT_LENGTH`：超长内容整体跳过 JSON 美化。
+/// MAX_JSON_FORMAT_LENGTH：超长内容整体跳过 JSON 美化（对齐参考实现）。
 const MAX_JSON_FORMAT_LENGTH: usize = 10_000;
 
-/// 单行 JSON 美化，对齐 CC `OutputLine.tsx::tryFormatJson`。
+/// 单行 JSON 美化，对齐参考实现的 JSON 美化口径。
 ///
 /// 返回 `Some` 表示这一行是合法的单行 JSON 且美化安全；`None` 表示原样保留。
-/// 判定顺序与 CC 一致：
+/// 判定顺序与参考实现一致：
 ///
 /// 1. 解析失败 → 保留原文；
 /// 2. 紧凑重序列化后与原行「去空白 + `\/` 归一」比较，**不一致就放弃**——
@@ -90,7 +90,7 @@ pub fn try_json_format_lines(lines: &[&str], whole_chars: usize) -> Option<Strin
     changed.then(|| out.join("\n"))
 }
 
-/// 按显示宽度预折行，对齐 CC `terminal.ts::wrapText`。
+/// 按显示宽度预折行，对齐参考实现的折行口径。
 ///
 /// 与 [`crate::ui::message_render::wrap_line_spans`] 的区别：这里**只处理纯文本**、
 /// 不感知样式，折行单元是「显示列」而非 grapheme 宽度之和——用于截断预算测算。
@@ -196,7 +196,7 @@ pub fn truncate_wrapped(
 
 /// 装饰器主体：把工具原始输出变成「该显示的那几行文本」。
 ///
-/// 顺序与 CC `OutputLine` 的 `useMemo` 完全一致：
+/// 顺序与参考实现完全一致：
 /// **JSON 美化 → 预折行 + 截断**。URL 的可点击性与着色不在这里：文本层原样
 /// 保留 URL，消息区按行扫描后注入 OSC 8。
 pub fn decorate(content: &str, terminal_width: usize, max_lines: usize) -> TruncatedContent {

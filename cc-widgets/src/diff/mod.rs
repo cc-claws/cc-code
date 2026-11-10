@@ -217,9 +217,8 @@ pub fn diff_cache_stats() -> CacheStats {
 
 /// 行首 tab → 2 空格（对齐 CC `convertLeadingTabsToSpaces`，`utils/file.ts:137-142`）。
 ///
-/// CC 在构造 diff 输入前统一转换（`utils/diff.ts:140,150,153`），代码预览
-/// （`HighlightedCode/Fallback.tsx:40`）同样处理。只处理**行首** tab：行内 tab
-/// 两侧都保留原样，交给终端展开。
+/// 参考实现在构造 diff 输入前统一转换，代码预览同样处理。
+/// 只处理**行首** tab：行内 tab 两侧都保留原样，交给终端展开。
 pub(crate) fn convert_leading_tabs_to_spaces(content: &str) -> std::borrow::Cow<'_, str> {
     if !content.contains('\t') {
         return std::borrow::Cow::Borrowed(content);
@@ -338,7 +337,7 @@ fn compute_diff_uncached(input: &DiffInput) -> DiffResult {
 
 /// 为连续的 Remove+Add 行对填充 word diff
 ///
-/// 对齐 CC `findAdjacentPairs`（`color-diff-napi/src/index.ts:601-627`）：
+/// 对齐参考实现的相邻块配对算法：
 /// 相邻的 `-` 块与 `+` 块按 `min(delCount, addCount)` 逐对配对——Add 少于
 /// Remove 时前 n 对仍有词级高亮，而不是整块放弃。
 pub(crate) fn fill_word_diffs(lines: &mut [DiffLine]) {
