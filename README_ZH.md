@@ -121,6 +121,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **状态栏提示冒号重复修复，`Alt+P` 文案修正** | v0.6.264 | 状态栏第二行快捷键提示此前渲染出两个冒号（`Ctrl+O ::详情`）：locale 的 `key-*` 文案自带前导 `:`，`format_hints` 又补了一个；键名段还带尾随空格，使键名与冒号之间多出一个空格。现将冒号收口到 `format_hints` 一处——剥掉 locale 前缀再补一个冒号，并去掉键名段尾随空格让冒号紧贴键名（空描述如 `● Verbose` 保留尾随空格以维持段间距），locale 值不动以免波及共用的面板提示。默认模式现为 `Ctrl+O:详情  Ctrl+P:内核  Alt+P:模型`，详细模式为 `● Verbose  Ctrl+O:退出详细`，OAuth / Questions / Rewind / 退出确认及各面板 `status_bar_hints()` 同步生效。顺带修正 `Alt+P` 文案：该键实际打开命令面板（Provider / Model / Effort 选择），原文案「设置」比实际范围窄，`key-status-settings` 中英文分别改为 `:模型` / `:model`（#984）。 |
 | **Ctrl+P 切换内核面板，Alt+P 打开命令面板** | v0.6.263 | 此前 `Ctrl+P` 与 `Alt+P` 都绑定到命令面板，内核切换只能手动输入 `/kernel`。现拆分重叠绑定：`Ctrl+P` 弹出内核选择面板（cc / dsh / pi），复用 `/kernel` 无参入口逻辑（统一走 `App::open_kernel_panel()`）；`Alt+P` 保持打开命令面板（Provider / Model / Effort），行为不变。两面板同属 `MutexGroup::Settings` 互斥组，切换时自动关闭另一面板。状态栏提示改为 `Ctrl+O ::详情 │ Ctrl+P ::内核 │ Alt+P ::设置`，tips 与 `/help` 同步更新，`TUI-STYLE.md` 一并修订（#981, #982）。 |
 | **状态栏快捷键提示首字母大写** | v0.6.261 | 状态栏第二行默认与详细模式的快捷键提示此前为小写 `ctrl+o` / `ctrl+p`，与文档及其余快捷键表述（`Ctrl+O` / `Ctrl+P`）大小写不一致，现统一为 `Ctrl+o ::详情` / `Ctrl+p ::设置` 首字母大写形式，仅文案变化、无行为改动（#975）。 |
 | **思考行数字加粗与 diff 上下文行号提亮** | v0.6.260 | 推理思考摘要行（`Thought for 11s, listed 1 directory`）的时长与动作计数数字此前和普通文字同字重、扫读抓不到重点，现把文本中连续数字拆分为独立 span 单独加粗——时长 `Ns` 整体加粗，字数仅数字加粗（单位词如 `chars` 保持常规）；ToolCallGroup 自带思考行、活跃/冻结状态同款处理，无亮度跳变，底部 `Brewed` 总结行与 unit 词不加粗。Edit/Write diff 视图的上下文行号由最暗灰阶 `theme.dim()`（#505050）提亮为 `theme.muted()`（#999999，与 tip 提示同色阶），仅影响 diff 上下文行，+/- 行 decoration 色不动（#971, #970）。 |
@@ -130,8 +131,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **command hook 支持 exec form args** | v0.6.255 | Windows 上第三方桌面工具常把 hook 写成 `command` + `args` 的 exec form（参考实现 2.1.139+ 语义），而 `HookType::Command` 此前没有 `args` 字段，serde 会静默丢弃参数并把整串 `command` 交给 `cmd /C`——可执行路径含空格（如 `C:\Program Files\nodejs\node.exe`）时被切碎，此类 hook 全部以 exit 1 失败。现 `args` 非空时直接以 `command` 为可执行文件、`args` 为 argv 启动（不经过 shell），逐项做 `${CLAUDE_PLUGIN_ROOT}` / `${CLAUDE_PLUGIN_DATA}` / `$ARGUMENTS` 变量替换；`args` 为空的旧配置行为不变，exec form 下 `shell` 字段被忽略（与参考实现语义一致）（#954, #955）。 |
 | **面板关闭后视口回缩，页面继续紧贴内容** | v0.6.254 | 修复 `Ctrl+P` 命令面板打开再取消后页面留白（欢迎卡片在顶部、输入框/状态栏浮在屏幕中部、下方大片空白）：growing 视口的高度记忆只增不减，面板撑出的高度被永久记住。现面板等开关型瞬时块只影响当帧高度、不进持久记忆，关闭立即回收并显式清理释放行（不留幽灵残影），视口顶边回落启动锚点；输入编辑防抖与全屏锁定语义不变（#951, #952）。 |
 | **思考耗时显示修复：LLM 计时优先（含 TTFT）** | v0.6.252 | 修复 `Thought for 1s` 与实际思考时长严重不符（真机近 1 分钟思考显示 1s）：TUI 侧组计时（锚点为首条 reasoning chunk，不含 TTFT）每次渲染装配都覆盖适配器回填的含 TTFT `duration_ms`。现 LLM 值优先、组计时仅兜底（下限 1s）；组语义重构为「一段思考的墙钟」（工具运行时长不计入、组边界只在 reasoning / 工具边界开合、每轮清零跨轮残留）；多行冻结思考行各自消费对应组值（修复两行显示同一数值的 off-by-one 错位）；正文 chunk 不再冻结组、终结近零值灌注（#945, #946）。 |
-| **关窗/退出可靠触发 SessionEnd，hook session_id 全链路对齐** | v0.6.251 | Windows 点 X 关窗此前 `CTRL_CLOSE_EVENT` 无人处理、SessionEnd 从不触发，clawd 等按 session_id 聚合的外部 hook 消费方里会话永远停在 working；正常退出与 `/clear` 路径的 session_id 也硬编码为空串，异步 hook 通知可能被 runtime 提前 drop 吞掉。现在关窗在 handler 线程从 500ms 刷新的全局快照同步触发 SessionEnd（3.5s 超时 + 原子互斥，不与正常退出重复触发），三条 SessionEnd 路径均携带真实 session_id 与 CC 对齐的 reason（关窗 `other`、`/clear` `clear`、输入框可见时退出 `prompt_input_exit`），退出路径等待异步 hook 完成；另补齐 SubagentStart/SubagentStop 的真实 session_id，子任务生命周期事件不再归到 "default" 会话（#941, #942）。 |
-> 更早版本（v0.6.0 – v0.6.242）见 [CHANGELOG](./CHANGELOG.md)。
+> 更早版本（v0.6.0 – v0.6.251）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---
 
