@@ -10,7 +10,7 @@ use tui_textarea::{Input, Key};
 use super::{
     panel_component::PanelComponent,
     panel_list::PanelList,
-    panel_manager::{EventResult, PanelContext, PanelKind},
+    panel_manager::{EventResult, PanelContext, PanelKind, PanelState},
     App,
 };
 
@@ -38,6 +38,15 @@ impl KernelPanel {
 
     pub fn selected(&self) -> Option<&'static str> {
         self.list.selected().copied()
+    }
+}
+
+impl App {
+    /// 打开内核选择面板（Ctrl+P 快捷键与 `/kernel` 无参入口共用）。
+    pub fn open_kernel_panel(&mut self) {
+        let current = self.current_kernel_id().to_string();
+        let panel = KernelPanel::new(&current);
+        self.open_panel(PanelState::Kernel(panel));
     }
 }
 

@@ -71,23 +71,28 @@ pub(super) static SHORTCUT_BG_BAR: KeyBinding = KeyBinding {
     key: KeyCode::Char('b'),
 };
 
-pub(super) static SHORTCUT_COMMAND_PALETTE: KeyBinding = KeyBinding {
+pub(super) static SHORTCUT_KERNEL_PANEL: KeyBinding = KeyBinding {
     label: "Ctrl+P",
     macos_char: None,
     modifiers: KeyModifiers::CONTROL,
     key: KeyCode::Char('p'),
 };
 
-pub(super) static SHORTCUT_COMMAND_PALETTE_ALT: KeyBinding = KeyBinding {
+pub(super) static SHORTCUT_COMMAND_PALETTE: KeyBinding = KeyBinding {
     label: "Alt+P",
     macos_char: Some('π'),
     modifiers: KeyModifiers::ALT,
     key: KeyCode::Char('p'),
 };
 
+/// Returns the label for the kernel picker shortcut.
+pub fn kernel_panel_label() -> &'static str {
+    "Ctrl+P"
+}
+
 /// Returns the label for the command palette shortcut.
 pub fn command_palette_label() -> &'static str {
-    "Ctrl+P / Alt+P"
+    "Alt+P"
 }
 
 /// Handles a single key event, dispatching to panels, prompts, textarea, or

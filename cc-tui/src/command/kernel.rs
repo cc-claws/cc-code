@@ -1,9 +1,5 @@
 use crate::{
-    app::{
-        kernel_panel::KernelPanel,
-        panel_manager::{PanelContext, PanelState},
-        AgentEvent, App,
-    },
+    app::{panel_manager::PanelContext, AgentEvent, App},
     command::Command,
     ui::message_view::MessageViewModel,
 };
@@ -182,10 +178,7 @@ impl Command for KernelCommand {
                 app.render_rebuild();
             }
             "show" => Self::query(app, true),
-            "" => {
-                let panel = KernelPanel::new(app.current_kernel_id());
-                app.open_panel(PanelState::Kernel(panel));
-            }
+            "" => app.open_kernel_panel(),
             _ => Self::push_notice(
                 app,
                 format!("未知内核: {arg}。可用内核: cc / dsh / pi\n{USAGE}"),

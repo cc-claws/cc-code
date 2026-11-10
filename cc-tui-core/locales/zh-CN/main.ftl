@@ -45,7 +45,7 @@ help-available-commands = 可用命令：
 help-alias-prefix = （别名: /{ $aliases }）
 help-skills-count = Skills（{ $count } 个可用）: 输入 # 前缀查看
 help-skills-empty = Skills: 将 .md 文件放入 .claude/skills/ 目录即可添加
-help-shortcuts = 快捷键：Shift+Tab 切换权限模式 │ { $palette } 命令面板（选择模型/Provider） │ Shift+Enter 换行 │ Esc 退出 │ Ctrl+C 中断
+help-shortcuts = 快捷键：Shift+Tab 切换权限模式 │ { $palette } 命令面板（选择模型/Provider） │ { $kernel } 内核选择 │ Shift+Enter 换行 │ Esc 退出 │ Ctrl+C 中断
 
 # compact command
 
@@ -153,6 +153,7 @@ key-tab = :切换
 key-effort = :力度
 key-settings = :设置
 key-status-settings = :设置
+key-status-kernel = :内核
 key-nav = :导航
 key-edit = :编辑
 key-kill = :停止
@@ -183,7 +184,7 @@ welcome-skills-available = { $count } 个 skills 可用
 
 tip-0 = 按 / 输入命令，Tab 补全
 tip-1 = Ctrl+C 中断 Agent，Shift+Tab 切换权限模式
-tip-2 = Ctrl+P / Alt+P 打开命令面板（选择 Provider / Model / Effort）
+tip-2 = Ctrl+P 切换 Agent 内核，Alt+P 打开命令面板（选择 Provider / Model / Effort）
 tip-3 = Shift+Enter 在输入框中换行
 tip-4 = 拖拽图片自动添加附件，拖拽文件插入路径
 tip-5 = Alt+V / Ctrl+V 粘贴剪贴板图片（推荐 Alt+V 规避终端拦截）
@@ -199,7 +200,7 @@ tip-14 = /plugin 管理 CC 插件
 tip-15 = 在 .claude/skills/ 中添加自定义 Skills
 tip-16 = 在 .claude/agents/ 中定义 SubAgent
 tip-17 = 对复杂任务让 Agent 先制定计划再执行
-tip-18 = /kernel 切换 Agent 内核（cc、dsh、pi）
+tip-18 = Ctrl+P 或 /kernel 切换 Agent 内核（cc、dsh、pi）
 tip-clear-override = 切换话题时用 /clear 重新开始，并释放上下文
 
 # ---- Setup Wizard ----
