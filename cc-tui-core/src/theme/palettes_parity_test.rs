@@ -1,7 +1,7 @@
-//! claude-code-best 配色一致性锁定测试（生成文件，勿手改）。
+//! 参考实现配色一致性锁定测试（生成文件，勿手改）。
 //!
-//! 期望值由转换脚本直接从 claude-code-best/claude-code 的
-//! `src/utils/theme.ts` 逐字段抽取；任一主题任一字段漂移都会让测试变红。
+//! 期望值由转换脚本直接从参考实现的调色板源逐字段抽取；
+//! 任一主题任一字段漂移都会让测试变红。
 
 use super::palettes::*;
 use ratatui::style::Color;

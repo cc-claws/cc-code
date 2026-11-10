@@ -636,7 +636,7 @@ fn take_leading_blank(line: Line<'static>) -> (String, Style, Line<'static>) {
 
 /// 在纯文本里识别 http(s) URL 的字节区间。
 ///
-/// 与 CC `OutputLine.tsx::URL_IN_JSON`（`/https?:\/\/[^\s"'<>\\]+/g`）同一口径：
+/// 与参考实现的 URL 识别正则（`/https?:\/\/[^\s"'<>\\]+/g`）一致：
 /// 只认 `http://` / `https://` 起头，遇到空白、引号、尖括号、反斜杠即结束。
 /// 额外再切掉句末常见的 `)`/`]`/`}`/`,`/`;`/`.`/`:`，避免把中文标点旁的右括号也吞进链接
 /// （终端自身识别的链接同样不会包含它们）。
@@ -758,8 +758,8 @@ fn format_prefixed_text(
     format_wrapped_line_keep_lead(line, first_prefix, &hang, prefix_style, content_width)
 }
 
-/// 把 Write 的 `Wrote N lines <path>` 结果行重绘为 CC 的样式
-/// `Wrote <bold>N</bold> lines to <bold>path</bold>`（`FileWriteTool/UI.tsx:58-61`）。
+/// 把 Write 的 `Wrote N lines <path>` 结果行重绘为参考实现的样式
+/// `Wrote <bold>N</bold> lines to <bold>path</bold>`（数字与路径加粗）。
 ///
 /// 只处理精确匹配的单行文本；其它输出（如 append 的 `Appended ...`）返回 None，
 /// 由调用方回退为普通纯文本渲染。
@@ -1222,7 +1222,7 @@ fn split_read_range(args: &str) -> (&str, Option<&str>) {
 }
 
 /// 展示路径 → 可打开的文件路径：`~/` 展开到 home，相对路径按进程 cwd 补齐，
-/// 绝对路径原样。与参考实现的 `FileWriteTool/UI.tsx` 一致——显示文本可以是
+/// 绝对路径原样。与参考实现一致——显示文本可以是
 /// 相对路径，链接目标必须是绝对路径。
 fn absolute_link_path(text: &str) -> Option<std::path::PathBuf> {
     let path = std::path::Path::new(text);

@@ -3507,7 +3507,7 @@ fn test_format_write_summary_line_rejects_other_output() {
     }
 }
 
-/// URL 识别口径：与 CC `OutputLine.tsx::URL_IN_JSON` 一致，且不吃句末右括号。
+/// URL 识别口径：与参考实现一致，且不吃句末右括号。
 #[test]
 fn test_find_url_ranges_matches_cc_pattern() {
     assert_eq!(

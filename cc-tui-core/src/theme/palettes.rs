@@ -1,10 +1,10 @@
 //! 主题调色板数据。
 //!
 //! `dark` / `light` / `light-daltonized` / `dark-daltonized` / `light-ansi` /
-//! `dark-ansi` 六套的 CC 字段（`Palette` 前 69 个字段）与 GitHub 仓库
-//! claude-code-best/claude-code 的 `src/utils/theme.ts` 逐值一致：
+//! `dark-ansi` 六套的参考字段（`Palette` 前 69 个字段）与参考实现的调色板
+//! 逐值一致：
 //! `rgb(r,g,b)` 原样映射 `Color::Rgb`，`ansi:*` 映射 ratatui 标准 16 色。
-//! 由转换脚本从该 TS 源生成，`palettes_parity_test.rs` 锁定全部值防漂移。
+//! 由转换脚本从参考实现的调色板源生成，`palettes_parity_test.rs` 锁定全部值防漂移。
 //!
 //! `default` 是 cc-code 现行配色（原 `theme.rs` 常量 + widgets diff 默认色），
 //! 保证升级后默认外观不变。结构体尾部的扩展字段是 cc-code 独有 UI 元素

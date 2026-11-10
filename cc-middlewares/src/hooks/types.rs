@@ -223,9 +223,9 @@ pub struct HookInput {
     pub message_count: Option<usize>,
 }
 
-/// Hook 执行结果——对齐 CC src/types/hooks.ts syncHookResponseSchema
+/// Hook 执行结果——对齐参考实现的 hook 响应 schema
 ///
-/// CC 的 hook 输出是扁平 JSON（非 enum），包含多个可选字段。
+/// 参考实现的 hook 输出是扁平 JSON（非 enum），包含多个可选字段。
 /// Peri 解析为结构体后转换为内部 Action 枚举。
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SyncHookResponse {

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-/// 工具参数里的路径 → 展示用路径，逐条对齐 CC `utils/file.ts::getDisplayPath`：
+/// 工具参数里的路径 → 展示用路径，逐条对齐参考实现的路径展示口径：
 ///
 /// 1. 在 cwd 内 → **相对路径**（`cc-tui/src/ui/render_thread.rs`）；
 /// 2. 在 home 内 → **`~/...`** 记法；

@@ -1952,11 +1952,11 @@ fn make_running_tool_block(
     vm
 }
 
-/// 裸 URL 的链接化范围对齐 CC：只有工具结果与 `!` 命令输出登记命中区。
+/// 裸 URL 的链接化范围对齐参考实现：只有工具结果与 `!` 命令输出登记命中区。
 ///
-/// 正文（含代码块）与用户输入一律不扫描——CC 的 `src/utils/markdown.ts` 只对
-/// `link` token 调 `createHyperlink`，裸 URL 在正文里是纯文本；`linkifyUrlsInText`
-/// 只挂在工具结果的 `OutputLine` 上。范围写大了就会让正文里满屏 URL 变蓝可点。
+/// 正文（含代码块）与用户输入一律不扫描——参考实现只对
+/// `link` token 调建超链接逻辑，裸 URL 在正文里是纯文本；URL 识别
+/// 只挂在工具结果的输出行上。范围写大了就会让正文里满屏 URL 变蓝可点。
 #[test]
 fn test_bare_url_links_only_for_tool_and_shell_output() {
     use super::RenderTask;

@@ -172,8 +172,7 @@ pub fn render_diff_impl(input: &DiffInput, width: usize, theme: &dyn Theme) -> V
     lines
 }
 
-/// CC `FILENAME_LANGS`：按文件名或「首个点号前的 stem」识别语言
-/// （对齐 `color-diff-napi/src/index.ts:415`）。
+/// FILENAME_LANGS：按文件名或「首个点号前的 stem」识别语言（对齐参考实现）。
 #[cfg(feature = "markdown-highlight")]
 const FILENAME_LANGS: &[(&str, &str)] = &[
     ("Dockerfile", "dockerfile"),
@@ -185,9 +184,8 @@ const FILENAME_LANGS: &[(&str, &str)] = &[
 
 /// CC 注册语言的扩展名别名 → syntect token。
 ///
-/// 对照 `packages/color-diff-napi/src/__tests__/language-registration.test.ts`
-/// 中的 26 种语言：CC 用 `hljs.getLanguage(ext)` 判断扩展名是否受支持，这里用
-/// 显式白名单达到同样效果。映射到 syntect token 时修正歧义项
+/// 对照参考实现的 26 种语言注册表：参考实现用 `hljs.getLanguage(ext)` 判断
+/// 扩展名是否受支持，这里用显式白名单达到同样效果。映射到 syntect token 时修正歧义项
 /// （`h` → `c`，否则会命中 Objective-C）。
 ///
 /// 其中 dockerfile / cmake / kotlin / graphql / typescript 在 syntect 默认语法集里
@@ -267,7 +265,7 @@ const EXTENSION_LANGS: &[(&str, &str)] = &[
     ("yml", "yml"),
 ];
 
-/// 对齐 CC `detectLanguage(filePath, firstLine)`（`color-diff-napi/src/index.ts:423`）：
+/// 对齐参考实现的语言探测顺序：
 /// 文件名表 → 扩展名白名单 → shebang / `<?php` / `<?xml` 首行检测。
 ///
 /// 未命中返回 None，调用方回退纯文本。与 CC 的唯一差别是语法集：
@@ -951,7 +949,7 @@ pub fn render_new_file_code(
     } else {
         content.strip_suffix('\n').unwrap_or(content)
     };
-    // 对齐 CC `HighlightedCode/Fallback.tsx`：预览内容同样行首 tab → 2 空格
+    // 对齐参考实现：预览内容同样行首 tab → 2 空格
     let body = super::convert_leading_tabs_to_spaces(body);
     let raw_lines: Vec<&str> = body.split('\n').collect();
     let total = raw_lines.len();

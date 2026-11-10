@@ -951,9 +951,8 @@ fn compact_crab_line(started_at: std::time::Instant) -> Line<'static> {
 
 /// 压缩进行中的「飞碟跑道」。
 ///
-/// 逐行移植 MiMo-Code `packages/cli/src/cli/cmd/tui/ui/spinner.ts` 的
-/// `getScannerState` + `createFrames(style: "plane")`；参数取自
-/// `component/prompt/index.tsx`：width 14 / holdStart 8 / holdEnd 8 / interval 40ms。
+/// 逐行移植参考实现的 spinner 动画（扫描状态机 + "plane" 风格帧序列）；
+/// 参数取自参考实现的 prompt 组件：width 14 / holdStart 8 / holdEnd 8 / interval 40ms。
 ///
 /// 帧序：前进 14 格 → 终点停留 8 帧 → 后退 13 格 → 起点停留 8 帧（共 43 帧 ≈ 1.72s）。
 /// 尾迹覆盖 `dd ∈ 1..=5`（`createColors` 默认 trailSteps = 6），字符按
