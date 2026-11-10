@@ -287,6 +287,20 @@ impl<L: ReactLLM, S: State> ReActAgent<L, S> {
             all_tools.insert(name.clone(), tool.as_ref());
         }
 
+        // 内核特有能力（如 pi find.limit）在 schema 校验和实际执行前一起适配。
+        let original_tools = all_tools;
+        let kernel_tools: Vec<_> = original_tools
+            .values()
+            .filter_map(|tool| self.kernel.adapt_tool(*tool))
+            .collect();
+        let mut all_tools: HashMap<String, &dyn BaseTool> = original_tools
+            .iter()
+            .map(|(name, tool)| (name.clone(), *tool))
+            .collect();
+        for tool in &kernel_tools {
+            all_tools.insert(tool.name().to_string(), tool.as_ref());
+        }
+
         let mut tool_refs: Vec<&dyn BaseTool> = if let Some(filter) = self.tool_filter.as_ref() {
             all_tools
                 .values()

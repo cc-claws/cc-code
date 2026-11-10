@@ -23,3 +23,7 @@ pub mod transport;
 #[cfg(test)]
 #[path = "kernel_acceptance_test.rs"]
 mod kernel_acceptance_test;
+
+#[cfg(test)]
+#[path = "kernel_tool_params_test.rs"]
+mod kernel_tool_params_test;
