@@ -676,6 +676,7 @@ pub(crate) async fn handle_event(app: &mut App, ev: Event) -> Result<Option<Acti
                         | Some(PanelKind::CommandPalette)
                         | Some(PanelKind::Theme)
                         | Some(PanelKind::Kernel)
+                        | Some(PanelKind::Worktree)
                         | Some(PanelKind::InputHistory)
                 ) {
                     with_session_panels!(app, |sp, ctx| sp.dispatch_paste(&text, &mut ctx));

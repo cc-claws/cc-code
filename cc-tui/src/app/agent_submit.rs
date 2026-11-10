@@ -98,7 +98,9 @@ impl App {
     }
 
     pub fn submit_message(&mut self, input: String) {
-        if self.session_mgr.current().metadata.kernel_request_pending {
+        if self.session_mgr.current().metadata.kernel_request_pending
+            || self.session_mgr.current().metadata.worktree_request_pending
+        {
             // 后台输入可暂存；保留用户尚未发送的草稿、粘贴块及不相关图片。
             let input = self.expand_pasted_text(&input);
             if input.trim().is_empty() {
@@ -436,7 +438,9 @@ impl App {
 
     /// 每次发送一条排队消息；正在等待插入确认时先保留队列，避免重复提交。
     pub(crate) fn flush_pending_messages(&mut self) {
-        if self.session_mgr.current().metadata.kernel_request_pending {
+        if self.session_mgr.current().metadata.kernel_request_pending
+            || self.session_mgr.current().metadata.worktree_request_pending
+        {
             return;
         }
         let messages = &self.session_mgr.current().messages.pending_messages;

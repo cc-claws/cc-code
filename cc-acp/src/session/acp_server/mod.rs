@@ -26,6 +26,7 @@ mod notify;
 mod prompt;
 mod prompt_locks;
 mod requests;
+mod worktree_requests;
 
 pub(crate) use notify::{extract_session_id, handle_notification, send_session_info_update};
 pub(crate) use prompt::execute_prompt;
@@ -124,7 +125,24 @@ pub async fn run_acp_server(
     while let Some(msg) = transport.recv().await {
         match msg {
             IncomingMessage::Request { id, method, params } => {
-                if method == "session/prompt"
+                if matches!(
+                    method.as_str(),
+                    "workspace/worktrees" | "workspace/worktree/create"
+                ) {
+                    // checkout 与 hook 可能耗时，独立处理以便继续接收取消和其他会话请求。
+                    let config_path = cfg.config_path.clone();
+                    let transport = Arc::clone(&transport);
+                    tokio::spawn(async move {
+                        worktree_requests::handle_and_respond(
+                            transport.as_ref(),
+                            id,
+                            &method,
+                            &params,
+                            &config_path,
+                        )
+                        .await;
+                    });
+                } else if method == "session/prompt"
                     && cc_acp::session::subagent_protocol::target_thread_id(&params).is_some()
                 {
                     // Mailbox delivery must bypass the root prompt lock, including during HITL.

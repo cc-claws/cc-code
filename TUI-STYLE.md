@@ -392,6 +392,7 @@ Spinner 下方附加 Tip 行：`  ⎿  Tip: ...`（5 列前缀，与工具结果
 | `/agent-design` | AgentPanel | Session | BORDER |
 | `/history` | InputHistoryPanel | Session | BORDER |
 | `/resume` | ThreadBrowserPanel | Session | BORDER |
+| `/worktree` | WorktreePanel | Session | BORDER |
 | `/cron` | CronPanel | Session | BORDER |
 | `/config` | ConfigPanel | Session | Browse=BORDER, Edit=WARNING |
 | `/memory` | MemoryPanel | Session | BORDER |
@@ -651,6 +652,9 @@ Spinner 下方附加 Tip 行：`  ⎿  Tip: ...`（5 列前缀，与工具结果
 | `/recap` | 生成 1-2 句会话回顾：高层目标 + 当前任务 → 下一步（别名 `away`、`catchup`） |
 | `/rename [name]` | 查看或修改当前会话标题 |
 | `/resume` | 打开历史对话浏览面板，选 thread 恢复 |
+| `/worktree` | 打开 Git worktree 面板（别名 `worktrees`）；创建独立目录或选择已有目录，切换到该目录最近的主会话，无历史时新建 |
+| `/worktree create [branch] [base-ref]` | 创建并进入新 worktree；无分支参数时为 detached HEAD，有参数时创建新分支；默认起点为当前 HEAD |
+| `/worktree switch <branch\|path\|number>` | 切换到当前仓库登记的 worktree；编号与面板一致，路径含空格时可加双引号 |
 | `/review` | PR 代码审查（别名 `pr`） |
 | `/rewind` | 打开对话回滚选择器，回退到某条历史消息（可选逆向恢复文件变更，别名 `undo`） |
 | `/streaming [mode]` | 查看或切换时间线渲染模式（`streaming` / `block` / `none`），调试用 |

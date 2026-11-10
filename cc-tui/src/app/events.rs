@@ -10,6 +10,12 @@ pub use cc_middlewares::mcp::OAuthCallbackResult;
 
 /// TUI 与后台 Agent 任务之间的通信事件（通过 mpsc channel 传递）
 pub enum AgentEvent {
+    /// 本地 worktree 操作完成；UUID 区分尚未落盘的空白会话。
+    WorktreeCompleted {
+        session_id: uuid::Uuid,
+        cwd: String,
+        result: Result<super::worktree_ops::WorktreeOutcome, String>,
+    },
     /// 子线程事件在入口处分流，绝不能落入主线程状态更新。
     SubagentEvent {
         source_agent_id: String,

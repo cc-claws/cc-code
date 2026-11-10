@@ -2,6 +2,7 @@ pub mod core;
 pub mod kernel;
 pub mod panel;
 pub mod session;
+pub mod worktree;
 
 pub use panel::agents;
 
@@ -44,6 +45,7 @@ pub fn default_registry() -> CommandRegistry {
     r.register(Box::new(session::streaming::StreamingCommand));
     r.register(Box::new(core::export_cmd::ExportCommand));
     r.register(Box::new(kernel::KernelCommand));
+    r.register(Box::new(worktree::WorktreeCommand));
     r
 }
 

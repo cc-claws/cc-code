@@ -11,6 +11,7 @@
 - **流式渲染**：16ms 自适应帧率
 - **i18n 支持**：中英文切换
 - **丰富交互**：面板系统、弹窗、快捷键
+- **Git worktree**：`/worktree` 创建、切换独立工作目录并恢复对应主会话；状态栏显示实际目录。支持 `/worktree create [branch] [base-ref]` 和 `/worktree switch <branch|path|number>`，详见 [使用与协议说明](../docs/acp/worktrees.md)。
 
 ## 启动
 

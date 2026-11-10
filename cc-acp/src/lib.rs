@@ -19,6 +19,7 @@ pub mod prompt;
 pub mod provider;
 pub mod session;
 pub mod transport;
+pub mod worktree;
 
 #[cfg(test)]
 #[path = "kernel_acceptance_test.rs"]

@@ -85,6 +85,7 @@ impl App {
         // 空闲且内核操作已完成后才 take()，避免提前消费结果或与切换并发启动下一轮。
         if !self.session_mgr.current().ui.loading
             && !self.session_mgr.current().metadata.kernel_request_pending
+            && !self.session_mgr.current().metadata.worktree_request_pending
         {
             if let Some(results) = self
                 .session_mgr

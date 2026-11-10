@@ -24,7 +24,7 @@ use super::{
         extract_session_id, send_available_commands_update, send_config_option_update,
         session_config_options,
     },
-    parse_permission_mode, AcpServerConfig, SessionState,
+    parse_permission_mode, worktree_requests, AcpServerConfig, SessionState,
 };
 
 fn persist_config(cfg: &AcpServerConfig) {
@@ -128,6 +128,10 @@ pub(crate) async fn handle_request(
     transport: &dyn cc_acp::transport::AcpTransport,
 ) -> Result<Value, AcpError> {
     match method {
+        "workspace/worktrees" | "workspace/worktree/create" => {
+            worktree_requests::handle(method, params, &cfg.config_path).await
+        }
+
         "initialize" => {
             let version = params
                 .get("protocolVersion")

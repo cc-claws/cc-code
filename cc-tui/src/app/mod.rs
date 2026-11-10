@@ -18,6 +18,8 @@ pub mod plugin_panel;
 pub mod setup_wizard;
 pub mod status_panel;
 pub mod theme_panel;
+pub mod worktree_ops;
+pub mod worktree_panel;
 
 // Panel private modules
 mod panel_agent;

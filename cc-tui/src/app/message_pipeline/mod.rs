@@ -925,6 +925,7 @@ impl MessagePipeline {
             // 以下事件由 agent_ops 直接处理，Pipeline 返回 None
             AgentEvent::ShellCommandCompleted(_)
             | AgentEvent::KernelCommandCompleted { .. }
+            | AgentEvent::WorktreeCompleted { .. }
             | AgentEvent::Error(_)
             | AgentEvent::InteractionRequest { .. }
             | AgentEvent::TodoUpdate(_)

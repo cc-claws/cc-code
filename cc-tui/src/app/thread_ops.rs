@@ -191,6 +191,7 @@ impl App {
         let session = self.session_mgr.current();
         !session.ui.loading
             && !session.metadata.kernel_request_pending
+            && !session.metadata.worktree_request_pending
             && session.agent.cancel_token.is_none()
             && session.agent.interaction_prompt.is_none()
             && session.agent.pending_hitl_items.is_none()

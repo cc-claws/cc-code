@@ -13,6 +13,7 @@ use super::{
     login_panel::LoginPanel, mcp_panel::McpPanel, memory_panel::MemoryPanel,
     model_panel::ModelPanel, plugin_panel::PluginPanel, service_registry::ServiceRegistry,
     session_manager::SessionManager, status_panel::StatusPanel, theme_panel::ThemePanel,
+    worktree_panel::WorktreePanel,
 };
 use crate::thread::ThreadBrowser;
 
@@ -62,6 +63,7 @@ pub enum PanelKind {
     BackgroundTasks,
     Theme,
     Kernel,
+    Worktree,
     InputHistory,
 }
 
@@ -84,6 +86,7 @@ impl PanelKind {
             PanelKind::InputHistory => 11,
             PanelKind::Theme => 13,
             PanelKind::Kernel => 14,
+            PanelKind::Worktree => 15,
             PanelKind::CommandPalette => 0,
         }
     }
@@ -102,7 +105,9 @@ impl PanelKind {
                 MutexGroup::Tools
             }
             PanelKind::Status | PanelKind::Memory => MutexGroup::Info,
-            PanelKind::ThreadBrowser | PanelKind::InputHistory => MutexGroup::Thread,
+            PanelKind::ThreadBrowser | PanelKind::InputHistory | PanelKind::Worktree => {
+                MutexGroup::Thread
+            }
         }
     }
 
@@ -118,7 +123,8 @@ impl PanelKind {
             | PanelKind::CommandPalette
             | PanelKind::Theme
             | PanelKind::Kernel
-            | PanelKind::InputHistory => PanelScope::Session,
+            | PanelKind::InputHistory
+            | PanelKind::Worktree => PanelScope::Session,
             PanelKind::Mcp
             | PanelKind::Plugin
             | PanelKind::Cron
@@ -144,6 +150,8 @@ pub enum EventResult {
     OpenPanel(PanelKind),
     /// 请求打开指定 Thread（ThreadBrowser 专用）
     OpenThread(String),
+    /// 请求创建 worktree（None）或切换到已登记目录。
+    OpenWorktree(Option<String>),
 }
 
 // ─── PanelState ─────────────────────────────────────────────────────────────
@@ -165,6 +173,7 @@ pub enum PanelState {
     BackgroundTasks(BackgroundTasksPanel),
     Theme(ThemePanel),
     Kernel(KernelPanel),
+    Worktree(WorktreePanel),
     InputHistory(InputHistoryPanel),
 }
 
@@ -187,6 +196,7 @@ impl PanelState {
             PanelState::BackgroundTasks(_) => PanelKind::BackgroundTasks,
             PanelState::Theme(_) => PanelKind::Theme,
             PanelState::Kernel(_) => PanelKind::Kernel,
+            PanelState::Worktree(_) => PanelKind::Worktree,
             PanelState::InputHistory(_) => PanelKind::InputHistory,
         }
     }
@@ -209,6 +219,7 @@ impl PanelState {
             PanelState::BackgroundTasks(p) => p as &dyn Any,
             PanelState::Theme(p) => p as &dyn Any,
             PanelState::Kernel(p) => p as &dyn Any,
+            PanelState::Worktree(p) => p as &dyn Any,
             PanelState::InputHistory(p) => p as &dyn Any,
         }
     }
@@ -231,6 +242,7 @@ impl PanelState {
             PanelState::BackgroundTasks(p) => p as &mut dyn Any,
             PanelState::Theme(p) => p as &mut dyn Any,
             PanelState::Kernel(p) => p as &mut dyn Any,
+            PanelState::Worktree(p) => p as &mut dyn Any,
             PanelState::InputHistory(p) => p as &mut dyn Any,
         }
     }
@@ -254,6 +266,7 @@ impl PanelState {
             PanelState::BackgroundTasks(p) => p.render(f, app, area),
             PanelState::Theme(p) => p.render(f, app, area),
             PanelState::Kernel(p) => p.render(f, app, area),
+            PanelState::Worktree(p) => p.render(f, app, area),
             PanelState::InputHistory(p) => p.render(f, app, area),
         }
     }
@@ -277,6 +290,7 @@ impl PanelState {
             PanelState::BackgroundTasks(p) => p.desired_height(screen_height, screen_width),
             PanelState::Theme(p) => p.desired_height(screen_height, screen_width),
             PanelState::Kernel(p) => p.desired_height(screen_height, screen_width),
+            PanelState::Worktree(p) => p.desired_height(screen_height, screen_width),
             PanelState::InputHistory(p) => p.desired_height(screen_height, screen_width),
         }
     }
@@ -300,6 +314,7 @@ impl PanelState {
             PanelState::BackgroundTasks(p) => p.status_bar_hints(lc),
             PanelState::Theme(p) => p.status_bar_hints(lc),
             PanelState::Kernel(p) => p.status_bar_hints(lc),
+            PanelState::Worktree(p) => p.status_bar_hints(lc),
             PanelState::InputHistory(p) => p.status_bar_hints(lc),
         }
     }
@@ -433,6 +448,7 @@ impl PanelManager {
             PanelState::BackgroundTasks(p) => p.handle_key(input, ctx),
             PanelState::Theme(p) => p.handle_key(input, ctx),
             PanelState::Kernel(p) => p.handle_key(input, ctx),
+            PanelState::Worktree(p) => p.handle_key(input, ctx),
             PanelState::InputHistory(p) => p.handle_key(input, ctx),
         }
     }
@@ -459,6 +475,7 @@ impl PanelManager {
             PanelState::BackgroundTasks(p) => p.handle_paste(text, ctx),
             PanelState::Theme(p) => p.handle_paste(text, ctx),
             PanelState::Kernel(p) => p.handle_paste(text, ctx),
+            PanelState::Worktree(p) => p.handle_paste(text, ctx),
             PanelState::InputHistory(p) => p.handle_paste(text, ctx),
         }
     }
@@ -485,6 +502,7 @@ impl PanelManager {
             PanelState::BackgroundTasks(p) => p.handle_scroll(lines, ctx),
             PanelState::Theme(p) => p.handle_scroll(lines, ctx),
             PanelState::Kernel(p) => p.handle_scroll(lines, ctx),
+            PanelState::Worktree(p) => p.handle_scroll(lines, ctx),
             PanelState::InputHistory(p) => p.handle_scroll(lines, ctx),
         }
     }
@@ -516,6 +534,7 @@ impl PanelManager {
             PanelState::BackgroundTasks(p) => p.handle_mouse(mouse, area, ctx),
             PanelState::Theme(p) => p.handle_mouse(mouse, area, ctx),
             PanelState::Kernel(p) => p.handle_mouse(mouse, area, ctx),
+            PanelState::Worktree(p) => p.handle_mouse(mouse, area, ctx),
             PanelState::InputHistory(p) => p.handle_mouse(mouse, area, ctx),
         }
     }
@@ -542,6 +561,7 @@ impl PanelManager {
             PanelState::BackgroundTasks(p) => p.status_bar_hints(lc),
             PanelState::Theme(p) => p.status_bar_hints(lc),
             PanelState::Kernel(p) => p.status_bar_hints(lc),
+            PanelState::Worktree(p) => p.status_bar_hints(lc),
             PanelState::InputHistory(p) => p.status_bar_hints(lc),
         }
     }
@@ -566,6 +586,7 @@ impl PanelManager {
             PanelState::BackgroundTasks(p) => p.desired_height(screen_height, screen_width),
             PanelState::Theme(p) => p.desired_height(screen_height, screen_width),
             PanelState::Kernel(p) => p.desired_height(screen_height, screen_width),
+            PanelState::Worktree(p) => p.desired_height(screen_height, screen_width),
             PanelState::InputHistory(p) => p.desired_height(screen_height, screen_width),
         })
     }
@@ -592,6 +613,7 @@ impl PanelManager {
             PanelState::BackgroundTasks(p) => p.set_scroll_offset(offset),
             PanelState::Theme(p) => p.set_scroll_offset(offset),
             PanelState::Kernel(p) => p.set_scroll_offset(offset),
+            PanelState::Worktree(p) => p.set_scroll_offset(offset),
             PanelState::InputHistory(p) => p.set_scroll_offset(offset),
         }
     }

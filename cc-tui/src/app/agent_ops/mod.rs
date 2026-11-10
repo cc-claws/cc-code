@@ -58,6 +58,18 @@ impl App {
             return self.handle_subagent_event(&id, event);
         }
         match event {
+            AgentEvent::WorktreeCompleted {
+                session_id,
+                cwd,
+                result,
+            } => {
+                self.handle_worktree_completed(session_id, cwd, result);
+                self.render_rebuild();
+                if !self.session_mgr.current().ui.loading {
+                    self.flush_pending_messages();
+                }
+                (true, false, false)
+            }
             AgentEvent::SubagentEvent {
                 source_agent_id,
                 event,

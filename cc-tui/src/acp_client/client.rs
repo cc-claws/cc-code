@@ -53,6 +53,35 @@ pub struct AcpTuiClient {
 }
 
 impl AcpTuiClient {
+    pub async fn list_worktrees(
+        &self,
+        cwd: &str,
+    ) -> Result<cc_acp::worktree::WorktreeList, String> {
+        let result = self
+            .transport
+            .send_request("workspace/worktrees", json!({"cwd": cwd}))
+            .await
+            .map_err(|error| error.to_string())?;
+        serde_json::from_value(result).map_err(|error| error.to_string())
+    }
+
+    pub async fn create_worktree(
+        &self,
+        cwd: &str,
+        branch: Option<&str>,
+        base_ref: Option<&str>,
+    ) -> Result<cc_acp::worktree::Worktree, String> {
+        let result = self
+            .transport
+            .send_request(
+                "workspace/worktree/create",
+                json!({"cwd": cwd, "branch": branch, "baseRef": base_ref}),
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+        serde_json::from_value(result).map_err(|error| error.to_string())
+    }
+
     /// Check whether a session has been created.
     pub fn has_session(&self) -> bool {
         self.current_session_id.lock().unwrap().is_some()

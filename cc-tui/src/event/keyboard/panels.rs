@@ -44,6 +44,7 @@ pub(super) fn handle_panels(app: &mut App, input: &Input) -> Option<Action> {
             | Some(PanelKind::CommandPalette)
             | Some(PanelKind::Theme)
             | Some(PanelKind::Kernel)
+            | Some(PanelKind::Worktree)
             | Some(PanelKind::InputHistory)
     ) {
         let result = with_session_panels!(app, |sp, ctx| {
@@ -69,6 +70,22 @@ pub(super) fn handle_panels(app: &mut App, input: &Input) -> Option<Action> {
                     app.session_mgr.current_mut().session_panels = sp;
                     // Early return prevents macro from putting back again
                     app.open_thread_with_feedback(thread_id);
+                    return Some(Action::Redraw);
+                }
+                EventResult::OpenWorktree(path) => {
+                    sp.close();
+                    app.session_mgr.current_mut().ui.screen_selection.clear();
+                    app.session_mgr.current_mut().ui.text_selection.clear();
+                    app.session_mgr.current_mut().ui.panel_area = None;
+                    app.session_mgr.current_mut().session_panels = sp;
+                    let request = match path {
+                        Some(path) => crate::app::worktree_ops::WorktreeRequest::Switch(path),
+                        None => crate::app::worktree_ops::WorktreeRequest::Create {
+                            branch: None,
+                            base_ref: None,
+                        },
+                    };
+                    app.request_worktree(request);
                     return Some(Action::Redraw);
                 }
                 _ => {}

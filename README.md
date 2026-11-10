@@ -90,6 +90,7 @@ No credentials configured? The deterministic layer still runs and an LLM classif
 | **ACP Protocol** | Connect to Zed and other IDEs, or build your own "Cloud Code" platform |
 | **Auto Compact** | Long sessions auto-compressed, stays fast and cheap |
 | **Sub-Agent Concurrency** | Background sub-agents run in parallel with fork and background modes |
+| **Git Worktrees** | `/worktree` creates or switches isolated checkouts, restores the target directory's conversation, and displays the actual working directory. [Usage](docs/acp/worktrees.md) |
 | **HITL Approval** | Sensitive operations intercepted by the JEV semantic gate — a dedicated LLM judge that only prompts when it isn't sure |
 | **Dual-Engine File Search** | Grep/Glob prefer the external ripgrep binary, falling back to the built-in Rust engine |
 

@@ -5,6 +5,7 @@ use ratatui::{
     widgets::{Clear, Paragraph},
     Frame,
 };
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::app::{tool_display, App};
 use crate::ui::theme::{self, ThemeName};
@@ -255,13 +256,31 @@ fn render_first_row(f: &mut Frame, app: &App, area: Rect) {
         spans.extend(render_context_bar(pct, color));
     }
 
-    spans.push(status_separator());
-    append_project_segment(&mut spans, app, &colors);
-
     let stats = render_stats_segments(app);
-    if !stats.is_empty() {
+    let separator_width = status_separator().width();
+    let stats_width = if stats.is_empty() {
+        0
+    } else {
+        separator_width + stats.iter().map(Span::width).sum::<usize>()
+    };
+    let width = area.width as usize;
+    // 窄屏先收缩模型/上下文，给真实 cwd 留出位置，避免只显示模型而看不到目录。
+    let directory_reserve = width.div_ceil(3).min(24);
+    let prefix_width = width.saturating_sub(directory_reserve + separator_width);
+    if prefix_width == 0 {
+        spans.clear();
+    } else {
+        spans = truncate_spans_to_width(spans, prefix_width);
+    }
+    if !spans.is_empty() {
         spans.push(status_separator());
-        spans.extend(stats);
+    }
+    let remaining = width.saturating_sub(spans.iter().map(Span::width).sum());
+    append_project_segment(&mut spans, app, &colors, remaining, stats_width);
+    let remaining = width.saturating_sub(spans.iter().map(Span::width).sum());
+    if !stats.is_empty() && remaining > separator_width {
+        spans.push(status_separator());
+        spans.extend(truncate_spans_to_width(stats, remaining - separator_width));
     }
 
     render_truncated_line(f, spans, Vec::new(), area);
@@ -295,19 +314,85 @@ fn render_second_row(f: &mut Frame, app: &App, area: Rect) {
     render_truncated_line(f, left_spans, Vec::new(), area);
 }
 
-fn append_project_segment(spans: &mut Vec<Span<'_>>, app: &App, colors: &SbColors) {
-    let cwd_short = std::path::Path::new(&app.services.cwd)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or(&app.services.cwd);
-    spans.push(Span::styled(cwd_short.to_string(), fg_style(colors.yellow)));
-
+fn append_project_segment(
+    spans: &mut Vec<Span<'_>>,
+    app: &App,
+    colors: &SbColors,
+    available_width: usize,
+    trailing_width: usize,
+) {
+    let mut git_spans = Vec::new();
     // 分支状态只读缓存：探测由 `App::request_git_branch_refresh_if_due` 在事件循环中
     // 异步触发（子进程不占用渲染线程），故此处**无需**按 loading 区分快慢路径，
     // 也不会出现「Agent 工作期间分支名长期陈旧」（issue #277）。
     if let Some(status) = app.services.git_branch_cache.lock().get_cached() {
-        append_git_status(spans, status, colors);
+        append_git_status(&mut git_spans, status, colors);
     }
+    let git_width = git_spans.iter().map(Span::width).sum::<usize>();
+    let path_width = available_width
+        .saturating_sub(git_width + trailing_width)
+        .max(available_width.min(24));
+    let cwd = format_status_directory(
+        &app.services.cwd,
+        dirs_next::home_dir().as_deref(),
+        path_width,
+    );
+    let git_budget = available_width.saturating_sub(cwd.width() + trailing_width);
+    spans.push(Span::styled(cwd, fg_style(colors.yellow)));
+    if git_budget > 0 {
+        spans.extend(truncate_spans_to_width(git_spans, git_budget));
+    }
+}
+
+/// 保留真实路径和末尾父目录，区分不同 worktree 下的同名仓库；全程按显示列宽裁剪。
+fn format_status_directory(cwd: &str, home: Option<&std::path::Path>, max_width: usize) -> String {
+    let normalized = cwd.replace('\\', "/");
+    let path = if let Some(home) = home {
+        let home = home.to_string_lossy().replace('\\', "/");
+        let home = if home == "/" {
+            home.as_str()
+        } else {
+            home.trim_end_matches('/')
+        };
+        if normalized == home {
+            "~".to_string()
+        } else if let Some(relative) =
+            normalized.strip_prefix(&format!("{}/", home.trim_end_matches('/')))
+        {
+            format!("~/{relative}")
+        } else {
+            normalized
+        }
+    } else {
+        normalized
+    };
+    let path = tool_display::sanitize_display_text(&path);
+    if path.width() <= max_width {
+        return path;
+    }
+    // 末尾多分配一些宽度，尽量保留 worktree 标识和仓库名，前缀仍保留来源位置。
+    let last_parts: Vec<&str> = path.rsplit('/').take(2).collect();
+    let parent_width = last_parts.iter().map(|part| part.width()).sum::<usize>()
+        + last_parts.len().saturating_sub(1);
+    let tail_width =
+        (max_width.saturating_sub(1) * 2 / 3).max(parent_width.min(max_width.saturating_sub(1)));
+    let mut used = 0;
+    let tail: String = path
+        .chars()
+        .rev()
+        .take_while(|ch| {
+            used += ch.width().unwrap_or(0);
+            used <= tail_width
+        })
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    let head = crate::ui::message_render::truncate_to_display_width(
+        &path,
+        max_width.saturating_sub(tail.width()),
+    );
+    format!("{head}{tail}")
 }
 
 fn render_stats_segments(app: &App) -> Vec<Span<'static>> {
@@ -1118,6 +1203,10 @@ fn simplify_mcp_error(msg: &str) -> String {
         truncated
     }
 }
+
+#[cfg(test)]
+#[path = "status_bar_path_test.rs"]
+mod path_tests;
 
 #[cfg(test)]
 mod tests {
