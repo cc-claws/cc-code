@@ -810,7 +810,7 @@ fn test_backgrounded_bash_shows_manage_status_and_timeout_not_ctrl_b_hint() {
     assert!(
         rendered_lines
             .iter()
-            .any(|line| line == "  ⎿  Running in the background (↓ to manage)"),
+            .any(|line| line == "  ⎿  🔄 Running in the background (↓ to manage)"),
         "后台化后应显示可管理状态: {rendered_lines:?}"
     );
     assert!(
