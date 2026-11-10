@@ -8,6 +8,7 @@ authors.workspace = true
 
 [dependencies]
 cc-agent = { path = "../cc-agent" }
+cc-compress = { path = "../cc-compress" }
 async-trait.workspace = true
 tokio.workspace = true
 serde.workspace = true

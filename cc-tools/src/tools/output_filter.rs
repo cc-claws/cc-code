@@ -1,26 +1,5 @@
-use regex::Regex;
-use std::sync::LazyLock;
-
-static ANSI_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])").expect("valid ANSI regex")
-});
-
-/// 剥离终端 ANSI 转义码（颜色、光标控制等），并规范化回车符。
-pub fn strip_ansi(input: &str) -> String {
-    let stripped = ANSI_REGEX.replace_all(input, "");
-    // 处理带 \r 的终端覆盖输出（如进度条）：保留最后一段
-    let mut normalized_lines = Vec::new();
-    for line in stripped.lines() {
-        if line.contains('\r') {
-            if let Some(last) = line.split('\r').rfind(|s| !s.is_empty()) {
-                normalized_lines.push(last);
-            }
-        } else {
-            normalized_lines.push(line);
-        }
-    }
-    normalized_lines.join("\n")
-}
+/// ANSI 剥离与 `\r` 覆盖规范化由 `cc-compress` 提供，此处转出以保持既有调用路径。
+pub use cc_compress::ansi::strip_ansi;
 
 /// 检查一行文本是否属于 git status 的交互提示噪音。
 fn is_git_status_noise(line: &str) -> bool {
@@ -139,12 +118,15 @@ pub fn clean_rtk_stderr_noise(stderr: &str) -> String {
 /// 1. 首先剥离 ANSI 转义字符和回车覆盖。
 /// 2. 根据执行的命令类型匹配最合适的过滤器（git status, cargo test, cargo check/build 等）。
 /// 3. 若无匹配规则，返回剥离 ANSI 后的原始文本。
+///
+/// 出口统一过 [`cc_compress::guard::never_worse`]：过滤结果比原文更费 token
+/// 时回退原文（小输出场景下追加的标记行可能比省下的内容还多）。
 pub fn filter_command_output(command: &str, output: &str, exit_code: i32) -> String {
     let clean_output = strip_ansi(output);
     let cmd_lower = command.to_lowercase();
 
     // 命令匹配逻辑（支持带路径或前缀参数的情况）
-    if cmd_lower.contains("git status") {
+    let filtered = if cmd_lower.contains("git status") {
         filter_git_status(&clean_output)
     } else if cmd_lower.contains("cargo test") || cmd_lower.contains("cargo nextest") {
         filter_cargo_test(&clean_output, exit_code)
@@ -159,8 +141,10 @@ pub fn filter_command_output(command: &str, output: &str, exit_code: i32) -> Str
         // 代码天然含大量重复行（`});`、`.unwrap();` 等），折叠会
         // 整体吞掉函数体，agent 被迫多次小窗口读取才能拼出完整实现。
         // RTK 已做了 token 压缩，peri 再加一层折叠弊大于利。
-        clean_output
-    }
+        clean_output.clone()
+    };
+
+    cc_compress::guard::never_worse(&clean_output, filtered)
 }
 
 // 注意：fold_repeated_lines / fold_repeated_blocks 已移除（Issue #214 反馈）。
