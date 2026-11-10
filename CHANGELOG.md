@@ -4,6 +4,12 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.263 — 2026-11-10
+
+### Features
+
+- **`Ctrl+P` 切换内核面板，`Alt+P` 打开命令面板（#981, #982）**：此前 `Ctrl+P` 与 `Alt+P` 两个快捷键都绑定到命令面板，内核（Agent Kernel）切换只能手动输入 `/kernel`，没有独立快捷键入口。现将重叠绑定拆开：`Ctrl+P` 弹出内核选择面板（cc / dsh / pi），复用 `/kernel` 无参入口逻辑（新增 `App::open_kernel_panel()` 封装，`/kernel` 命令改为调用它，消除重复代码）；`Alt+P` 保持打开命令面板（Provider / Model / Effort 选择），行为不变。两面板同属 `MutexGroup::Settings` 互斥组，按键切换时自动关闭另一面板。文案同步：状态栏第二行提示改为 `Ctrl+O ::详情 │ Ctrl+P ::内核 │ Alt+P ::设置`（新增 `key-status-kernel` 本地化键），tips `tip-2` 改为「Ctrl+P 切换 Agent 内核，Alt+P 打开命令面板」、`tip-18` 改为「Ctrl+P 或 /kernel 切换 Agent 内核」，`/help` 快捷键列表新增内核选择项（`help-shortcuts` 增加 `$kernel` 占位符），`command_palette_label()` 返回值由 `"Ctrl+P / Alt+P"` 改为 `"Alt+P"` 并新增 `kernel_panel_label()`，`TUI-STYLE.md` 状态栏默认行说明同步。验证：`cargo test -p cc-tui --lib keyboard::` 55 passed（含新增 3 个测试：`test_shortcuts_ctrl_p_toggles_kernel_panel`、`test_shortcuts_alt_p_toggles_command_palette`、`test_shortcuts_ctrl_p_replaces_open_command_palette` 覆盖两面板互斥替换）；CI 三平台（macos / ubuntu / windows）build 全绿。
+
 ## v0.6.261 — 2026-11-09
 
 ### Fixes

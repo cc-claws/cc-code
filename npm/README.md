@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.263：**`Ctrl+P` 切换内核，`Alt+P` 打开命令面板**——此前两个快捷键都绑定到命令面板，内核切换只能手动输入 `/kernel`。现拆分：`Ctrl+P` 弹出内核选择面板（cc / dsh / pi），`Alt+P` 保持命令面板（Provider / Model / Effort）不变；两面板互斥，切换时自动关闭另一面板。状态栏、tips 与 `/help` 同步更新（#981, #982）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.255：**command hook 支持 exec form args**——Windows 上第三方桌面工具常把 hook 写成 `command` + `args` 的 exec form，此前 `args` 被静默丢弃、整串 `command` 交 `cmd /C` 执行，路径含空格时全部 exit 1 失败。现 `args` 非空时直接以 argv 启动（不经过 shell）并做变量替换，旧配置行为不变（#954, #955）；另移除状态栏无 LLM 响应时的 `Cache -` 无信息量占位，`Cache 0%` 真实读数保留（#956, #957）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.254：**面板关闭后视口回缩**——修复 `Ctrl+P` 面板取消后页面留白（输入框/状态栏浮在中部、下方空白）：面板等瞬时块不再进视口持久记忆，关闭立即回收高度并清理释放行，页面继续紧贴内容（#951, #952）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
@@ -186,7 +188,8 @@ cc-code --model deepseek/deepseek-chat "重构这个函数"
 | 快捷键 | 功能 |
 |--------|------|
 | `Shift+Tab` | 循环切换权限模式（auto / bypass，共两档） |
-| `Ctrl+P` / `Alt+P` | 打开命令面板（Provider / Model / Effort 配置） |
+| `Ctrl+P` | 打开内核选择面板（cc / dsh / pi 切换 Agent 内核） |
+| `Alt+P` | 打开命令面板（Provider / Model / Effort 配置） |
 | `Ctrl+B` | 将正在运行的前台 Shell 命令转入后台执行 |
 | `Alt+V` / `Ctrl+V` | 从剪贴板粘贴图片附件（`Alt+V` 专用于穿透 Windows Terminal 等现代终端对 `Ctrl+V` 的拦截） |
 | `Ctrl+O` | 切换详细模式（Verbose） |
