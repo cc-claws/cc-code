@@ -46,7 +46,7 @@ help-available-commands = Available commands:
 help-alias-prefix = (aliases: /{ $aliases })
 help-skills-count = Skills ({ $count } available): type # prefix to view
 help-skills-empty = Skills: place .md files in .claude/skills/ directory to add
-help-shortcuts = Shortcuts: Shift+Tab toggle permission mode | { $palette } command palette (select Model / Provider) | Shift+Enter newline | Esc quit | Ctrl+C interrupt
+help-shortcuts = Shortcuts: Shift+Tab toggle permission mode | { $palette } command palette (select Model / Provider) | { $kernel } kernel picker | Shift+Enter newline | Esc quit | Ctrl+C interrupt
 
 # compact command
 
@@ -154,6 +154,7 @@ key-tab = :Tab
 key-effort = :Effort
 key-settings = :Settings
 key-status-settings = :settings
+key-status-kernel = :kernel
 key-nav = :Navigate
 key-edit = :Edit
 key-kill = :Stop
@@ -184,7 +185,7 @@ welcome-skills-available = { $count } skills available
 
 tip-0 = Type / to enter commands, Tab to autocomplete
 tip-1 = Ctrl+C interrupts Agent, Shift+Tab toggles permission mode
-tip-2 = Ctrl+P / Alt+P opens command palette (Provider / Model / Effort)
+tip-2 = Ctrl+P switches Agent kernel, Alt+P opens command palette (Provider / Model / Effort)
 tip-3 = Shift+Enter for newline in input box
 tip-4 = Drag images to attach, drag files to insert path
 tip-5 = Alt+V / Ctrl+V pastes clipboard image (Alt+V avoids terminal intercept)
@@ -200,7 +201,7 @@ tip-14 = /plugin manages CC plugins
 tip-15 = Add custom Skills in .claude/skills/
 tip-16 = Define SubAgents in .claude/agents/
 tip-17 = For complex tasks, have Agent plan first before executing
-tip-18 = Use /kernel to switch Agent kernels (cc, dsh, pi)
+tip-18 = Ctrl+P or /kernel switches Agent kernel (cc, dsh, pi)
 tip-clear-override = Use /clear to start fresh when switching topics and free up context
 
 # ---- Setup Wizard ----

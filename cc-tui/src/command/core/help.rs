@@ -50,10 +50,16 @@ impl Command for HelpCommand {
         lines.push("".to_string());
         lines.push(lc.tr_args(
             "help-shortcuts",
-            &[(
-                "palette".into(),
-                crate::event::keyboard::command_palette_label().into(),
-            )],
+            &[
+                (
+                    "palette".into(),
+                    crate::event::keyboard::command_palette_label().into(),
+                ),
+                (
+                    "kernel".into(),
+                    crate::event::keyboard::kernel_panel_label().into(),
+                ),
+            ],
         ));
 
         let vm = MessageViewModel::system(lines.join("\n"));

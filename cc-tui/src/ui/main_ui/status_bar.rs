@@ -912,7 +912,8 @@ fn render_third_row(f: &mut Frame, app: &App, area: Rect) {
             } else {
                 vec![
                     ("Ctrl+O".to_string(), lc.tr("key-status-detail")),
-                    ("Ctrl+P".to_string(), lc.tr("key-status-settings")),
+                    ("Ctrl+P".to_string(), lc.tr("key-status-kernel")),
+                    ("Alt+P".to_string(), lc.tr("key-status-settings")),
                 ]
             };
             format_hints(&hints, key_style, desc_style)

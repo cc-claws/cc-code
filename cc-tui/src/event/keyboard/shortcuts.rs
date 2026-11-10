@@ -1,14 +1,14 @@
 use ratatui::crossterm::event::KeyCode;
 
-use super::{SHORTCUT_BG_BAR, SHORTCUT_COMMAND_PALETTE, SHORTCUT_COMMAND_PALETTE_ALT};
+use super::{SHORTCUT_BG_BAR, SHORTCUT_COMMAND_PALETTE, SHORTCUT_KERNEL_PANEL};
 use crate::app::panel_manager::PanelKind;
 use crate::app::App;
 
 use super::super::Action;
 
-/// 处理全局快捷键：BackTab（权限循环）、Ctrl+B（bg bar）、Ctrl+P / Alt+P（命令面板）、
-/// Ctrl+O（详细模式切换）。
-/// Provider 切换已统一收敛到 Ctrl+P / Alt+P 命令面板。
+/// 处理全局快捷键：BackTab（权限循环）、Ctrl+B（bg bar）、Ctrl+P（内核选择）、
+/// Alt+P（命令面板）、Ctrl+O（详细模式切换）。
+/// 内核切换走 Ctrl+P 内核面板，Provider / Model / Effort 选择走 Alt+P 命令面板。
 pub(super) fn handle_shortcuts(
     app: &mut App,
     key_event: &ratatui::crossterm::event::KeyEvent,
@@ -55,10 +55,26 @@ pub(super) fn handle_shortcuts(
         return Some(Action::Redraw);
     }
 
-    // Ctrl+P / Alt+P: toggle 命令面板（Provider & Model 选择）
-    if SHORTCUT_COMMAND_PALETTE.matches(key_event)
-        || SHORTCUT_COMMAND_PALETTE_ALT.matches(key_event)
-    {
+    // Ctrl+P: toggle 内核选择面板（cc / dsh / pi）
+    if SHORTCUT_KERNEL_PANEL.matches(key_event) {
+        if app
+            .session_mgr
+            .current()
+            .session_panels
+            .is_active(PanelKind::Kernel)
+        {
+            app.session_mgr
+                .current_mut()
+                .session_panels
+                .close_if(PanelKind::Kernel);
+        } else {
+            app.open_kernel_panel();
+        }
+        return Some(Action::Redraw);
+    }
+
+    // Alt+P: toggle 命令面板（Provider & Model 选择）
+    if SHORTCUT_COMMAND_PALETTE.matches(key_event) {
         if app
             .session_mgr
             .current()
