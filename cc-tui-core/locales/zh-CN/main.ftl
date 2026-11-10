@@ -121,6 +121,7 @@ statusbar-permission-auto = auto mode on
 statusbar-permission-bypass = bypass permissions on
 statusbar-permission-cycle-hint = (shift+tab 切换)
 statusbar-copied = 已复制 { $count } 个字符
+statusbar-copy-failed = 复制到剪贴板失败：{ $error }
 scroll-back-to-bottom = ↓ 回到最新 · End
 scroll-back-to-bottom-new = ↓ 有新活动 · End
 statusbar-retrying = 重试 { $attempt }/{ $max } ({ $delay }s): { $error }

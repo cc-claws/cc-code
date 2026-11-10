@@ -2,8 +2,11 @@
 //!
 //! 决策逻辑（参照 openai/codex `clipboard_copy.rs`）：
 //!
-//! 1. **SSH 会话**（`SSH_TTY` / `SSH_CONNECTION`）：native clipboard 写到远端
+//! 1. **SSH 会话**（`SSH_TTY` / `SSH_CONNECTION`）：默认 native clipboard 写到远端
 //!    机器用户拿不到，必须走终端转义。tmux 内优先 tmux load-buffer，否则 OSC 52。
+//!    但 Linux 上存在转发显示（`DISPLAY` / `WAYLAND_DISPLAY`，X11 forward 或
+//!    socket 转发）时，native 写的正是用户本机剪贴板，且这是终端不支持 OSC 52
+//!    时的唯一通路，故先试 native 再回落终端转义。
 //! 2. **本地会话**：先 arboard；WSL 下回落 powershell.exe；都失败再 OSC 52。
 //!
 //! OSC 52 是终端转义序列 `\x1b]52;c;{base64}\x07`，kitty/WezTerm/iTerm2/Ghostty
@@ -29,6 +32,7 @@ pub fn copy_to_clipboard(text: &str) -> Result<Option<crate::clipboard::Clipboar
             ssh_session: is_ssh_session(),
             wsl_session: is_wsl_session(),
             tmux_session: is_tmux_session(),
+            forwarded_display: has_forwarded_display(),
         },
         tmux_clipboard_copy,
         osc52_copy,
@@ -43,6 +47,8 @@ struct CopyEnvironment {
     ssh_session: bool,
     wsl_session: bool,
     tmux_session: bool,
+    /// SSH 会话里本地显示是否被转发（此时 native clipboard 写到的是用户本机）。
+    forwarded_display: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -55,6 +61,30 @@ fn copy_to_clipboard_with(
     wsl_copy_fn: impl Fn(&str) -> Result<(), String>,
 ) -> Result<Option<crate::clipboard::ClipboardLease>, String> {
     if environment.ssh_session {
+        if environment.forwarded_display {
+            // 显示被转发到用户机器：native 写的就是用户剪贴板，且终端不支持
+            // OSC 52 时它是唯一可用通路，故优先 native，失败再回落终端转义。
+            match arboard_copy_fn(text) {
+                Ok(lease) => return Ok(lease),
+                Err(native_err) => {
+                    tracing::warn!(
+                        "native clipboard copy failed over SSH with forwarded display: {native_err}, falling back to terminal clipboard"
+                    );
+                    return terminal_clipboard_copy_with(
+                        text,
+                        environment.tmux_session,
+                        &tmux_copy_fn,
+                        &osc52_copy_fn,
+                    )
+                    .map(|()| None)
+                    .map_err(|terminal_err| {
+                        format!(
+                            "native clipboard: {native_err}; terminal clipboard copy failed over SSH: {terminal_err}"
+                        )
+                    });
+                }
+            }
+        }
         // SSH 下 native clipboard 写到远端机器，没用；走终端转义。lease 不适用。
         return terminal_clipboard_copy_with(
             text,
@@ -158,6 +188,23 @@ fn is_ssh_session() -> bool {
 /// 当前是否运行在 tmux 内。
 fn is_tmux_session() -> bool {
     std::env::var_os("TMUX").is_some() || std::env::var_os("TMUX_PANE").is_some()
+}
+
+/// SSH 会话里本地显示是否被转发到用户机器。
+///
+/// 只有 Linux 有 native 剪贴板经由 X11 forward / Wayland socket 转发到用户本机的
+/// 场景；macOS / Windows 的 native clipboard 永远指向远端机器本身，转发与否都
+/// 写不到用户那里。SSH 下 `DISPLAY`/`WAYLAND_DISPLAY` 有值即视为已转发。
+#[cfg(target_os = "linux")]
+fn has_forwarded_display() -> bool {
+    ["DISPLAY", "WAYLAND_DISPLAY"]
+        .iter()
+        .any(|key| std::env::var_os(key).is_some_and(|value| !value.is_empty()))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn has_forwarded_display() -> bool {
+    false
 }
 
 #[cfg(target_os = "linux")]
@@ -475,6 +522,14 @@ mod tests {
             ssh_session: true,
             wsl_session: true,
             tmux_session: false,
+            forwarded_display: false,
+        }
+    }
+
+    fn remote_forwarded_display_environment() -> CopyEnvironment {
+        CopyEnvironment {
+            forwarded_display: true,
+            ..remote_environment()
         }
     }
 
@@ -490,6 +545,7 @@ mod tests {
             ssh_session: false,
             wsl_session: false,
             tmux_session: false,
+            forwarded_display: false,
         }
     }
 
@@ -597,6 +653,74 @@ mod tests {
             panic!("expected OSC 52 error");
         };
         assert_eq!(error, "OSC 52 clipboard copy failed over SSH: blocked");
+    }
+
+    #[test]
+    fn test_copy_prefers_native_when_ssh_has_forwarded_display() {
+        let osc_calls = Cell::new(0_u8);
+        let native_calls = Cell::new(0_u8);
+        let result = copy_to_clipboard_with(
+            "hello",
+            remote_forwarded_display_environment(),
+            |_| Ok(()),
+            |_| {
+                osc_calls.set(osc_calls.get() + 1);
+                Ok(())
+            },
+            |_| {
+                native_calls.set(native_calls.get() + 1);
+                Ok(None)
+            },
+            |_| Ok(()),
+        );
+
+        assert!(result.is_ok());
+        assert_eq!(native_calls.get(), 1);
+        assert_eq!(osc_calls.get(), 0);
+    }
+
+    #[test]
+    fn test_copy_falls_back_to_osc52_when_native_fails_with_forwarded_display_under_ssh() {
+        let osc_calls = Cell::new(0_u8);
+        let native_calls = Cell::new(0_u8);
+        let result = copy_to_clipboard_with(
+            "hello",
+            remote_forwarded_display_environment(),
+            |_| Ok(()),
+            |_| {
+                osc_calls.set(osc_calls.get() + 1);
+                Ok(())
+            },
+            |_| {
+                native_calls.set(native_calls.get() + 1);
+                Err("no display".into())
+            },
+            |_| Ok(()),
+        );
+
+        assert!(result.is_ok());
+        assert_eq!(native_calls.get(), 1);
+        assert_eq!(osc_calls.get(), 1);
+    }
+
+    #[test]
+    fn test_copy_reports_native_and_terminal_errors_with_forwarded_display_under_ssh() {
+        let result = copy_to_clipboard_with(
+            "hello",
+            remote_forwarded_display_environment(),
+            |_| Ok(()),
+            |_| Err("blocked".into()),
+            |_| Err("no display".into()),
+            |_| Ok(()),
+        );
+
+        let Err(error) = result else {
+            panic!("expected combined clipboard error");
+        };
+        assert_eq!(
+            error,
+            "native clipboard: no display; terminal clipboard copy failed over SSH: blocked"
+        );
     }
 
     #[test]

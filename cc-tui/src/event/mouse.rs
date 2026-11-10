@@ -117,7 +117,7 @@ pub fn rgba_to_png_base64(width: u32, height: u32, rgba_bytes: &[u8]) -> Result<
 }
 
 /// Copies the current screen selection to the system clipboard. Returns `true`
-/// if text was successfully copied.
+/// when a selection existed and the copy was attempted (失败会落系统提示).
 /// Note: does NOT clear the selection — highlight persists until user clicks
 /// elsewhere（点击非拖拽处才清除，符合验收标准 8）。
 pub fn copy_screen_selection_to_clipboard(app: &mut App) -> bool {
@@ -131,19 +131,25 @@ pub fn copy_screen_selection_to_clipboard(app: &mut App) -> bool {
     {
         let char_count = text.chars().count();
         match crate::clipboard::copy::copy_to_clipboard(text) {
-            Ok(lease) => app.global_ui.clipboard_lease = lease,
-            Err(err) => tracing::warn!("copy_screen_selection_to_clipboard failed: {err}"),
+            Ok(lease) => {
+                app.global_ui.clipboard_lease = lease;
+                app.session_mgr.current_mut().ui.copy_char_count = char_count;
+                app.session_mgr.current_mut().ui.copy_message_until =
+                    Some(std::time::Instant::now() + std::time::Duration::from_millis(2000));
+            }
+            Err(err) => {
+                tracing::warn!("copy_screen_selection_to_clipboard failed: {err}");
+                push_copy_failure(app, &err);
+            }
         }
-        app.session_mgr.current_mut().ui.copy_char_count = char_count;
-        app.session_mgr.current_mut().ui.copy_message_until =
-            Some(std::time::Instant::now() + std::time::Duration::from_millis(2000));
         return true;
     }
     false
 }
 
 /// Copies the current message-area text selection (content-anchored, via wrap_map)
-/// to the system clipboard. Returns `true` if text was successfully copied.
+/// to the system clipboard. Returns `true` when a selection existed and the copy
+/// was attempted (失败会落系统提示).
 /// Note: does NOT clear the selection — highlight persists until user clicks
 /// elsewhere（与 ScreenSelection 行为一致，符合验收标准 8）。
 pub fn copy_selection_to_clipboard(app: &mut App) -> bool {
@@ -157,13 +163,31 @@ pub fn copy_selection_to_clipboard(app: &mut App) -> bool {
     {
         let char_count = text.chars().count();
         match crate::clipboard::copy::copy_to_clipboard(text) {
-            Ok(lease) => app.global_ui.clipboard_lease = lease,
-            Err(err) => tracing::warn!("copy_selection_to_clipboard failed: {err}"),
+            Ok(lease) => {
+                app.global_ui.clipboard_lease = lease;
+                app.session_mgr.current_mut().ui.copy_char_count = char_count;
+                app.session_mgr.current_mut().ui.copy_message_until =
+                    Some(std::time::Instant::now() + std::time::Duration::from_millis(2000));
+            }
+            Err(err) => {
+                tracing::warn!("copy_selection_to_clipboard failed: {err}");
+                push_copy_failure(app, &err);
+            }
         }
-        app.session_mgr.current_mut().ui.copy_char_count = char_count;
-        app.session_mgr.current_mut().ui.copy_message_until =
-            Some(std::time::Instant::now() + std::time::Duration::from_millis(2000));
         return true;
     }
     false
+}
+
+/// 剪贴板写入失败时给用户可见反馈。
+///
+/// 失败链条可能很长（SSH + 终端不支持 OSC 52 + 无转发显示），只 `tracing::warn`
+/// 会让用户以为已经复制成功——务必落一条系统提示。
+fn push_copy_failure(app: &mut App, error: &str) {
+    let note = app.services.lc.tr_args(
+        "statusbar-copy-failed",
+        &[("error".into(), error.to_string().into())],
+    );
+    app.active_mut().messages.push_system_note(note);
+    app.render_rebuild();
 }
