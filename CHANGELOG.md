@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.266 — 2026-11-10
+
+### Refactor
+
+- **工具描述补反锚定并对齐 schema，精简工具策略段（#993, #994）**：工具提示词统一遵循「schema 是唯一真相」原则——参数细节只写在工具 schema，描述里不重复；防错锚定就近写在工具描述内部，而非系统提示词的通用条款。其一，`Glob` 描述此前没有 NEVER 反锚定句（`Grep` / `Write` 均有），是「把 Bash 参数 `{command, description}` 发给只读工具」这类错配的防护缺口，现补上 `NEVER use Glob to execute shell commands or scripts — that is Bash. \`command\` is not a valid parameter here.`，句式与既有 `Write` 描述对齐；同时修正 `cc-tools/src/tools/filesystem/glob.rs` 中 `.hidden(true)` 的注释——`ignore` crate 语义为「忽略隐藏路径」，原注释「搜索隐藏文件」与行为相反。其二，`Glob` 与 `Grep` 描述删除与自身 schema 逐字重复的内容（`pattern` / `path` 的必填与默认值、`output_mode` 全枚举、`-C` / `-A` / `-B` 语义、`head_limit` / `offset`、`Relativizes paths...` 等），对应字段的 schema 描述完好保留；两者描述分别由 151 / 248 词精简至 78 / 138 词，并保留本仓库特有且 schema 未覆盖的真实行为（Grep 超长行 500 字节不输出、Glob 最多 1000 条与 `.gitignore` / `.ignore` 遵守及隐藏目录排除）。其三，`cc-agent/src/kernel/prompts/cc.md` 工具策略段删除与工具 schema 重复的三条签名条款（`Read` / `Write` / `Edit` 用 `file_path`、`Glob` / `Grep` 需 `pattern`、`Bash` 需 `command`），把 Bash 切换点提示并入「优先用专用工具」一句，并删掉与 Grep 描述重复的错配条款，该段由 373 词压至 198 词。改动文件：`cc-agent/src/kernel/prompts/cc.md`、`cc-tools/src/tools/filesystem/{glob.rs,grep.rs,glob_test.rs,grep_test.rs}`。验证：`cargo test -p cc-tools --lib` 266 passed；`cargo test -p cc-agent --lib` 687 passed；`cargo test -p cc-acp --lib` 256 passed；`cargo clippy -p cc-tools --all-targets -- -D warnings` 无告警。属纯提示词与描述文案改动，不改任何工具行为、参数或返回值；系统提示词改动位于缓存边界之前的静态段，升级后新会话前缀缓存失效一次，会话内 `frozen_system_prompt` 不变。
+
+---
+
 ## v0.6.265 — 2026-11-10
 
 ### Features
