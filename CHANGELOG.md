@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.267 — 2026-11-10
+
+### Features
+
+- **后台运行状态行前加旋转图标（#996, #997）**：Bash 工具移入后台后，工具行下方的状态文案 `Running in the background (↓ to manage)` 是纯文字，与上方带图标的工具行相比不够醒目。现于文案前加一个旋转语义图标 🔄（U+1F504）。该文案常量被两处渲染点共用（后台任务卡片、Bash 工具行），改常量即两处一致生效。🔄 为 East Asian Width 双宽字符，与既有截断函数（`unicode-width`）口径一致，静态渲染下宽度稳定，不会引发后续文本抖动。改动文件：`cc-tui/src/ui/message_render/{mod.rs,message_render_test.rs}`。验证：`cargo test -p cc-tui --lib message_render` 240 passed。属纯展示文案改动，不改状态机、任务句柄或快捷键行为。
+
+---
+
 ## v0.6.266 — 2026-11-10
 
 ### Refactor

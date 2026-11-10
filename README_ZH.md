@@ -121,6 +121,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 
 | 功能 | 版本 | 说明 |
 |------|------|------|
+| **后台运行状态行加旋转图标** | v0.6.267 | Bash 工具移入后台后，工具行下方的状态文案 `Running in the background (↓ to manage)` 是纯文字，与上方带图标的工具行相比不够醒目，现于文案前加旋转语义图标 🔄（U+1F504）。该常量由两处渲染点共用（后台任务卡片、Bash 工具行），改常量即两处一致生效。🔄 为 East Asian Width 双宽字符，与既有 `unicode-width` 截断口径一致，静态渲染下宽度稳定，不会引发后续文本抖动（#996, #997）。 |
 | **工具描述补反锚定并按 schema 精简** | v0.6.266 | 工具描述提示词统一遵循一条规则：schema 是唯一真相。`Glob` 此前缺少 `Grep` 与 `Write` 都有的 NEVER 反锚定，导致本应发给 Bash 的 `{command, description}` 落到只读工具上时没有任何阻拦；现补上 `NEVER use Glob to execute shell commands or scripts — that is Bash. \`command\` is not a valid parameter here.`。`Glob` 与 `Grep` 同时删掉仅复述自身 schema 的文字（`pattern` / `path` 默认值、`output_mode` 全枚举、`-C` / `-A` / `-B` 语义、`head_limit` / `offset`），由 151 / 248 词降至 78 / 138 词，并保留 schema 从未覆盖的本项目特有行为（Grep 超长行 500 字节不输出；Glob 最多 1000 条且遵守 `.gitignore` / `.ignore`）。内核工具策略段删掉三条与工具 schema 重复的签名条款（373 → 198 词），并修正一句过时注释——`hidden(true)` 的语义是**忽略**隐藏路径（#993, #994）。 |
 | **工具错配自动改道支持只读 Bash** | v0.6.265 | 模型把 Bash 参数（`{command, description}`）发给只读工具时，此前只报 schema 错误加一句 `💡 Did you mean to use 'Bash'?`，需额外一轮 LLM 往返纠正，现纳入自动改道。改道同时前移到新增的阶段零，在**任何事件与审批之前**替换调用的 name/input——此前改道执行过晚，界面会显示「`Grep` 名 + Bash 参数」（取只读绿、`file_inspect` 恒 false），且 `requires_approval` 看到的是原名 `Grep` 而静默跳过审批，改道后的 Bash 无审批直接执行。Bash 是唯一例外：仅当参数严格匹配其 schema **且**命令被判定为只读查看时才构成候选，仍遵循「恰好一个候选」语义；判定属启发式而非沙箱，故改道后照常走 HITL 审批。只读判定从 `cc-tui-core` 下沉到 `cc-agent/src/shell/readonly.rs`（原路径转出）——改道逻辑在 `cc-agent`，依赖方向要求如此（#988, #989）。 |
 | **Grep / Glob 的 `pattern` 误用诊断与零匹配提示** | v0.6.265 | 向 `Grep` 的 `pattern` 传路径或 glob（如 `src/*.rs`）是 schema 合法的，于是被当正则执行——`.` 通配、`*` 作量词——合法地匹配不到任何内容、静默返回 `No files found`。错配诊断、自动改道、熔断器全部挂在参数校验失败路径上，无一触发，空结果极易被误读为「该路径下没有这些文件」。现两侧 `pattern` 描述都写明各自接收何种输入（并给出就地反例 `"src/*.rs"`），且 glob 形态的 pattern 零匹配时会反向按 glob 复查，命中则追加 `💡 Did you mean to use 'Glob'?` 提示。三重收窄保证真阴性不出噪音——仅零匹配时介入、仅含 `*`/`?`/`[` 才试探、仅 glob 确有命中才提示——纯字面路径与正常搜索输出逐字节不变（#986, #987）。 |
@@ -130,8 +131,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **思考行数字加粗与 diff 上下文行号提亮** | v0.6.260 | 推理思考摘要行（`Thought for 11s, listed 1 directory`）的时长与动作计数数字此前和普通文字同字重、扫读抓不到重点，现把文本中连续数字拆分为独立 span 单独加粗——时长 `Ns` 整体加粗，字数仅数字加粗（单位词如 `chars` 保持常规）；ToolCallGroup 自带思考行、活跃/冻结状态同款处理，无亮度跳变，底部 `Brewed` 总结行与 unit 词不加粗。Edit/Write diff 视图的上下文行号由最暗灰阶 `theme.dim()`（#505050）提亮为 `theme.muted()`（#999999，与 tip 提示同色阶），仅影响 diff 上下文行，+/- 行 decoration 色不动（#971, #970）。 |
 | **diff 行号前多余空格与提前折行修复** | v0.6.259 | 把 diff 加减号 marker 移到行号右侧时行号前多加了一个空格，致行号、marker 与正文右移一列并使长行提前一列折行；本修复恢复参考截图 ` 17 +### Docs` 布局——上下文与增删行前导空格由两格恢复为一格、gutter 宽度由 n+4 恢复为 n+3，续行 marker 前占位由 n+3 恢复为 n+2 与首行对齐；修正原有布局断言，新增第 17 行列位置与折行边界回归测试（40 列宽下 35 字符正文完整显示，36 字符才折行），同步审批预览删除标记转换处的布局注释（#969）。 |
 | **欢迎页显示当前内核并完善 `/kernel` 切换交互** | v0.6.258 | 欢迎页按当前会话显示 Agent Kernel，`/kernel` 提供 cc / dsh / pi 选择列表面板，切换成功复用与模型切换一致的短暂通知（同 toast 位置、2.5 秒时长）；欢迎页、session metadata 与 ACP 客户端同步当前会话内核，覆盖新建、历史恢复和切换回执；内核请求期间阻止重复操作与会话切换，保留草稿并延后队列（#967）。 |
-| **diff 行加减号 marker 移到行号右侧** | v0.6.256 | diff 展示的 `+` / `-` marker 此前渲染在行号左侧（`+ 25 内容`），现按参考样式移到行号右侧（`  25 + 内容`）——两空格前缀 + 右对齐行号 + 空格 + marker，context 行的 marker 位同步右移、行号列保持对齐。影响所有 diff 渲染路径（工具结果详情、HITL 审批弹窗，删除行仍显示 U+2212 减号），新建文件预览不受影响，marker/行号仍共用 decoration 色分层，正文高亮与底色逻辑不变（#964, #965）。 |
-> 更早版本（v0.6.0 – v0.6.255）见 [CHANGELOG](./CHANGELOG.md)。
+> 更早版本（v0.6.0 – v0.6.256）见 [CHANGELOG](./CHANGELOG.md)。
 
 ---
 
