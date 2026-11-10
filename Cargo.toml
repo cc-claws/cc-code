@@ -10,6 +10,7 @@ members = [
     "langfuse-client",
     "cc-widgets",
     "cc-lsp",
+    "cc-compress",
 ]
 resolver = "2"
 

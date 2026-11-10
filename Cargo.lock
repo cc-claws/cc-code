@@ -491,6 +491,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cc-compress"
+version = "0.2.0"
+dependencies = [
+ "regex",
+]
+
+[[package]]
 name = "cc-lsp"
 version = "0.2.0"
 dependencies = [
@@ -585,6 +592,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "cc-agent",
+ "cc-compress",
  "dirs-next",
  "encoding_rs",
  "filetime",
