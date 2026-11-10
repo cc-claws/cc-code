@@ -458,7 +458,8 @@ pub fn is_potential_rtk_command(command: &str) -> bool {
 
 /// 尝试使用 `rtk rewrite "<command>"` 重写命令。
 ///
-/// 如果系统中存在 `rtk`，且 `rtk rewrite` 执行成功（exit_code == 0 且 stdout 非空），
+/// 如果系统中存在 `rtk`，且 `rtk rewrite` 返回了重写结果（stdout 非空，
+/// 且退出码为下文 [`rtk_rewrite_succeeded`] 认可的值），
 /// 则返回重写后的命令（例如 "rtk git status"）。
 /// 否则返回 None。
 ///
@@ -484,13 +485,35 @@ pub async fn rtk_rewrite_command(command: &str) -> Option<String> {
     .ok()?
     .ok()?;
 
-    if output.status.success() {
+    if rtk_rewrite_succeeded(output.status.code()) {
         let rewritten = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if !rewritten.is_empty() && rewritten != command {
             return Some(rewritten);
         }
     }
     None
+}
+
+/// `rtk rewrite` 的退出码是否代表「打印了可用的重写结果」。
+///
+/// RTK 文档化了四个退出码（见 `rtk rewrite --help`）：
+///
+/// | code | 含义 |
+/// |------|------|
+/// | `0` | 打印重写命令，且 allow 规则覆盖命令链上每个命令 |
+/// | `1` | 无输出、无重写（无等价命令 / 配置排除 / `$(...)`、文件重定向等不重写的构造） |
+/// | `2` | deny 命中，无重写 |
+/// | `3` | **打印重写命令**，但命中 ask 规则或 allow 未全覆盖（含「根本没有配置任何规则」） |
+///
+/// `0` 与 `3` 都打印了重写命令，二者都须采纳 —— 区别只在「是否可由 hook 自动放行」，
+/// 而本函数处于**审批之后**的执行阶段，审批已由门控独立完成，与自动放行无关。
+/// RTK 帮助文本也点名了这一误用：`Exit 3 is still a rewrite, so $(rtk rewrite
+/// "$CMD") || exit 0 drops it.`
+///
+/// 由于 `3` 覆盖「没有配置任何规则」的默认情形，只认 `0` 会让未配置 RTK 规则的
+/// 环境下绝大多数重写（尤其 git 类命令）被整体丢弃。
+fn rtk_rewrite_succeeded(code: Option<i32>) -> bool {
+    matches!(code, Some(0) | Some(3))
 }
 
 /// 判断 rtk 改写是否**可能**发生 —— 门控专用，不执行任何外部二进制。
