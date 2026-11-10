@@ -46,18 +46,13 @@ fn is_virtual_fs_root(_path: &Path) -> bool {
     false
 }
 
-const GLOB_FILES_DESCRIPTION: &str = r#"Glob finds file paths matching a filename pattern.
-
-Usage:
-- Glob accepts only pattern (required) and path (optional). Example: Glob({"pattern":"**/README.md"}).
-- To search text inside files, use Grep with its own input schema.
-- Supports glob patterns like "**/*.js" or "src/**/*.ts". Use ** for recursive matching.
-- path defaults to the working directory. If specified, must be a valid directory path (omit or leave empty to use current directory; DO NOT pass "undefined" or "null").
-- Returns matching file paths sorted by modification time (newest first), with at most 1000 paths returned.
-- Relativizes paths under the current working directory to save context.
-- Search honors applicable ignore rules (.gitignore, .ignore); hidden and version-control metadata directories are excluded.
-- When results are truncated, narrow the search pattern or specify a more specific path.
-- When doing an open-ended search requiring multiple rounds of globbing and grepping, use the Agent tool instead."#;
+const GLOB_FILES_DESCRIPTION: &str = r#"NEVER use Glob to execute shell commands or scripts — that is Bash. `command` is not a valid parameter here.
+- Fast file pattern matching tool that works with any codebase size
+- Supports glob patterns like "**/*.js" or "src/**/*.ts"
+- Returns matching file paths sorted by modification time
+- Use this tool when you need to find files by name patterns
+- At most 1000 paths returned
+- Honors .gitignore/.ignore; hidden and version-control metadata directories are excluded"#;
 
 fn glob_match(pattern: &str, path: &str) -> bool {
     glob::Pattern::new(pattern)
@@ -87,7 +82,7 @@ fn relativize_path(path: &Path, cwd: &Path) -> String {
 fn collect_files(base: &Path, cwd: &Path, pattern: &str) -> (Vec<String>, usize, bool) {
     let mut builder = ignore::WalkBuilder::new(base);
     builder
-        .hidden(true) // 搜索隐藏文件
+        .hidden(true) // 排除隐藏文件（ignore crate 语义：hidden(true) = 忽略隐藏路径）
         .git_ignore(true)
         .git_exclude(true)
         .ignore(true)

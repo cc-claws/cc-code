@@ -27,21 +27,17 @@ impl GrepTool {
     }
 }
 
-const GREP_DESCRIPTION: &str = r#"Search file contents on disk using ripgrep, with permission UI integration and clickable file links.
+const GREP_DESCRIPTION: &str = r#"A powerful search tool built on ripgrep
 
 Usage:
-- Required: pattern. Optional: path. Example: Grep({"pattern":"TODO","path":"src"}).
-- Grep searches text inside files. Use Glob to find files by name.
-- NEVER send shell commands to Grep — executing commands is Bash's job, not a valid Grep call.
-- Supports full regex syntax (e.g. "log.*Error", "function\s+\w+").
-- Pattern syntax: Uses ripgrep (not grep) — escape literal braces (use `interface\{\}` to find `interface{}` in Go code). Use fixed_strings=true for literal text.
-- Filter with `glob` parameter (e.g. "*.js", "**/*.tsx") or `type` parameter (e.g. "js", "py", "rust"). The `glob` field filters files within this Grep call; it does not switch to the Glob tool.
-- output_mode defaults to "files_with_matches" (paths only). "content" returns matching lines, "count" returns per-file counts, and "files_without_matches" returns unmatched paths.
-- In content mode, line numbers are enabled by default; -C adds surrounding context and -A/-B override each side. Lines over 500 bytes are omitted.
-- Multiline matching: By default patterns match within single lines only. For cross-line patterns like `struct \{[\s\S]*?field`, use `multiline: true`.
-- head_limit defaults to 250 output lines; offset skips output lines before that limit. Narrow the query or paginate when needed. Pass 0 for unlimited (use sparingly — large result sets waste context).
-- For open-ended searches requiring multiple rounds, use the Agent tool instead.
-- Searches time out after 15 seconds. Prefer a specific path and pattern, then broaden if the evidence requires it."#;
+- ALWAYS use Grep for search tasks. NEVER invoke `grep` or `rg` as a Bash command. The Grep tool has been optimized for correct permissions and access.
+- Supports full regex syntax (e.g., "log.*Error", "function\s+\w+")
+- Filter files with glob parameter (e.g., "*.js", "**/*.tsx") or type parameter (e.g., "js", "py", "rust")
+- Output modes: "content" shows matching lines, "files_with_matches" shows only file paths (default), "count" shows match counts
+- Lines longer than 500 bytes are omitted from output
+- Use Agent tool (if available) for open-ended searches requiring multiple rounds
+- Pattern syntax: Uses ripgrep (not grep) - literal braces need escaping (use `interface\{\}` to find `interface{}` in Go code)
+- Multiline matching: By default patterns match within single lines only. For cross-line patterns like `struct \{[\s\S]*?field`, use `multiline: true`"#;
 
 /// Default 模式下超过此字节长度的行不输出（对齐 CC `--max-columns 500`）
 const GREP_MAX_COLUMNS: usize = 500;
