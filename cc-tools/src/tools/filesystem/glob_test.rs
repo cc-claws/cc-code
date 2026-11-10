@@ -57,7 +57,10 @@ async fn test_glob_dir_not_found() {
 fn test_description_extended() {
     let tool = GlobFilesTool::new("/tmp");
     let desc = tool.description();
-    assert!(desc.contains("Usage:"), "description 应包含 Usage 段落");
+    assert!(
+        desc.contains("file pattern matching"),
+        "description 应说明按文件名匹配的用途"
+    );
     assert!(
         desc.contains("modification time"),
         "description 应提及排序规则"

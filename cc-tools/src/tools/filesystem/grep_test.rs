@@ -65,7 +65,7 @@ fn test_grep_description_extended() {
     let desc = tool.description();
     assert!(desc.contains("regex"), "description 应提及正则支持");
     assert!(
-        desc.contains("output_mode defaults to"),
+        desc.contains("Output modes:"),
         "description 应说明输出模式及默认值"
     );
     assert!(desc.len() > 200, "description 应为扩展后的多段落文本");
