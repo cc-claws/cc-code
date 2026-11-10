@@ -48,11 +48,38 @@ fn home_dir_string() -> Option<String> {
     dirs_next::home_dir().map(|home| home.to_string_lossy().replace('\\', "/"))
 }
 
+/// 解析 MCP 工具名 `mcp__{server}__{tool}`，返回 `(server, tool)`。
+///
+/// **第一段是 server 名，其余部分整体作为 tool 名**（tool 名本身可能含 `__`，
+/// 如 `mcp__my__server__tool` → server=`my`、tool=`server__tool`）。
+///
+/// `mcp__server`（无 tool 段）视为 tool 缺失，返回 `(server, None)`。
+pub fn parse_mcp_tool_name(tool: &str) -> Option<(&str, Option<&str>)> {
+    let rest = tool.strip_prefix("mcp__")?;
+    let (server, tool_name) = match rest.split_once("__") {
+        Some((server, tool_name)) => (server, Some(tool_name)),
+        None => (rest, None),
+    };
+    if server.is_empty() {
+        return None;
+    }
+    Some((server, tool_name))
+}
+
 /// 返回简短 display name，控制在 3-6 字符以保持 UI 对齐
 ///
 /// 对齐 CC 的 userFacingName：`Edit` 工具显示为 `Update`
 /// （CC 中 `old_string === ''` 时显示 `Create`，见 [`format_tool_name_with_input`]）。
+///
+/// MCP 工具按 `server - tool (MCP)` 展示。此前 MCP 工具落到兜底分支被
+/// `to_pascal` 拼成 `McpTavilyTavilySearch`——server 名重复两遍且无分隔符。
 pub fn format_tool_name(tool: &str) -> String {
+    if let Some((server, tool_name)) = parse_mcp_tool_name(tool) {
+        return match tool_name {
+            Some(name) => format!("{server} - {name} (MCP)"),
+            None => format!("{server} (MCP)"),
+        };
+    }
     match tool {
         "Bash" => "Bash",
         "Read" => "Read",
@@ -78,9 +105,14 @@ pub fn format_tool_name(tool: &str) -> String {
 ///   会把 `Create` 的次数也算进 `Update`（真机疑问：「这个地方哪有 Update」）。
 /// - `Glob` / `Grep`：消息区统一显示为 `Search`，但统计按工具名分组；两条同名
 ///   `Search` 会让用户无法判断是通配搜索还是内容搜索。
+/// - MCP 工具：状态栏用**短名**（tool 段），不重复 server 前缀——消息区的
+///   `server - tool (MCP)` 是完整形态，统计栏走的是另一套短名口径。
 pub fn format_tool_name_for_stats(tool: &str) -> String {
     if matches!(tool, "Edit" | "Glob" | "Grep") {
         return tool.to_string();
+    }
+    if let Some((server, tool_name)) = parse_mcp_tool_name(tool) {
+        return tool_name.unwrap_or(server).to_string();
     }
     format_tool_name(tool)
 }
@@ -462,9 +494,35 @@ pub fn format_tool_args(
                 &[("count".into(), todos.len().to_string().into())],
             )
         }),
+        // MCP 工具：逐个顶层 key 输出 `key: value`，用 `, ` 连接。此前落到兜底分支
+        // 只取「第一个字符串字段」，命中的是字母序靠前的 `country` 而非 `query`，
+        // 且丢掉了 key 名。
+        other if other.starts_with("mcp__") => mcp_args_summary(input),
         // 兜底：状态栏要求所有工具都有摘要，取第一个非空字符串字段
         _ => first_string_field(input).map(|s| truncate(s, 40)),
     }
+}
+
+/// MCP 工具的参数摘要：逐个顶层 key 输出 `key: value`，用 `, ` 连接。
+///
+/// 值按 JSON 序列化（字符串带引号、数字原样、嵌套结构压成紧凑 JSON），
+/// 顺带把控制序列转义掉。空入参返回 `None`——此时工具头不带参数括号。
+///
+/// 与其余分支口径一致，末尾按 [`TOOL_ARGS_MAX_CHARS`] 兜底截断：该上限专为
+/// 详细模式完整折行而设，不能让 MCP 入参成为唯一无上限的分支。
+fn mcp_args_summary(input: &serde_json::Value) -> Option<String> {
+    let obj = input.as_object()?;
+    if obj.is_empty() {
+        return None;
+    }
+    let parts: Vec<String> = obj
+        .iter()
+        .map(|(key, value)| {
+            let rendered = serde_json::to_string(value).unwrap_or_else(|_| value.to_string());
+            format!("{key}: {rendered}")
+        })
+        .collect();
+    Some(truncate(&parts.join(", "), TOOL_ARGS_MAX_CHARS))
 }
 
 /// 搜索类工具（Glob / Grep）的头部摘要，对齐参考实现 `renderToolUseMessage`：

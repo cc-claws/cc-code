@@ -699,3 +699,110 @@ fn test_edit_single_diff_still_uses_reverse_inference() {
     assert_eq!(di.old_content, "hello bar world");
     assert_eq!(di.new_content, "hello foo world");
 }
+
+#[test]
+fn test_parse_mcp_tool_name_splits_server_and_tool() {
+    assert_eq!(
+        parse_mcp_tool_name("mcp__tavily__tavily_search"),
+        Some(("tavily", Some("tavily_search"))),
+        "MCP 工具名应拆出 server 与 tool"
+    );
+    assert_eq!(
+        parse_mcp_tool_name("mcp__my__server__tool"),
+        Some(("my", Some("server__tool"))),
+        "tool 名含 __ 时整体归给 tool 段"
+    );
+    assert_eq!(
+        parse_mcp_tool_name("mcp__server"),
+        Some(("server", None)),
+        "缺 tool 段时 tool 为 None"
+    );
+    assert_eq!(parse_mcp_tool_name("Bash"), None, "非 MCP 工具不应被解析");
+    assert_eq!(parse_mcp_tool_name("mcp__"), None, "空 server 名不应被解析");
+}
+
+#[test]
+fn test_format_tool_name_mcp_tool_uses_server_tool_form() {
+    assert_eq!(
+        format_tool_name("mcp__tavily__tavily_search"),
+        "tavily - tavily_search (MCP)",
+        "MCP 工具应显示 server - tool (MCP)，不再被 to_pascal 拼成 McpTavilyTavilySearch"
+    );
+    assert_eq!(
+        format_tool_name("mcp__my__server__tool"),
+        "my - server__tool (MCP)",
+        "tool 名含 __ 时按 server/tool 分段口径拼接"
+    );
+    assert_eq!(
+        format_tool_name("mcp__server"),
+        "server (MCP)",
+        "缺 tool 段时只显示 server"
+    );
+}
+
+#[test]
+fn test_format_tool_name_for_stats_mcp_tool_uses_short_name() {
+    assert_eq!(
+        format_tool_name_for_stats("mcp__tavily__tavily_search"),
+        "tavily_search",
+        "状态栏统计用短名，不重复 server 前缀"
+    );
+    assert_eq!(
+        format_tool_name_for_stats("mcp__server"),
+        "server",
+        "缺 tool 段时回退到 server 名"
+    );
+}
+
+#[test]
+fn test_format_tool_args_mcp_lists_key_value_pairs() {
+    let input = serde_json::json!({
+        "query": "武汉天气预报",
+        "max_results": 8,
+        "country": "China"
+    });
+    assert_eq!(
+        format_tool_args("mcp__tavily__tavily_search", &input, None).as_deref(),
+        Some("country: \"China\", max_results: 8, query: \"武汉天气预报\""),
+        "MCP 参数应逐个列出 key: value，而不是只取第一个字符串字段"
+    );
+    let empty = serde_json::json!({});
+    assert_eq!(
+        format_tool_args("mcp__tavily__tavily_search", &empty, None),
+        None,
+        "空入参不显示参数括号"
+    );
+}
+
+#[test]
+fn test_format_tool_args_mcp_nested_value_is_compact_json() {
+    let input = serde_json::json!({"filter": {"tag": "a", "limit": 2}});
+    assert_eq!(
+        format_tool_args("mcp__srv__tool", &input, None).as_deref(),
+        Some("filter: {\"limit\":2,\"tag\":\"a\"}"),
+        "嵌套值按紧凑 JSON 序列化"
+    );
+}
+
+#[test]
+fn test_format_tool_args_mcp_respects_max_chars_cap() {
+    let long = "x".repeat(TOOL_ARGS_MAX_CHARS + 500);
+    let input = serde_json::json!({"body": long});
+    let result = format_tool_args("mcp__srv__write", &input, None).expect("应生成摘要");
+    assert!(
+        result.chars().count() <= TOOL_ARGS_MAX_CHARS + 1,
+        "MCP 摘要不得超过 TOOL_ARGS_MAX_CHARS 兜底上限，实际 {} 字符",
+        result.chars().count()
+    );
+    assert!(result.ends_with('…'), "超限时应以省略号收尾");
+}
+
+#[test]
+fn test_format_tool_args_mcp_strips_terminal_control_sequences() {
+    let input = serde_json::json!({"body": "safe\u{1b}[<555;106;49Mpayload"});
+    let result = format_tool_args("mcp__srv__write", &input, None).expect("应生成摘要");
+    assert!(
+        !result.contains('\u{1b}'),
+        "MCP 参数摘要不得泄漏终端控制序列，实际: {result:?}"
+    );
+}

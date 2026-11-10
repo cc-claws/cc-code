@@ -4843,3 +4843,173 @@ fn test_push_visual_capped_hint_defaults_to_items_count() {
         hint_text
     );
 }
+
+/// MCP 工具头端到端：从原始入参走到渲染出的那一行。
+///
+/// 锁定的形态是 `● server - tool (MCP)(key: value, ...)`：
+/// 名字拆成 server/tool 两段，参数逐个列出 key 与值。
+#[test]
+fn test_mcp_tool_header_renders_server_tool_and_params() {
+    use crate::app::MessageViewModel;
+    let tool_name = "mcp__tavily__tavily_search";
+    let input = serde_json::json!({
+        "query": "武汉天气预报",
+        "max_results": 8,
+        "country": "China",
+        "search_depth": "advanced"
+    });
+    let display_name =
+        crate::app::tool_display::format_tool_name_with_input(tool_name, Some(&input));
+    let args_display = crate::app::tool_display::format_tool_args(tool_name, &input, None);
+    assert_eq!(
+        display_name, "tavily - tavily_search (MCP)",
+        "MCP 工具名应为 server - tool (MCP)"
+    );
+    assert_eq!(
+        args_display.as_deref(),
+        Some("country: \"China\", max_results: 8, query: \"武汉天气预报\", search_depth: \"advanced\""),
+        "MCP 参数应逐个列出 key: value"
+    );
+
+    let vm = MessageViewModel::ToolBlock {
+        tool_name: tool_name.to_string(),
+        tool_call_id: "tc_mcp".to_string(),
+        display_name,
+        args_display,
+        content: "{\"query\":\"武汉天气预报\"}".to_string(),
+        is_error: false,
+        collapsed: true,
+        color: crate::ui::theme::cur().text,
+        diff_input: None,
+        timeout_ms: None,
+        shell_backgrounded: false,
+        file_inspect: false,
+        started_at: None,
+        content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
+        live_output: None,
+        source_agent_id: None,
+    };
+    let lines = render_view_model(&vm, Some(1), 200, false, 0);
+    let header: String = lines
+        .first()
+        .map(|l| {
+            l.spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<Vec<_>>()
+                .join("")
+        })
+        .unwrap_or_default();
+    assert_eq!(
+        header,
+        "● tavily - tavily_search (MCP)(country: \"China\", max_results: 8, query: \"武汉天气预报\", search_depth: \"advanced\")",
+        "渲染出的工具头应与预期形态一致，实际: {}",
+        header
+    );
+}
+
+/// 窄宽度下 MCP 参数按渲染层既有口径截断（与其它工具一致）。
+#[test]
+fn test_mcp_tool_header_truncates_args_in_narrow_width() {
+    use crate::app::MessageViewModel;
+    let tool_name = "mcp__tavily__tavily_search";
+    let input = serde_json::json!({
+        "query": "武汉天气预报",
+        "max_results": 8,
+        "country": "China",
+        "search_depth": "advanced"
+    });
+    let vm = MessageViewModel::ToolBlock {
+        tool_name: tool_name.to_string(),
+        tool_call_id: "tc_mcp_narrow".to_string(),
+        display_name: crate::app::tool_display::format_tool_name_with_input(
+            tool_name,
+            Some(&input),
+        ),
+        args_display: crate::app::tool_display::format_tool_args(tool_name, &input, None),
+        content: "{\"query\":\"武汉天气预报\"}".to_string(),
+        is_error: false,
+        collapsed: true,
+        color: crate::ui::theme::cur().text,
+        diff_input: None,
+        timeout_ms: None,
+        shell_backgrounded: false,
+        file_inspect: false,
+        started_at: None,
+        content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
+        live_output: None,
+        source_agent_id: None,
+    };
+    let lines = render_view_model(&vm, Some(1), 80, false, 0);
+    let header: String = lines
+        .first()
+        .map(|l| {
+            l.spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<Vec<_>>()
+                .join("")
+        })
+        .unwrap_or_default();
+    assert!(
+        header.starts_with("● tavily - tavily_search (MCP)(country: \"China\""),
+        "窄宽度下仍应先显示 server - tool 与首个参数，实际: {}",
+        header
+    );
+    assert!(
+        header.ends_with("…)"),
+        "超宽参数应按渲染层口径截断并以省略号收尾，实际: {}",
+        header
+    );
+}
+
+/// 详细模式（Ctrl+O）下 MCP 参数完整展示，不受宽度截断影响。
+#[test]
+fn test_mcp_tool_header_shows_full_params_in_detail_mode() {
+    use crate::app::MessageViewModel;
+    let tool_name = "mcp__tavily__tavily_search";
+    let input = serde_json::json!({
+        "query": "武汉天气预报",
+        "max_results": 8,
+        "country": "China",
+        "search_depth": "advanced"
+    });
+    let vm = MessageViewModel::ToolBlock {
+        tool_name: tool_name.to_string(),
+        tool_call_id: "tc_mcp_detail".to_string(),
+        display_name: crate::app::tool_display::format_tool_name_with_input(
+            tool_name,
+            Some(&input),
+        ),
+        args_display: crate::app::tool_display::format_tool_args(tool_name, &input, None),
+        content: "{\"query\":\"武汉天气预报\"}".to_string(),
+        is_error: false,
+        collapsed: true,
+        color: crate::ui::theme::cur().text,
+        diff_input: None,
+        timeout_ms: None,
+        shell_backgrounded: false,
+        file_inspect: false,
+        started_at: None,
+        content_hash: 0,
+        phase: crate::ui::message_view::ToolPhase::Finished,
+        hook_rows: Vec::new(),
+        live_output: None,
+        source_agent_id: None,
+    };
+    let lines = render_view_model(&vm, Some(1), 80, true, 0);
+    let text: String = lines
+        .iter()
+        .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        text.contains("search_depth: \"advanced\""),
+        "详细模式应完整展示全部 MCP 参数，实际: {}",
+        text
+    );
+}
