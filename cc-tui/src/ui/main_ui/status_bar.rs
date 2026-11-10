@@ -1042,6 +1042,14 @@ fn status_separator() -> Span<'static> {
 }
 
 /// 将 (key, desc) 对列表格式化为 Span 列表
+///
+/// 排版为 `键名:说明`：冒号紧贴键名，键名与说明之间不留空格，段间由键名前导
+/// 空格与说明尾随空格构成。
+///
+/// 冒号由本函数统一补齐：`key-*` 系列 locale 文案自身以 `:` 开头
+/// （如 `key-exit-detail = :退出详细`），供 setup_wizard 等直接拼接 desc
+/// 的渲染点使用。此处先剥掉前导 `:` 再补一个，避免出现 `Ctrl+O ::退出详细`
+/// 这样的双冒号（#975 系列同类问题）。
 fn format_hints(
     hints: &[(String, String)],
     key_style: Style,
@@ -1049,10 +1057,16 @@ fn format_hints(
 ) -> Vec<Span<'static>> {
     let mut spans: Vec<Span> = Vec::new();
     for (key, desc) in hints {
-        spans.push(Span::styled(format!(" {} ", key), key_style));
-        if !desc.is_empty() {
-            spans.push(Span::styled(format!(":{} ", desc), desc_style));
-        }
+        spans.push(Span::styled(format!(" {}", key), key_style));
+        // 冒号紧贴键名；locale 文案自带前导 `:`，先剥掉再补，避免双冒号。
+        // 空 desc（如 `● Verbose` 标识）只留尾随空格，维持段间距一致。
+        let desc = desc.trim_start_matches(':');
+        let text = if desc.is_empty() {
+            " ".to_string()
+        } else {
+            format!(":{} ", desc)
+        };
+        spans.push(Span::styled(text, desc_style));
     }
     spans
 }
@@ -1194,6 +1208,37 @@ mod tests {
         assert_eq!(spans[1].content.as_ref(), " 45%");
         assert_eq!(spans[0].style.fg, Some(Color::Green));
         assert_eq!(spans[1].style.fg, Some(Color::Green));
+    }
+
+    #[test]
+    fn test_format_hints_attaches_colon_to_key_without_extra_space() {
+        // key-* 系列 locale 文案自带前导 `:`，需先剥掉再补，且冒号紧贴键名，
+        // 否则状态栏会渲染成 `Ctrl+O ::退出详细`。
+        let spans = format_hints(
+            &[("Ctrl+O".to_string(), ":退出详细".to_string())],
+            Style::default(),
+            Style::default(),
+        );
+        let line: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(line, " Ctrl+O:退出详细 ");
+        assert_eq!(spans.len(), 2);
+    }
+
+    #[test]
+    fn test_format_hints_keeps_bare_desc_and_skips_empty() {
+        // 无冒号前缀的 desc 同样紧贴键名；空 desc（如 `● Verbose` 标识）不补冒号，
+        // 但保留尾随空格，使段间距与其余各段一致（均为两列）。
+        let spans = format_hints(
+            &[
+                ("Ctrl+O".to_string(), "退出详细".to_string()),
+                ("● Verbose".to_string(), String::new()),
+            ],
+            Style::default(),
+            Style::default(),
+        );
+        let line: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(line, " Ctrl+O:退出详细  ● Verbose ");
+        assert_eq!(spans.len(), 4);
     }
 
     #[test]
