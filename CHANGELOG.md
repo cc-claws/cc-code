@@ -4,6 +4,18 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.265 — 2026-11-10
+
+### Features
+
+- **工具错配自动改道支持只读 Bash，并把改道时机前移到事件之前（#988, #989）**：模型把 Bash 参数（`{command, description}`）发给只读工具是高频繁错配，此前只能报 schema 错误并提示 `💡 Did you mean to use 'Bash'?`，需额外一轮 LLM 往返纠正。现把这类错配纳入自动改道，并修正了改道时机过晚导致的展示与审批不一致。其一，只读判定 `is_readonly_shell_command` 原只存在于 `cc-tui-core`（供展示分类），而改道逻辑在 `cc-agent`，`cc-tui-core` 依赖 `cc-agent` 使反向调用不成立，故将判定与三个私有辅助（`split_shell_segments` / `has_file_redirect` / `mask_quoted`）整体迁入 `cc-agent/src/shell/readonly.rs`，`cc-tui-core` 改为 re-export 转出，调用点与展示行为零变化。其二，原实现把改道放在执行前的阶段二，而 `ToolPending` / `ToolStart` / `ToolEnd` 事件与 HITL 审批都在其之前发出，导致界面显示「Grep」名 + Bash 参数、颜色按 Grep 取绿、Bash 的文件查看折叠 `file_inspect` 恒为 false，且 `requires_approval` 看到原名 Grep 而静默跳过审批、`ToolResult.tool_name` 归因错位；现在 `collect_tool_results` 入口新增阶段零 `rescue_mismatched_call`，命中时直接替换 `ToolCall` 的 name/input，使下游事件、审批、归因一次对齐。安全边界：Bash 是唯一例外，仅当 schema 严格匹配且命令经只读判定通过时构成候选，仍沿用「恰好一个候选命中」的唯一性语义（`bash_eligible` 为假时路径与原来逐字节等价）；判定属启发式而非沙箱，故不给改道额外免除审批，改道后的 Bash 照常走 HITL。改动文件：`cc-agent/src/shell/{readonly.rs,readonly_test.rs,mod.rs}`、`cc-agent/src/agent/executor/tool_dispatch.rs`、`cc-tui-core/src/message_view/tools.rs`。验证：`cargo test -p cc-agent --lib` 687 passed；`cargo test -p cc-tui-core --lib` 230 passed；`cargo clippy -p cc-agent --all-targets -- -D warnings` 无告警；新增 5 条测试覆盖只读命令改道成功、写盘命令拒绝、非白名单命令拒绝、事件携带改道后名字、审批阶段收到改道后名字；既有断言 `test_auto_rescue_grep_with_unique_grep_params` 由「外层保留模型声明的工具名」改判为实际执行的工具名，属有意的行为变更。
+
+### Fixes
+
+- **修正 Grep/Glob 的 `pattern` 语义歧义并补零匹配兜底（#986, #987）**：向 `Grep` 传入文件路径或 glob 形态的 `pattern`（如 `src/*.rs`）时，该字符串对 Grep 的 schema 完全合法，会被当作正则执行——`.` 通配、`*` 作量词，于是合法地匹配不到任何文件内容，工具静默返回 `No files found`。既有的错配诊断、自动改道、失败熔断全部挂在参数校验失败路径上，这条路径无任何守卫触发，调用方容易把零匹配误判为「该路径下确实没有这些文件」。现从两个层面收敛：其一，源头加特征，把「本字段搜内容 / 本字段匹配文件名」写进 `pattern` 的参数级描述（原先只有工具级描述写了，而模型构造参数时盯着的是参数说明），并给出 `"src/*.rs"` 这类就地反例，两侧对称写以避免单向提示造成工具间震荡；其二，出口兜底，零匹配且 `pattern` 含 glob 元字符时，复用 Glob 的 `collect_files` 反查命中数，命中则追加统一格式的 `💡 Did you mean to use 'Glob'?` 提示。三重收窄避免对真阴性误报——仅零匹配介入、仅含 `*`/`?`/`[` 才试探、当 glob 也零命中即原样返回，故纯字面路径（如 `cc-tools/src/lib.rs`）与正常搜索输出逐字节不变。改动文件：`cc-tools/src/tools/filesystem/{grep.rs,glob.rs,grep_args.rs}`。验证：`cargo test -p cc-tools --lib` 266 passed（含 3 条新增：glob 形态提示、纯字面路径精确等于 `No matches found` 的防噪音回归、正常命中不受影响）；`cargo clippy -p cc-tools --all-targets -- -D warnings` 无告警。
+
+---
+
 ## v0.6.264 — 2026-11-10
 
 ### Fixes
