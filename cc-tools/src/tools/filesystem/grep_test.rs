@@ -1158,3 +1158,69 @@ async fn test_grep_context_alias() {
         "context 别名应包含后一行: {result}"
     );
 }
+
+/// 零匹配且 pattern 呈 glob 形态（含元字符、当 glob 能命中文件）时，
+/// 应追加指向 Glob 的建议。
+#[tokio::test]
+async fn test_grep_zero_match_with_glob_pattern_suggests_glob() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("src")).unwrap();
+    std::fs::write(dir.path().join("src/a.rs"), "nothing here").unwrap();
+    let tool = GrepTool::new(dir.path().to_str().unwrap());
+    let result = tool
+        .invoke(serde_json::json!({
+            "pattern": "src/*.rs",
+            "output_mode": "content",
+            "path": "./"
+        }))
+        .await
+        .unwrap();
+    assert!(result.contains("💡"), "应包含 💡 提示前缀: {result}");
+    assert!(
+        result.contains("Did you mean to use 'Glob'?"),
+        "应建议改用 Glob: {result}"
+    );
+}
+
+/// 零匹配但 pattern 是纯字面路径（无 glob 元字符）时不得提示，
+/// 输出须与上游逐字节一致——这是防噪音的核心回归。
+#[tokio::test]
+async fn test_grep_zero_match_with_literal_pattern_stays_silent() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("src")).unwrap();
+    std::fs::write(dir.path().join("src/lib.rs"), "nothing here").unwrap();
+    let tool = GrepTool::new(dir.path().to_str().unwrap());
+    let result = tool
+        .invoke(serde_json::json!({
+            "pattern": "src/lib.rs",
+            "output_mode": "content",
+            "path": "./"
+        }))
+        .await
+        .unwrap();
+    assert_eq!(
+        result, "No matches found",
+        "纯字面路径零匹配应保持原样，不追加任何提示"
+    );
+}
+
+/// 有命中时的正常搜索不得被兜底逻辑影响。
+#[tokio::test]
+async fn test_grep_matched_content_unaffected_by_glob_suggestion() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "needle here").unwrap();
+    let tool = GrepTool::new(dir.path().to_str().unwrap());
+    let result = tool
+        .invoke(serde_json::json!({
+            "pattern": "needle",
+            "output_mode": "content",
+            "path": "./"
+        }))
+        .await
+        .unwrap();
+    assert!(result.contains("needle"), "应正常返回命中内容: {result}");
+    assert!(
+        !result.contains("💡"),
+        "有命中时不应出现 glob 建议: {result}"
+    );
+}
