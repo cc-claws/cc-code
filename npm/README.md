@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.264：**状态栏提示冒号重复修复，`Alt+P` 文案修正**——状态栏第二行快捷键提示此前渲染出两个冒号（`Ctrl+O ::详情`）：locale 的 `key-*` 文案自带前导 `:`，`format_hints` 又补了一个；键名段还带尾随空格，使冒号与键名之间多出一个空格。现把冒号收口到 `format_hints` 一处，剥掉 locale 前缀再补一个并让冒号紧贴键名，默认模式改为 `Ctrl+O:详情  Ctrl+P:内核  Alt+P:模型`，OAuth / Questions / Rewind 与各面板提示同步生效。顺带把 `Alt+P` 的说明由「设置」改为「模型」（该键实际打开 Provider / Model / Effort 命令面板）（#984）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.263：**`Ctrl+P` 切换内核，`Alt+P` 打开命令面板**——此前两个快捷键都绑定到命令面板，内核切换只能手动输入 `/kernel`。现拆分：`Ctrl+P` 弹出内核选择面板（cc / dsh / pi），`Alt+P` 保持命令面板（Provider / Model / Effort）不变；两面板互斥，切换时自动关闭另一面板。状态栏、tips 与 `/help` 同步更新（#981, #982）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.255：**command hook 支持 exec form args**——Windows 上第三方桌面工具常把 hook 写成 `command` + `args` 的 exec form，此前 `args` 被静默丢弃、整串 `command` 交 `cmd /C` 执行，路径含空格时全部 exit 1 失败。现 `args` 非空时直接以 argv 启动（不经过 shell）并做变量替换，旧配置行为不变（#954, #955）；另移除状态栏无 LLM 响应时的 `Cache -` 无信息量占位，`Cache 0%` 真实读数保留（#956, #957）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。

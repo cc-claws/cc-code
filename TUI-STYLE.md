@@ -375,9 +375,9 @@ Spinner 下方附加 Tip 行：`  ⎿  Tip: ...`（5 列前缀，与工具结果
 | Rewind 回滚选择器 | `↑↓` 移动 + `Tab` 切换回退文件 + `Enter` 确认 + `Esc` 取消 |
 | 退出确认 | `Ctrl+C` 关闭 + 其他键取消 |
 | 详细模式 | `Ctrl+O` 退出详细模式 |
-| 默认 | `Ctrl+O` 详细模式 + `Ctrl+P` 内核选择 + `Alt+P` 设置（Provider & Model） |
+| 默认 | `Ctrl+O` 详细模式 + `Ctrl+P` 内核选择 + `Alt+P` 模型（Provider / Model / Effort） |
 
-按键 MUTED + BOLD，说明 MUTED。右侧右对齐，超宽时截断右侧。
+按键 MUTED + BOLD，说明 MUTED。右侧右对齐，超宽时截断右侧。提示排版为 `键名:说明`，冒号紧贴键名，键名与说明之间不留空格。
 
 ## 面板系统
 

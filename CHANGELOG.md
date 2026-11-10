@@ -4,6 +4,12 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.264 — 2026-11-10
+
+### Fixes
+
+- **状态栏快捷键提示去除重复冒号并修正 `Alt+P` 文案（#984）**：状态栏第二行快捷键提示此前渲染为 `Ctrl+O ::详情`、`Ctrl+O ::退出详细`，键名与说明之间出现两个冒号——locale 的 `key-*` 文案自带前导 `:`（供 `setup_wizard` 等直接拼接 desc 的渲染点共用），`format_hints` 又补了一个冒号，两处叠加所致；同时键名段带尾随空格，使冒号与键名之间还多出一个空格。现将冒号收口到 `format_hints` 一处：先 `trim_start_matches(':')` 剥掉 locale 文案的前导冒号再补一个，并去掉键名段尾随空格让冒号紧贴键名（空 desc 段如 `● Verbose` 保留尾随空格以维持段间距一致）；不改 locale 的 `key-*` 值，避免波及共用的面板文案。修复后默认模式为 `Ctrl+O:详情  Ctrl+P:内核  Alt+P:模型`，详细模式为 `● Verbose  Ctrl+O:退出详细`，OAuth / Questions / Rewind / 退出确认及各面板 `status_bar_hints()` 同步生效。顺带修正 `Alt+P` 说明文案：该键实际打开命令面板（Provider / Model / Effort 选择），原文案「设置」比实际范围窄，`key-status-settings` 中英文分别改为 `:模型` / `:model`，`TUI-STYLE.md` 同步。验证：`cargo test -p cc-tui --lib ui::main_ui::status_bar::tests` 22 passed（含新增 `test_format_hints_attaches_colon_to_key_without_extra_space`、`test_format_hints_keeps_bare_desc_and_skips_empty` 锁定排版）；`cargo test -p cc-tui --lib main_ui` 204 passed；`cargo check -p cc-tui --all-targets` 通过。
+
 ## v0.6.263 — 2026-11-10
 
 ### Features
