@@ -77,7 +77,11 @@ pub fn init_tracing(service_name: &str) -> TracingGuard {
 
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
         // 默认 info 级别，但 MCP 和插件模块设为 warn（避免连接日志干扰）
-        EnvFilter::new("info,cc_middlewares::mcp=warn,cc_middlewares::plugin=warn,rmcp=warn")
+        // hooks loader 在 Windows 关窗快照（main.rs 每 500ms 重刷）等路径反复
+        // 读盘解析，以 info 记录会淹没日志（实测占 99%+），降为 warn。
+        EnvFilter::new(
+            "info,cc_middlewares::mcp=warn,cc_middlewares::plugin=warn,cc_middlewares::hooks=warn,rmcp=warn",
+        )
     });
 
     // 计算日志文件路径：RUST_LOG_FILE 优先，否则用 ~/.cc-code/logs/ 默认路径
