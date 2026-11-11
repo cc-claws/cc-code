@@ -164,6 +164,77 @@ fn test_convert_rg_line_relative() {
 }
 
 #[test]
+fn test_normalize_display_path_strips_dot_prefix_and_backslashes() {
+    // Windows `-l` 输出的 `.\` 前缀与反斜杠必须归一化（docs/2026-11-11）
+    let cwd = Path::new("/project");
+    assert_eq!(
+        normalize_display_path(".\\spec\\features\\a.md", cwd),
+        "spec/features/a.md"
+    );
+}
+
+#[test]
+fn test_normalize_display_path_mixed_separators() {
+    // 混合分隔符（rg 对显式 path 参数的输出形态）：一律转正斜杠
+    let cwd = Path::new("/project");
+    assert_eq!(
+        normalize_display_path("cc-tui/src/command\\core\\help.rs", cwd),
+        "cc-tui/src/command/core/help.rs"
+    );
+}
+
+#[test]
+fn test_normalize_display_path_strips_cwd_prefix() {
+    let cwd = Path::new("/project");
+    assert_eq!(normalize_display_path("/project/src/a.rs", cwd), "src/a.rs");
+}
+
+#[test]
+fn test_convert_rg_line_for_mode_files_only_normalizes_path() {
+    // files_with_matches（-l）整行路径无冒号：曾因 find_path_end 返回 0 而原样输出
+    let cwd = Path::new("/project");
+    let line = ".\\spec\\features\\a.md";
+    assert_eq!(
+        convert_rg_line_for_mode(line, cwd, OutputMode::FilesOnly),
+        "spec/features/a.md"
+    );
+    assert_eq!(
+        convert_rg_line_for_mode(line, cwd, OutputMode::FilesWithoutMatch),
+        "spec/features/a.md"
+    );
+}
+
+#[test]
+fn test_convert_rg_line_for_mode_content_keeps_backslash_in_text() {
+    // content 模式：只归一化路径段，正文里的反斜杠字面量不得被改写
+    let cwd = Path::new("/project");
+    let line = "/project/src/main.rs:7: print(\".\\spec\\x\")";
+    let result = convert_rg_line_for_mode(line, cwd, OutputMode::Default);
+    assert_eq!(result, "src/main.rs:7: print(\".\\spec\\x\")");
+}
+
+#[test]
+fn test_convert_rg_line_for_mode_content_no_colon_line_unchanged() {
+    // content 模式下无路径结构的行（find_path_end 落空）不得被猜测性改写
+    let cwd = Path::new("/project");
+    let line = "plain text with .\\back\\slash";
+    assert_eq!(
+        convert_rg_line_for_mode(line, cwd, OutputMode::Default),
+        "plain text with .\\back\\slash"
+    );
+}
+
+#[test]
+fn test_convert_rg_line_for_mode_count_normalizes_path() {
+    // count（path:count）带冒号走完整归一化，与 files 模式口径一致
+    let cwd = Path::new("/project");
+    assert_eq!(
+        convert_rg_line_for_mode("/project/src/a.rs:5", cwd, OutputMode::CountOnly),
+        "src/a.rs:5"
+    );
+}
+
+#[test]
 fn test_format_grep_output_default_no_matches() {
     let result = format_grep_output(OutputMode::Default, &[], 0, 250, 0, false);
     assert_eq!(result, "No matches found");
