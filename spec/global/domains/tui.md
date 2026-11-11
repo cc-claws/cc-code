@@ -74,7 +74,8 @@ Event::Key → 命令前缀匹配（/）
            → Ctrl+V（剪贴板图片）
            → Del（删除最后一张附件）
            → Enter（loading 缓冲，非 loading 提交）
-           → Ctrl+P / Alt+P（命令面板：Provider & Model 选择）
+           → Ctrl+P（内核选择面板：cc / dsh / pi）
+           → Alt+P（命令面板：Provider / Model / Effort 选择）
            → PageUp / PageDown（textarea 为空时半页滚动，20 行）
            → Tab/Shift+Tab/方向键（面板导航）
 
@@ -148,7 +149,8 @@ submit_message(text)
 | 面板组件化 | PanelKind/PanelState 枚举 + PanelComponent trait + PanelManager，双实例（session/global），PanelContext 解耦借用 |
 | SubAgent 显示 | 格式 `Agent(type) #hash`，颜色映射（ERROR/WARNING/SAGE），is_background + bg_hash 字段 |
 | 配置系统 | CLAUDE.local.md 支持、`@import` 文件引用（深度上限 3，默认限项目根内，越界保留占位符）、claudeMdExcludes glob 过滤、`$schema` passthrough |
-| TUI 命令 | `/effort` 切换推理力度、`/rename` 设置会话标题、`/doctor` 健康检查、`/recap` 会话回顾（recap_auto.rs 支持终端失焦自动触发） |
+| TUI 命令 | `/effort` 切换推理力度、`/rename` 设置会话标题、`/doctor` 健康检查、`/recap` 会话回顾（recap_auto.rs 支持终端失焦自动触发）、`/kernel` 切换 Agent 内核（cc / dsh / pi）、`/ps` 打开后台任务面板 |
+| 快捷键分派 | `Ctrl+P` 打开内核选择面板、`Alt+P` 打开命令面板（Provider / Model / Effort）——此前两者都绑定命令面板，内核切换只能手输 `/kernel`（v0.6.263，#981, #982）。两面板同属 `MutexGroup::Settings` 互斥组，切换时自动关闭另一面板；`Ctrl+P` 与 `/kernel` 无参入口复用 `App::open_kernel_panel()` |
 | 配色方案 | v1.1 降噪：橙色仅用于输入框，工具名 bash=ACCENT/写操作=WARNING/只读=MUTED，面板边框 MUTED |
 | Setup Wizard | 四步引导（Choose → Language → Form → Done），save_setup() 原子写回 settings.json |
 | Welcome Card | 左上紧凑卡，宽度上限 64 列、高 5～7 行；窄屏省略吉祥物，目录按显示列宽省略 |
@@ -1483,4 +1485,4 @@ cache 保留兼容的全量渲染路径；virtual 按视口生成分段共享成
 
 空间契约须分别统计历史/高度等 O(N) 元数据、离屏成品预算和可见内容；16 MiB 只约束离屏成品，不包含视口内超大消息、VM 预解析缓存、剪贴板或仍被旧快照引用的对象，不能据此声称会话 RSS 已封顶。虚拟路径未测量区间的高度为估算，进入视口后使用实际高度修正；滚动与选择保持逻辑行坐标，不能把局部窗口行号当成全局行号。
 
-最后更新：2026-10-26
+最后更新：2026-11-11 — 拆分 Ctrl+P（内核选择）/ Alt+P（命令面板）快捷键，补 /kernel 与 /ps 命令说明

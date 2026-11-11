@@ -23,6 +23,13 @@
    - 对齐参考实现的 `formatZodValidationError`，结构化汇总输出「缺失参数 / 意外参数 / 类型错误」；`Unexpected parameter` 时列出允许的参数清单。
    - `suggest_tool_mismatch` 启发式诊断：依据 `TOOL_SIGNATURE_HINTS` 特征表在工具错配时建议正确工具（WebFetch/Bash/Grep/Read/Agent）。
    - `SchemaFailureTracker` 熔断：同一工具 Schema 校验连续失败 ≥2 次时注入强提示，阻断盲目重试循环。
+6. **工具错配自动改道（两阶段）**：
+   - 阶段一（v0.6.262，#980）：Schema 校验失败时若参数 100% 匹配**恰好一个**只读工具（`Grep` / `Glob` / `Read`），静默改道执行，不再把结构化错误回灌给模型。判定口径为对白名单逐个跑严格 schema 校验，0 个命中（空参数 / 多余键）或 ≥2 个命中（如 `{pattern, path}` 同时符合 `Grep` 与 `Glob`）均回退原错误路径。方向单向安全：`command` 类参数永不被改道；工具调用身份（`tool_name` / `tool_call_id`）对外保持 LLM 声明不变，仅 `tracing::warn` 记录 from→to，不触发熔断计数。
+   - 阶段二（v0.6.265，#988, #989）：放宽到只读 Bash，并把改道时机前移到 `collect_tool_results` 入口的**阶段零**——在任何事件与审批之前替换调用的 name/input。此前改道执行过晚，`ToolPending` / `ToolStart` / `ToolEnd` 事件与 HITL 审批都已按原工具名发出，导致界面显示「`Grep` 名 + Bash 参数」、颜色按 Grep 取绿、`file_inspect` 恒 false，且 `requires_approval` 看到原名 `Grep` 而静默跳过审批。只读判定随之从 `cc-tui-core` 下沉到 `cc-agent/src/shell/readonly.rs`（`cc-tui-core` 保留 re-export），因改道逻辑在 `cc-agent`，依赖方向要求如此。判定属启发式而非沙箱，故改道后的 Bash 照常走 HITL 审批。
+7. **Grep / Glob 的 `pattern` 语义歧义与零匹配兜底（v0.6.265，#986, #987）**：
+   - 向 `Grep` 传文件路径或 glob 形态的 `pattern`（如 `src/*.rs`）对 schema 完全合法，会被当作正则执行（`.` 通配、`*` 作量词）而合法地匹配不到任何内容，静默返回 `No files found`。错配诊断、自动改道、失败熔断全挂在参数校验失败路径上，此路径无守卫触发，零匹配极易被误读为「该路径下确实没有这些文件」。
+   - 源头加特征：两侧 `pattern` 的参数级描述写明各自接收何种输入（本字段搜内容 / 本字段匹配文件名），并给出 `"src/*.rs"` 这类就地反例，两侧对称写以避免单向提示造成工具间震荡。
+   - 出口兜底：零匹配且 `pattern` 含 glob 元字符时，复用 Glob 的 `collect_files` 反查命中数，命中则追加 `💡 Did you mean to use 'Glob'?` 提示。三重收窄保证真阴性不出噪音——仅零匹配介入、仅含 `*` / `?` / `[` 才试探、仅 glob 确有命中才提示。
 
 ## 技术方案总结
 
@@ -34,6 +41,8 @@
 | Header 截断算法 | `truncate_to_display_width`（按 CJK 2 列宽与 ASCII 1 列宽动态匹配） |
 | RTK 输出压缩 | 外部 `rtk` 二进制探测 + `rtk rewrite` 命令重写，失败回退原命令（`cc-middlewares/src/process/mod.rs`） |
 | Schema 预校验 | `validate_against_schema` 结构化错误汇总 + `suggest_tool_mismatch` 启发式 + `SchemaFailureTracker` 连续 2 次熔断（`cc-agent/src/agent/executor/tool_dispatch.rs`） |
+| 工具错配自动改道 | 阶段零 `rescue_mismatched_call` + `try_auto_rescue()` 唯一只读工具改道（`cc-agent/src/agent/executor/tool_dispatch.rs`）；只读判定在 `cc-agent/src/shell/readonly.rs` |
+| CLI 输出压缩 | `cc-compress` 叶子 crate（`ansi` / `guard` / `dedup`），`filter_command_output` 出口接 `never_worse`（`cc-tools/src/tools/output_filter.rs`） |
 
 ## 模型可见描述
 
@@ -44,6 +53,7 @@
 - `Agent` 的 `action` 参数（`spawn` 默认 / `stop`）决定行为：`action=stop` 按 `task_id` 精确取消正在运行的后台子 Agent，**只接受精确 `task_id`**（不做任务名/描述模糊匹配，避免停错兄弟任务）。`prompt` **不在 schema 的 required 中**——`action=stop` 无需 prompt，硬编码必填会让模型凭空编造 prompt；必填性在 `invoke` 内按 `action` 分支校验。取消复用 `BackgroundTaskRegistry::cancel()`（触发 `CancellationToken` 让执行器正常终态收尾，不 abort）。详见 `docs/prd/subagent-drawer-and-virtual-routing.md` §4.4.1。
 - **对齐参考实现措辞（v0.6.138）:** 参照参考实现的工具描述，仅搬运无模板函数、不依赖我方缺失能力的静态句子——① Bash / WebFetch 改为 **NOT 反向枚举**（读→`Read` NOT `cat`/`head`/`tail`；改→`Edit` NOT `sed`/`awk`；写→`Write` NOT `echo>`/`<<EOF`；内容检索→`Grep` NOT `grep`/`rg`；文件名检索→`Glob` NOT `find`/`ls`；回复用户→直接输出文本 NOT `echo`/`printf`），WebFetch 补「仅用于远程 http(s)，无点主机名不支持」边界；② `Grep` 首行禁令「ALWAYS use Grep for content search. NEVER invoke `grep`/`rg` as a Bash command」，`Read` 补「只读文件不能列目录」，`TodoWrite` 补「同一时刻只保留一个 `in_progress`」，`AskUserQuestion` 补「仅用于答案会改变后续动作的决策」；③ **`Write` 改为参考实现的 NEVER 语义**——默认不再主动创建 `.md`/README，仅用户明确要求时创建（行为语义变更，仅描述文本，无逻辑变更）
 - 工具调用必须遵守既有授权与运行时审批，Meta 包装器不授予新权限。
+- **工具描述遵循「schema 是唯一真相」（v0.6.266，#993, #994）:** 参数细节只写在工具 schema，描述里不重复；防错锚定就近写在**工具描述内部**，而非系统提示词的通用条款——`Glob` 此前没有 NEVER 反锚定句（`Grep` / `Write` 均有），现补 `NEVER use Glob to execute shell commands or scripts — that is Bash. \`command\` is not a valid parameter here.`。`Glob` / `Grep` 删除与自身 schema 逐字重复的内容（`pattern` / `path` 默认值、`output_mode` 全枚举、`-C` / `-A` / `-B` 语义、`head_limit` / `offset`），由 151 / 248 词压至 78 / 138 词，同时保留 schema 未覆盖的本项目特有行为（Grep 超长行 500 字节不输出；Glob 最多 1000 条且遵守 `.gitignore` / `.ignore`）。`cc-agent/src/kernel/prompts/cc.md` 工具策略段删掉三条与 schema 重复的签名条款（373 → 198 词）。改动位于系统提示词缓存边界之前的静态段，升级后新会话前缀缓存失效一次，会话内 `frozen_system_prompt` 不变。
 - `Skill` 加载匹配技能及可选参数，返回 camelCase 元数据与完整指令；`context: fork` 等待隔离执行完成。主代理和子代理均注册，详情见 [skill-trigger.md](./skill-trigger.md)。
 
 ---
@@ -128,4 +138,4 @@
 **涉及文件:** spec/archive-issues/2026-05-25-at-mention-directory-read-semantics.md
 **CLAUDE.md 链接:** false
 
-最后更新：2026-10-26
+最后更新：2026-11-11 — 补工具错配自动改道（两阶段）、Grep/Glob pattern 语义歧义与零匹配兜底、工具描述按 schema 精简

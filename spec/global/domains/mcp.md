@@ -62,6 +62,8 @@ MCP HTTP 请求 → 401 + WWW-Authenticate
 | 传输层 | stdio（子进程）+ Streamable HTTP（远程） |
 | 连接池 | McpClientPool，惰性初始化，stdio 10s/HTTP 30s 超时 |
 | 工具命名 | `mcp__{server}__{tool}`，HITL 默认需审批 |
+| 工具名展示 | `parse_mcp_tool_name` 拆 `mcp__{server}__{tool}`（第一段 server、其余整体 tool，tool 名本身可能含 `__`），消息区显示 `server - tool (MCP)`，状态栏统计取 tool 段短名（`cc-tui-core/src/tool_display.rs`） |
+| 参数摘要 | MCP 分支走 `mcp_args_summary`，逐顶层 key 输出 `key: value`（值按 JSON 序列化，按 `TOOL_ARGS_MAX_CHARS` 兜底截断） |
 | 配置合并 | global < plugin < project 三层合并，同名按优先级覆盖 |
 | 环境变量 | `${VAR}` 占位符自动展开 |
 | OAuth | rmcp auth feature + AuthClient，PKCE，Token 刷新 |
