@@ -88,6 +88,12 @@ jobs:
 
       - name: Build cc-code (Linux)
         if: runner.os == 'Linux'
+        env:
+          # cross 会在容器内跑 `apt-get update/install`（见 Cross.toml 的 pre-build）。
+          # 容器默认 DNS 解析不到 ubuntu 镜像源，报
+          # `Could not resolve 'ports.ubuntu.com'`；改用宿主网络即可复用 runner 的
+          # DNS（宿主上 apt 是通的）。
+          CROSS_CONTAINER_OPTS: "--network host"
         run: cross build -p cc-tui --release --target ${{ matrix.target }}
 
       - name: Build cc-code (non-Linux)
