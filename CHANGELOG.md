@@ -4,6 +4,15 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.271 — 2026-11-11
+
+### Fixes
+
+- **聚合组折叠态为失败的 Grep / Glob 补上工具头（#1014）**：v0.6.269 让失败的 Bash 在聚合组折叠态显示命令头（`● Bash(<command>)`），但只覆盖了 Bash。Grep / Glob 失败时折叠态仍只渲染一段截断错误摘要（如 `⎿ Error: regex parse error: Loaded \{\} hooks from|...`），用户看不出是哪个 pattern 挂的；两者显示名同为 `Search`，只有 pattern 才能指出具体是哪次搜索失败。现把折叠态工具头的渲染条件由 `tool_name == "Bash"` 放宽为 `matches!(tool_name, "Bash" | "Grep" | "Glob")`——`push_group_entry_header` 的非 Bash 分支已输出 `● Search(<args>)`，函数本身零改动。`cc-tui/src/ui/render_layout/estimator.rs` 的折叠态高度估算同步计入 Grep / Glob 失败时的工具头与截断摘要（口径与 Bash 一致：`1 + ERROR_SUMMARY_MAX_LINES + 1`），否则渲染多出的行不被计入，会重新引入 v0.6.269 刚修掉的首帧高度偏小导致滚动定位漂移。改动文件：`cc-tui/src/ui/message_render/mod.rs`、`cc-tui/src/ui/render_layout/estimator.rs`、`cc-tui/src/ui/message_render/bash_file_inspect_test.rs`（新增 `test_grep_failed_group_collapsed_keeps_tool_header_and_truncated_summary`，断言折叠态同时输出 `● Search(<pattern>)` 与截断后的错误摘要）。验证：CI 三平台（macos / ubuntu / windows）build + test + clippy 全绿，`cc-tui --lib` 1598 passed。特性/影响：仅影响普通模式（未按 `Ctrl+O`）下工具聚合组内失败的 Grep / Glob 调用，报错正文仍是截断摘要；详细模式行为不变。**未改动的同类场景**：`Read` / `WebFetch` / `WebSearch` 失败时折叠态仍无工具头（`Read` 在估算侧为 `count += 3` 提前返回，需动该结构）。
+- **默认日志过滤降级 `cc_middlewares::hooks` 到 warn（#1016）**：hooks loader 在 Windows 关窗 SessionEnd 快照路径（`main.rs` 每 500ms 重刷一次 App 状态）会被反复调用，每次调用都对全局 `settings.json`、项目 `settings.json` 与 `settings.local.json` 三个文件做读盘 + serde 解析，且每成功加载一次就打一行 info 日志。实测用户日志 2,880,892 行中 2,874,833 行为 hook loader 输出（占 99.79%），单文件膨胀到 402 MB，稳态速率 12 条/秒，完全淹没有效日志。现沿用文件内既有的按模块降级写法，在 `cc-agent/src/telemetry/subscriber.rs` 的默认 `EnvFilter` 增加 `cc_middlewares::hooks=warn`。特性/影响：默认配置下不再输出 hook loader 的加载成功日志；warning / error 级别的 hook 日志（解析失败、未信任项目提示）不受影响；用户显式设置 `RUST_LOG` 时仍可调回 info。
+
+---
+
 ## v0.6.270 — 2026-11-10
 
 ### Features

@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.271：**聚合组折叠态为失败的 Grep / Glob 补上工具头**——v0.6.269 只让失败的 Bash 在折叠态显示命令头，Grep / Glob 失败时仍只有一段截断错误摘要，看不出是哪个 pattern 挂了（两者显示名同为 `Search`）。现渲染条件放宽到 `Bash | Grep | Glob`，折叠态高度估算同步计入工具头与摘要行，避免滚动定位漂移（#1014）。同版把默认日志过滤中 `cc_middlewares::hooks` 降级到 `warn`——该 loader 在 Windows 关窗路径每 500ms 被反复调用并逐次打 info 日志，实测占用户日志 99.79%（288 万行 / 402 MB），warning 以上日志与显式 `RUST_LOG` 不受影响（#1016）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.270：**MCP 工具头按 server/tool 展示并列出参数**——MCP 工具此前被 `to_pascal` 拼成 `McpTavilyTavilySearch`（server 名重复两遍），参数摘要只取「第一个字符串字段」且丢 key 名（serde_json Map 按字母序迭代，命中 `country` 而非 `query`）。现拆 `mcp__{server}__{tool}`，工具头显示 `tavily - tavily_search (MCP)`，参数逐项输出 `key: value`，状态栏统计改用短名 `tavily_search`；纯展示层改动，不涉及工具执行与权限判定（#1011）。同版对齐 dsh/pi 内核的工具参数映射并明确执行语义（毫秒超时、0-based offset、搜索上限），补齐仅 pi 生效的 `find.limit` 适配（#1008）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.269：**聚合组折叠态补上失败 Bash 的命令头**——普通模式下，同轮聚合的工具组里失败的 Bash 调用只渲染一段截断错误摘要、没有命令本身，无从判断是哪条命令失败，只能切详细模式。现折叠态先渲染 `● Bash(<command>)` 命令头再接截断摘要，高度估算同步计入以免首帧偏小导致滚动漂移；成功调用仍照常折叠，详细模式不变（#1005）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
