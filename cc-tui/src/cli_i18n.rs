@@ -24,6 +24,7 @@ pub fn localized_command(mut command: Command, lc: &LcRegistry) -> Command {
         "session_id",
         "session_name",
         "no_session_persistence",
+        "worktree",
         "allowed_tools",
         "disallowed_tools",
         "settings",

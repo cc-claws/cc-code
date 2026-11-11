@@ -608,6 +608,7 @@ cli-help-resume = 按 session ID 恢复对话
 cli-help-session-id = 指定会话 ID（必须是有效 UUID）
 cli-help-session-name = 设置会话显示名称
 cli-help-no-session-persistence = 禁用会话持久化（需 -p）
+cli-help-worktree = 在隔离的 git worktree 中启动会话（可选名称）
 cli-help-allowed-tools = 允许的工具列表，例如 Bash(git:*)、Edit
 cli-help-disallowed-tools = 禁止的工具列表
 cli-help-settings = 加载额外 settings 文件或 JSON 字符串
