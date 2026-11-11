@@ -1,5 +1,6 @@
 pub mod ask_user_tool;
 pub mod skill;
+pub mod worktree_tool;
 
 pub use cc_tools::tools::{filesystem, output_filter, output_persist, todo};
 
@@ -8,6 +9,7 @@ pub use filesystem::{EditFileTool, GlobFilesTool, GrepTool, ReadFileTool, WriteF
 pub use output_filter::{filter_command_output, filter_git_status, strip_ansi};
 pub use skill::SkillTool;
 pub use todo::{TodoItem, TodoStatus, TodoWriteTool};
+pub use worktree_tool::WorktreeMiddleware;
 
 #[cfg(test)]
 #[path = "mod_test.rs"]

@@ -74,6 +74,15 @@ define_hook_events! {
     PostCompact => "PostCompact",
     /// Agent 等待用户输入时触发（PermissionRequest / Stop 后）
     Notification => "Notification",
+    /// 创建 worktree 前触发。配置了该 hook 时由 hook 决定路径（对齐参考实现的
+    /// 「hook 优先」：hook 输出的路径即 worktree 路径，否则走 git 原生流程）。
+    WorktreeCreate => "WorktreeCreate",
+    /// 删除 worktree 前触发。
+    WorktreeRemove => "WorktreeRemove",
+    /// 工具调用被拒绝（用户拒绝或 hook 拒绝）后触发。
+    PermissionDenied => "PermissionDenied",
+    /// 会话工作目录变更后触发（如进入/退出 worktree）。
+    CwdChanged => "CwdChanged",
 }
 
 /// 4 种 hook 执行类型，对齐 CC schemas/hooks.ts
@@ -221,6 +230,23 @@ pub struct HookInput {
     /// 压缩前的消息数量
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message_count: Option<usize>,
+
+    // === Worktree 事件字段 ===
+    /// WorktreeCreate 的期望名称（slug）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// WorktreeRemove 的目标路径
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worktree_path: Option<String>,
+    /// PermissionDenied 的拒绝原因
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// CwdChanged 的旧工作目录
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_cwd: Option<String>,
+    /// CwdChanged 的新工作目录
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_cwd: Option<String>,
 }
 
 /// Hook 执行结果——对齐参考实现的 hook 响应 schema
@@ -320,9 +346,14 @@ pub enum HookAction {
     /// 修改工具输入（PreToolUse hook 的 updatedInput）
     ModifyInput { new_input: serde_json::Value },
     /// 修改权限行为（permissionDecision）
+    ///
+    /// `new_input` 对应参考实现中与 `permissionDecision` **同时**返回的
+    /// `updatedInput`：裁决生效时一并替换工具输入（两者在 CC 的
+    /// `hookSpecificOutput` 里是并列字段，不是互斥分支）。
     PermissionOverride {
         decision: PermissionDecision,
         reason: Option<String>,
+        new_input: Option<serde_json::Value>,
     },
     /// 阻止 agent 继续执行（continue=false + stopReason）
     PreventContinuation { stop_reason: Option<String> },
@@ -447,6 +478,11 @@ impl HookInput {
             subagent_name: None,
             subagent_result: None,
             message_count: None,
+            name: None,
+            worktree_path: None,
+            reason: None,
+            old_cwd: None,
+            new_cwd: None,
         }
     }
 
@@ -477,6 +513,11 @@ impl HookInput {
             subagent_name: None,
             subagent_result: None,
             message_count: None,
+            name: None,
+            worktree_path: None,
+            reason: None,
+            old_cwd: None,
+            new_cwd: None,
         }
     }
 
@@ -513,6 +554,11 @@ impl HookInput {
             subagent_name: None,
             subagent_result: None,
             message_count: None,
+            name: None,
+            worktree_path: None,
+            reason: None,
+            old_cwd: None,
+            new_cwd: None,
         }
     }
 
@@ -540,6 +586,11 @@ impl HookInput {
             subagent_name: None,
             subagent_result: None,
             message_count: None,
+            name: None,
+            worktree_path: None,
+            reason: None,
+            old_cwd: None,
+            new_cwd: None,
         }
     }
 
@@ -567,6 +618,11 @@ impl HookInput {
             subagent_name: Some(subagent_name.to_string()),
             subagent_result: None,
             message_count: None,
+            name: None,
+            worktree_path: None,
+            reason: None,
+            old_cwd: None,
+            new_cwd: None,
         }
     }
 
@@ -595,6 +651,11 @@ impl HookInput {
             subagent_name: Some(subagent_name.to_string()),
             subagent_result: Some(result.to_string()),
             message_count: None,
+            name: None,
+            worktree_path: None,
+            reason: None,
+            old_cwd: None,
+            new_cwd: None,
         }
     }
 
@@ -623,6 +684,71 @@ impl HookInput {
             subagent_name: None,
             subagent_result: None,
             message_count: Some(message_count),
+            name: None,
+            worktree_path: None,
+            reason: None,
+            old_cwd: None,
+            new_cwd: None,
+        }
+    }
+
+    /// WorktreeCreate 事件输入：携带期望的 worktree 名称。
+    pub fn worktree_create(
+        session_id: &str,
+        transcript_path: &str,
+        cwd: &str,
+        permission_mode: &str,
+        name: &str,
+    ) -> Self {
+        let mut input = Self::worktree_base(session_id, transcript_path, cwd, permission_mode);
+        input.hook_event_name = HookEvent::WorktreeCreate;
+        input.name = Some(name.to_string());
+        input
+    }
+
+    /// WorktreeRemove 事件输入：携带待删除的 worktree 路径。
+    pub fn worktree_remove(
+        session_id: &str,
+        transcript_path: &str,
+        cwd: &str,
+        permission_mode: &str,
+        worktree_path: &str,
+    ) -> Self {
+        let mut input = Self::worktree_base(session_id, transcript_path, cwd, permission_mode);
+        input.hook_event_name = HookEvent::WorktreeRemove;
+        input.worktree_path = Some(worktree_path.to_string());
+        input
+    }
+
+    fn worktree_base(
+        session_id: &str,
+        transcript_path: &str,
+        cwd: &str,
+        permission_mode: &str,
+    ) -> Self {
+        Self {
+            session_id: session_id.to_string(),
+            transcript_path: transcript_path.to_string(),
+            cwd: cwd.to_string(),
+            permission_mode: Some(permission_mode.to_string()),
+            agent_id: None,
+            agent_type: None,
+            hook_event_name: HookEvent::WorktreeCreate,
+            tool_name: None,
+            tool_input: None,
+            tool_use_id: None,
+            tool_output: None,
+            prompt: None,
+            source: None,
+            model: None,
+            subagent_name: None,
+            subagent_result: None,
+            message_count: None,
+            name: None,
+            worktree_path: None,
+            reason: None,
+            old_cwd: None,
+            new_cwd: None,
         }
     }
 }

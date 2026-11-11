@@ -85,6 +85,9 @@ impl App {
                 if method == "peri/subagent_lifecycle" {
                     return self.handle_subagent_lifecycle(&params);
                 }
+                if method == "notifications/peri/cwd_changed" || method == "peri/cwd_changed" {
+                    return self.handle_cwd_changed(&params);
+                }
                 tracing::debug!(%method, "ACP→TUI: peri/* notification (no TUI action)");
                 let _ = params;
                 (false, false, false)
@@ -429,3 +432,28 @@ impl App {
 #[cfg(test)]
 #[path = "acp_bridge_test.rs"]
 mod tests;
+
+// ── Agent 运行中切换工作目录 → 状态栏 git 跟随 ──────────────────────────
+
+impl App {
+    /// 处理 ACP 的 `notifications/peri/cwd_changed`。
+    ///
+    /// 与 [`activate_thread_context`] 的区别：这里**不**重建 thread、不改
+    /// `services.cwd`，只让状态栏的 git 探测改用 Agent 的实际工作目录
+    /// （例如 Agent 通过 `EnterWorktree` 切进了一个隔离 checkout）。
+    /// 目录回到 `services.cwd` 时清除覆盖，状态栏恢复主工作区的分支。
+    pub(crate) fn handle_cwd_changed(&mut self, params: &serde_json::Value) -> (bool, bool, bool) {
+        let new_cwd = params.get("newCwd").and_then(|v| v.as_str()).unwrap_or("");
+        if new_cwd.is_empty() {
+            return (false, false, false);
+        }
+        let next = (new_cwd != self.services.cwd).then(|| new_cwd.to_string());
+        if self.services.agent_cwd == next {
+            return (false, false, false);
+        }
+        self.services.agent_cwd = next;
+        // 目录变了，缓存里的分支属于旧目录：要求下一帧立即重新探测。
+        self.services.git_branch_poller.get_mut().invalidate();
+        (true, false, false)
+    }
+}

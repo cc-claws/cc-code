@@ -91,6 +91,9 @@ pub fn format_tool_name(tool: &str) -> String {
         "AskUserQuestion" => "Ask",
         "Agent" => "Agent",
         "LSP" => "LSP",
+        // 对齐 CC 的 userFacingName：工具行显示动作而不是工具名。
+        "EnterWorktree" => "Creating worktree",
+        "ExitWorktree" => "Exiting worktree",
         other => return to_pascal(&sanitize_display_text(other)),
     }
     .to_string()
@@ -108,7 +111,10 @@ pub fn format_tool_name(tool: &str) -> String {
 /// - MCP 工具：状态栏用**短名**（tool 段），不重复 server 前缀——消息区的
 ///   `server - tool (MCP)` 是完整形态，统计栏走的是另一套短名口径。
 pub fn format_tool_name_for_stats(tool: &str) -> String {
-    if matches!(tool, "Edit" | "Glob" | "Grep") {
+    if matches!(
+        tool,
+        "Edit" | "Glob" | "Grep" | "EnterWorktree" | "ExitWorktree"
+    ) {
         return tool.to_string();
     }
     if let Some((server, tool_name)) = parse_mcp_tool_name(tool) {
@@ -494,6 +500,11 @@ pub fn format_tool_args(
                 &[("count".into(), todos.len().to_string().into())],
             )
         }),
+        // worktree 工具：调用行只显示关键入参（名称 / 动作），路径与分支在结果行。
+        "EnterWorktree" => input["name"]
+            .as_str()
+            .map(|name| truncate(&format!("worktree/{name}"), 40)),
+        "ExitWorktree" => input["action"].as_str().map(|action| truncate(action, 40)),
         // MCP 工具：逐个顶层 key 输出 `key: value`，用 `, ` 连接。此前落到兜底分支
         // 只取「第一个字符串字段」，命中的是字母序靠前的 `country` 而非 `query`，
         // 且丢掉了 key 名。

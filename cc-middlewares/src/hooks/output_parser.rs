@@ -109,19 +109,23 @@ fn sync_response_to_action(response: &SyncHookResponse) -> HookAction {
 /// 将 HookSpecificOutput 转换为内部 HookAction
 fn hook_specific_to_action(specific: &HookSpecificOutput) -> HookAction {
     match specific {
+        // permissionDecision 优先：与 updatedInput 同时出现时，两者都要生效
+        // （参考实现里它们是并列字段，`allow + updatedInput` 表示放行并使用新输入）。
+        HookSpecificOutput::PreToolUse {
+            permission_decision: Some(decision),
+            permission_decision_reason,
+            updated_input,
+            ..
+        } => HookAction::PermissionOverride {
+            decision: decision.clone(),
+            reason: permission_decision_reason.clone(),
+            new_input: updated_input.clone(),
+        },
         HookSpecificOutput::PreToolUse {
             updated_input: Some(input),
             ..
         } => HookAction::ModifyInput {
             new_input: input.clone(),
-        },
-        HookSpecificOutput::PreToolUse {
-            permission_decision: Some(decision),
-            permission_decision_reason,
-            ..
-        } => HookAction::PermissionOverride {
-            decision: decision.clone(),
-            reason: permission_decision_reason.clone(),
         },
         HookSpecificOutput::UserPromptSubmit {
             additional_context: Some(ctx),

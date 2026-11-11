@@ -61,10 +61,7 @@ fn make_subagent_tool(parent_tools: Vec<Arc<dyn BaseTool>>) -> SubAgentTool {
 }
 
 /// 构造一条最小可用的 hook 注册项（只关心 event + hook 本体）。
-fn make_registered_hook(
-    event: HookEvent,
-    hook: crate::hooks::types::HookType,
-) -> RegisteredHook {
+fn make_registered_hook(event: HookEvent, hook: crate::hooks::types::HookType) -> RegisteredHook {
     RegisteredHook {
         hook,
         event,
@@ -451,6 +448,40 @@ async fn test_tool_executes_with_valid_agent_file() {
 
 /// Verify Agent reserved fields (isolation/run_in_background/description/name) don't affect execution
 #[tokio::test]
+async fn test_agent_worktree_isolation_requires_git_repository() {
+    let dir = tempdir().unwrap();
+    let agents_dir = dir.path().join(".claude").join("agents");
+    std::fs::create_dir_all(&agents_dir).unwrap();
+    std::fs::write(
+        agents_dir.join("test-agent.md"),
+        "---
+name: test-agent
+description: A test agent
+---
+
+You are a test agent.
+",
+    )
+    .unwrap();
+
+    let (tool, _rx) = attach_background(&make_subagent_tool(vec![]));
+    let error = tool
+        .invoke(serde_json::json!({
+            "prompt": "hello",
+            "subagent_type": "test-agent",
+            "isolation": "worktree",
+            "cwd": dir.path().to_str().unwrap()
+        }))
+        .await
+        .expect_err("非 git 目录必须拒绝 worktree 隔离");
+
+    assert!(
+        error.to_string().contains("isolation worktree"),
+        "unexpected error: {error}"
+    );
+}
+
+#[tokio::test]
 async fn test_agent_reserved_fields_parsed() {
     let dir = tempdir().unwrap();
     let agents_dir = dir.path().join(".claude").join("agents");
@@ -469,13 +500,12 @@ async fn test_agent_reserved_fields_parsed() {
             "subagent_type": "test-agent",
             "description": "test desc",
             "name": "test-alias",
-            "isolation": "worktree",
             "run_in_background": true,
             "cwd": dir.path().to_str().unwrap()
         }),
     )
     .await;
-    // Reserved fields don't affect execution, should still return normal result
+    // name / run_in_background 不影响执行，仍应正常返回
     assert!(
         result.contains("echo"),
         "Should execute normally: {}",
@@ -609,7 +639,9 @@ async fn test_system_builder_injects_system_message() {
         Arc::new(|_: Option<&str>| Box::new(SystemEchoLLM) as Box<dyn ReactLLM + Send + Sync>),
         dir.path().to_str().unwrap().to_string(),
     )
-    .with_system_builder(Arc::new(|_overrides, _cwd, _tools| "tone: be concise".to_string()));
+    .with_system_builder(Arc::new(|_overrides, _cwd, _tools| {
+        "tone: be concise".to_string()
+    }));
 
     let result = run_subagent(
         &t,

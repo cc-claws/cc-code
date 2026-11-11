@@ -16,6 +16,7 @@ pub mod llm;
 pub mod messages;
 pub mod middleware;
 pub mod shell;
+pub mod session_cwd;
 pub mod task_output;
 pub mod telemetry;
 pub mod thread;

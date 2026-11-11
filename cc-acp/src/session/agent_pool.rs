@@ -51,6 +51,11 @@ pub struct AgentPool {
     /// Avoids creating a new HTTP client per SubAgent invocation.
     pub(crate) subagent_llm_cache: HashMap<String, Arc<dyn BaseModel>>,
     pub(crate) project_tools: Option<ProjectToolResources>,
+    /// 会话工作目录句柄（`EnterWorktree` / `ExitWorktree` 运行中切换）。
+    ///
+    /// 由 ACP 会话在每轮 prompt 前写入；builder 用它构造 worktree 工具，
+    /// 保证「工具拿到的句柄」与「下一轮 cwd」是同一个。
+    pub session_cwd: Option<cc_agent::session_cwd::SessionCwd>,
 }
 
 /// deferred tool 索引按会话目录隔离，避免上一项目的 MCP 工具残留。
@@ -76,6 +81,7 @@ impl AgentPool {
             fingerprint: String::new(),
             subagent_llm_cache: HashMap::new(),
             project_tools: None,
+            session_cwd: None,
         }
     }
 
