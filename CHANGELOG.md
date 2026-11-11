@@ -4,6 +4,16 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.273 — 2026-11-11
+
+### Fixes
+
+- **工具错配改道后历史回放不再显示「声明名 + 改道后输出」杂交体（#1027）**：模型声明工具 A 却传工具 B 的参数、经自动改道（`rescue_mismatched_call`）实际执行 B 后，历史回放（`StateSnapshot` 到达 / `resume` / 会话恢复）把该调用渲染成杂交体：头部是**声明名**（如 `● Bash` 且无参数摘要括号——`tool_display` 按声明名取 `input["command"]` 而错配入参里没有该键），正文却是改道后工具的输出；且同一块在流式与回放两个时刻显示两个名字——流式事件携带改道后身份（`● Search(pattern: "…")`），回放则按 `tool_call_id` 回查 AI 消息的声明名，v0.6.265 把改道前移到阶段零治好了事件与审批，漏了历史回放这条展示路径。根因是运行时的真实工具名没有落到任何持久化字段：改道有意只替换运行时 `ToolCall`（事件、审批、熔断归因读它），写入历史的 AI 消息保留模型原始声明（喂 LLM 的历史口径不变），而 `BaseMessage::Tool` 不存工具名，展示层只能回查声明名。现 `BaseMessage::Tool` 新增 `tool_name` 字段（serde `default` + `skip_if_none`，旧记录反序列化为 `None` 自动回退原行为）记录**实际产生该结果**的工具名，`build_tool_msg_with_hints` 构造结果消息时填入 `ToolResult.tool_name`（阶段零改道后即执行名）；展示层（`message_view`）取名优先用该字段、缺省回退声明名回查，参数摘要仍取 AI 消息声明入参——错配场景里它恰是目标工具的参数（正是「恰好一个候选」改道判定的成立条件），故头部括号正常出参。LLM 历史口径不变：请求序列化手工构造 provider 形状、不携带该字段。改动文件：`cc-agent/src/messages/message.rs`、`cc-agent/src/agent/executor/tool_dispatch.rs`（`build_tool_msg_with_hints` 拆出 `build_tool_msg_body` 并填名）、`cc-tui-core/src/message_view/mod.rs`、`cc-agent/src/llm/anthropic/invoke.rs`（match 补 `..`）、各测试字面量构造点补 `tool_name: None`、`message_test.rs`（serde 兼容 1 例）、`tool_dispatch_test.rs`（集成 1 例：改道后 Tool 消息记录 `Grep` 且 AI 消息保留 `WrongTool`）、`message_view_test.rs`（展示优先级 2 例）、`docs/2026-11-11-tool-mismatch-reroute-display-hybrid.md`。验证：`cargo test -p cc-agent --lib` 定向 17 项通过；CI 三平台 build + test + clippy 全绿（含 cc-tui-core 新增展示测试）。特性/影响：流式、回放、resume 的工具块展示同源一致，不再出现同一块前后翻转；旧会话记录自动回退，历史已产生的 2 例杂交记录（927 会话扫描口径）不回修。
+
+- **Grep files 模式输出的 Windows 路径不再残留反斜杠与 `.\` 前缀（#1029）**：`files_with_matches`（默认模式，`grep_args.rs` 的 `unwrap_or("files_with_matches")`）/ `files_without_matches` 输出整行是文件路径、无行号冒号，`convert_rg_line` 的路径定位（`find_path_end`「跳过盘符找第一个 `:`」）落空返回 0 后整行原样返回，`\`→`/`、剥 `./` 前缀、strip cwd 三步归一化全部跳过（会话库该形态 1182 条输出中 1171 条路径带反斜杠、177 条带 `.\` 前缀，另有混合分隔符形态）；而 `content` 模式（带 `行号:` 冒号走完整归一化）与 Glob（`relativize_path`）一直是正斜杠相对路径，同一工具两种口径。现新增 `normalize_display_path`（strip cwd → 反斜杠转正斜杠 → 剥 `./` 前缀）并抽为 `convert_rg_line` 路径段与 files 模式共用的单点归一化；新增 `convert_rg_line_for_mode` 按 `output_mode` 分流——files 模式（`-l`/`-L`）**整行就是路径**，直接归一化（在语义明确处处理，不做「这行像不像路径」的启发式猜测：content 行正文可能含 `.\` 字面量，`find_path_end == 0` 本身意味着不可识别为路径结构），content/count 行仍按 `path:line:content` 结构处理，正文反斜杠字面量不受影响。`count`（`path:count`）带冒号本就走完整归一化，随测试钉住口径。改动文件：`cc-tools/src/tools/filesystem/rg_engine.rs`、`cc-tools/src/tools/filesystem/rg_engine_test.rs`（新增 7 例：`.\` 前缀剥离、混合分隔符、cwd 前缀剥离、files 模式分流、content 正文守护、无冒号行不猜测改写、count 口径）、`docs/2026-11-11-grep-files-only-path-not-normalized.md`。验证：`cargo test -p cc-tools --lib` 274 项全部通过（含既有 `convert_rg_line` 回归）；CI 三平台全绿。特性/影响：files 模式输出与 content 模式、Glob 口径一致（正斜杠相对路径）；content/count 行为零变化，纯 Rust 回退引擎本就不经此路径；历史会话记录里的旧输出不回修。
+
+---
+
 ## v0.6.272 — 2026-11-11
 
 ### Fixes
