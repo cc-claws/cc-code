@@ -15,8 +15,8 @@ use crate::ui::{
     theme,
 };
 
-/// 详情面板中不参与高度分配的固定行数（标题块 + Model/Project/Branch 块 + 标签 + 状态说明）。
-const FIXED_DETAIL_LINES: usize = 18;
+/// 详情面板中不参与高度分配的固定行数（标题块 + Model/Project/Branch/Session ID 块 + 标签 + 状态说明）。
+const FIXED_DETAIL_LINES: usize = 20;
 /// `Prompt` 预览最多占用的行数，其余高度全部让给 `Last message`。
 const PREVIEW_PROMPT_MAX: usize = 3;
 
@@ -340,8 +340,8 @@ fn render_detail(frame: &mut Frame, app: &App, center: &AgentCenter, area: Rect)
     let bucket = app.agent_center_bucket(meta);
 
     // 版式对齐详情面板参考稿：短字段（Model / Reasoning）标签与值同行；
-    // 长字段（Project / Branch / Last message / Prompt）标签独占一行、值另起一行，
-    // 块之间留一行空行分隔。配色沿用状态栏（模型青、项目黄、git 分支青）。
+    // 长字段（Project / Branch / Session ID / Last message / Prompt）标签独占一行、值另起一行，
+    // 块之间留一行空行分隔。配色沿用状态栏（模型青、项目黄、git 分支青、会话 ID 品红）。
     let mut lines: Vec<Line<'static>> = vec![
         Line::from(Span::styled(
             "Task details",
@@ -384,10 +384,12 @@ fn render_detail(frame: &mut Frame, app: &App, center: &AgentCenter, area: Rect)
             Style::default().fg(Color::Cyan),
             width,
         ),
+        Line::from(Span::styled("Session ID", label_style)),
+        detail_value_line(&meta.id, Style::default().fg(Color::Magenta), width),
         Line::default(),
         Line::from(Span::styled("Last message", label_style)),
     ];
-    // 固定行数：以上 15 行 + `Prompt` 前的空行 + `Prompt` 标签 + 状态说明 = [`FIXED_DETAIL_LINES`] 行。
+    // 固定行数：以上 17 行 + `Prompt` 前的空行 + `Prompt` 标签 + 状态说明 = [`FIXED_DETAIL_LINES`] 行。
     // 余下高度几乎全给 Last message；Prompt 只预留最多 [`PREVIEW_PROMPT_MAX`] 行，
     // 因为它通常是「继续」这类短指令（对齐参考稿里 18 : 1 的占比）。
     let available = (area.height as usize).saturating_sub(FIXED_DETAIL_LINES);

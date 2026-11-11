@@ -555,6 +555,30 @@ async fn test_center_detail_matches_reference_line_breaks() {
     );
 }
 
+/// 详情面板必须展示会话 ID：与 `-r/--resume` 使用的标识一致，且完整可见可复制。
+#[tokio::test]
+async fn test_center_detail_shows_session_id() {
+    let (mut app, _directory) = make_app().await;
+    make_center(&mut app, 1).await;
+    let id = app.global_ui.agent_center.as_ref().unwrap().threads[0]
+        .id
+        .clone();
+    let screen = draw(&mut app, 120, 30);
+    let cells: Vec<String> = screen
+        .lines()
+        .map(|row| row.split('│').nth(1).unwrap_or("").trim().to_string())
+        .collect();
+    let label = cells
+        .iter()
+        .position(|cell| cell == "Session ID")
+        .unwrap_or_else(|| panic!("详情面板缺少 Session ID 标签: {screen}"));
+    assert_eq!(
+        cells[label + 1],
+        id,
+        "Session ID 值应为完整会话标识（可复制用于 resume）: {screen}"
+    );
+}
+
 /// `Last message` 预览应吃掉除 `Prompt` 预留外的全部高度，不再被固定截到 3 行。
 #[tokio::test]
 async fn test_center_detail_last_message_preview_fills_height() {
