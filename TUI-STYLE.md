@@ -666,7 +666,7 @@ Spinner 下方附加 Tip 行：`  ⎿  Tip: ...`（5 列前缀，与工具结果
 | `/agents` | 打开跨项目全页会话中心（独立于面板系统） |
 | `/agent-design` | 打开 Agent 定义选择面板 |
 | `/help` | 列出所有可用命令 |
-| `/kernel` | 切换 Agent 内核（cc / dsh / pi）：无参打开内核选择面板，`/kernel cc`（或 `dsh` / `pi`）直接切换，`/kernel show` 查看当前内核 |
+| `/kernel` | 切换 Agent 内核（cc / dsh / pi）：无参打开内核选择面板，`/kernel cc`（或 `dsh` / `pi`）直接切换，`/kernel show` 查看当前内核，`/kernel export` 把系统提示词导出到工作目录的文件 |
 | `/model` | 打开模型选择面板（Provider + 级别 + Thinking）；带参数时直接切换别名 |
 | `/plugin` | 管理插件（浏览、安装、卸载） |
 | `/setup` | 打开配置向导，设置 Provider |

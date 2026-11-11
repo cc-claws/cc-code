@@ -7,7 +7,22 @@ use crate::{
 /// Switches the active session only after the backend acknowledges it.
 pub struct KernelCommand;
 
-const USAGE: &str = "用法：/kernel [cc|dsh|pi] | /kernel show";
+const USAGE: &str = "用法：/kernel [cc|dsh|pi] | /kernel show | /kernel export";
+
+/// `/kernel` 的查询型子命令：`show` 把系统提示词回显到对话流，`export` 写入文件。
+#[derive(Clone, Copy)]
+enum QueryMode {
+    Show,
+    Export,
+}
+
+/// 把系统提示词写入会话工作目录，返回落盘路径。
+fn export_prompt(cwd: &str, kernel_id: &str, prompt: &str) -> std::io::Result<std::path::PathBuf> {
+    let timestamp = chrono::Local::now().format("%Y-%m-%d-%H%M%S");
+    let path = std::path::Path::new(cwd).join(format!("kernel-prompt-{kernel_id}-{timestamp}.md"));
+    std::fs::write(&path, prompt)?;
+    Ok(path)
+}
 
 impl KernelCommand {
     fn push_notice(app: &mut App, text: String) {
@@ -19,7 +34,7 @@ impl KernelCommand {
         app.render_rebuild();
     }
 
-    fn query(app: &mut App, show_prompt: bool) {
+    fn query(app: &mut App, mode: QueryMode) {
         if app.session_mgr.current().metadata.kernel_request_pending {
             let notice = app.services.lc.tr("app-kernel-pending");
             app.session_mgr
@@ -68,11 +83,18 @@ impl KernelCommand {
                         "默认内核"
                     };
                     let id = status["kernelId"].as_str().unwrap_or("unknown");
-                    if show_prompt {
-                        format!("{label}: {id}\n\n系统提示词（基础与内核段落；项目指引、Skills 和运行时消息另行注入）：\n\n{}",
-                            status["systemPrompt"].as_str().unwrap_or(""))
-                    } else {
-                        format!("{label}: {id}\n可用内核: cc / dsh / pi\n{USAGE}")
+                    let prompt = status["systemPrompt"].as_str().unwrap_or("");
+                    match mode {
+                        QueryMode::Show => format!(
+                            "{label}: {id}\n\n系统提示词（基础与内核段落；项目指引、Skills 和运行时消息另行注入）：\n\n{prompt}\n\n提示：内容较长时可执行 /kernel export 导出到文件查看。"
+                        ),
+                        QueryMode::Export => match export_prompt(&cwd, id, prompt) {
+                            Ok(path) => format!(
+                                "{label}: {id}\n已导出系统提示词到: {}",
+                                path.display()
+                            ),
+                            Err(error) => format!("导出系统提示词失败: {error}"),
+                        },
                     }
                 }
                 Err(error) => format!("读取会话内核失败: {error}"),
@@ -177,7 +199,8 @@ impl Command for KernelCommand {
                 );
                 app.render_rebuild();
             }
-            "show" => Self::query(app, true),
+            "show" => Self::query(app, QueryMode::Show),
+            "export" => Self::query(app, QueryMode::Export),
             "" => app.open_kernel_panel(),
             _ => Self::push_notice(
                 app,
@@ -447,6 +470,76 @@ mod tests {
         assert_eq!(kernel_id, None);
         assert!(message.contains("当前会话内核: pi"));
         assert!(message.contains("test kernel prompt"));
+        assert!(
+            message.contains("/kernel export"),
+            "show 应提示可用 export 导出: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn export_writes_prompt_to_cwd_and_reports_path() {
+        let (mut app, _handle) = App::new_headless(100, 30).await;
+        let directory = tempfile::tempdir().unwrap();
+        app.services.cwd = directory.path().to_string_lossy().into_owned();
+        let (client, server) = mpsc_transport_pair();
+        let (client, _notifications) = crate::acp_client::AcpTuiClient::new(client);
+        app.acp_client = Some(client);
+        KernelCommand.execute(&mut app, "export");
+        let request = tokio::time::timeout(std::time::Duration::from_secs(5), server.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let IncomingMessage::Request { id, method, .. } = request else {
+            panic!("expected a kernel status request");
+        };
+        assert_eq!(method, "session/kernel");
+        server
+            .send_response(
+                id,
+                Ok(serde_json::json!({
+                    "scope": "session", "kernelId": "pi", "systemPrompt": "exported kernel prompt"
+                })),
+            )
+            .await
+            .unwrap();
+        let event = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let event = app
+                    .services
+                    .bg_event_rx
+                    .as_mut()
+                    .unwrap()
+                    .recv()
+                    .await
+                    .unwrap();
+                if matches!(event, AgentEvent::KernelCommandCompleted { .. }) {
+                    break event;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        let AgentEvent::KernelCommandCompleted { message, .. } = event else {
+            unreachable!();
+        };
+        assert!(message.contains("已导出系统提示词到"), "{message}");
+        let written: Vec<_> = std::fs::read_dir(directory.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect();
+        assert_eq!(written.len(), 1, "应只写入一个文件: {written:?}");
+        assert!(
+            written[0]
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("kernel-prompt-pi-"),
+            "文件名应含内核 id: {written:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&written[0]).unwrap(),
+            "exported kernel prompt"
+        );
     }
 
     #[tokio::test]
