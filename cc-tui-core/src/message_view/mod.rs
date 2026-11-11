@@ -1070,14 +1070,18 @@ impl MessageViewModel {
                 tool_call_id,
                 content,
                 is_error,
+                tool_name: executed_tool_name,
                 ..
             } => {
                 // 从前一条 Ai 消息的 tool_calls 中查找工具名和参数
-                let (tool_name, input) = prev_ai_tool_calls
+                let (declared_name, input) = prev_ai_tool_calls
                     .iter()
                     .find(|(id, _, _)| id == tool_call_id)
                     .map(|(_, name, input)| (name.clone(), input.clone()))
                     .unwrap_or_else(|| (tool_call_id.clone(), serde_json::Value::Null));
+                // 自动改道后 Tool 消息自带实际执行名，展示以它为准（AI 消息只保留
+                // 声明名喂 LLM 历史）；旧记录无该字段时回退声明名回查结果。
+                let tool_name = executed_tool_name.clone().unwrap_or(declared_name);
                 let raw_content = content.text_content();
                 // Agent 工具恢复为 SubAgentGroup（完成状态，展开显示 final_result）
                 if tool_name == "Agent" && input["action"].as_str().unwrap_or("spawn") == "spawn" {

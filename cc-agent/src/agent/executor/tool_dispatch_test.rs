@@ -2480,6 +2480,97 @@ async fn test_auto_rescue_grep_with_unique_grep_params() {
     assert!(read.received.lock().unwrap().is_none(), "Read 不应执行");
 }
 
+/// 改道后写入 state 的 Tool 消息必须记录实际执行名（docs/2026-11-11 杂交体回归）：
+/// Tool 消息 `tool_name = Some("Grep")` 供展示层取名，AI 消息保留模型声明名
+/// （WrongTool），LLM 历史口径不变。
+#[tokio::test]
+async fn test_auto_rescue_tool_msg_records_executed_tool_name() {
+    struct RescueNameLLM;
+    #[async_trait::async_trait]
+    impl ReactLLM for RescueNameLLM {
+        async fn generate_reasoning(
+            &self,
+            messages: &[BaseMessage],
+            _tools: &[&dyn BaseTool],
+            _streaming: Option<crate::llm::types::StreamingContext>,
+        ) -> AgentResult<Reasoning> {
+            let has_tool_result = messages
+                .iter()
+                .any(|m| matches!(m, BaseMessage::Tool { .. }));
+            if !has_tool_result {
+                // 声明 WrongTool，参数却 100% 符合 Grep（复现真实会话的错配形态）
+                Ok(Reasoning::with_tools(
+                    "calling wrong tool with grep params",
+                    vec![ToolCall::new(
+                        "call-1",
+                        "WrongTool",
+                        serde_json::json!({
+                            "pattern": "error",
+                            "output_mode": "files_with_matches",
+                        }),
+                    )],
+                ))
+            } else {
+                Ok(Reasoning::with_answer("done", "done"))
+            }
+        }
+    }
+
+    let agent = ReActAgent::new(RescueNameLLM)
+        .max_iterations(5)
+        .register_tool(Box::new(StrictWrongTool { name: "WrongTool" }))
+        .register_tool(Box::new(readonly_tool(
+            "Grep",
+            grep_schema(),
+            "Found 3 files",
+        )))
+        .register_tool(Box::new(readonly_tool(
+            "Glob",
+            glob_schema(),
+            "glob output",
+        )))
+        .register_tool(Box::new(readonly_tool(
+            "Read",
+            read_schema(),
+            "read output",
+        )));
+
+    let mut state = AgentState::new("/tmp");
+    let result = agent
+        .execute(AgentInput::text("run"), &mut state, None)
+        .await;
+    assert!(result.is_ok(), "改道执行应正常完成");
+
+    let declared = state.messages().iter().find_map(|m| match m {
+        BaseMessage::Ai { tool_calls, .. } if !tool_calls.is_empty() => {
+            Some(tool_calls[0].name.clone())
+        }
+        _ => None,
+    });
+    assert_eq!(
+        declared.as_deref(),
+        Some("WrongTool"),
+        "AI 消息应保留模型声明名（LLM 历史口径不变）"
+    );
+
+    let tool_msg = state
+        .messages()
+        .iter()
+        .find_map(|m| match m {
+            BaseMessage::Tool {
+                tool_name, content, ..
+            } => Some((tool_name.clone(), content.text_content())),
+            _ => None,
+        })
+        .expect("应有 Tool 结果消息");
+    assert_eq!(
+        tool_msg.0.as_deref(),
+        Some("Grep"),
+        "Tool 消息应记录实际执行名 Grep"
+    );
+    assert_eq!(tool_msg.1, "Found 3 files", "结果应来自改道后 Grep 的执行");
+}
+
 #[tokio::test]
 async fn test_no_auto_rescue_on_ambiguous_pattern_path() {
     // {pattern, path} 同时通过 Grep 与 Glob 校验（Glob 是 Grep 的真子集）：

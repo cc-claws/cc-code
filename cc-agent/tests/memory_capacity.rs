@@ -135,6 +135,7 @@ fn mock_message(seq: usize, file_contents: &[String], image_data: &str) -> BaseM
                 tool_call_id: format!("tc-{}", seq - 1),
                 content: MessageContent::blocks(blocks),
                 is_error: false,
+                tool_name: None,
             }
         }
         _ => {

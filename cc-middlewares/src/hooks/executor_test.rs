@@ -268,6 +268,7 @@ fn test_extract_tool_message_with_json() {
         tool_call_id: "tc-1".into(),
         content: MessageContent::text(r#"{"continue":false,"stopReason":"agent stop"}"#),
         is_error: false,
+        tool_name: None,
     }];
     let action = extract_structured_output(&messages);
     assert!(matches!(

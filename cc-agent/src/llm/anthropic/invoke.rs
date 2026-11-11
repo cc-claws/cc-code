@@ -216,6 +216,7 @@ pub(super) fn messages_to_anthropic_internal(
                 tool_call_id,
                 content,
                 is_error,
+                ..
             } => {
                 let mut tool_result_block = json!({
                     "type": "tool_result",

@@ -631,6 +631,19 @@ fn resolve_tool<'a>(
     None
 }
 
+/// 构造 ToolResult 对应的 BaseMessage：记录实际产生该结果的工具名，并把诊断提示
+/// 并入其结果正文末尾。
+///
+/// `tool_name` 记录**实际执行**的工具名（自动改道后与 AI 消息的声明名不同），
+/// 展示层以它为准，避免「声明名 + 改道后输出」杂交体；LLM 历史口径不受影响。
+fn build_tool_msg_with_hints(result: &ToolResult, hints: &[String]) -> BaseMessage {
+    let mut msg = build_tool_msg_body(result, hints);
+    if let BaseMessage::Tool { tool_name, .. } = &mut msg {
+        *tool_name = Some(result.tool_name.clone());
+    }
+    msg
+}
+
 /// 构造 ToolResult 对应的 BaseMessage，并把诊断提示并入其结果正文末尾。
 ///
 /// 为何并入正文而非新增独立消息（issue #495）：
@@ -640,7 +653,7 @@ fn resolve_tool<'a>(
 ///
 /// 并入 ToolResult 正文可同时满足：① 留在出错结果旁，位置精确；② 模型上下文末端可见；
 /// ③ 导出可见（`BaseMessage::Tool` 不受 system 过滤影响）；④ 不新增消息，零 UI 污染。
-fn build_tool_msg_with_hints(result: &ToolResult, hints: &[String]) -> BaseMessage {
+fn build_tool_msg_body(result: &ToolResult, hints: &[String]) -> BaseMessage {
     let suffix = hints.join("\n");
 
     if result.is_error {

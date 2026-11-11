@@ -1604,6 +1604,7 @@ fn test_state_snapshot_is_incremental() {
         tool_call_id: "tc1".into(),
         content: MessageContent::text("result"),
         is_error: false,
+        tool_name: None,
     }]);
 
     // 应累积到 3 条，不是只剩 1 条
@@ -2768,6 +2769,7 @@ fn bg_agent_messages() -> Vec<cc_agent::messages::BaseMessage> {
             tool_call_id: "call_bg_1".to_string(),
             content: MessageContent::text("Background task bg-01234567-89ab started"),
             is_error: false,
+            tool_name: None,
         },
     ]
 }
@@ -3050,6 +3052,7 @@ async fn test_thinking_toolcall_text_rebuild_preserves_user() {
             tool_call_id: "tc_read".into(),
             content: MessageContent::text("fn main() { println!(\"hello\"); }"),
             is_error: false,
+            tool_name: None,
         },
         BaseMessage::ai("Here is the content of main.rs:"),
     ]));

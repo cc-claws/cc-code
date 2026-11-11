@@ -86,6 +86,12 @@ pub enum BaseMessage {
         content: MessageContent,
         #[serde(default)]
         is_error: bool,
+        /// 实际产生该结果的工具名。自动改道（schema 错配救援）后与 AI 消息的声明名
+        /// 不同，展示层以本字段为准，避免「声明名 + 改道后输出」杂交体；与声明一致
+        /// 或旧记录为 `None` 时，展示层回退 AI 消息 `tool_calls` 按 `tool_call_id` 回查。
+        /// 仅内部展示用：LLM 请求序列化手工构造 provider 形状，不携带本字段。
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tool_name: Option<String>,
     },
 }
 
@@ -156,6 +162,7 @@ impl BaseMessage {
             tool_call_id: id.into(),
             content: content.into(),
             is_error: false,
+            tool_name: None,
         }
     }
 
@@ -217,6 +224,7 @@ impl BaseMessage {
             tool_call_id: id.into(),
             content: error.into(),
             is_error: true,
+            tool_name: None,
         }
     }
 
