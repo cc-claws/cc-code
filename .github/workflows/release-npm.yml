@@ -82,6 +82,22 @@ jobs:
             ${{ runner.os }}-${{ matrix.target }}-build-
             ${{ runner.os }}-${{ matrix.target }}-
 
+      - name: Configure docker DNS for cross builds
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          # cross 的 pre-build 在 `docker build` 里跑 apt。runner 的容器网络
+          # 解析不到 ubuntu 源（Could not resolve 'ports.ubuntu.com'），
+          # 表现为 `docker build ... exit code: 100`，构建在编译前就失败。
+          # 显式给 daemon 指定公共 DNS，供 buildkit 复用。
+          sudo mkdir -p /etc/docker
+          echo '{"dns": ["8.8.8.8", "1.1.1.1"]}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl restart docker
+          docker info --format '{{json .}}' | tr ',' '\n' | grep -i dns || true
+          # 自检：起一个一次性容器确认能解析镜像源，早失败早暴露。
+          docker run --rm ubuntu:20.04 getent hosts archive.ubuntu.com \
+            || echo "::warning::container DNS still unresolved; cross pre-build may fail"
+
       - name: Install cross
         if: runner.os == 'Linux'
         run: cargo install cross
