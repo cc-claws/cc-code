@@ -239,6 +239,45 @@ fn test_bash_failed_group_collapsed_keeps_command_header_and_truncated_summary()
 }
 
 #[test]
+fn test_grep_failed_group_collapsed_keeps_tool_header_and_truncated_summary() {
+    // 构造一个 Grep 失败的场景：pattern 合法但无匹配，模拟 Grep 返回错误摘要。
+    // 聚合 pipeline 会把失败条目标记为 is_error=true，但显示名统一为 Search。
+    let output = format_command_output(
+        &"context\n".repeat(100),
+        "Error: no matches found",
+        1,
+    );
+    let command = "rg Loaded \\{\\} hooks from|Loaded .* hooks from";
+
+    let group = MessageViewModel::ToolCallGroup {
+        thinking: None,
+        category: ToolCategory::Inspect,
+        tools: vec![ToolEntry {
+            tool_name: "Grep".into(),
+            display_name: "Search".into(),
+            args_display: Some(command.into()),
+            content: output.into(),
+            is_error: true,
+            file_inspect: false,
+        }],
+        collapsed: true,
+        content_hash: 0,
+        standalone_action: None,
+    };
+
+    let actual = make_rendered_text(&[group], false);
+    // 普通模式下失败的 Grep 也必须带工具头，否则用户无从判断是哪次搜索挂了。
+    assert!(
+        actual.contains("● Search(Loaded \\{\\} hooks from|Loaded .* hooks from)"),
+        "折叠态必须显示失败 Grep 工具头（pattern），否则用户无从判断是哪次搜索挂了: {actual}"
+    );
+    assert!(
+        actual.contains("  ⎿  Error: no matches found"),
+        "折叠态必须保留截断后的错误摘要: {actual}"
+    );
+}
+
+#[test]
 fn test_render_bash_inspect_group_collapsed_snapshot() {
     let (messages, _) = make_inspection_messages();
     let views = make_restored_views(&messages);
