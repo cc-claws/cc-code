@@ -2,7 +2,7 @@
 
 ## 项目概述
 
-Rust Agent 框架，10 个 Workspace Crate。
+Rust Agent 框架，11 个 Workspace Crate。
 
 | Crate | 职责 |
 |-------|------|
@@ -12,6 +12,7 @@ Rust Agent 框架，10 个 Workspace Crate。
 | `cc-tui-core` | **会话核心与展示模型**：i18n、导出、配置类型、主题/调色板、markdown 解析、`MessageViewModel`、shell 历史、工具参数格式化、`UiStateCore` |
 | `cc-middlewares` | 中间件：HITL、SubAgent、Skills、Cron、MCP、Hooks、Plugin、LSP（基础工具实现已下沉 `cc-tools`） |
 | `cc-widgets` | Widget 组件库，仅依赖 ratatui + pulldown-cmark |
+| `cc-compress` | **CLI 输出压缩叶子库**：ANSI 剥离、token 估算守卫、相邻重复行折叠；纯函数，不 spawn 进程 / 不读环境 / 不碰文件系统 |
 | `cc-acp` | **ACP 服务层**：Agent Client Protocol 实现 + 内嵌 `acp_server` 会话执行运行时 |
 | `cc-tui` | **纯表现层**：Frame 渲染、事件泵、面板 render、Slash 命令、`UiState` 表现层侧车 |
 | `langfuse-client` | Langfuse 遥测客户端（独立） |
@@ -25,8 +26,8 @@ Rust Agent 框架，10 个 Workspace Crate。
 
 依赖关系（A → B 表示 A 依赖 B）：
 
-- `cc-widgets`、`cc-lsp`、`langfuse-client` → 无 workspace 内部依赖（独立基础库）
-- `cc-tools` → `cc-agent`（唯一上游，叶子 crate）
+- `cc-widgets`、`cc-lsp`、`langfuse-client`、`cc-compress` → 无 workspace 内部依赖（独立基础库）
+- `cc-tools` → `cc-agent`、`cc-compress`（叶子 crate）
 - `cc-terminal` → `cc-agent`、`cc-tools`
 - `cc-middlewares` → `cc-agent`、`cc-tools`、`cc-lsp`
 - `cc-acp` → `cc-agent`、`cc-middlewares`、`cc-lsp`、`langfuse-client`
@@ -48,6 +49,7 @@ Rust Agent 框架，10 个 Workspace Crate。
 | 要改的东西 | 物理位置 |
 | :--- | :--- |
 | Read/Write/Edit/Glob/Grep、进程执行、`BashTool`、输出截断/落盘、Todo | `cc-tools/src/tools/filesystem/`、`cc-tools/src/process/`、`cc-tools/src/bash/` |
+| CLI 输出压缩过滤器（ANSI 剥离、token 估算守卫、相邻行去重） | `cc-compress/src/{ansi.rs,guard.rs,dedup.rs}` |
 | HITL、SubAgent、Hooks、Plugin、MCP、Skills、AskUserTool、SubAgentTool | `cc-middlewares/src/`（保留，未下沉） |
 | 终端后端/视口、剪贴板、ConPTY、色深、终端标题底层、键盘模式、shell 执行 | `cc-terminal/src/terminal_backend/`、`src/clipboard/`、`src/conpty.rs` 等 |
 | i18n、导出、配置类型、主题/调色板、markdown 解析、`MessageViewModel`、shell 历史、工具参数格式化、`UiStateCore` | `cc-tui-core/src/i18n/`、`src/theme/`、`src/message_view/`、`src/ui_state.rs` |

@@ -4,6 +4,30 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.270 — 2026-11-10
+
+### Features
+
+- **MCP 工具头按 server/tool 展示并列出参数（#1011）**：MCP 工具在消息区的展示形态此前不佳：工具名由 `to_pascal` 拼成 `McpTavilyTavilySearch`（server 名重复两遍、无分隔符），参数摘要走兜底逻辑只取「第一个字符串字段」——因 serde_json 的 Map 按字母序迭代，命中的是 `country` 之类的字段而非 `query`，且丢掉 key 名，用户看不出实际传了哪些参数；状态栏统计同样显示 `McpTavilyTavilySearch`。现新增 `parse_mcp_tool_name` 拆 `mcp__{server}__{tool}`——第一段为 server、其余整体为 tool（tool 名本身可能含 `__`）；`format_tool_name` 输出 `server - tool (MCP)`、`format_tool_name_for_stats` 取 tool 段短名、`format_tool_args` 走新增的 `mcp_args_summary` 逐顶层 key 输出 `key: value`（值按 JSON 序列化，按 `TOOL_ARGS_MAX_CHARS` 兜底截断，与其余分支口径一致）。改动文件：`cc-tui-core/src/tool_display.rs`、`cc-tui-core/src/tool_display_test.rs`（新增 7 个单测：名称解析、三个函数、嵌套值、空入参、字符上限、控制序列转义）、`cc-tui/src/ui/message_render/message_render_test.rs`（新增 3 个端到端渲染测试：完整形态、窄宽度截断、详细模式完整参数）、`docs/2026-11-10-mcp-tool-render-audit.md`。验证：`cargo test -p cc-tui-core --lib` 251 passed；`cargo test -p cc-tui --lib` MCP 相关 4 项通过。特性/影响：属展示层改动，不涉及工具执行、权限判定与消息内容；消息区工具头由 `McpTavilyTavilySearch(China)` 变为 `tavily - tavily_search (MCP)(country: "China", max_results: 8, ...)`，状态栏统计由 `McpTavilyTavilySearch` 变为 `tavily_search`（短名），非 MCP 工具行为不变。未做真机验证（未启动 TUI、未连真实 MCP server）。
+
+### Fixes
+
+- **对齐 dsh/pi 工具参数并明确执行语义（#1008）**：dsh/pi 内核缺少上游方言参数映射，模型调用被严格校验拒绝；单位和行号基准说明不完整。本次在内核边界修复映射并补充可执行的 find 限额。其一，`cc-agent/src/kernel/spec/{dsh,pi}.rs` 对齐 skill、bash、questions 与 grep 参数，修正 dsh 来源标注；`cc-agent/src/kernel/prompts/{dsh,pi}.md` 明确毫秒超时、0-based offset、搜索上限及 workdir/id 能力限制。其二，新增 `cc-agent/src/kernel/find.rs` 接入仅 pi 生效的 `find.limit` 适配，保留底层警告并覆盖两种工具注册路径（`cc-agent/src/agent/executor/mod.rs`）。改动文件另含 `cc-agent/src/kernel/{mod.rs,find_test.rs}`、`cc-acp/src/kernel_tool_params_test.rs`（验证真实 schema、搜索与交互参数、执行器限额及 cc 字节等价）、`cc-acp/src/lib.rs`（注册回归测试）。验证：内核测试 37 项及跨 crate 回归 6 项通过。特性/影响：仅改变 dsh/pi 方言层，保留 peri 的超时、offset 与搜索执行语义，不修改共享工具实现。
+
+### Docs
+
+- **注释规范化，去除外部源码路径与品牌缩写引用（#1007）**：清理源码注释中指向仓库外具体实现的路径与品牌缩写引用，注释只描述本仓库内的实际行为。
+
+---
+
+## v0.6.269 — 2026-11-10
+
+### Fixes
+
+- **聚合组折叠态补上失败 Bash 的命令头（#1005）**：普通模式下，同一轮聚合的工具组里失败的 Bash 调用只渲染一段截断错误摘要，没有命令本身，用户无从判断是哪条命令失败，只能切到详细模式才看得到。现抽出 `push_group_entry_header` 与 `render_group_bash_body` 两个组内渲染函数，详细模式与折叠态共用同一份命令头与正文口径；聚合组折叠态下失败的 Bash 先渲染 `● Bash(<command>)` 命令头，再接原有的截断错误摘要（前 3 行 + `… +N lines (ctrl+o to expand)`），成功的调用仍按原样折叠隐藏；`cc-tui/src/ui/render_layout/estimator.rs` 的聚合组折叠态行数计入失败调用的命令头与摘要行，避免首帧高度偏小导致滚动定位漂移。改动文件：`cc-tui/src/ui/message_render/mod.rs`、`cc-tui/src/ui/render_layout/estimator.rs`、`cc-tui/src/ui/message_render/bash_file_inspect_test.rs`（更新折叠态快照，新增失败命令头与截断摘要断言）。特性/影响：仅影响普通模式（未按 `Ctrl+O`）下工具聚合组内失败的 Bash 调用；报错正文仍是截断摘要，不会满屏都是错误；详细模式行为不变。
+
+---
+
 ## v0.6.268 — 2026-11-10
 
 ### Fixes
@@ -25,6 +49,10 @@ Perihelion Agent 版本变更记录。
 ---
 
 ## v0.6.266 — 2026-11-10
+
+### Fixes
+
+- **SSH + X11 转发环境下复制到剪贴板失效（#992）**：SSH 会话一律跳过 native clipboard、直接走 OSC 52 转义。但在 X11 转发（`DISPLAY` / `WAYLAND_DISPLAY` 指向用户本机）场景下，`arboard` 写的正是用户剪贴板，且终端不支持 OSC 52 时它是唯一可用通路，结果拖选有选区高亮和「已复制 N 字符」提示，而剪贴板内容为空。现于 `cc-terminal` 的 `CopyEnvironment` 增加 `forwarded_display` 判定，SSH 且显示已转发时先试 `arboard`、失败回落 tmux / OSC 52，错误信息聚合两条链路；`cc-tui` 侧复制失败不再设置「已复制」提示，改为落一条系统提示。改动文件：`cc-terminal/src/clipboard/{copy.rs,mod.rs}`、`cc-tui/src/event/mouse.rs`、`cc-tui-core/locales/{en,zh-CN}/main.ftl`（新增 `statusbar-copy-failed`）。特性/影响：仅影响 SSH + 显示转发环境下的复制路径，普通本地会话行为不变。
 
 ### Refactor
 
@@ -55,6 +83,20 @@ Perihelion Agent 版本变更记录。
 ### Features
 
 - **`Ctrl+P` 切换内核面板，`Alt+P` 打开命令面板（#981, #982）**：此前 `Ctrl+P` 与 `Alt+P` 两个快捷键都绑定到命令面板，内核（Agent Kernel）切换只能手动输入 `/kernel`，没有独立快捷键入口。现将重叠绑定拆开：`Ctrl+P` 弹出内核选择面板（cc / dsh / pi），复用 `/kernel` 无参入口逻辑（新增 `App::open_kernel_panel()` 封装，`/kernel` 命令改为调用它，消除重复代码）；`Alt+P` 保持打开命令面板（Provider / Model / Effort 选择），行为不变。两面板同属 `MutexGroup::Settings` 互斥组，按键切换时自动关闭另一面板。文案同步：状态栏第二行提示改为 `Ctrl+O ::详情 │ Ctrl+P ::内核 │ Alt+P ::设置`（新增 `key-status-kernel` 本地化键），tips `tip-2` 改为「Ctrl+P 切换 Agent 内核，Alt+P 打开命令面板」、`tip-18` 改为「Ctrl+P 或 /kernel 切换 Agent 内核」，`/help` 快捷键列表新增内核选择项（`help-shortcuts` 增加 `$kernel` 占位符），`command_palette_label()` 返回值由 `"Ctrl+P / Alt+P"` 改为 `"Alt+P"` 并新增 `kernel_panel_label()`，`TUI-STYLE.md` 状态栏默认行说明同步。验证：`cargo test -p cc-tui --lib keyboard::` 55 passed（含新增 3 个测试：`test_shortcuts_ctrl_p_toggles_kernel_panel`、`test_shortcuts_alt_p_toggles_command_palette`、`test_shortcuts_ctrl_p_replaces_open_command_palette` 覆盖两面板互斥替换）；CI 三平台（macos / ubuntu / windows）build 全绿。
+
+## v0.6.262 — 2026-11-10
+
+### Features
+
+- **工具调用参数错配自动改道到唯一只读工具（#980）**：LLM 调错工具但参数 100% 符合某个只读工具时，此前只能静默失败并把结构化参数错误回灌给模型，需额外一轮 LLM 往返纠正。现新增 `AUTO_RESCUE_WHITELIST` 与 `try_auto_rescue()`：在 schema 校验失败分支先尝试改道，判定口径为对白名单 `Grep`/`Glob`/`Read` 逐个跑严格 schema 校验，**恰好一个通过**才改道——0 个命中（空参数 / 多余键）或 ≥2 个命中（如 `{pattern, path}` 同时符合 `Grep` 与 `Glob`）均回退原参数错误路径。方向单向安全：只降级到只读工具，反向场景（调 `Grep` 传 Bash 参数）绝不执行，`command` 类参数永不被改道。改道只在参数 100% 命中唯一只读工具时发生，工具调用身份（`tool_name` / `tool_call_id`）对外保持 LLM 声明不变，仅 `tracing::warn` 记录 from→to（TUI 无感、不触发熔断计数）。改动文件：`cc-agent/src/agent/executor/tool_dispatch.rs`、`cc-agent/src/agent/executor/tool_dispatch_test.rs`（新增 10 个测试：三只读工具正向改道、`{pattern,path}` 歧义不改道、Glob 唯一命中（子 agent 白名单场景）、command→Bash 绝不改道、空参数/多余键不改道、连续改道不触发熔断、大写工具名大小写无关解析与改道、参数名大小写敏感不自愈）。特性/影响：cc/dsh/pi 三内核均生效（入站 `normalize_reasoning` 已统一参数名），子 agent 与 fork 走同一分发路径同样生效；参数名大小写不匹配（如 `-N` ≠ `-n`）不自愈，仍走报错提示由模型重试。本版为自动改道的第一阶段（只读工具之间），第二阶段（放宽到只读 Bash 并把改道前移到事件之前）见 v0.6.265。
+
+### Fixes
+
+- **状态栏快捷键提示键名字母大写（#978）**：v0.6.261 只把状态栏默认提示的 `ctrl` 改成 `Ctrl`，键名字母 `o` / `p` 仍为小写，显示为 `Ctrl+o` / `Ctrl+p`，与文档 `Ctrl+O` / `Ctrl+P` 仍不一致。现将默认提示两处的键名字母一并大写，`format_hints` 与其余提示（OAuth 弹窗 `ctrl+o`、detail 模式 `Ctrl+o`）保持原样。改动文件：`cc-tui/src/ui/main_ui/status_bar.rs`。特性/影响：仅状态栏默认快捷键提示文案，无功能行为变化。
+
+- **状态栏详细模式快捷键提示键名字母大写（#979）**：默认分支两处提示已在 #978 修复；detail 模式（按 `Ctrl+O` 后的 `● Verbose` 行）的 `Ctrl+o` → `key-exit-detail` 键名字母同步大写，保持全站一致，`format_hints`、OAuth 弹窗 `ctrl+o` 保持原样。改动文件：`cc-tui/src/ui/main_ui/status_bar.rs`。特性/影响：仅 detail 模式状态栏提示文案，无功能行为变化。
+
+---
 
 ## v0.6.261 — 2026-11-09
 

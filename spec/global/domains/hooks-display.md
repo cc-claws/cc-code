@@ -101,7 +101,7 @@ hook 自身失败（脚本不存在、崩溃、超时）只是配置问题，不
   主动折叠代表完全信任该工具的细节，不需要 hook 明细。
 - **会话级事件**（`UserPromptSubmit` / `Stop` / `SessionStart` / `PreCompact` …）：展示为
   视图尾部可改写的 `⎿` 行，仅详细模式（Ctrl+O）可见；同一事件跨来源合并成一行、计数累加。
-- **`SessionEnd`**：不展示（会话结束没有稳定渲染时机），结果只进日志。
+- **`SessionEnd`**：不展示（会话结束没有稳定渲染时机），结果只进日志。展示规则不变，但触发时机已修复——见下方「SessionEnd 可靠触发与 session_id 对齐」。
 
 ## 数据契约
 
@@ -417,6 +417,21 @@ hook 行的显示**不依赖工具本身成功与否**，独立叠加：
   退出路径推完事件进程即结束，`/clear` 路径也紧接视图重建；其 hook 结果只进日志。
   其余会话级事件（`UserPromptSubmit` / `Stop` / `SessionStart` / `PreCompact`）**展示**，
   以视图尾部的可改写 `⎿` 行呈现、仅详细模式可见，与参考实现一致。
+- **SessionEnd 可靠触发与 session_id 全链路对齐（v0.6.251，#941, #942）**：展示规则不变，
+  但触发时机此前有缺口——Windows 点 X 关窗时 `CTRL_CLOSE_EVENT` 无人处理，SessionEnd 从不触发，
+  按 session_id 聚合的外部 hook 消费方里会话永远停在 working。现关窗在 handler 线程从事件循环
+  每 500ms 刷新的全局快照同步触发 SessionEnd（3.5s 超时 + `SESSION_END_FIRED` 原子互斥，
+  与正常退出不重复触发）；三条 SessionEnd 路径（关窗 `other`、`/clear` `clear`、
+  输入框可见时退出 `prompt_input_exit`）均携带真实 session_id，退出路径等待异步 hook 完成
+  （`EXIT_HOOK_WAIT` 总超时）。另补齐 SubagentStart / SubagentStop 的真实 session_id 透传
+  （原硬编码空串会把子 Agent 生命周期事件归到 "default" 会话）。
+- **command hook 支持 exec form args（v0.6.255，#954, #955）**：Windows 上
+  `~/.claude/settings.json` 中的 hook 常被第三方桌面工具写成 `command` + `args` 的 exec form，
+  此前 `HookType::Command` 没有 `args` 字段，serde 静默丢弃参数并把 `command` 整串交给 `cmd /C`
+  ——可执行路径含空格时被切碎，此类 hook 全部以 exit 1 失败。现 `args` 非空时直接以 `command`
+  为可执行文件、`args` 为 argv 启动（不经过 shell），逐项做 `${CLAUDE_PLUGIN_ROOT}` /
+  `${CLAUDE_PLUGIN_DATA}` / `$ARGUMENTS` 变量替换；`args` 为空的旧配置行为不变，exec form 下
+  `shell` 字段被忽略。
 - **异步完成按事件计数、按窗口合并**：同事件的异步完成累加计数，跨事件在 1 秒窗口内
   合并成一行。否则 20 个异步 hook 会刷出 20 行。
 - **只读工具与折叠块不展示 hook 行**：`Read` / `Grep` / `Glob` 对用户没有决策价值；

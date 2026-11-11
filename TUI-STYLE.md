@@ -223,7 +223,7 @@ read_file、search_files_rg、glob_files 等只读工具自动聚合：
 | 区域 | 样式 |
 |------|------|
 | 边框 | DIM 圆角，左右各留 1 列内边距 |
-| 标题与版本 | ACCENT + BOLD `CC Code  v<实际包版本>` |
+| 标题与版本 | ACCENT + BOLD `CC Code  v<实际包版本> · Agent Kernel: <id>` |
 | 模型与档位 | MUTED `model · (effort)`，无模型名或未配 effort 时整行省略 |
 | 当前目录 | MUTED，超宽按显示列宽以 `…` 收口 |
 | 使用提示 | TEXT，中英文提示开始对话或 `/help` 查看命令 |
@@ -400,6 +400,8 @@ Spinner 下方附加 Tip 行：`  ⎿  Tip: ...`（5 列前缀，与工具结果
 | `/plugin` | PluginPanel | Global | BORDER |
 | `/cost` | StatusPanel (Cost tab) | Session | BORDER |
 | `/context` | StatusPanel (Context tab) | Session | BORDER |
+| `/kernel` | KernelPanel | Session | BORDER |
+| `/ps` | BackgroundTasksPanel | Global | BORDER |
 
 ### 选中行样式
 
@@ -409,7 +411,7 @@ Spinner 下方附加 Tip 行：`  ⎿  Tip: ...`（5 列前缀，与工具结果
 
 | 类型 | 边框颜色 | 面板 |
 |------|----------|------|
-| 标准面板 | BORDER (`#505050`) | model, agent, cron, thread_browser, config, memory, hooks, mcp, status |
+| 标准面板 | BORDER (`#505050`) | model, agent, cron, thread_browser, config, memory, hooks, mcp, status, kernel, background_tasks |
 | 编辑态 | WARNING | login(Edit/New/Delete), config(Edit) |
 | 引导流程 | ACCENT | setup_wizard 步骤 1-2（Done=SAGE） |
 | 警告弹窗 | WARNING | HITL 审批 |
@@ -566,9 +568,10 @@ Spinner 下方附加 Tip 行：`  ⎿  Tip: ...`（5 列前缀，与工具结果
 | `Enter` | 提交消息（idle）/ 缓冲消息（loading） | loading 时消息排队等待 |
 | `Ctrl+Enter` | 立即补充队首排队消息 | 等价点击 `[Send now]`；同时兼容 `Alt+S`；队列为空时不拦截该按键。**前台命令宽限期**：steer 时若恰有一条前台命令在跑，先给 2 秒宽限（短命令自行结束即收口），到时仍在前台则自动移交后台（等价 `Ctrl+B`）并提示「前台命令已转入后台，补充信息将立即生效」；多条前台并行不自动选择，重复 steer 不重置计时器。不用 `Ctrl+S`：Windows 控制台把 Ctrl+S 当暂停键（XOFF）在宿主层截走。**仅 Windows 能可靠区分 `Ctrl+Enter`**：macOS（Terminal.app 不支持 kitty 键盘协议/modifyOtherKeys）与 Linux（终端默认未开启）下 `Ctrl+Enter` 与 `Enter` 同字节，队列提示行改显示 `⌥S` / `Alt+S`（`ui/main_ui/queued_messages.rs` 的 `keys_tip_key`） |
 | `Ctrl+X` | 删除队首排队消息 | 等价点击 `[×]`；同时兼容 `Alt+X`；队列为空时不拦截该按键 |
-| `Alt+Enter` | 插入换行 | |
+| `Shift+Enter` / `Alt+Enter` | 插入换行 | `Shift+Enter` 全平台可用；`Alt+Enter`（macOS Option 键）为兼容写法，Windows 终端可能在宿主层截获 |
 | `Shift+Tab` | 循环切换权限模式 | Auto → Bypass → Auto（只剩两档） |
-| `Ctrl+P` / `Alt+P` | 开关命令面板（Provider & Model 选择） | **模型切换统一走此入口** |
+| `Ctrl+P` | 打开内核选择面板（cc / dsh / pi） | 与 `/kernel` 无参入口同一条路径（`App::open_kernel_panel()`）；`PanelKind::Kernel` 与命令面板同属 `MutexGroup::Settings` 互斥组 |
+| `Alt+P` | 打开命令面板（Provider / Model / Effort） | **模型切换统一走此入口** |
 | `Ctrl+O` | 切换详细模式（detail mode） | OAuth 弹窗激活时不响应 |
 | `Ctrl+B` | 后台化前台 shell / 聚焦底部后台任务入口 | |
 | `Alt+V`（或 `Ctrl+V`） | 粘贴剪贴板图片附件 | 优先图片，回退文字；Alt+V 为现代终端穿透主键 |
@@ -633,7 +636,7 @@ Spinner 下方附加 Tip 行：`  ⎿  Tip: ...`（5 列前缀，与工具结果
 
 ## 命令系统
 
-源码：`cc-tui/src/command/mod.rs`。TUI 命令注册表共 **32 个命令**。
+源码：`cc-tui/src/command/mod.rs`。TUI 命令注册表共 **35 个命令**。
 
 ### 命令列表
 
@@ -663,6 +666,7 @@ Spinner 下方附加 Tip 行：`  ⎿  Tip: ...`（5 列前缀，与工具结果
 | `/agents` | 打开跨项目全页会话中心（独立于面板系统） |
 | `/agent-design` | 打开 Agent 定义选择面板 |
 | `/help` | 列出所有可用命令 |
+| `/kernel` | 切换 Agent 内核（cc / dsh / pi）：无参打开内核选择面板，`/kernel cc`（或 `dsh` / `pi`）直接切换，`/kernel show` 查看当前内核 |
 | `/model` | 打开模型选择面板（Provider + 级别 + Thinking）；带参数时直接切换别名 |
 | `/plugin` | 管理插件（浏览、安装、卸载） |
 | `/setup` | 打开配置向导，设置 Provider |
@@ -689,6 +693,7 @@ Spinner 下方附加 Tip 行：`  ⎿  Tip: ...`（5 列前缀，与工具结果
 | `/cron` | 查看和管理定时任务 |
 | `/hooks` | 查看 Hook 配置 |
 | `/loop` | 注册定时循环任务（自然语言描述，如 `/loop 每隔5分钟提醒我喝水`） |
+| `/ps` | 打开后台任务面板（列出后台子 Agent 与后台化 shell 命令）；**运行中也可立即执行**，不走排队 |
 
 ### ACP 层命令
 
@@ -716,6 +721,7 @@ Agent 运行中（`loading`）按 `Enter` 时，输入按归属分流，**绝不
 | 普通消息 / Skill | 入队，本轮结束后发送 |
 | 本地「转发型」命令（`/commit`、`/review`、`/recap`、`/init`、`/streaming`） | 入队，本轮结束后执行 |
 | ACP 侧命令（如 `/compact`） | 入队，本轮结束后由 ACP 执行 |
+| 声明 `execute_while_busy = true` 的本地命令（如 `/ps`） | **立即执行**，不排队也不拒绝 |
 | 需要空闲 UI 的本地命令（`/theme`、`/model`、`/exit`、`/rewind`、`/gc`、`/help` 等） | 拒绝，提示原因并**保留输入框内容** |
 | `!` shell 命令 | 拒绝，同上 |
 | 未知命令 / 前缀歧义 | 拒绝并提示 |

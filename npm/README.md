@@ -7,9 +7,35 @@
 
 ## 最近更新
 
-v0.6.264：**状态栏提示冒号重复修复，`Alt+P` 文案修正**——状态栏第二行快捷键提示此前渲染出两个冒号（`Ctrl+O ::详情`）：locale 的 `key-*` 文案自带前导 `:`，`format_hints` 又补了一个；键名段还带尾随空格，使冒号与键名之间多出一个空格。现把冒号收口到 `format_hints` 一处，剥掉 locale 前缀再补一个并让冒号紧贴键名，默认模式改为 `Ctrl+O:详情  Ctrl+P:内核  Alt+P:模型`，OAuth / Questions / Rewind 与各面板提示同步生效。顺带把 `Alt+P` 的说明由「设置」改为「模型」（该键实际打开 Provider / Model / Effort 命令面板）（#984）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+v0.6.270：**MCP 工具头按 server/tool 展示并列出参数**——MCP 工具此前被 `to_pascal` 拼成 `McpTavilyTavilySearch`（server 名重复两遍），参数摘要只取「第一个字符串字段」且丢 key 名（serde_json Map 按字母序迭代，命中 `country` 而非 `query`）。现拆 `mcp__{server}__{tool}`，工具头显示 `tavily - tavily_search (MCP)`，参数逐项输出 `key: value`，状态栏统计改用短名 `tavily_search`；纯展示层改动，不涉及工具执行与权限判定（#1011）。同版对齐 dsh/pi 内核的工具参数映射并明确执行语义（毫秒超时、0-based offset、搜索上限），补齐仅 pi 生效的 `find.limit` 适配（#1008）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
+v0.6.269：**聚合组折叠态补上失败 Bash 的命令头**——普通模式下，同轮聚合的工具组里失败的 Bash 调用只渲染一段截断错误摘要、没有命令本身，无从判断是哪条命令失败，只能切详细模式。现折叠态先渲染 `● Bash(<command>)` 命令头再接截断摘要，高度估算同步计入以免首帧偏小导致滚动漂移；成功调用仍照常折叠，详细模式不变（#1005）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
+v0.6.268：**RTK 重写的 `exit 3` 不再被丢弃 + 抽出 `cc-compress` crate**——RTK 的 `exit 3`（打印了重写命令、但 allow 未全覆盖，含「未配置任何规则」的默认情形）此前被当作失败丢弃，导致 `git status` / `log` / `diff` 等常见命令的输出压缩从未生效；现 `rtk_rewrite_succeeded()` 认可 `0`/`3`、拒绝 `1`/`2`，审批语义不变（#999, #1000）。同时把 CLI 输出压缩过滤器抽成独立叶子 crate `cc-compress`（与 `cc-widgets` 同级，零 workspace 内部依赖），首批迁入 ANSI 剥离、`never_worse` token 守卫与相邻重复行折叠（#1001, #1002）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
+v0.6.267：**后台运行状态行前加旋转图标**——Bash 工具移入后台后，工具行下方的状态文案是纯文字，与上方带图标的工具行相比不够醒目，现于文案前加旋转语义图标 🔄（U+1F504，双宽字符与既有截断口径一致，不引发文本抖动）（#996, #997）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
+v0.6.266：**工具描述补反锚定并按 schema 精简**——工具提示词统一遵循「schema 是唯一真相」：参数细节只写在 schema，描述里不重复，防错锚定就近写在工具描述内部。`Glob` 补上此前缺失的 NEVER 反锚定句；`Glob` 与 `Grep` 删除与自身 schema 逐字重复的内容（151 / 248 词压至 78 / 138 词），保留 schema 未覆盖的本项目特有行为；内核工具策略段删掉三条与 schema 重复的签名条款（373 → 198 词）（#993, #994）。同版修复 SSH + X11 转发环境下复制到剪贴板失效（显示已转发时先试 `arboard`、失败回落 OSC 52，复制失败不再显示「已复制」提示）（#992）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
+v0.6.265：**工具错配自动改道支持只读 Bash，并把改道时机前移到事件之前**——模型把 Bash 参数 `{command, description}` 发给只读工具时，此前只能报 schema 错误加一句提示，需额外一轮 LLM 往返纠正。现纳入自动改道，且改道在**任何事件与审批之前**替换调用的 name/input——此前改道过晚，界面会显示「`Grep` 名 + Bash 参数」，且 `requires_approval` 看到原名而静默跳过审批。Bash 是唯一例外：仅当参数严格匹配其 schema **且**命令经只读判定通过时构成候选，仍遵循「恰好一个候选」语义，判定属启发式而非沙箱，故改道后照常走 HITL 审批。只读判定从 `cc-tui-core` 下沉到 `cc-agent/src/shell/readonly.rs`（依赖方向要求如此）（#988, #989）。同版修正 Grep/Glob 的 `pattern` 语义歧义：向 `Grep` 传文件路径或 glob 形态的 pattern 会被当正则执行而静默零匹配，现两侧描述写明各自接收何种输入，glob 形态零匹配时反向按 glob 复查并给出 `💡 Did you mean to use 'Glob'?` 提示（#986, #987）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
+v0.6.264：**状态栏提示冒号重复修复，`Alt+P` 文案修正**——状态栏第二行快捷键提示此前渲染出两个冒号（`Ctrl+O ::详情`）：locale 的 `key-*` 文案自带前导 `:`，`format_hints` 又补了一个；键名段还带尾随空格，使冒号与键名之间多出一个空格。现把冒号收口到 `format_hints` 一处，剥掉 locale 前缀再补一个并让冒号紧贴键名，默认模式改为 `Ctrl+O:详情  Ctrl+P:内核  Alt+P:模型`，OAuth / Questions / Rewind 与各面板提示同步生效。顺带把 `Alt+P` 的说明由「设置」改为「模型」（该键实际打开 Provider / Model / Effort 命令面板）（#984）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md).
 
 v0.6.263：**`Ctrl+P` 切换内核，`Alt+P` 打开命令面板**——此前两个快捷键都绑定到命令面板，内核切换只能手动输入 `/kernel`。现拆分：`Ctrl+P` 弹出内核选择面板（cc / dsh / pi），`Alt+P` 保持命令面板（Provider / Model / Effort）不变；两面板互斥，切换时自动关闭另一面板。状态栏、tips 与 `/help` 同步更新（#981, #982）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
+v0.6.262：**工具调用参数错配自动改道到唯一只读工具**——自动改道的第一阶段：模型调错工具但参数 100% 符合某个只读工具（`Grep` / `Glob` / `Read`）时静默改道执行，不再触发报错回灌。判定口径为对白名单逐个跑严格 schema 校验，**恰好一个通过**才改道（0 个或 ≥2 个命中均回退原错误路径）；方向单向安全，`command` 类参数永不被改道，工具调用身份对外保持不变、仅日志留痕（#980）。同版把状态栏快捷键提示的键名（`Ctrl+o` → `Ctrl+O`）在默认与详细模式一并大写，与文档表述统一（#978, #979）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
+v0.6.261：**状态栏快捷键提示首字母大写**——状态栏第二行默认与详细模式的快捷键提示此前为小写 `ctrl+o` / `ctrl+p`，与文档及其余快捷键表述大小写不一致，现统一改为 `Ctrl+o` / `Ctrl+p` 首字母大写形式，仅文案变化、无行为改动（#975）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
+v0.6.260：**思考行数字加粗与 diff 上下文行号提亮**——推理思考摘要行的时长与动作计数数字此前与普通文字同字重、扫读抓不到重点，现拆分为独立 span 单独加粗（时长 `Ns` 整体加粗，字数仅数字加粗）；Edit/Write diff 视图的上下文行号由最暗灰阶提亮为 `theme.muted()`（仅影响上下文行，+/- 行 decoration 色不动）（#971, #970）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
+v0.6.259：**修正 diff 行号前多余空格与提前折行**——diff 加减号 marker 移到行号右侧时多加了空格，致行号、marker 与正文整体右移一列并使长行提前折行；现恢复参考布局（上下文与增删行前导空格一格、gutter 宽度 n+3、续行 marker 前占位 n+2），并补固定第 17 行列位置与折行边界的回归测试（#970, #969）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
+v0.6.258：**欢迎页显示当前内核并完善内核切换交互**——欢迎页按当前会话显示 Agent Kernel；`/kernel` 提供 cc / dsh / pi 选择列表面板，切换成功复用与模型切换一致的短暂通知；内核请求期间阻止重复操作与会话切换，保留草稿并延后队列、后台任务续接；继续支持原对话内切换内核（#967）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
+v0.6.257：**统一 cc 工具规则与 spec 装配**——cc 内核的工具定义此前直接绕过转换器、工具规则散落在共享提示目录，与 dsh/pi 的装配路径不一致。现 `kernel/prompts/cc.md` 原样迁入原 `05_using_tools.md` 并由 `spec/cc.rs` 声明引用，新增 `StaticToolPolicy` 来源及静态/追加消费接口；cc 规则文本与静态段位置保持不变，dsh/pi 与 ByModel 保留原有追加行为，同一对话内切换内核、历史与冻结快照语义不变（#966）。同版补齐 cc 内核身份与工具规则结构（内核身份声明 + `tools` / `rules` 分节的核心工具清单与调用正例）（#966）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
+v0.6.256：**diff 行加减号 marker 移到行号右侧**——diff 展示的 `+` / `-` marker 此前渲染在行号左侧（`+ 25 内容`），改为行号右侧（`  25 + 内容`），影响所有 diff 渲染路径（工具结果详情、HITL 审批弹窗）（#964, #965）。同版新增 spinner 内核切换引导提示与 tips 优先级调整，帮助用户发现 `/kernel` 命令（#960, #961）；跨工具 Schema 失败第 2 次即注入提醒（全局仅发一次，不新增 system 消息、不影响 prompt cache）（#959, #962）；前置声明工具参数名并校验延迟工具入参（`ExecuteExtraTool` 在执行目标工具前做字段级校验）（#963）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.255：**command hook 支持 exec form args**——Windows 上第三方桌面工具常把 hook 写成 `command` + `args` 的 exec form，此前 `args` 被静默丢弃、整串 `command` 交 `cmd /C` 执行，路径含空格时全部 exit 1 失败。现 `args` 非空时直接以 argv 启动（不经过 shell）并做变量替换，旧配置行为不变（#954, #955）；另移除状态栏无 LLM 响应时的 `Cache -` 无信息量占位，`Cache 0%` 真实读数保留（#956, #957）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 

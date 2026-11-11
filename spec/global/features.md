@@ -23,13 +23,26 @@
 - **核心工具描述对齐参考实现（v0.6.138）:** Bash / WebFetch 改为 **NOT 反向枚举**（读用 `Read` NOT `cat`、内容检索用 `Grep` NOT `grep`/`rg` 等），补齐 `Grep`/`Read`/`TodoWrite`/`AskUserQuestion` 边界句；**`Write` 改为 NEVER 语义**——默认不再主动创建 `.md`/README，仅用户明确要求时创建（行为语义变更）。详见 [domains/tools.md](domains/tools.md)
 - **系统提示词静态段落对齐参考实现（v0.6.139，#504）:** `01_intro` 补「信息足够即行动」与 Corrections；`03_doing_tasks` 补 Scope discipline（不超范围加功能/抽象、优先编辑现有文件、不做投机抽象）；`04_actions` 补授权与影响判定框架（破坏性/难逆/影响共享状态/上传第三方需确认）；`06_tone_style` 明确「用户只看文本输出」与结果诚实性。详见 [domains/system-prompt.md](domains/system-prompt.md)
 
+- **Agent 内核 cc / dsh / pi 体系（v0.6.241 / v0.6.257 / v0.6.258 / v0.6.263）:** 三个内核共用一套内核边界——`cc-agent/src/kernel/` 下按内核分 `spec/`（参数映射与来源标注）与 `prompts/`（方言提示），cc 内核保持逐字节等价，dsh/pi 走方言翻译保证工具与审批契约一致。v0.6.257 起 cc 的工具定义与工具规则不再绕过转换器，`kernel/prompts/cc.md` 由 `spec/cc.rs` 声明引用，`kernel/mod.rs` 新增 `StaticToolPolicy` 静态/追加消费接口；同版补齐 cc 内核身份声明与 `tools` / `rules` 分节的核心工具清单。TUI 侧 `/kernel` 命令提供 cc / dsh / pi 选择列表面板（`show` 子命令查看当前内核），`Ctrl+P` 弹出内核选择面板（`Alt+P` 为 Provider / Model / Effort 命令面板，两面板同属 `MutexGroup::Settings` 互斥组），欢迎页按当前会话显示 `Agent Kernel: <id>`
+- **dsh / pi 工具参数对齐与执行语义（v0.6.270，#1008）:** `kernel/spec/{dsh,pi}.rs` 对齐 skill、bash、questions 与 grep 参数并修正 dsh 来源标注；`kernel/prompts/{dsh,pi}.md` 明确毫秒超时、0-based offset、搜索上限及 workdir/id 能力限制；新增 `kernel/find.rs` 接入仅 pi 生效的 `find.limit` 适配，保留底层警告并覆盖两种工具注册路径
+- **工具错配自动改道（v0.6.262 / v0.6.265）:** 两阶段。阶段一（#980）：schema 校验失败时若参数 100% 匹配**恰好一个**只读工具（`Grep` / `Glob` / `Read`）则静默改道执行，不再把结构化错误回灌给模型；0 个或 ≥2 个命中（空参数 / 多余键 / `{pattern, path}` 歧义）均回退原错误路径，方向单向安全（`command` 类参数永不被改道），工具调用身份对外不变仅日志留痕。阶段二（#988, #989）：把改道扩展到只读 Bash，并前移到 `collect_tool_results` 入口的**阶段零**，在任何事件与审批之前替换调用的 name/input——此前改道过晚导致界面显示「`Grep` 名 + Bash 参数」、`requires_approval` 看到原名而静默跳过审批；只读判定随之从 `cc-tui-core` 下沉到 `cc-agent/src/shell/readonly.rs`（`cc-tui-core` 保留 re-export），判定属启发式而非沙箱，改道后的 Bash 照常走 HITL 审批
+- **工具描述补反锚定并按 schema 精简（v0.6.260 / v0.6.266）:** 工具提示词统一遵循「schema 是唯一真相」——参数细节只写在 schema，描述里不重复，防错锚定就近写在工具描述内部而非系统提示词通用条款。`Glob` 补上此前缺失的 NEVER 反锚定句（`Grep` / `Write` 已有）；`Glob` / `Grep` 删除与自身 schema 逐字重复的内容，由 151 / 248 词压至 78 / 138 词，保留 schema 未覆盖的本项目特有行为；`kernel/prompts/cc.md` 工具策略段删掉三条与 schema 重复的签名条款（373 → 198 词）
+- **跨工具 Schema 失败第 2 次即注入提醒（v0.6.256）:** `SchemaFailureTracker` 维护历史累计失败工具列表与一次性跨工具首现提示状态，在 Schema 失败分支消费首现提示并随 ToolResult 正文下发；提示不新增 system 消息、不影响 prompt cache，全局仅发一次，聚合熔断阈值与强制止动行为不变
+
 ## 工具库（cc-tools）
 
 - **FilesystemMiddleware（2026-11 下沉自 cc-middlewares）：** 提供 `Read`、`Write`、`Edit`、`Glob`、`Grep` 五个文件工具；只读工具无需 HITL
 - **TerminalMiddleware / BashTool（2026-11 下沉自 cc-middlewares）：** `Bash` 工具，120 秒超时，跨平台（Windows `cmd /C`，其他 `bash -c`）；Windows 下 `cmd /C` 失败且 stderr 匹配"命令未识别"时自动 fallback 到 Git Bash，多语言 stderr 匹配（English/中文/法语/德语）+ 兜底模式，`MSYS_NO_PATHCONV=1` 防路径转换，剩余超时继承
 - **跨平台进程包装：** shell 命令构造、输出捕获、Windows 作业对象、RTK 改写预测
 - **输出处理：** 输出过滤、截断落盘、Todo 解析
+- **Grep / Glob 的 `pattern` 语义歧义与零匹配兜底（v0.6.265，#986, #987）:** 向 `Grep` 传文件路径或 glob 形态的 `pattern`（如 `src/*.rs`）对 schema 完全合法，会被当作正则执行（`.` 通配、`*` 作量词）而合法地匹配不到任何内容，静默返回 `No files found`；既有的错配诊断、自动改道、失败熔断全挂在参数校验失败路径上，无一触发，易把零匹配误判为「该路径下确实没有这些文件」。现两侧 `pattern` 参数级描述写明各自接收何种输入并给出就地反例，零匹配且 `pattern` 含 glob 元字符时复用 Glob 的 `collect_files` 反查命中数、命中则追加 `💡 Did you mean to use 'Glob'?` 提示。三重收窄保证真阴性不出噪音：仅零匹配介入、仅含 `*` / `?` / `[` 才试探、仅 glob 确有命中才提示
+- **RTK 重写 `exit 3` 被采纳（v0.6.268，#999, #1000）:** Bash 工具执行前调 `rtk rewrite "<cmd>"` 获取 RTK 输出压缩，此前只接受 `exit code 0`，而 RTK 文档化的 `3`（打印了重写命令、但 allow 未全覆盖，含「未配置任何规则」的默认情形）被当作失败丢弃，导致 `git status` / `log` / `diff` 等常见命令的压缩从未生效。现新增 `rtk_rewrite_succeeded()` 认可 `0` / `3`、拒绝 `1` / `2` 及其余非文档化码；审批语义不变（调用点位于审批之后，HITL 门控仍用零子进程的纯字符串预测 `predict_rtk_rewrite`）
 - **边界：** 仅依赖 `cc-agent`；复合工具（Skill/AskUser/SubAgent/ToolSearch）依赖上层状态，仍保留在 cc-middlewares
+
+## 输出压缩（cc-compress）
+
+- **CLI 输出压缩叶子 crate（v0.6.268，#1001, #1002）:** 零 workspace 内部依赖的纯函数库（不 spawn 进程、不读环境、不碰文件系统），与 `cc-widgets` 同级。三个模块：`ansi`（`strip_ansi` 剥离 ANSI 转义并把 `\r` 覆盖的进度条输出规范化为最终一帧）、`guard`（`estimate_tokens` 按 `bytes/4` 估算 + `never_worse` 守卫：过滤结果更费 token 时回退原文，避免小输出场景追加标记行后反向膨胀）、`dedup`（`dedup_adjacent_lines` 折叠相邻 ≥3 次的相同行为 `行 [xN]`，空行豁免、不跨距离折叠）。`cc-tools/src/tools/output_filter.rs` 改为从本 crate 转出 `strip_ansi`，`filter_command_output` 出口接 `never_worse`。
+- **边界：** 本 crate 不提供按命令定制的过滤器（`git log` / `diff` / `show` 需改写 argv 并额外拉取数据判断截断，与 HITL 的「门控评估 == 审批展示 == 实际执行」不变量冲突，需单独设计）；上游规则提炼见 [docs/2026-11-10-cli-output-compression-rules.md](../../../docs/2026-11-10-cli-output-compression-rules.md)
 
 ## 终端底层（cc-terminal）
 
@@ -45,6 +58,7 @@
 - **配置与国际化：** 配置类型、i18n、会话导出、输入/shell 历史
 - **展示模型：** 主题/调色板、markdown 解析、`MessageViewModel`、终端主题跟随
 - **工具展示与通知：** 工具参数格式化、后台通知展示、显示列宽截断
+- **MCP 工具头按 server / tool 展示并列出参数（v0.6.270，#1011）:** 工具名此前由 `to_pascal` 拼成 `McpTavilyTavilySearch`（server 名重复两遍、无分隔符）；参数摘要走兜底逻辑只取「第一个字符串字段」——serde_json 的 Map 按字母序迭代，命中的是 `country` 之类字段而非 `query`，且丢掉 key 名，用户看不出实际传了哪些参数；状态栏统计同样显示拼接名。现新增 `parse_mcp_tool_name` 拆 `mcp__{server}__{tool}`（第一段为 server、其余整体为 tool，tool 名本身可能含 `__`）；`format_tool_name` 输出 `server - tool (MCP)`、`format_tool_name_for_stats` 取 tool 段短名、`format_tool_args` 走新增的 `mcp_args_summary` 逐顶层 key 输出 `key: value`（值按 JSON 序列化，按 `TOOL_ARGS_MAX_CHARS` 兜底截断，与其余分支口径一致）。属展示层改动，不涉及工具执行、权限判定与消息内容
 - **UI 状态核心：** `DisplayFlags`、`UiStateCore`（约 40 个纯状态字段）
 - **边界：** 不得依赖 `cc-tui`，否则循环依赖
 
@@ -54,6 +68,8 @@
 
 - **HitlMiddleware:** `before_tool` 拦截敏感操作（bash/write/edit/delete/rm），四种决策：Approve / Edit / Reject / Respond；oneshot channel 异步等待用户决策
 - **项目 hooks 与信任（v0.6.199，#765；v0.6.205，#783）:** 项目 `.claude/settings.json` 的 hooks 与全局 hooks 一并加载，但须显式信任后才执行（`cc-code trust-project` 或 `CC_CODE_TRUST_PROJECT_HOOKS=1`）；信任清单为 `~/.cc-code/trusted_projects.jsonl`（一行一条，坏行只跳过该行，旧纯文本清单自动迁移并留 `.legacy.bak`）；home 解析统一走系统 home 目录，HOME 未设置时不再静默跳过项目/插件 hooks，未信任时 TUI 启动显式提示；v0.6.210 起 hook 执行结果上报到 UI（详细模式展示汇总，异步 hook 先占位 running、完成时就地替换，子代理继承会话 hooks）；v0.6.212 起 `hooks_ui` 配置（缺省 `true`）可在 `/config` 面板关闭 hook 行展示，切换即时生效、数据保留
+- **command hook 支持 exec form args（v0.6.255，#954, #955）:** Windows 上 `~/.claude/settings.json` 中的 hook 常被第三方桌面工具写成 `command` + `args` 的 exec form，此前 `HookType::Command` 没有 `args` 字段，serde 静默丢弃参数并把 `command` 整串交给 `cmd /C`——可执行路径含空格时被切碎，此类 hook 全部以 exit 1 失败。现 `args` 非空时直接以 `command` 为可执行文件、`args` 为 argv 启动（不经过 shell），逐项做 `${CLAUDE_PLUGIN_ROOT}` / `${CLAUDE_PLUGIN_DATA}` / `$ARGUMENTS` 变量替换；`args` 为空的旧配置行为不变，exec form 下 `shell` 字段被忽略
+- **SessionEnd 关窗可靠触发与 hook payload session_id 全链路对齐（v0.6.251，#941, #942）:** Windows 点 X 关窗时 `CTRL_CLOSE_EVENT` 无人处理，SessionEnd 从不触发，clawd 等按 session_id 聚合的外部 hook 消费方里会话永远停在 working；现关窗在 handler 线程从事件循环每 500ms 刷新的全局快照同步触发 SessionEnd（3.5s 超时 + 原子互斥，与正常退出不重复触发）。三条 SessionEnd 路径（关窗 `other`、`/clear` `clear`、输入框可见时退出 `prompt_input_exit`）均携带真实 session_id，退出路径等待异步 hook 完成；另补齐 SubagentStart / SubagentStop 的真实 session_id 透传（原硬编码空串会把子 Agent 生命周期事件归到 "default" 会话）
 - **SubAgentMiddleware:** 提供 `Agent` 工具，读取 `.claude/agents/{id}.md`，工具集过滤（tools 白名单 + disallowedTools 黑名单），防递归（始终排除 `Agent` 自身），返回格式含工具调用摘要；定义查找顺序为项目级 > 用户级（`~/.claude/agents/`）> 插件 > 内置（v0.6.199，#759）
 - **SkillsMiddleware / SkillTool:** 冻结名称与限额描述列表；一级 `Skill` 工具返回完整指令、参数展开和 camelCase 元数据。Slash 直接追加 Human 元指令，`context: fork` 同步等待隔离子代理；会话独立激活记录支持 compact 恢复，详见 [技能机制](./domains/skill-trigger.md)
 - **AgentsMdMiddleware:** `before_agent` 自动读取项目指引文件，prepend System prompt（单条 System 消息，会话内冻结）。加载模型对齐 dsh：**同目录候选全部加载并合并**（`AGENTS.md` / `CLAUDE.md` / `.claude/AGENTS.md`，基础层 → `.local` 覆盖层；trim 后内容相同去重），**跨目录从项目根（含 `.git`）逐级向下到 cwd 拼接**；每段带 provenance 头 `## <相对路径>`；单文件超 1 MiB 头 70%+尾 20% 截断（CJK 安全），渲染总量超 256 KiB 停止追加并标注；`@import` 对所有候选生效（深度 3 + 环检测；默认限**所属项目根内**，越界保留占位符；用户自有全局文件不受限）。**用户全局层为有序候选回退**：`~/.cc-code/AGENTS.md` → `~/.cc-code/CLAUDE.md` → `~/.claude/CLAUDE.md` → `~/.claude/AGENTS.md`，取首个存在且非空者；空文件不遮蔽后续候选。全局加载统一复用 `load_user_global_instruction`，与 Jev 安全门的 `read_global_content()` 为同一数据源（#402、#403）。
@@ -113,7 +129,6 @@
 - **工具颜色分层:** 工具名（颜色+BOLD）+ 参数（DarkGray），文件路径自动缩短
 - **/compact 历史替换:** /compact 在原会话内以摘要替换历史消息（`build_compacted_messages`），不创建新 Thread
 - **App 结构体拆分:** App 为单结构体（10 字段：core/session/services/ui/panels/input/runtime/langfuse/theme/input_pump），状态按 ChatSession / ServiceRegistry / UiState / PanelManager / InputState 分工承载
-- **Widget 独立 crate:** cc-widgets 提供 16 个公开模块（bordered_panel、checkbox_group、diff、file_tree、form、input_field、list、markdown、message_block、radio_group、scrollable_area、selectable_list、spinner、tab_bar、text_selection、tool_call），无 workspace 内部依赖
 - **Spinner 动画:** 动词从 TODO activeForm 获取，Token 计数平滑递增动画，已用时间显示；完成态对齐参考实现风格（`✻ {verb} for {elapsed} · done {HH:MM}`）
 - **智能折叠策略:** 只读工具默认折叠、写操作默认展开，SubAgent 步数超过 4 自动折叠
 - **syntect 代码高亮:** markdown-highlight feature flag 控制，base16-ocean.dark 主题，单行代码块不高亮
@@ -154,7 +169,11 @@
 - **状态栏配色固定、不参与主题化（v0.6.143，#523）:** 状态栏配色是打磨定稿的固定值，不随 `/theme` 切换——`status_bar.rs` 内经模块内固定配色常量 `sb` 输出，渲染结果与主题系统引入之前逐字节一致；`/theme` 面板补齐 session 面板键盘路由（`↑`/`↓`/`Esc` 生效，v0.6.142，#521）
 - **文件查询类 Bash 并入只读工具组（v0.6.195）:** Bash 新增可选参数 `file_inspect`（模型声明"只读查看文件"，单条也置位；纯展示，不参与执行/权限/审批/遥测）。带标记且已落定（`Finished`、未转后台、无后台启动标记、未显式设 `timeout`）的 Bash 与 `Read`/`Grep`/`Glob` 合组：普通模式折叠摘要新增 `ran N shell command(s)`（顺序 read → listed → searched → ran shell → recalled → updated），单条同样折叠；`Ctrl+O` 逐条展开并复用单条 Bash 的输出处理（退出码错误头、stderr 分段、非零退出错误色、空输出 `(No output)`），折叠态保留错误摘要。运行中/已转后台的 Bash 不进组，实时输出与 `Ctrl+B` 不受影响。同批修复聚合把带耗时的思考气泡当作空思考跳过、导致思考正文与耗时丢失的问题（`is_reasoning_only` 只跳过真正空的）
 
-- **只读 Bash 词法判定与折叠组一等公民（v0.6.197）:** 判定完全收敛到前端命令词法 `is_readonly_shell_command`（读取器白名单 `ls`/`cat`/`head`/`tail`/`find`/`wc`/`rg`/`grep`/`tree`/`du`/`stat`/`file`/`less`/`more`/`strings`/`jq`/`awk`/`cut`/`sort`/`uniq`/`tr` + 中性命令 + 拒绝写盘，`sed` 仅 `-n`），`Bash` 的 `file_inspect` 参数已从工具 schema 删除，历史残留字段一律忽略。词法补齐三处：`2>/dev/null` / `2>&1` / `>&2` 不算写盘；引号内的 `;` `|` `&&` `>` 不再当分隔符或重定向；命令替换与反引号仍保守判为非只读。折叠组成为一等公民（组自带思考行、跨轮重建不丢）。思考行收敛为一行摘要：活跃 `∴ Thinking for Ns, <现在时>…`（符号常显、每秒刷新）、冻结 `  Thought for Ns, <过去时> (ctrl+o to expand)`（无符号），完整正文走 `Ctrl+O`，`THINKING_RETAIN_MS` 与留存渲染态下线。自动 compact 不再清空消息区（保留历史 + 重建起点前移），视图历史上限 1 万条（超出裁剪并插省略提示）。卡住检测指纹由「前 200 字符」改为全文 64 位摘要，修复连续 `Edit` 被误判后跳过工具执行的问题；`interrupt()` 冻结当前思考段，修掉取消后思考行继续走秒
+- **只读 Bash 词法判定与折叠组一等公民（v0.6.197）:** 判定收敛到命令词法 `is_readonly_shell_command`（v0.6.265 起实现下沉到 `cc-agent/src/shell/readonly.rs`，`cc-tui-core` 仅保留 re-export 供展示侧调用）（读取器白名单 `ls`/`cat`/`head`/`tail`/`find`/`wc`/`rg`/`grep`/`tree`/`du`/`stat`/`file`/`less`/`more`/`strings`/`jq`/`awk`/`cut`/`sort`/`uniq`/`tr` + 中性命令 + 拒绝写盘，`sed` 仅 `-n`），`Bash` 的 `file_inspect` 参数已从工具 schema 删除，历史残留字段一律忽略。词法补齐三处：`2>/dev/null` / `2>&1` / `>&2` 不算写盘；引号内的 `;` `|` `&&` `>` 不再当分隔符或重定向；命令替换与反引号仍保守判为非只读。折叠组成为一等公民（组自带思考行、跨轮重建不丢）。思考行收敛为一行摘要：活跃 `∴ Thinking for Ns, <现在时>…`（符号常显、每秒刷新）、冻结 `  Thought for Ns, <过去时> (ctrl+o to expand)`（无符号），完整正文走 `Ctrl+O`，`THINKING_RETAIN_MS` 与留存渲染态下线。自动 compact 不再清空消息区（保留历史 + 重建起点前移），视图历史上限 1 万条（超出裁剪并插省略提示）。卡住检测指纹由「前 200 字符」改为全文 64 位摘要，修复连续 `Edit` 被误判后跳过工具执行的问题；`interrupt()` 冻结当前思考段，修掉取消后思考行继续走秒
+
+- **聚合组内失败 Bash 显示命令头（v0.6.269，#1005）:** 普通模式下同一轮聚合的工具组里，失败的 Bash 调用只渲染一段截断错误摘要、没有命令本身，用户无从判断是哪条命令失败，只能切到详细模式。现抽出 `push_group_entry_header` 与 `render_group_bash_body` 让详细模式与折叠态共用同一份命令头与正文口径，折叠态下失败的 Bash 先渲染 `● Bash(<command>)` 再接原有截断摘要（前 3 行 + `… +N lines (ctrl+o to expand)`）；折叠态高度估算同步计入命令头与摘要行，避免首帧高度偏小导致滚动定位漂移。成功的调用仍按原样折叠，详细模式行为不变
+- **思考耗时以 LLM 计时优先（v0.6.252，#945, #946）:** `Thought for 1s` 与实际思考时长严重不符（真机近 1 分钟仅显示 1s）——流式适配器已回填含 TTFT 的 `duration_ms`，但 TUI 每次装配都用组计时覆盖该值，而组计时锚点为首条 reasoning chunk 到达（不含 TTFT）。现 `fill_group_duration` 统一填充：LLM 值优先、组计时仅兜底（下限 1s）；组语义重构为「一段思考的墙钟」（工具运行时长不计入、每轮清零跨轮残留），多行冻结思考行按 `finished_groups` 逐行消费修复 off-by-one 错位
+- **面板关闭后视口回缩（v0.6.254，#951, #952）:** 打开命令面板再取消后页面留白——欢迎卡片在顶部、输入框/状态栏浮在屏幕中部、下方大片空白。根因是 growing 视口的高度记忆 `allocated_rows` 只增不减，面板撑出的高度被永久记住，关闭后 `required_rows` 回落被 `max` 吞掉。现面板等开关型瞬时块只影响当帧高度、不进持久记忆，关闭立即回收；收缩释放行显式清理，输入框编辑等持久波动仍保持只增不减的防抖语义
 
 ## ACP 服务层（cc-acp）
 
@@ -164,6 +183,13 @@
 - **事件映射:** `ExecutorEvent` → `SessionNotification` 标准 ACP 通知转换
 - **HITL/AskUser 桥接:** `AcpTransportBroker` 通过 ACP RPC（`RequestPermission` + `elicitation/create`）替代 oneshot channel
 - **上下文压缩:** auto-compact 触发 + micro/full compact 执行 + resubmit 全部在 executor 循环内完成；手动 `/compact` 与自动 compact 共用 `build_compacted_messages` 生成摘要消息（`<system-reminder>` 包裹，TUI 折叠为一行提示）
+
+## 独立基础库
+
+- **Widget 组件库（cc-widgets）:** 16 个公开模块（bordered_panel、checkbox_group、diff、file_tree、form、input_field、list、markdown、message_block、radio_group、scrollable_area、selectable_list、spinner、tab_bar、text_selection、tool_call），仅依赖 ratatui + pulldown-cmark（markdown / markdown-highlight 为可选 feature）；`ByteBudgetCache` 供 diff 与 markdown 渲染共用字节预算。无 workspace 内部依赖
+- **diff 渲染排版三次收敛（v0.6.256 / v0.6.259 / v0.6.260）:** ① 加减号 marker 移到行号右侧（`+ 25 内容` → `  25 + 内容`），gutter 宽度 n+3 → n+4、续行占位改为行号位填空格；② 修正 marker 移动时多出的一个空格致行号/marker/正文整体右移一列、长行提前折行的问题，gutter 恢复 n+3、续行 marker 前占位 n+2，并补固定第 17 行列位置与折行边界测试（40 列宽下 35 字符完整显示、36 字符才折行）；③ 上下文行号由最暗灰阶 `theme.dim()`（#505050）提亮为 `theme.muted()`（#999999，与 tip 提示同色阶），仅影响 diff 上下文行，`+/-` 行 decoration 色不动。影响所有 diff 渲染路径（工具结果详情、HITL 审批弹窗）
+- **LSP 客户端库（cc-lsp）:** `LspClient` / `LspServerPool`（多服务器连接池）、`DiagnosticsRegistry`（诊断收集与汇总）、JSON-RPC 编解码与协议层、全局 + 插件 LSP 配置加载；被 `cc-middlewares` 的 `LspMiddleware` / `LspTool` 消费。无 workspace 内部依赖
+- **遥测客户端（langfuse-client）:** `LangfuseClient` + `Batcher`（批量上报与背压）、`IngestionEvent` / `ObservationBody` / `SpanBody` 与 OTLP 类型转换、错误类型；由 `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_BASE_URL` 驱动，公钥或私钥缺一即禁用遥测。无 workspace 内部依赖
 
 ## 基础设施
 
@@ -181,4 +207,4 @@
 - **终端色彩能力探测与输出降级（v0.6.223，#601）:** 自动根据 `NO_COLOR` 与终端环境变量四档降级色深输出
 
 ---
-*最后更新: 2026-11-04 — 补充 cc-tools / cc-terminal / cc-tui-core 拆分后的 crate 分组；此前：2026-11-03 — LLM baseUrl 自动容错清洗与友好提示（v0.6.227，#856, #857）*
+*最后更新: 2026-11-11 — 补 cc-compress 分组与独立基础库分组（cc-widgets / cc-lsp / langfuse-client），补 v0.6.251~v0.6.270 功能条目，修正只读 Bash 词法判定的归属描述；此前：2026-11-04 — 补充 cc-tools / cc-terminal / cc-tui-core 拆分后的 crate 分组；2026-11-03 — LLM baseUrl 自动容错清洗与友好提示（v0.6.227，#856, #857）*
