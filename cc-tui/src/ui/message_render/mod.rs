@@ -3397,10 +3397,12 @@ pub fn render_view_model_with_flags(
                     if !tool_entry_is_error(entry) || entry.content.is_empty() {
                         continue;
                     }
-                    if entry.tool_name == "Bash" {
-                        // 普通模式下失败的 Bash 也要显示命令头：聚合组折叠后
-                        // 只剩一行错误摘要，用户无从判断是哪条命令失败了。
-                        // 报错正文仍是截断摘要，避免满屏都是错误。
+                    // 普通模式下失败的调用也要显示工具头：聚合组折叠后只剩
+                    // 一行错误摘要，用户无从判断是哪条命令 / 哪个 pattern 失败了。
+                    // Bash 与 Grep/Glob 同属高频失败工具（后者显示名为 Search，
+                    // 只有 pattern 才能指出是哪次搜索挂了）。
+                    // 报错正文仍是截断摘要，避免满屏都是错误。
+                    if matches!(entry.tool_name.as_str(), "Bash" | "Grep" | "Glob") {
                         push_group_entry_header(
                             &mut lines,
                             entry,

@@ -167,8 +167,9 @@ pub(super) fn summarize(vm: &MessageViewModel) -> LayoutSummary {
         }
         MessageViewModel::ToolCallGroup { tools, .. } => {
             let mut count = 0usize;
-            // 普通模式下失败的 Bash 会额外渲染命令头 + 截断摘要 + 展开提示，
-            // 折叠态行数必须把这部分算进去，否则首帧高度偏小、滚动定位会漂。
+            // 普通模式下失败的 Bash / Grep / Glob 会额外渲染工具头 + 截断摘要
+            // + 展开提示，折叠态行数必须把这部分算进去，否则首帧高度偏小、
+            // 滚动定位会漂。
             let mut failed_bash_rows = 0usize;
             for tool in tools {
                 if tool.tool_name == "Read" {
@@ -189,11 +190,16 @@ pub(super) fn summarize(vm: &MessageViewModel) -> LayoutSummary {
                     let failed = tool.is_error
                         || parse_exit_code(&tool.content).is_some_and(|code| code != 0);
                     if failed {
-                        // 普通模式下失败的 Bash 渲染为：命令头 + 截断摘要 + 展开提示。
+                        // 普通模式下失败的 Bash 渲染为：工具头 + 截断摘要 + 展开提示。
                         failed_bash_rows += 1 + ERROR_SUMMARY_MAX_LINES + 1;
                     }
                     lines
                 } else {
+                    // Grep / Glob 同样在折叠态渲染工具头（显示名 Search），
+                    // 高度口径与 Bash 一致，否则渲染多出的行不被计入。
+                    if matches!(tool.tool_name.as_str(), "Grep" | "Glob") && tool.is_error {
+                        failed_bash_rows += 1 + ERROR_SUMMARY_MAX_LINES + 1;
+                    }
                     rows(&tool.content)
                 };
                 count += output_rows + 3;
