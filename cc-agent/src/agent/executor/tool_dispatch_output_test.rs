@@ -64,6 +64,7 @@ async fn test_tool_output_does_not_write_agent_state_and_preserves_child_identit
         &tools,
         &CancellationToken::new(),
         ai_id,
+        &[],
     )
     .await
     .expect("工具收集应成功");

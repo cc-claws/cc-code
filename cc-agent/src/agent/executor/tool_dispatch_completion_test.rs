@@ -116,7 +116,13 @@ async fn test_fast_tool_end_emitted_while_slow_tool_still_running() {
 
     let cancel = CancellationToken::new();
     let mut collect = Box::pin(collect_tool_results(
-        &agent, &mut state, calls, &tools, &cancel, ai_id,
+        &agent,
+        &mut state,
+        calls,
+        &tools,
+        &cancel,
+        ai_id,
+        &[],
     ));
 
     // 同时驱动 collect 与观察循环：慢工具仍被闸门阻塞，整批不应返回。

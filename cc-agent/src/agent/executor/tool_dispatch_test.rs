@@ -2280,6 +2280,7 @@ async fn test_proxy_schema_error_preserves_classification_target_and_call_identi
             &tools,
             &CancellationToken::new(),
             MessageId::new(),
+            &[],
         )
         .await
         .unwrap();
@@ -2461,6 +2462,7 @@ async fn test_auto_rescue_grep_with_unique_grep_params() {
         &tools,
         &CancellationToken::new(),
         MessageId::new(),
+        &[],
     )
     .await
     .unwrap();
@@ -2505,6 +2507,7 @@ async fn test_no_auto_rescue_on_ambiguous_pattern_path() {
         &tools,
         &CancellationToken::new(),
         MessageId::new(),
+        &[],
     )
     .await
     .unwrap();
@@ -2539,6 +2542,7 @@ async fn test_auto_rescue_glob_when_glob_is_the_unique_match() {
         &tools,
         &CancellationToken::new(),
         MessageId::new(),
+        &[],
     )
     .await
     .unwrap();
@@ -2575,6 +2579,7 @@ async fn test_auto_rescue_read_with_unique_read_params() {
         &tools,
         &CancellationToken::new(),
         MessageId::new(),
+        &[],
     )
     .await
     .unwrap();
@@ -2634,6 +2639,7 @@ async fn test_no_auto_rescue_when_target_is_not_readonly_tool() {
         &tools,
         &CancellationToken::new(),
         MessageId::new(),
+        &[],
     )
     .await
     .unwrap();
@@ -2642,6 +2648,56 @@ async fn test_no_auto_rescue_when_target_is_not_readonly_tool() {
     assert!(results.len() == 1);
     assert_eq!(results[0].1.error_kind.unwrap(), ToolErrorKind::SchemaValidation);
     assert!(!results[0].1.output.contains("shell output"));
+}
+
+#[tokio::test]
+async fn test_auto_rescue_does_not_apply_param_alias_by_candidate() {
+    // 边界：本次只放宽「内核方言改名」，**不**按候选施加 `path→file_path` 参数别名。
+    // 声明 Bash 却传 {path}：别名按声明的 Bash 施加（Bash 不在 FILE_PATH_TOOLS，path 不动），
+    // 于是 Read 候选收到 {path} 而非 {file_path} → 校验失败 → 不改道，回退参数错误。
+    // 若误把别名也按候选施加，此处会被改道到 Read（凭空扩大改道面）。
+    let wrong = StrictWrongTool { name: "WrongTool" };
+    let bash = readonly_tool("Bash", bash_schema(), "shell output");
+    let grep = readonly_tool("Grep", grep_schema(), "grep output");
+    let glob = readonly_tool("Glob", glob_schema(), "glob output");
+    let read = readonly_tool("Read", read_schema(), "read output");
+    let tools = HashMap::from([
+        ("WrongTool".to_string(), &wrong as &dyn BaseTool),
+        ("Bash".to_string(), &bash as &dyn BaseTool),
+        ("Grep".to_string(), &grep as &dyn BaseTool),
+        ("Glob".to_string(), &glob as &dyn BaseTool),
+        ("Read".to_string(), &read as &dyn BaseTool),
+    ]);
+
+    let agent = ReActAgent::new(crate::llm::MockLLM::always_answer("done"));
+    let mut state = AgentState::new(".");
+    let (results, _cancelled, _deferred_error) = collect_tool_results(
+        &agent,
+        &mut state,
+        vec![ToolCall::new(
+            "call-1",
+            "Bash",
+            serde_json::json!({"path": "/x.rs"}),
+        )],
+        &tools,
+        &CancellationToken::new(),
+        MessageId::new(),
+        &[],
+    )
+    .await
+    .unwrap();
+
+    assert!(results.len() == 1);
+    assert_eq!(
+        results[0].1.error_kind.unwrap(),
+        ToolErrorKind::SchemaValidation
+    );
+    assert!(
+        read.received.lock().unwrap().is_none(),
+        "不应按候选施加 path 别名而改道到 Read"
+    );
+    assert!(grep.received.lock().unwrap().is_none());
+    assert!(glob.received.lock().unwrap().is_none());
 }
 
 #[tokio::test]
@@ -2671,6 +2727,7 @@ async fn test_no_auto_rescue_when_input_matches_no_tool() {
             &tools,
             &CancellationToken::new(),
             MessageId::new(),
+            &[],
         )
         .await
         .unwrap();
@@ -2711,6 +2768,7 @@ async fn test_auto_rescue_does_not_trigger_circuit_breaker() {
             &tools,
             &CancellationToken::new(),
             MessageId::new(),
+            &[],
         )
         .await
         .unwrap();
@@ -2749,6 +2807,7 @@ async fn test_uppercase_tool_name_resolves_without_rescue() {
         &tools,
         &CancellationToken::new(),
         MessageId::new(),
+        &[],
     )
     .await
     .unwrap();
@@ -2786,6 +2845,7 @@ async fn test_auto_rescue_from_uppercase_tool_name() {
         &tools,
         &CancellationToken::new(),
         MessageId::new(),
+        &[],
     )
     .await
     .unwrap();
@@ -2795,6 +2855,68 @@ async fn test_auto_rescue_from_uppercase_tool_name() {
     assert!(grep.received.lock().unwrap().is_some(), "应改道执行 Grep");
     assert!(read.received.lock().unwrap().is_none(), "不应执行 Read");
     assert!(!results[0].1.is_error);
+}
+
+#[tokio::test]
+async fn test_auto_rescue_uses_raw_dialect_input_under_wrong_tool_name() {
+    // dsh 内核：模型把工具名写成 glob，参数却用 grep 的方言（include）。
+    // 入站归一化按「glob」查规则（RENAME_NONE），include 被原样留下 →
+    // canonical Grep 不认 include，故必须用**原始方言入参**按候选自身规则重解，
+    // 否则自愈失效、白多一轮调用。
+    let wrong = StrictWrongTool { name: "WrongTool" };
+    let grep = readonly_tool("Grep", grep_schema(), "grep output");
+    let glob = readonly_tool("Glob", glob_schema(), "glob output");
+    let read = readonly_tool("Read", read_schema(), "read output");
+    let tools = HashMap::from([
+        ("WrongTool".to_string(), &wrong as &dyn BaseTool),
+        ("Grep".to_string(), &grep as &dyn BaseTool),
+        ("Glob".to_string(), &glob as &dyn BaseTool),
+        ("Read".to_string(), &read as &dyn BaseTool),
+    ]);
+
+    let dsh = crate::kernel::Kernel::try_from_id("dsh").unwrap();
+    let agent = ReActAgent::new(crate::llm::MockLLM::always_answer("done")).with_kernel(dsh);
+    let mut state = AgentState::new(".");
+    // 入站归一化按错误名 glob 处理，input 仍留 {"pattern","include"}；原始方言入参同形。
+    let raw_calls = vec![ToolCall::new(
+        "call-1",
+        "glob",
+        serde_json::json!({"pattern": "error", "include": "*.rs"}),
+    )];
+    let (results, _cancelled, _deferred_error) = collect_tool_results(
+        &agent,
+        &mut state,
+        vec![ToolCall::new(
+            "call-1",
+            "Glob",
+            serde_json::json!({"pattern": "error", "include": "*.rs"}),
+        )],
+        &tools,
+        &CancellationToken::new(),
+        MessageId::new(),
+        &raw_calls,
+    )
+    .await
+    .unwrap();
+
+    assert!(results.len() == 1);
+    let result = &results[0].1;
+    assert_eq!(result.tool_name, "Grep", "应按候选规则解出 grep 并改道");
+    assert_eq!(result.output, "grep output");
+    assert!(!result.is_error, "不应回退参数错误：{}", result.output);
+    let v = grep
+        .received
+        .lock()
+        .unwrap()
+        .take()
+        .expect("Grep 应被实际执行");
+    assert_eq!(
+        v.get("glob").and_then(|v| v.as_str()),
+        Some("*.rs"),
+        "include 必须按 Grep 规则归一化为 canonical 的 glob"
+    );
+    assert!(glob.received.lock().unwrap().is_none(), "Glob 不应执行");
+    assert!(read.received.lock().unwrap().is_none(), "Read 不应执行");
 }
 
 #[tokio::test]
@@ -2824,6 +2946,7 @@ async fn test_no_rescue_on_parameter_name_case_mismatch() {
         &tools,
         &CancellationToken::new(),
         MessageId::new(),
+        &[],
     )
     .await
     .unwrap();
@@ -2866,6 +2989,7 @@ async fn test_auto_rescue_bash_when_readonly_command_sent_to_grep() {
         &tools,
         &CancellationToken::new(),
         MessageId::new(),
+        &[],
     )
     .await
     .unwrap();
@@ -2916,6 +3040,7 @@ async fn test_no_auto_rescue_to_bash_when_command_writes() {
         &tools,
         &CancellationToken::new(),
         MessageId::new(),
+        &[],
     )
     .await
     .unwrap();
@@ -2957,6 +3082,7 @@ async fn test_no_auto_rescue_to_bash_when_command_executes_program() {
         &tools,
         &CancellationToken::new(),
         MessageId::new(),
+        &[],
     )
     .await
     .unwrap();
@@ -3005,6 +3131,7 @@ async fn test_auto_rescue_events_carry_rescued_tool_name() {
         &tools,
         &CancellationToken::new(),
         MessageId::new(),
+        &[],
     )
     .await
     .unwrap();
@@ -3076,6 +3203,7 @@ async fn test_auto_rescue_before_tool_receives_rescued_name() {
         &tools,
         &CancellationToken::new(),
         MessageId::new(),
+        &[],
     )
     .await
     .unwrap();

@@ -104,6 +104,7 @@ async fn test_tool_pending_emitted_before_before_tool() {
         &HashMap::new(),
         &CancellationToken::new(),
         MessageId::new(),
+        &[],
     )
     .await
     .expect("工具不存在应作为结果收集");
@@ -134,6 +135,7 @@ async fn test_tool_pending_cancelled_emits_tool_end() {
         &HashMap::new(),
         &cancel,
         MessageId::new(),
+        &[],
     )
     .await;
     assert!(
@@ -172,6 +174,7 @@ async fn test_tool_pending_before_tool_error_closes_unsettled_calls_once() {
         &HashMap::new(),
         &CancellationToken::new(),
         MessageId::new(),
+        &[],
     )
     .await;
     assert!(

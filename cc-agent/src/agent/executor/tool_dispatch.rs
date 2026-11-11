@@ -12,6 +12,7 @@ use crate::{
         state::State,
     },
     error::{AgentError, AgentResult},
+    kernel::Kernel,
     messages::{message::MessageId, BaseMessage, ContentBlock, MessageContent, ToolCallRequest},
     shell::is_readonly_shell_command,
     tools::{validate_against_schema, BaseTool},
@@ -224,14 +225,20 @@ const AUTO_RESCUE_WHITELIST: &[&str] = &["Grep", "Glob", "Read"];
 ///
 /// 判定条件（「参数 100% 符合唯一工具」的字面实现）：
 /// 1. 输入为 JSON 对象且非空；
-/// 2. 对白名单逐个跑严格 schema 校验，**恰好一个**工具校验通过；
+/// 2. 对白名单逐个**按候选自身的 ParamSpec 重新归一化** `raw_input` 后再跑严格
+///    schema 校验，**恰好一个**工具校验通过；
 ///    —— 复用 validate_against_schema 的 Strict 语义：缺必填参数、多余参数、类型不符
 ///    都不算「符合」；0 个或 ≥2 个通过（如 `{pattern, path}` 同时符合 Grep 与 Glob）
 ///    属歧义/不匹配，不改道；
 /// 3. 目标工具已注册；
 /// 4. 原工具与改道工具不同。
 ///
-/// 满足条件时返回 `(新工具名，新参数)`，并在 trace 层记录（不影响工具结果、不触发熔断计数）。
+/// 必须用 `raw_input`（模型原始方言入参）而非已归一化的 input：入站归一化按模型
+/// **声明的工具名**查改名规则，名字写错时规则也套错（dsh 下 grep 的 `include`
+/// 会因按 glob 的规则处理而残留），按候选重解才能不依赖模型是否写对名字。
+///
+/// 满足条件时返回 `(新工具名，按候选规则归一化后的参数)`，并在 trace 层记录
+/// （不影响工具结果、不触发熔断计数）。
 ///
 /// # Bash 例外（受只读判定约束）
 ///
@@ -241,11 +248,12 @@ const AUTO_RESCUE_WHITELIST: &[&str] = &["Grep", "Glob", "Read"];
 /// 因此改道后的命令不会写盘、不会执行任意程序，仍守住「只读」边界；
 /// 判定属启发式而非沙箱，调用方不可据此替代审批环节。
 fn try_auto_rescue(
+    kernel: Kernel,
     tool_name: &str,
-    input: &serde_json::Value,
+    raw_input: &serde_json::Value,
     all_tools: &HashMap<String, &dyn BaseTool>,
 ) -> Option<(String, serde_json::Value)> {
-    let input_map = input.as_object()?;
+    let input_map = raw_input.as_object()?;
 
     if input_map.is_empty() {
         return None;
@@ -254,7 +262,7 @@ fn try_auto_rescue(
     // Bash 是否构成候选：仅当命令被判定为只读查看时才纳入，与只读工具共用「唯一」判定。
     let bash_eligible = tool_name != "Bash"
         && all_tools.contains_key("Bash")
-        && input
+        && raw_input
             .get("command")
             .and_then(serde_json::Value::as_str)
             .is_some_and(is_readonly_shell_command);
@@ -264,7 +272,7 @@ fn try_auto_rescue(
         .copied()
         .chain(bash_eligible.then_some("Bash"));
 
-    let mut matched: Option<&str> = None;
+    let mut matched: Option<(String, serde_json::Value)> = None;
     for candidate in candidates {
         // 原工具与目标相同不构成改道
         if tool_name.eq_ignore_ascii_case(candidate) {
@@ -274,7 +282,14 @@ fn try_auto_rescue(
         let Some(candidate_tool) = all_tools.get(candidate) else {
             continue;
         };
-        if validate_against_schema(input, &candidate_tool.parameters()).is_ok() {
+        // 只放宽「内核方言改名」这一层：方言名按**候选自身**的 ParamSpec 重解，使判定
+        // 不依赖模型是否写对了工具名（入站归一化绑定在声明的工具名上，写错就套错规则——
+        // 如 dsh 下 grep 的 `include` 会因按 glob 的“不改名”规则处理而残留）。
+        // `path→file_path` 这类**参数别名**仍按模型声明的工具名施加，与改道前完全一致，
+        // 避免因换候选而把参数引向原本不会命中的工具（凭空扩大改道面）。
+        let candidate_input =
+            normalize_params(tool_name, kernel.normalize_input(candidate, raw_input));
+        if validate_against_schema(&candidate_input, &candidate_tool.parameters()).is_ok() {
             // 第二个命中 = 歧义输入，按「唯一」语义放弃改道
             if matched.is_some() {
                 tracing::trace!(
@@ -284,19 +299,19 @@ fn try_auto_rescue(
                 );
                 return None;
             }
-            matched = Some(candidate);
+            matched = Some((candidate.to_string(), candidate_input));
         }
     }
 
-    matched.map(|name| {
+    matched.map(|(name, input)| {
         tracing::trace!(
             tool.from = tool_name,
-            tool.to = name,
+            tool.to = %name,
             "自动改道：LLM 调用了 '{}'，但参数 100% 符合唯一候选工具 '{}'",
             tool_name,
             name
         );
-        (name.to_string(), input.clone())
+        (name, input)
     })
 }
 
@@ -312,6 +327,7 @@ fn try_auto_rescue(
 fn rescue_mismatched_call<L: ReactLLM, S: State>(
     agent: &ReActAgent<L, S>,
     call: ToolCall,
+    raw_input: Option<&serde_json::Value>,
     all_tools: &HashMap<String, &dyn BaseTool>,
 ) -> ToolCall {
     let Some(tool) = resolve_tool(&call.name, all_tools) else {
@@ -321,7 +337,12 @@ fn rescue_mismatched_call<L: ReactLLM, S: State>(
     if validate_against_schema(&input, &tool.parameters()).is_ok() {
         return call;
     }
-    let Some((new_name, new_input)) = try_auto_rescue(&call.name, &input, all_tools) else {
+    // 改道判定用模型原始方言入参（`normalize_reasoning` 在归一化前留存），
+    // 这样候选工具各自的改名规则才能正确套用；缺失时回退到已归一化的入参。
+    let raw_input = raw_input.unwrap_or(&input);
+    let Some((new_name, new_input)) =
+        try_auto_rescue(agent.kernel, &call.name, raw_input, all_tools)
+    else {
         return call;
     };
     if !all_tools.contains_key(&new_name) {
@@ -700,6 +721,7 @@ pub(crate) async fn dispatch_tools<L: ReactLLM, S: State>(
         all_tools,
         cancel,
         ai_msg_id,
+        reasoning.raw_tool_calls.as_deref().unwrap_or(&[]),
     )
     .await?;
 
@@ -920,13 +942,24 @@ async fn collect_tool_results<L: ReactLLM, S: State>(
     all_tools: &HashMap<String, &dyn BaseTool>,
     cancel: &CancellationToken,
     ai_msg_id: MessageId,
+    raw_calls: &[ToolCall],
 ) -> AgentResult<(Vec<(ToolCall, ToolResult)>, bool, Option<String>)> {
     // 阶段零：schema 错配自动改道。**必须早于所有事件与审批**——ToolPending/ToolStart
     // 携带的工具名与参数、以及 HITL 看到的调用，都要与实际执行的工具一致；否则界面会
     // 显示「原名 + 改道后参数」的杂交体，审批也会因原名不在敏感名单而静默放行。
+    //
+    // 改道判定需要**模型原始方言入参**（`reasoning.raw_tool_calls`）：入站归一化按模型
+    // 声明的工具名查改名规则，名字写错时规则也套错，只有原始入参才能按候选工具各自的
+    // 规则正确重解。按 `tool_call_id` 配对（`normalize_reasoning` 不增删调用）。
     let original_calls: Vec<ToolCall> = original_calls
         .into_iter()
-        .map(|call| rescue_mismatched_call(agent, call, all_tools))
+        .map(|call| {
+            let raw_input = raw_calls
+                .iter()
+                .find(|rc| rc.id == call.id)
+                .map(|rc| &rc.input);
+            rescue_mismatched_call(agent, call, raw_input, all_tools)
+        })
         .collect();
 
     let mut ready_calls: Vec<ToolCall> = Vec::with_capacity(original_calls.len());
