@@ -354,6 +354,7 @@ impl App {
             channel_state: Some(channel_state.clone()),
             git_branch_cache: parking_lot::Mutex::new(service_registry::GitBranchCache::new()),
             git_branch_poller: parking_lot::Mutex::new(service_registry::GitBranchPoller::new()),
+            agent_cwd: None,
             update_checker: parking_lot::Mutex::new(UpdateChecker::new()),
             panic_notify_rx: None,
         };

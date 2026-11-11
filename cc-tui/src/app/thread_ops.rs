@@ -242,6 +242,10 @@ impl App {
     fn activate_thread_context(&mut self, cwd: String) {
         let changed = self.services.cwd != cwd;
         self.services.cwd = cwd.clone();
+        // 每个 thread 有自己的目录：切 thread 必须清掉上一个 thread 的
+        // agent 目录覆盖，否则状态栏会继续探测别的 worktree 的分支。
+        self.services.agent_cwd = None;
+        self.services.git_branch_poller.get_mut().invalidate();
         self.session_mgr.current_mut().messages.pipeline =
             message_pipeline::MessagePipeline::new(cwd.clone());
         self.session_mgr

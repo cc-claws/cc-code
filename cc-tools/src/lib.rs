@@ -5,6 +5,7 @@
 
 pub mod bash;
 pub mod process;
+pub mod worktree;
 
 pub mod tools {
     pub mod filesystem;

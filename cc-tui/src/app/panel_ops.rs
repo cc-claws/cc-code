@@ -160,6 +160,7 @@ impl App {
                 git_branch_poller: parking_lot::Mutex::new(
                     super::service_registry::GitBranchPoller::new(),
                 ),
+                agent_cwd: None,
                 // headless 测试默认关闭更新检查，避免测试进程发起真实网络请求
                 update_checker: parking_lot::Mutex::new(super::UpdateChecker::new()),
                 panic_notify_rx: None,

@@ -19,15 +19,16 @@ use cc_agent::{
 
 use crate::hitl::{PermissionMode, SharedPermissionMode};
 use crate::hooks::{
-    executor::{execute_agent_hook, execute_command_hook, execute_http_hook, execute_prompt_hook},
-    matcher::{matches_if_condition, matches_matcher},
-    types::{HookAction, HookEvent, HookInput, HookType, RegisteredHook},
+    executor::{execute_command_hook, execute_http_hook},
+    permission_bridge::HookPermissionBridge,
+    runtime::HookRuntime,
+    types::{HookAction, HookEvent, HookInput, HookType, PermissionDecision, RegisteredHook},
 };
 
 /// Plugin hook middleware — fires registered hooks at lifecycle events.
 pub struct HookMiddleware {
-    hooks: Arc<RwLock<HashMap<HookEvent, Vec<RegisteredHook>>>>,
-    llm_factory: Arc<dyn Fn() -> Box<dyn ReactLLM + Send + Sync> + Send + Sync>,
+    /// 可跨组件共享的执行器（hook 注册表、once 状态、UI 通道都在这里）。
+    runtime: Arc<HookRuntime>,
     cwd: String,
     session_id: String,
     transcript_path: String,
@@ -35,18 +36,18 @@ pub struct HookMiddleware {
     /// PermissionRequest 仅在权限对话框即将展示时触发。
     permission_mode: Arc<SharedPermissionMode>,
     current_model: String,
-    once_fired: Arc<Mutex<HashSet<String>>>,
     /// SessionStart hook 的触发与场景。None 表示不触发；Some(source) 表示触发并
     /// 携带 matcher：startup（新会话首次 prompt）/ resume（恢复历史会话）/
     /// clear（/clear 后首次 prompt）/ compact（compact 后）。
     /// 对齐 CC SessionStart 的 4 种 matcher。
     session_start_source: Option<String>,
-    /// UI 事件通道（TUI 注入）。None 表示 hook 执行完全静默（无 UI 订阅）。
-    event_tx: Arc<Mutex<Option<tokio::sync::mpsc::UnboundedSender<AgentEvent>>>>,
     /// 判断工具是否需要用户审批。用于 PermissionRequest hook 门控。
     /// 默认使用 [`crate::hitl::default_requires_approval`]，
     /// 可通过 `with_requires_approval` 覆盖。
     requires_approval: fn(&str) -> bool,
+    /// 与 HITL 共享的放行通道：`permissionDecision: allow` 的调用写在这里，
+    /// 审批中间件据此跳过弹框（对齐参考实现的 hook 裁决语义）。
+    permission_bridge: Option<Arc<HookPermissionBridge>>,
 }
 
 impl HookMiddleware {
@@ -94,18 +95,33 @@ impl HookMiddleware {
             session_start_source = ?session_start_source,
             "HookMiddleware created with registered hooks"
         );
-        Self {
-            hooks: Arc::new(RwLock::new(map)),
+        let hooks = Arc::new(RwLock::new(map));
+        let once_fired = Arc::new(Mutex::new(HashSet::new()));
+        let event_tx = Arc::new(Mutex::new(None));
+        let cwd = cwd.into();
+        let session_id = session_id.into();
+        let transcript_path = transcript_path.into();
+        let current_model = current_model.into();
+        let runtime = HookRuntime::new(
+            Arc::clone(&hooks),
             llm_factory,
-            cwd: cwd.into(),
-            session_id: session_id.into(),
-            transcript_path: transcript_path.into(),
+            cwd.clone(),
+            session_id.clone(),
+            transcript_path.clone(),
+            Arc::clone(&permission_mode),
+            Arc::clone(&once_fired),
+            Arc::clone(&event_tx),
+        );
+        Self {
+            runtime,
+            cwd,
+            session_id,
+            transcript_path,
             permission_mode,
-            current_model: current_model.into(),
-            once_fired: Arc::new(Mutex::new(HashSet::new())),
+            current_model,
             session_start_source,
-            event_tx: Arc::new(Mutex::new(None)),
             requires_approval: crate::hitl::default_requires_approval,
+            permission_bridge: None,
         }
     }
 
@@ -115,30 +131,19 @@ impl HookMiddleware {
 
     /// 注入 UI 事件通道。未注入时 hook 执行对用户完全静默（历史行为）。
     pub fn with_event_tx(self, tx: tokio::sync::mpsc::UnboundedSender<AgentEvent>) -> Self {
-        *self.event_tx.lock() = Some(tx);
+        self.runtime.set_event_tx(tx);
         self
     }
 
-    /// 上报一次 hook 执行结果（同步事件一次，异步 hook 各自一次）。
-    fn emit_hooks_completed(
-        &self,
-        event: &HookEvent,
-        ran: usize,
-        started: std::time::Instant,
-        failures: &[HookFailureInfo],
-        is_async: bool,
-        tool_call_id: Option<&str>,
-    ) {
-        let guard = self.event_tx.lock();
-        emit_hooks_summary(
-            guard.as_ref(),
-            event.as_str(),
-            ran,
-            started,
-            failures,
-            is_async,
-            tool_call_id,
-        );
+    /// 注入与 HITL 共享的放行通道（由 `build_agent` 同时交给两个中间件）。
+    pub fn with_permission_bridge(mut self, bridge: Arc<HookPermissionBridge>) -> Self {
+        self.permission_bridge = Some(bridge);
+        self
+    }
+
+    /// 取出可跨组件共享的执行器（工具、审批流程用它触发链外事件）。
+    pub fn runtime(&self) -> Arc<HookRuntime> {
+        Arc::clone(&self.runtime)
     }
 
     // -----------------------------------------------------------------------
@@ -159,234 +164,46 @@ impl HookMiddleware {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // fire_event — core dispatch loop
-    // -----------------------------------------------------------------------
-
-    async fn fire_event(
+    /// 应用 hook 返回的 `permissionDecision`（对齐参考实现的裁决语义）。
+    ///
+    /// 返回 `Some(result)` 表示本方法已给出终局结果；`None` 表示不干预、
+    /// 继续走原有审批流程。
+    ///
+    /// - `Deny` → 直接拒绝（不执行、不弹框）
+    /// - `Allow` → 写入与 HITL 共享的放行通道（审批跳过弹框）；
+    ///   若同时带回 `updatedInput`，以新输入执行
+    /// - `Ask` / `Passthrough` → 不干预
+    fn apply_permission_decision(
         &self,
-        event: HookEvent,
-        input: &HookInput,
-        tool_name: Option<&str>,
-        tool_input: Option<&serde_json::Value>,
-        tool_call_id: Option<&str>,
-    ) -> HookAction {
-        // 确保 hook_event_name 与实际触发的事件一致。
-        //
-        // 调用方可能在 before_tool 中复用同一个 HookInput 连续触发多个事件
-        // （PreToolUse → PermissionRequest → Notification），而 HookInput::tool_call()
-        // 构造函数硬编码 hook_event_name = PreToolUse。若不修正，PermissionRequest hook
-        // 脚本从 stdin 读到的 hook_event_name 会是 "PreToolUse" 而非 "PermissionRequest"。
-        let input = if input.hook_event_name != event {
-            let mut corrected = input.clone();
-            corrected.hook_event_name = event.clone();
-            corrected
-        } else {
-            input.clone()
-        };
-
-        let hooks = {
-            let map = self.hooks.read();
-            match map.get(&event) {
-                Some(h) => {
-                    tracing::debug!(
-                        event = ?event,
-                        count = h.len(),
-                        "HookMiddleware: found hooks for event"
-                    );
-                    h.clone()
+        tool_call: &ToolCall,
+        decision: &PermissionDecision,
+        reason: Option<&String>,
+        new_input: &Option<serde_json::Value>,
+    ) -> Option<AgentResult<ToolCall>> {
+        match decision {
+            PermissionDecision::Deny => Some(Err(AgentError::ToolRejected {
+                tool: tool_call.name.clone(),
+                reason: reason
+                    .cloned()
+                    .unwrap_or_else(|| "Denied by hook permissionDecision".to_string()),
+            })),
+            PermissionDecision::Allow => {
+                if let Some(bridge) = &self.permission_bridge {
+                    bridge.allow(&tool_call.id);
                 }
-                None => {
-                    return HookAction::Allow;
-                }
+                Some(Ok(new_input.as_ref().map_or_else(
+                    || tool_call.clone(),
+                    |input| ToolCall {
+                        id: tool_call.id.clone(),
+                        name: tool_call.name.clone(),
+                        input: input.clone(),
+                    },
+                )))
             }
-        };
-
-        if hooks.is_empty() {
-            return HookAction::Allow;
+            PermissionDecision::Ask | PermissionDecision::Passthrough => None,
         }
-
-        let started = std::time::Instant::now();
-        let mut final_action = HookAction::Allow;
-        let mut ran = 0usize;
-        let mut failures: Vec<HookFailureInfo> = Vec::new();
-
-        for registered in &hooks {
-            // once check
-            if Self::is_once_hook(&registered.hook) && self.was_once_fired(registered) {
-                continue;
-            }
-
-            // matcher check
-            if let Some(name) = tool_name {
-                let matcher_str = registered.matcher.as_deref().unwrap_or_else(|| {
-                    registered
-                        .hook
-                        .get_matcher()
-                        .map(|s| s.as_str())
-                        .unwrap_or("*")
-                });
-                if !matches_matcher(matcher_str, name) {
-                    continue;
-                }
-            }
-
-            // if condition check
-            if let Some(condition) = registered.hook.get_condition() {
-                if let (Some(name), Some(inp)) = (tool_name, tool_input) {
-                    if !matches_if_condition(condition, name, inp) {
-                        continue;
-                    }
-                }
-            }
-
-            // Execute hook (async hooks are spawned in background, result ignored)
-            if let Some(ref msg) = registered.hook.get_status_message() {
-                tracing::info!(
-                    plugin = %registered.plugin_name,
-                    event = ?event,
-                    "Hook status: {}",
-                    msg
-                );
-            }
-            let action = if registered.hook.is_async() {
-                // Fire-and-forget: spawn in background, return Allow immediately。
-                // 完成后单独上报一次 is_async 的 summary（见 PRD C9/C10）。
-                let hook = registered.hook.clone();
-                let owned_input = input.clone();
-                let registered = registered.clone();
-                let event_name = event.as_str().to_string();
-                let event_tx = Arc::clone(&self.event_tx);
-                let tool_call_id = tool_call_id.map(str::to_string);
-                // 先报开始：TUI 立刻挂一条 Running 占位。完成事件可能晚于工具块
-                // 进入历史前缀，届时已无位置可贴（见 hooks-display.md）。
-                if let Some(tx) = event_tx.lock().as_ref() {
-                    let _ = tx.send(AgentEvent::HooksStarted {
-                        event: event_name.clone(),
-                        tool_call_id: tool_call_id.clone(),
-                    });
-                }
-                tokio::spawn(async move {
-                    let started = std::time::Instant::now();
-                    let action = match &hook {
-                        HookType::Command { .. } => {
-                            execute_command_hook(&hook, &owned_input, &registered).await
-                        }
-                        HookType::Http { .. } => execute_http_hook(&hook, &owned_input).await,
-                        // Prompt/Agent hooks need LLM factory which can't be cloned into spawn;
-                        // async only applies to Command per schema definition.
-                        _ => HookAction::Allow,
-                    };
-                    let failures: Vec<HookFailureInfo> =
-                        hook_failure(&action).into_iter().collect();
-                    let guard = event_tx.lock();
-                    if let Some(tx) = guard.as_ref() {
-                        let _ = tx.send(AgentEvent::HooksCompleted {
-                            event: event_name,
-                            ran: usize::from(failures.is_empty()),
-                            duration_ms: started.elapsed().as_millis() as u64,
-                            failures,
-                            is_async: true,
-                            tool_call_id,
-                        });
-                    }
-                });
-                HookAction::Allow
-            } else {
-                match &registered.hook {
-                    HookType::Command { .. } => {
-                        execute_command_hook(&registered.hook, &input, registered).await
-                    }
-                    HookType::Prompt { .. } => {
-                        execute_prompt_hook(&registered.hook, &input, &self.llm_factory).await
-                    }
-                    HookType::Http { .. } => execute_http_hook(&registered.hook, &input).await,
-                    HookType::Agent { .. } => {
-                        execute_agent_hook(&registered.hook, &input, &self.llm_factory, &self.cwd)
-                            .await
-                    }
-                }
-            };
-
-            // 同步 hook：计入 ran，阻断/失败收进 failures
-            if !registered.hook.is_async() {
-                ran += 1;
-                if let Some(failure) = hook_failure(&action) {
-                    failures.push(failure);
-                }
-            }
-
-            // once mark
-            if Self::is_once_hook(&registered.hook) {
-                self.mark_once_fired(registered);
-            }
-
-            // Short-circuit on Block / PreventContinuation
-            match &action {
-                HookAction::Block { .. } | HookAction::PreventContinuation { .. } => {
-                    self.emit_hooks_completed(
-                        &event,
-                        ran,
-                        started,
-                        &failures,
-                        false,
-                        tool_call_id,
-                    );
-                    return action;
-                }
-                HookAction::ModifyInput { new_input } => {
-                    final_action = HookAction::ModifyInput {
-                        new_input: new_input.clone(),
-                    };
-                }
-                HookAction::PermissionOverride { decision, reason } => {
-                    tracing::debug!(
-                        "PermissionOverride from hook: {:?} (reason: {:?})",
-                        decision,
-                        reason
-                    );
-                    final_action = HookAction::PermissionOverride {
-                        decision: decision.clone(),
-                        reason: reason.clone(),
-                    };
-                }
-                // hook 自身出错（非预期退出码/超时/信号/启动失败）不阻断调用：
-                // 已计入 failures 供 UI 展示，控制流继续按 Allow 走。
-                HookAction::Error { .. } => {}
-                _ => {}
-            }
-        }
-
-        self.emit_hooks_completed(&event, ran, started, &failures, false, tool_call_id);
-        final_action
     }
 
-    // -----------------------------------------------------------------------
-    // Helper methods
-    // -----------------------------------------------------------------------
-
-    fn is_once_hook(hook: &HookType) -> bool {
-        hook.is_once()
-    }
-
-    fn once_key(registered: &RegisteredHook) -> String {
-        format!(
-            "{}:{}:{:?}",
-            registered.plugin_id,
-            serde_json::to_string(&registered.hook).unwrap_or_default(),
-            registered.event
-        )
-    }
-
-    fn was_once_fired(&self, registered: &RegisteredHook) -> bool {
-        let key = Self::once_key(registered);
-        self.once_fired.lock().contains(&key)
-    }
-
-    fn mark_once_fired(&self, registered: &RegisteredHook) {
-        let key = Self::once_key(registered);
-        self.once_fired.lock().insert(key);
-    }
 }
 
 #[async_trait]
@@ -416,7 +233,7 @@ impl<S: State> Middleware<S> for HookMiddleware {
                 &self.current_model,
             );
             let action = self
-                .fire_event(HookEvent::SessionStart, &input, None, None, None)
+                .runtime.fire(HookEvent::SessionStart, &input, None, None, None)
                 .await;
             match &action {
                 HookAction::Block { reason } => {
@@ -455,7 +272,7 @@ impl<S: State> Middleware<S> for HookMiddleware {
             &prompt,
         );
         let action = self
-            .fire_event(HookEvent::UserPromptSubmit, &input, None, None, None)
+            .runtime.fire(HookEvent::UserPromptSubmit, &input, None, None, None)
             .await;
 
         // Handle UserPromptSubmit actions
@@ -495,7 +312,7 @@ impl<S: State> Middleware<S> for HookMiddleware {
 
         // Fire PreToolUse
         let action = self
-            .fire_event(
+            .runtime.fire(
                 HookEvent::PreToolUse,
                 &input,
                 Some(&tool_call.name),
@@ -527,6 +344,19 @@ impl<S: State> Middleware<S> for HookMiddleware {
                     input: new_input.clone(),
                 });
             }
+            HookAction::PermissionOverride {
+                decision,
+                reason,
+                new_input,
+            } => {
+                // allow 是终局裁决：直接返回，不再触发 PermissionRequest / Notification
+                //（对齐 CC：PreToolUse 放行后不再进入权限请求流程）。
+                if let Some(result) =
+                    self.apply_permission_decision(tool_call, decision, reason.as_ref(), new_input)
+                {
+                    return result;
+                }
+            }
             _ => {}
         }
 
@@ -542,7 +372,7 @@ impl<S: State> Middleware<S> for HookMiddleware {
 
         if is_sensitive && needs_dialog {
             let action = self
-                .fire_event(
+                .runtime.fire(
                     HookEvent::PermissionRequest,
                     &input,
                     Some(&tool_call.name),
@@ -550,16 +380,6 @@ impl<S: State> Middleware<S> for HookMiddleware {
                     Some(&tool_call.id),
                 )
                 .await;
-
-            // Fire Notification (agent is waiting for user permission)
-            self.fire_event(
-                HookEvent::Notification,
-                &input,
-                Some(&tool_call.name),
-                Some(&tool_call.input),
-                Some(&tool_call.id),
-            )
-            .await;
 
             match &action {
                 HookAction::Block { reason } => {
@@ -584,8 +404,32 @@ impl<S: State> Middleware<S> for HookMiddleware {
                         input: new_input.clone(),
                     });
                 }
+                HookAction::PermissionOverride {
+                    decision,
+                    reason,
+                    new_input,
+                } => {
+                    if let Some(result) = self.apply_permission_decision(
+                        tool_call,
+                        decision,
+                        reason.as_ref(),
+                        new_input,
+                    ) {
+                        return result;
+                    }
+                }
                 _ => {}
             }
+
+            // Fire Notification (agent is waiting for user permission)
+            self.runtime.fire(
+                HookEvent::Notification,
+                &input,
+                Some(&tool_call.name),
+                Some(&tool_call.input),
+                Some(&tool_call.id),
+            )
+            .await;
         }
 
         Ok(tool_call.clone())
@@ -597,6 +441,12 @@ impl<S: State> Middleware<S> for HookMiddleware {
         tool_call: &ToolCall,
         result: &ToolResult,
     ) -> AgentResult<()> {
+        // 放行标记的生命周期到此为止：敏感工具已被 HITL 取走，非敏感工具
+        // 根本不会经过审批。残留会让集合随会话无界增长。
+        if let Some(bridge) = &self.permission_bridge {
+            bridge.discard(&tool_call.id);
+        }
+
         let event = if result.is_error {
             HookEvent::PostToolUseFailure
         } else {
@@ -616,7 +466,7 @@ impl<S: State> Middleware<S> for HookMiddleware {
         );
 
         let _action = self
-            .fire_event(
+            .runtime.fire(
                 event,
                 &input,
                 Some(&tool_call.name),
@@ -653,9 +503,14 @@ impl<S: State> Middleware<S> for HookMiddleware {
             subagent_name: None,
             subagent_result: Some(output.text.chars().take(500).collect::<String>()),
             message_count: None,
+            name: None,
+            worktree_path: None,
+            reason: None,
+            old_cwd: None,
+            new_cwd: None,
         };
 
-        let stop_action = self.fire_event(HookEvent::Stop, &input, None, None, None).await;
+        let stop_action = self.runtime.fire(HookEvent::Stop, &input, None, None, None).await;
 
         // Stop hook Block/PreventContinuation 语义：CC 规范中，Stop hook
         // 返回 block 时 agent 不应停止而应继续工作。这里捕获 action 并把 reason
@@ -684,7 +539,7 @@ impl<S: State> Middleware<S> for HookMiddleware {
         };
 
         // Fire Notification (agent done, waiting for user input)
-        self.fire_event(HookEvent::Notification, &input, None, None, None)
+        self.runtime.fire(HookEvent::Notification, &input, None, None, None)
             .await;
 
         Ok(output.clone())
@@ -695,6 +550,15 @@ impl<S: State> Middleware<S> for HookMiddleware {
         _state: &mut S,
         error: &cc_agent::error::AgentError,
     ) -> AgentResult<()> {
+        // 工具被拒绝 → PermissionDenied。
+        //
+        // 拒绝可能来自审批（HITL）、hook 自身（Block）或权限模式；`on_error` 是唯一
+        // 能同时看到这些路径的钩子。payload 只带工具名与原因——被拒的工具输入不再
+        // 外发一次。
+        if let AgentError::ToolRejected { tool, reason } = error {
+            self.runtime.fire_permission_denied(tool, reason).await;
+        }
+
         // 按 CC 规范，StopFailure 仅在 API/LLM 错误导致轮次结束时触发。
         // 其他错误类型（用户中断、最大迭代次数、工具拒绝等）不触发 StopFailure。
         //
@@ -735,9 +599,14 @@ impl<S: State> Middleware<S> for HookMiddleware {
             subagent_name: None,
             subagent_result: None,
             message_count: None,
+            name: None,
+            worktree_path: None,
+            reason: None,
+            old_cwd: None,
+            new_cwd: None,
         };
 
-        self.fire_event(HookEvent::StopFailure, &input, None, None, None)
+        self.runtime.fire(HookEvent::StopFailure, &input, None, None, None)
             .await;
 
         Ok(())
@@ -896,6 +765,11 @@ pub async fn fire_standalone_lifecycle_hooks_with_tx(
             subagent_name: None,
             subagent_result: None,
             message_count: None,
+            name: None,
+            worktree_path: None,
+            reason: None,
+            old_cwd: None,
+            new_cwd: None,
         },
         HookEvent::PreCompact | HookEvent::PostCompact => HookInput::compact(
             session_id,
@@ -922,6 +796,11 @@ pub async fn fire_standalone_lifecycle_hooks_with_tx(
             subagent_name: None,
             subagent_result: None,
             message_count: None,
+            name: None,
+            worktree_path: None,
+            reason: None,
+            old_cwd: None,
+            new_cwd: None,
         },
         _ => return Vec::new(),
     };

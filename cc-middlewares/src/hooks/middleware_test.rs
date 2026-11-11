@@ -1,5 +1,6 @@
 use super::*;
 use crate::hitl::{PermissionMode, SharedPermissionMode};
+use crate::hooks::runtime::WorktreeCreateHookOutcome;
 use std::path::PathBuf;
 
 const TEST_CWD: &str = env!("CARGO_MANIFEST_DIR");
@@ -69,7 +70,8 @@ async fn test_fire_event_no_hooks() {
     let mw = make_middleware(vec![]);
     let input = HookInput::session_start("s", "/t", TEST_CWD, "startup", "opus");
     let action = mw
-        .fire_event(HookEvent::SessionStart, &input, None, None, None)
+        .runtime()
+        .fire(HookEvent::SessionStart, &input, None, None, None)
         .await;
     assert!(matches!(action, HookAction::Allow));
 }
@@ -100,7 +102,8 @@ async fn test_fire_event_once_semantic() {
 
     // First call → Block (exit code 2)
     let action = mw
-        .fire_event(
+        .runtime()
+        .fire(
             HookEvent::PreToolUse,
             &input,
             Some("Bash"),
@@ -112,7 +115,8 @@ async fn test_fire_event_once_semantic() {
 
     // Second call → Allow (once already fired)
     let action = mw
-        .fire_event(
+        .runtime()
+        .fire(
             HookEvent::PreToolUse,
             &input,
             Some("Bash"),
@@ -147,7 +151,8 @@ async fn test_fire_event_matcher_filter() {
 
     // Matcher is "Write" but tool is "Bash" → skip → Allow
     let action = mw
-        .fire_event(
+        .runtime()
+        .fire(
             HookEvent::PreToolUse,
             &input,
             Some("Bash"),
@@ -188,7 +193,8 @@ async fn test_fire_event_block_short_circuit() {
 
     // First hook blocks → short-circuit, second never runs
     let action = mw
-        .fire_event(
+        .runtime()
+        .fire(
             HookEvent::PreToolUse,
             &input,
             Some("Bash"),
@@ -281,7 +287,8 @@ async fn test_fire_event_preserves_permission_override() {
     );
 
     let action = mw
-        .fire_event(
+        .runtime()
+        .fire(
             HookEvent::PreToolUse,
             &input,
             Some("Bash"),
@@ -291,7 +298,9 @@ async fn test_fire_event_preserves_permission_override() {
         .await;
 
     match action {
-        HookAction::PermissionOverride { decision, reason } => {
+        HookAction::PermissionOverride {
+            decision, reason, ..
+        } => {
             assert_eq!(decision, crate::hooks::PermissionDecision::Deny);
             assert_eq!(reason.as_deref(), Some("blocked by policy"));
         }
@@ -896,7 +905,8 @@ async fn test_fire_event_emits_summary_for_successful_hooks() {
         "c1",
     );
     let _ = mw
-        .fire_event(
+        .runtime()
+        .fire(
             HookEvent::PreToolUse,
             &input,
             Some("Bash"),
@@ -945,7 +955,8 @@ async fn test_fire_event_block_reports_failure() {
         "c2",
     );
     let action = mw
-        .fire_event(
+        .runtime()
+        .fire(
             HookEvent::PreToolUse,
             &input,
             Some("Bash"),
@@ -988,7 +999,8 @@ async fn test_async_hook_emits_started_before_completed() {
     );
 
     let _ = mw
-        .fire_event(
+        .runtime()
+        .fire(
             HookEvent::PostToolUse,
             &input,
             Some("Bash"),
@@ -1039,7 +1051,8 @@ async fn test_async_hook_emits_completed_summary() {
         false,
     );
     let _ = mw
-        .fire_event(
+        .runtime()
+        .fire(
             HookEvent::PostToolUse,
             &input,
             Some("Bash"),
@@ -1088,7 +1101,8 @@ async fn test_async_hook_block_reports_block_kind() {
         false,
     );
     let _ = mw
-        .fire_event(
+        .runtime()
+        .fire(
             HookEvent::PostToolUse,
             &input,
             Some("Bash"),
@@ -1185,7 +1199,8 @@ async fn test_async_hook_failure_reports_error_kind() {
         false,
     );
     let _ = mw
-        .fire_event(
+        .runtime()
+        .fire(
             HookEvent::PostToolUse,
             &input,
             Some("Bash"),
@@ -1362,10 +1377,7 @@ async fn test_session_end_hooks_do_not_report_to_ui() {
         Some(tx),
     )
     .await;
-    assert!(
-        rx.try_recv().is_err(),
-        "SessionEnd 不应向 UI 上报任何事件"
-    );
+    assert!(rx.try_recv().is_err(), "SessionEnd 不应向 UI 上报任何事件");
 }
 
 /// SessionEnd 的 stdin payload 必须携带真实 session_id 与 source（#941）。
@@ -1435,4 +1447,80 @@ async fn test_blocking_lifecycle_hooks_wait_for_async_hooks() {
         "blocking 变体返回后 async hook 必须已完成"
     );
     let _ = std::fs::remove_file(marker);
+}
+
+#[test]
+fn test_worktree_create_hook_input_carries_name_only() {
+    let input = HookInput::worktree_create("sess", "/transcript", "/repo", "auto", "feature-x");
+    let json = serde_json::to_value(&input).unwrap();
+
+    assert_eq!(json["hook_event_name"], "WorktreeCreate");
+    assert_eq!(json["name"], "feature-x");
+    assert!(
+        json.get("tool_input").is_none(),
+        "worktree 事件不携带工具输入"
+    );
+    assert!(json.get("worktree_path").is_none());
+}
+
+#[test]
+fn test_worktree_remove_hook_input_carries_path_only() {
+    let input = HookInput::worktree_remove("sess", "/transcript", "/repo", "auto", "/tmp/wt/abc");
+    let json = serde_json::to_value(&input).unwrap();
+
+    assert_eq!(json["hook_event_name"], "WorktreeRemove");
+    assert_eq!(json["worktree_path"], "/tmp/wt/abc");
+    assert!(json.get("tool_name").is_none());
+    assert!(json.get("name").is_none());
+}
+
+#[tokio::test]
+async fn test_worktree_create_hook_absent_falls_back_to_git() {
+    let mw = make_middleware(vec![]);
+
+    let outcome = mw.runtime().run_worktree_create_hook("feature-x").await;
+
+    assert_eq!(outcome, WorktreeCreateHookOutcome::NotConfigured);
+}
+
+#[tokio::test]
+async fn test_fire_permission_denied_without_hooks_returns_allow() {
+    let mw = make_middleware(vec![]);
+
+    let action = mw
+        .runtime()
+        .fire_permission_denied("Bash", "user rejected")
+        .await;
+
+    assert!(matches!(action, HookAction::Allow));
+}
+
+#[test]
+fn test_cwd_changed_hook_input_carries_both_directories() {
+    let mut input = HookInput::tool_call(
+        "s",
+        "/t",
+        "/old",
+        "auto",
+        "Bash",
+        &serde_json::json!({}),
+        "c1",
+    );
+    input.hook_event_name = HookEvent::CwdChanged;
+    input.old_cwd = Some("/old".into());
+    input.new_cwd = Some("/new".into());
+    let json = serde_json::to_value(&input).unwrap();
+
+    assert_eq!(json["hook_event_name"], "CwdChanged");
+    assert_eq!(json["old_cwd"], "/old");
+    assert_eq!(json["new_cwd"], "/new");
+}
+
+#[tokio::test]
+async fn test_fire_cwd_changed_without_hooks_returns_allow() {
+    let mw = make_middleware(vec![]);
+
+    let action = mw.runtime().fire_cwd_changed("/old", "/new").await;
+
+    assert!(matches!(action, HookAction::Allow));
 }

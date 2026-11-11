@@ -15,8 +15,10 @@ use cc_agent::{
     middleware::r#trait::Middleware,
 };
 
+use crate::hooks::permission_bridge::HookPermissionBridge;
 use crate::tool_search::core_tools::{
-    TOOL_AGENT, TOOL_BASH, TOOL_EDIT, TOOL_WEBFETCH, TOOL_WEBSEARCH, TOOL_WRITE,
+    TOOL_AGENT, TOOL_BASH, TOOL_EDIT, TOOL_ENTER_WORKTREE, TOOL_EXIT_WORKTREE, TOOL_WEBFETCH,
+    TOOL_WEBSEARCH, TOOL_WRITE,
 };
 
 pub mod approval_memory;
@@ -67,11 +69,14 @@ pub fn is_yolo_mode() -> bool {
 /// - `Write`：文件写入
 /// - `Edit`：文件编辑
 /// - `Agent`：委派本身受父权限判定，子 Agent 内部共享权限并只接受允许/拒绝
+/// - `EnterWorktree` / `ExitWorktree`：会创建或删除 checkout，属非只读操作
 pub fn default_requires_approval(tool_name: &str) -> bool {
     tool_name == TOOL_BASH
         || tool_name == TOOL_AGENT
         || tool_name == TOOL_WRITE
         || tool_name == TOOL_EDIT
+        || tool_name == TOOL_ENTER_WORKTREE
+        || tool_name == TOOL_EXIT_WORKTREE
         || tool_name.starts_with("delete_")
         || tool_name.starts_with("rm_")
         || tool_name == TOOL_WEBFETCH
@@ -114,6 +119,11 @@ pub struct HumanInTheLoopMiddleware {
     /// 中间件拿不到 `AgentEventHandler`；这是它把「运行态事实」（如判定服务降级）
     /// 播报给用户、**又不打断流程**的唯一通道。
     notice_sink: Option<Arc<dyn AgentEventHandler>>,
+    /// 与 Hook 中间件共享的放行通道（可选）。
+    ///
+    /// hook 在 `PreToolUse` / `PermissionRequest` 返回 `permissionDecision: allow`
+    /// 时写入，本中间件据此跳过弹框——否则该配置会在链上被静默丢弃。
+    hook_permissions: Option<Arc<HookPermissionBridge>>,
 }
 
 impl HumanInTheLoopMiddleware {
@@ -131,6 +141,7 @@ impl HumanInTheLoopMiddleware {
             approval_memory: None,
             binary_only: false,
             notice_sink: None,
+            hook_permissions: None,
         }
     }
 
@@ -145,6 +156,7 @@ impl HumanInTheLoopMiddleware {
             approval_memory: None,
             binary_only: false,
             notice_sink: None,
+            hook_permissions: None,
         }
     }
 
@@ -177,6 +189,7 @@ impl HumanInTheLoopMiddleware {
             approval_memory: None,
             binary_only: false,
             notice_sink: None,
+            hook_permissions: None,
         }
     }
 
@@ -201,6 +214,7 @@ impl HumanInTheLoopMiddleware {
             approval_memory: Some(approval_memory),
             binary_only: false,
             notice_sink: None,
+            hook_permissions: None,
         }
     }
 
@@ -222,6 +236,7 @@ impl HumanInTheLoopMiddleware {
             approval_memory: self.approval_memory.clone(),
             binary_only: true,
             notice_sink: None,
+            hook_permissions: None,
         }
     }
 
@@ -232,6 +247,21 @@ impl HumanInTheLoopMiddleware {
     pub fn with_notice_sink(mut self, sink: Arc<dyn AgentEventHandler>) -> Self {
         self.notice_sink = Some(sink);
         self
+    }
+
+    /// 注入与 Hook 中间件共享的放行通道（builder 同一份 `Arc` 交给两侧）。
+    ///
+    /// 未注入时保持历史行为：hook 的 `permissionDecision: allow` 不影响审批。
+    pub fn with_hook_permissions(mut self, bridge: Arc<HookPermissionBridge>) -> Self {
+        self.hook_permissions = Some(bridge);
+        self
+    }
+
+    /// 取走 hook 对该调用的放行标记（命中即表示无需弹框）。
+    fn take_hook_allow(&self, tool_call_id: &str) -> bool {
+        self.hook_permissions
+            .as_ref()
+            .is_some_and(|bridge| bridge.take(tool_call_id))
     }
 
     /// 无宿主配置时 fail-closed，避免独立构造子 Agent 意外绕过 Auto 权限。
@@ -245,6 +275,7 @@ impl HumanInTheLoopMiddleware {
             approval_memory: None,
             binary_only: true,
             notice_sink: None,
+            hook_permissions: None,
         }
     }
 
@@ -323,6 +354,12 @@ impl HumanInTheLoopMiddleware {
         let mode_snapshot = self.mode.clone();
 
         for (i, call) in calls.iter().enumerate() {
+            // hook 已裁决放行 → 不进审批（对齐 CC：hook 的 allow 是终局决策）
+            if self.take_hook_allow(&call.id) {
+                results.push(Ok(call.clone()));
+                continue;
+            }
+
             // 对「实际将执行的命令」评估（Bash 经 RTK 改写，见 gate_effective_call）
             let effective = gate_effective_call(call);
             // 非敏感工具 → 直接放行（ExecuteExtraTool 透传目标工具名）
@@ -624,11 +661,23 @@ impl HumanInTheLoopMiddleware {
     ) -> Vec<AgentResult<ToolCall>> {
         let mut results: Vec<AgentResult<ToolCall>> = std::mem::take(initial_results);
 
+        // hook 已裁决放行的调用直接从批量弹窗里剔除（对齐 CC 的终局裁决语义）。
+        // 逐条 take 会消费标记，因此需要额外记录，后续回填结果时复用。
+        let mut hook_allowed = vec![false; calls.len()];
+        for (idx, call) in calls.iter().enumerate().skip(start_idx) {
+            if self.take_hook_allow(&call.id) {
+                hook_allowed[idx] = true;
+            }
+        }
+
         let needs_approval: Vec<(usize, &ToolCall)> = calls
             .iter()
             .enumerate()
             .skip(start_idx)
-            .filter(|(_, c)| (self.requires_approval)(&effective_tool_name(&c.name, &c.input)))
+            .filter(|(idx, c)| {
+                !hook_allowed[*idx]
+                    && (self.requires_approval)(&effective_tool_name(&c.name, &c.input))
+            })
             .collect();
 
         if needs_approval.is_empty() {
@@ -661,8 +710,10 @@ impl HumanInTheLoopMiddleware {
 
         let mut decision_iter = decisions.into_iter();
 
-        for call in calls.iter().skip(start_idx) {
-            if (self.requires_approval)(&effective_tool_name(&call.name, &call.input)) {
+        for (idx, call) in calls.iter().enumerate().skip(start_idx) {
+            if hook_allowed[idx] {
+                results.push(Ok(call.clone()));
+            } else if (self.requires_approval)(&effective_tool_name(&call.name, &call.input)) {
                 let decision = decision_iter.next().unwrap_or(ApprovalDecision::Reject {
                     reason: "用户拒绝".to_string(),
                     source: None,
@@ -696,6 +747,11 @@ impl<S: State> Middleware<S> for HumanInTheLoopMiddleware {
     }
 
     async fn before_tool(&self, state: &mut S, tool_call: &ToolCall) -> AgentResult<ToolCall> {
+        // 0. hook 已裁决放行的调用不再弹框（对齐 CC：hook 的 allow 是终局决策）。
+        if self.take_hook_allow(&tool_call.id) {
+            return Ok(tool_call.clone());
+        }
+
         // 对「实际将执行的命令」评估（Bash 经 RTK 改写，见 gate_effective_call）——
         // 否则会出现「批准 X、实际执行 X′」且审批展示 X 的语义漏洞。
         let effective = gate_effective_call(tool_call);

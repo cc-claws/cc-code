@@ -22,6 +22,18 @@ struct BackgroundEventHandler {
     sender: Option<tokio::sync::mpsc::UnboundedSender<AgentEvent>>,
     fallback: Option<Arc<dyn AgentEventHandler>>,
 }
+/// 子 Agent 的 worktree 隔离上下文（`isolation: "worktree"`）。
+struct WorktreeIsolation {
+    /// 创建该 checkout 的主仓库目录。
+    repo: String,
+    /// checkout 路径。
+    path: String,
+    /// 创建时的 HEAD，用于判断子 Agent 是否留下了改动。
+    base_commit: String,
+    /// 托管目录（删除时校验用）。
+    storage: std::path::PathBuf,
+}
+
 impl AgentEventHandler for BackgroundEventHandler {
     fn on_event(&self, event: AgentEvent) {
         self.registry.record_event(&self.task_id, &event);
@@ -78,6 +90,7 @@ impl BackgroundEventHandler {
 }
 
 impl super::SubAgentTool {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn invoke_background(
         &self,
         prompt: String,
@@ -86,6 +99,7 @@ impl super::SubAgentTool {
         is_fork: bool,
         timeout_secs: Option<u64>,
         description: Option<String>,
+        isolation: Option<String>,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         // 先做入参校验，再做运行环境校验：漏参是模型的问题，应给出可操作的错误，
         // 而不是被「本会话没有后台注册表」这类环境错误盖住。
@@ -113,6 +127,38 @@ impl super::SubAgentTool {
         let registry = self.background_registry.as_ref().ok_or(
             "Error: sub-agents run in the background only, but no background registry is configured in this session",
         )?;
+        // `isolation: "worktree"`：给子 Agent 一个独立 checkout，跑完按变更决定去留
+        // （有改动保留、无改动删除）。放在全部入参/环境校验之后，避免校验失败时
+        // 已经建好的 checkout 变成无人回收的孤儿；创建失败直接报错——静默退回共享
+        // 目录会让「隔离」变成幻觉。
+        let mut cwd = cwd;
+        let worktree_isolation = if isolation.as_deref() == Some("worktree") {
+            let repo_cwd = cwd.clone();
+            let repo_for_create = repo_cwd.clone();
+            let storage = cc_agent::app_home::app_home_dir().join("worktrees");
+            let storage_for_create = storage.clone();
+            let created = tokio::task::spawn_blocking(move || {
+                cc_tools::worktree::create(
+                    std::path::Path::new(&repo_for_create),
+                    None,
+                    None,
+                    &storage_for_create,
+                )
+            })
+            .await
+            .map_err(|error| format!("Error: worktree task failed: {error}"))?
+            .map_err(|error| format!("Error: cannot create isolation worktree: {error:#}"))?;
+            cwd = created.path.clone();
+            Some(WorktreeIsolation {
+                repo: repo_cwd,
+                path: created.path,
+                base_commit: created.head,
+                storage,
+            })
+        } else {
+            None
+        };
+
         let build = self
             .build_agent_from_def(
                 &agent_def,
@@ -215,7 +261,7 @@ impl super::SubAgentTool {
                 .await;
                 (outcome, state)
             });
-            let (success, output, tool_calls_count) = match execution.await {
+            let (success, mut output, tool_calls_count) = match execution.await {
                 Ok((Ok(output), state)) => (
                     true,
                     output.text,
@@ -236,6 +282,39 @@ impl super::SubAgentTool {
                 ),
                 Err(join_error) => (false, format!("Sub-agent panicked: {join_error}"), 0),
             };
+            // isolation worktree 收尾：有改动就保留（路径写进结果，供主 Agent 合并），
+            // 无改动删除，统计失败按「未知即不安全」保留。
+            if let Some(isolation) = worktree_isolation {
+                let path = isolation.path.clone();
+                let base = isolation.base_commit.clone();
+                let changes = tokio::task::spawn_blocking(move || {
+                    cc_tools::worktree::count_changes(std::path::Path::new(&path), &base)
+                })
+                .await
+                .ok()
+                .flatten();
+                let keep = changes.map(|c| c.is_dirty()).unwrap_or(true);
+                if keep {
+                    output.push_str(&format!(
+                        "
+[isolation] changes preserved in worktree {} (branch from {})",
+                        isolation.path, isolation.base_commit
+                    ));
+                } else {
+                    let repo = isolation.repo.clone();
+                    let target = isolation.path.clone();
+                    let storage = isolation.storage.clone();
+                    let _ = tokio::task::spawn_blocking(move || {
+                        cc_tools::worktree::remove(
+                            std::path::Path::new(&repo),
+                            std::path::Path::new(&target),
+                            None,
+                            &storage,
+                        )
+                    })
+                    .await;
+                }
+            }
             let result = BackgroundTaskResult {
                 task_id: spawn_id.clone(),
                 agent_name: spawn_name.clone(),

@@ -627,7 +627,10 @@ fn test_build_diff_input_write_append_uses_concatenated_content() {
 #[test]
 fn test_agent_stop_display_name() {
     let stop = serde_json::json!({"action": "stop", "task_id": "bg-1234"});
-    assert_eq!(format_tool_name_with_input("Agent", Some(&stop)), "Stop Task");
+    assert_eq!(
+        format_tool_name_with_input("Agent", Some(&stop)),
+        "Stop Task"
+    );
 }
 
 #[test]
@@ -640,10 +643,10 @@ fn test_agent_spawn_display_name_unchanged() {
 #[test]
 fn test_agent_action_unknown_falls_back_to_agent() {
     for input in [
-        serde_json::json!({"action": "Stop"}),          // 大小写敏感
-        serde_json::json!({"action": "unknown"}),       // 未知取值
-        serde_json::json!({"action": null}),            // 非字符串
-        serde_json::json!({}),                          // 缺失
+        serde_json::json!({"action": "Stop"}),    // 大小写敏感
+        serde_json::json!({"action": "unknown"}), // 未知取值
+        serde_json::json!({"action": null}),      // 非字符串
+        serde_json::json!({}),                    // 缺失
     ] {
         assert!(!is_agent_stop("Agent", Some(&input)));
         assert_eq!(format_tool_name_with_input("Agent", Some(&input)), "Agent");
@@ -653,10 +656,17 @@ fn test_agent_action_unknown_falls_back_to_agent() {
 #[test]
 fn test_agent_stop_args_falls_back_to_task_id() {
     let stop = serde_json::json!({"action": "stop", "task_id": "bg-1234"});
-    assert_eq!(format_tool_args("Agent", &stop, None).as_deref(), Some("bg-1234"));
+    assert_eq!(
+        format_tool_args("Agent", &stop, None).as_deref(),
+        Some("bg-1234")
+    );
     // description/prompt 存在时仍优先（兼容未来的 stop 带描述场景）
-    let stop_with_desc = serde_json::json!({"action": "stop", "task_id": "bg-1", "description": "停掉查天气"});
-    assert_eq!(format_tool_args("Agent", &stop_with_desc, None).as_deref(), Some("停掉查天气"));
+    let stop_with_desc =
+        serde_json::json!({"action": "stop", "task_id": "bg-1", "description": "停掉查天气"});
+    assert_eq!(
+        format_tool_args("Agent", &stop_with_desc, None).as_deref(),
+        Some("停掉查天气")
+    );
 }
 
 #[test]
@@ -804,5 +814,37 @@ fn test_format_tool_args_mcp_strips_terminal_control_sequences() {
     assert!(
         !result.contains('\u{1b}'),
         "MCP 参数摘要不得泄漏终端控制序列，实际: {result:?}"
+    );
+}
+
+#[test]
+fn test_format_tool_name_worktree_tools_use_action_labels() {
+    assert_eq!(format_tool_name("EnterWorktree"), "Creating worktree");
+    assert_eq!(format_tool_name("ExitWorktree"), "Exiting worktree");
+    // 统计栏保留真实工具名，避免与消息区的动作名混为一谈
+    assert_eq!(format_tool_name_for_stats("EnterWorktree"), "EnterWorktree");
+}
+
+#[test]
+fn test_format_tool_args_worktree_tools_show_key_argument() {
+    assert_eq!(
+        format_tool_args(
+            "EnterWorktree",
+            &serde_json::json!({"name": "fix-auth"}),
+            None
+        ),
+        Some("worktree/fix-auth".to_string())
+    );
+    assert_eq!(
+        format_tool_args(
+            "ExitWorktree",
+            &serde_json::json!({"action": "remove"}),
+            None
+        ),
+        Some("remove".to_string())
+    );
+    assert_eq!(
+        format_tool_args("EnterWorktree", &serde_json::json!({}), None),
+        None
     );
 }

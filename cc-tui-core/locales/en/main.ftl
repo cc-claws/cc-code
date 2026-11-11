@@ -609,6 +609,7 @@ cli-help-resume = Resume a conversation by session ID
 cli-help-session-id = Session ID (valid UUID required)
 cli-help-session-name = Session display name
 cli-help-no-session-persistence = Disable session persistence (requires -p)
+cli-help-worktree = Start the session in an isolated git worktree (optional name)
 cli-help-allowed-tools = Allowed tools, for example Bash(git:*) and Edit
 cli-help-disallowed-tools = Disallowed tools
 cli-help-settings = Additional settings file or JSON string

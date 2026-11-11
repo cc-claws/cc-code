@@ -41,6 +41,20 @@ pub async fn execute_command_hook(
     input: &HookInput,
     registered: &RegisteredHook,
 ) -> HookAction {
+    execute_command_hook_captured(hook, input, registered)
+        .await
+        .0
+}
+
+/// 同 [`execute_command_hook`]，但额外返回 hook 的原始 stdout。
+///
+/// 供「hook 输出即结果」的事件使用：`WorktreeCreate` 用 hook 的 stdout 作为
+/// worktree 路径（非 git 版本控制系统就是靠这个接入的）。
+pub async fn execute_command_hook_captured(
+    hook: &HookType,
+    input: &HookInput,
+    registered: &RegisteredHook,
+) -> (HookAction, String) {
     let (command, args, shell, timeout_secs) = match hook {
         HookType::Command {
             command,
@@ -55,7 +69,7 @@ pub async fn execute_command_hook(
             timeout.unwrap_or(600),
         ),
         _ => {
-            return HookAction::Allow;
+            return (HookAction::Allow, String::new());
         }
     };
 
@@ -63,7 +77,7 @@ pub async fn execute_command_hook(
         Ok(json) => json,
         Err(e) => {
             tracing::warn!("Failed to serialize HookInput: {}", e);
-            return HookAction::Allow;
+            return (HookAction::Allow, String::new());
         }
     };
 
@@ -96,9 +110,12 @@ pub async fn execute_command_hook(
             Ok(command) => command,
             Err(error) => {
                 tracing::warn!("Command hook execution failed: {}", error);
-                return HookAction::Error {
-                    reason: hook_error_reason("hook failed to run", &error.to_string()),
-                };
+                return (
+                    HookAction::Error {
+                        reason: hook_error_reason("hook failed to run", &error.to_string()),
+                    },
+                    String::new(),
+                );
             }
         }
     } else {
@@ -129,7 +146,7 @@ pub async fn execute_command_hook(
             let stdout = decode_output_bytes(&output.stdout);
             let stderr = decode_output_bytes(&output.stderr);
 
-            match output.status.code() {
+            let action = match output.status.code() {
                 Some(0) => {
                     // Parse structured output
                     parse_command_hook_output(&stdout)
@@ -174,7 +191,8 @@ pub async fn execute_command_hook(
                         reason: "hook terminated by signal".to_string(),
                     }
                 }
-            }
+            };
+            (action, stdout)
         }
         Err(error) if error.kind() == std::io::ErrorKind::TimedOut => {
             // Timeout
@@ -183,15 +201,21 @@ pub async fn execute_command_hook(
                 timeout_secs,
                 command
             );
-            HookAction::Error {
-                reason: format!("hook timed out after {timeout_secs}s"),
-            }
+            (
+                HookAction::Error {
+                    reason: format!("hook timed out after {timeout_secs}s"),
+                },
+                String::new(),
+            )
         }
         Err(e) => {
             tracing::warn!("Command hook execution failed: {}", e);
-            HookAction::Error {
-                reason: hook_error_reason("hook failed to run", &e.to_string()),
-            }
+            (
+                HookAction::Error {
+                    reason: hook_error_reason("hook failed to run", &e.to_string()),
+                },
+                String::new(),
+            )
         }
     }
 }

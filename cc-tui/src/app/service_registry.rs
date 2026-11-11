@@ -85,6 +85,11 @@ pub struct ServiceRegistry {
     pub git_branch_cache: parking_lot::Mutex<GitBranchCache>,
     /// Git 分支异步刷新器（子进程不占用渲染线程，issue #277）
     pub git_branch_poller: parking_lot::Mutex<GitBranchPoller>,
+    /// Agent 运行中切换后的工作目录（如进入 worktree）。
+    ///
+    /// 与 [`Self::cwd`] 分开：后者是本会话的上下文目录，切换它会重建 thread；
+    /// 这里只影响状态栏的 git 探测，`None` 表示与 `cwd` 相同。
+    pub agent_cwd: Option<String>,
     /// 启动后的版本更新检查（后台查一次，结果供欢迎卡展示）
     pub update_checker: parking_lot::Mutex<UpdateChecker>,
     /// panic hook 通知 receiver（TUI 模式专用，由 main.rs init_panic_notify 初始化）

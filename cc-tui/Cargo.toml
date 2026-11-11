@@ -31,6 +31,7 @@ winresource = "0.1"
 [dependencies]
 serde.workspace = true
 cc-agent = { path = "../cc-agent" }
+cc-tools = { path = "../cc-tools" }
 cc-middlewares = { path = "../cc-middlewares" }
 cc-terminal = { path = "../cc-terminal" }
 cc-tui-core = { path = "../cc-tui-core" }

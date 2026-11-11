@@ -39,7 +39,7 @@ Usage:
 - Normal agents have independent message state. Supply the objective, relevant context, constraints, allowed files, and expected result in prompt.
 - fork=true uses an inherited conversation snapshot. Include recent constraints or results needed for this task if the snapshot may lack them; it does not guarantee the parent's current full history or system prompt.
 - Tools derive from the parent's available set with Agent excluded, and may be restricted by the agent definition. Delegation grants no new permissions.
-- Agents share filesystem access and normally inherit cwd. Assign separate write scopes and avoid concurrent edits to the same files. The isolation parameter is reserved and does not create a worktree.
+- Agents share filesystem access and normally inherit cwd. Assign separate write scopes and avoid concurrent edits to the same files. Set isolation: "worktree" to give a sub-agent its own checkout of the repository.
 - Request a concise handoff covering Scope, Result, Key files, Files changed, and verification evidence or blockers. Tool-use summaries may precede the final response.
 - Sub-agents always run in the background: the bottom drawer tracks each one, your turn continues immediately, and each result is delivered as a completion notification. At most 3 run concurrently.
 - There is no foreground mode: a sub-agent's internals never render into the main conversation.
@@ -403,7 +403,8 @@ impl BaseTool for SubAgentTool {
                 },
                 "isolation": {
                     "type": "string",
-                    "description": "Reserved for future use; currently does not provide filesystem or worktree isolation"
+                    "enum": ["worktree"],
+                    "description": "Isolation mode. \"worktree\" runs the sub-agent in a temporary git worktree so it works on an isolated copy of the repository; changes are kept when the run leaves any, and the checkout is removed when it does not."
                 },
                 "cwd": {
                     "type": "string",
@@ -453,7 +454,15 @@ impl BaseTool for SubAgentTool {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
         let _name = input.get("name").and_then(|v| v.as_str());
-        let _isolation = input.get("isolation").and_then(|v| v.as_str());
+        let isolation = match input.get("isolation").and_then(|v| v.as_str()) {
+            None => None,
+            Some("worktree") => Some("worktree".to_string()),
+            Some(other) => {
+                return Err(
+                    format!("Error: invalid isolation {other:?}: expected \"worktree\"").into(),
+                )
+            }
+        };
         // 子 Agent 只有后台模式（抽屉是唯一呈现，结果经完成通知回流）。
         // 前台同步已被移除：它会把子 Agent 内部过程塞进主 Agent 的消息区，
         // 正是引入抽屉要解决的问题。
@@ -473,6 +482,7 @@ impl BaseTool for SubAgentTool {
             is_fork,
             timeout_secs,
             description,
+            isolation,
         )
         .await
     }

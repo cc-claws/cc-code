@@ -333,6 +333,10 @@ fn build_agent_inner(
             }
         };
 
+    // hook 的 `permissionDecision: allow` 是终局裁决：HookMiddleware 写入本通道，
+    // HITL 据此跳过弹框。两侧必须共享同一个 `Arc`，否则该裁决会被静默丢弃。
+    let hook_permission_bridge = cc_middlewares::hooks::HookPermissionBridge::new();
+
     let hitl = HumanInTheLoopMiddleware::with_shared_mode_and_memory(
         effective_broker.clone(),
         default_requires_approval,
@@ -343,7 +347,8 @@ fn build_agent_inner(
     )
     // 中间件拿不到 event_handler；这是它播报「运行态事实」（如判定服务降级）
     // 给用户的唯一非阻塞通道。
-    .with_notice_sink(Arc::clone(&event_handler));
+    .with_notice_sink(Arc::clone(&event_handler))
+    .with_hook_permissions(Arc::clone(&hook_permission_bridge));
 
     // AskUser 工具：使用原始 TUI broker（permission_broker），不使用 MultiplexBroker。
     // ChannelBroker 对 Questions 立即返回空答案，MultiplexBroker 竞速时 Channel 总是先返回，
@@ -601,6 +606,8 @@ fn build_agent_inner(
     // 收集所有 hooks（在 hook_groups 被 move 之前，供 CompactMiddleware 和 HookMiddleware 共用）
     let all_hooks: Vec<RegisteredHook> = hook_groups.iter().flatten().cloned().collect();
     let mut executor = executor;
+    // 由第一个 hook 组的中间件取出执行器，供链外的 worktree 工具触发 hook。
+    let mut worktree_hook_runtime: Option<Arc<cc_middlewares::hooks::HookRuntime>> = None;
     if !hook_groups.is_empty() {
         let hook_llm_factory: Arc<
             dyn Fn() -> Box<dyn cc_agent::agent::react::ReactLLM + Send + Sync> + Send + Sync,
@@ -639,9 +646,28 @@ fn build_agent_inner(
             if let Some(tx) = hook_event_tx.clone() {
                 mw = mw.with_event_tx(tx);
             }
+            // 与 HITL 共享放行通道，让 permissionDecision: allow 真正跳过审批。
+            mw = mw.with_permission_bridge(Arc::clone(&hook_permission_bridge));
+            if worktree_hook_runtime.is_none() {
+                worktree_hook_runtime = Some(mw.runtime());
+            }
             executor = executor.add_middleware(Box::new(mw));
         }
     }
+
+    // worktree 工具：EnterWorktree / ExitWorktree（WorktreeCreate / WorktreeRemove hook
+    // 由同一 runtime 触发）。会话句柄由 ACP 侧每轮写入 AgentPool。
+    let worktree_session_cwd = pool
+        .lock()
+        .session_cwd
+        .clone()
+        .unwrap_or_else(|| cc_agent::session_cwd::new_session_cwd(&cwd));
+    let executor = executor.add_middleware(Box::new(
+        cc_middlewares::tools::WorktreeMiddleware::new(
+            worktree_session_cwd,
+            worktree_hook_runtime,
+        ),
+    ));
 
     let executor = executor.add_middleware(Box::new(hitl));
     let executor = executor.add_middleware(Box::new(subagent));

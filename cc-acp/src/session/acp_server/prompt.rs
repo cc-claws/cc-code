@@ -82,6 +82,7 @@ pub(crate) async fn execute_prompt(
     // Read session data under lock, then release immediately.
     let (
         cwd,
+        previous_cwd,
         history,
         is_empty,
         thread_id,
@@ -94,8 +95,36 @@ pub(crate) async fn execute_prompt(
         let state = sessions
             .get_mut(&session_id)
             .ok_or_else(|| AcpError::new(-32602, "session not found"))?;
+        // 运行中可能被 EnterWorktree / ExitWorktree 改写：每轮都从句柄取当前值，
+        // 并把同一个句柄交给 agent 构建侧（工具需要写同一份）。
+        let current_cwd = cc_agent::session_cwd::current(&state.session_cwd);
+        pool.lock().session_cwd = Some(Arc::clone(&state.session_cwd));
+        // 目录真变了就把旧值带出去，锁外通知 TUI（状态栏 git 探测跟随切换）。
+        let previous_cwd = (state.reported_cwd != current_cwd)
+            .then(|| std::mem::replace(&mut state.reported_cwd, current_cwd.clone()));
+        // 目录在运行中变了（进入/退出 worktree）：下一轮往对话里追加一条提示。
+        // 系统提示是会话内冻结的，不能改；这条 reminder 是向模型传达 cwd 已变的
+        // 唯一通道（对齐参考实现「重算 cwd 信息」的效果，但不破坏提示词缓存）。
+        if let Some(previous) = &previous_cwd {
+            state.recall_items.push(format!(
+                "Working directory changed from {previous} to {current_cwd}.                  Relative paths now resolve against {current_cwd}."
+            ));
+            // 对齐参考实现的 clearMemoryFileCaches：目录变了就按新目录重读指引文件，
+            // 不能沿用会话创建时冻结的旧目录内容（worktree 里往往有另一份 CLAUDE.md）。
+            let cfg = cc_middlewares::AgentsMdConfig::default();
+            if let Some(instructions) = cc_middlewares::agents_md::load_instructions(
+                std::path::Path::new(&current_cwd),
+                &cfg,
+            ) {
+                state.recall_items.push(format!(
+                    "Instructions loaded from {current_cwd}:
+{instructions}"
+                ));
+            }
+        }
         (
-            state.cwd.clone(),
+            current_cwd,
+            previous_cwd,
             state.history.clone(),
             state.history.is_empty(),
             state.thread_id.clone(),
@@ -105,6 +134,19 @@ pub(crate) async fn execute_prompt(
             Arc::clone(&state.background_registry),
         )
     };
+
+    if let Some(previous_cwd) = previous_cwd {
+        let _ = transport
+            .send_notification(
+                "notifications/peri/cwd_changed",
+                serde_json::json!({
+                    "sessionId": session_id,
+                    "oldCwd": previous_cwd,
+                    "newCwd": cwd,
+                }),
+            )
+            .await;
+    }
     let history_len = history.len();
     // Save message IDs for compact persistence path (history is moved into execute_prompt below).
     let history_ids: Vec<cc_agent::messages::MessageId> = history.iter().map(|m| m.id()).collect();

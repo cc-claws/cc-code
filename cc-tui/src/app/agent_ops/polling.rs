@@ -324,7 +324,11 @@ impl App {
             }
             poller.begin()
         };
-        let cwd = self.services.cwd.clone();
+        let cwd = self
+            .services
+            .agent_cwd
+            .clone()
+            .unwrap_or_else(|| self.services.cwd.clone());
         tokio::spawn(async move {
             // `detect_status` 会 spawn `git` 子进程（阻塞），放 blocking 池执行
             let status = tokio::task::spawn_blocking(move || {

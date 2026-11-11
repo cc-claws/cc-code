@@ -27,6 +27,9 @@ pub const TOOL_WEBSEARCH: &str = "WebSearch";
 pub const TOOL_ASK_USER: &str = "AskUserQuestion";
 pub const TOOL_TODO: &str = "TodoWrite";
 pub const TOOL_SKILL: &str = "Skill";
+/// Worktree 工具（deferred：不进核心工具列表，但属于需要审批的敏感操作）
+pub const TOOL_ENTER_WORKTREE: &str = "EnterWorktree";
+pub const TOOL_EXIT_WORKTREE: &str = "ExitWorktree";
 
 /// 核心工具白名单（始终发送给 LLM，共 12 个）
 ///

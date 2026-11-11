@@ -6,6 +6,8 @@ fn make_session(session_id: &str) -> SessionState {
         session_id: session_id.to_string(),
         thread_id: session_id.to_string(),
         cwd: String::new(),
+        session_cwd: cc_agent::session_cwd::new_session_cwd(""),
+        reported_cwd: String::new(),
         history: Vec::new(),
         cancel_token: None,
         background_registry: Arc::default(),

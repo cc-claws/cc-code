@@ -176,6 +176,9 @@ struct Cli {
     /// 禁用会话持久化（需 -p）
     #[arg(long = "no-session-persistence")]
     no_session_persistence: bool,
+    /// 在隔离的 git worktree 中启动会话（可选名称）
+    #[arg(long = "worktree", num_args = 0..=1, default_missing_value = "", value_name = "NAME")]
+    worktree: Option<String>,
 
     // ── 工具控制 ──
     /// 允许的工具列表（如 "Bash(git:*)" "Edit"）
@@ -323,6 +326,106 @@ fn inject_settings_override(source: &str) {
 
 // ─── 入口 ──────────────────────────────────────────────────────────────────
 
+/// 退出时处理仍处于 EnterWorktree 会话中的 checkout。
+///
+/// 逐个询问 keep / remove（默认 keep）：删除动作只有在用户明确同意时发生，
+/// 未经确认一律保留——里面可能有未提交的改动，删掉等于静默丢工作。
+fn report_leftover_worktrees() {
+    let path = cc_agent::app_home::app_home_dir().join("worktree_sessions.json");
+    let Ok(json) = std::fs::read_to_string(&path) else {
+        return;
+    };
+    let Ok(sessions) =
+        serde_json::from_str::<std::collections::BTreeMap<String, serde_json::Value>>(&json)
+    else {
+        return;
+    };
+    // 会话文件是全局的：只处理属于当前项目的 checkout（按托管目录前缀过滤），
+    // 否则会把别的仓库的 worktree 也拿出来问一遍。
+    let current_storage = {
+        let cwd = std::env::current_dir()
+            .map(|dir| dir.to_string_lossy().to_string())
+            .unwrap_or_default();
+        cc_middlewares::tools::worktree_tool::storage_root(&cwd)
+    };
+    let sessions: std::collections::BTreeMap<_, _> = sessions
+        .into_iter()
+        .filter(|(worktree, _)| std::path::Path::new(worktree).starts_with(&current_storage))
+        .collect();
+    if sessions.is_empty() {
+        return;
+    }
+
+    let mut kept: std::collections::BTreeMap<String, serde_json::Value> =
+        std::collections::BTreeMap::new();
+    for (worktree, session) in sessions {
+        let branch = session
+            .get("branch")
+            .and_then(|value| value.as_str())
+            .unwrap_or("-");
+        eprintln!("Worktree session still open: {worktree}  [branch {branch}]");
+        eprint!("Remove it? [K/r] ");
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
+        let mut answer = String::new();
+        if std::io::stdin().read_line(&mut answer).is_err() {
+            kept.insert(worktree, session);
+            continue;
+        }
+        let answer = answer.trim().to_ascii_lowercase();
+        if !(answer == "r" || answer == "remove") {
+            kept.insert(worktree, session);
+            continue;
+        }
+        let Some(repo) = session.get("original_cwd").and_then(|value| value.as_str()) else {
+            kept.insert(worktree, session);
+            continue;
+        };
+        // 托管根必须与创建侧同源（仓库内 `.claude/worktrees`），否则
+        // `worktree::remove` 的前缀校验会拒绝删除，交互形同虚设。
+        let storage = cc_middlewares::tools::worktree_tool::storage_root(repo);
+        match cc_tools::worktree::remove(
+            std::path::Path::new(repo),
+            std::path::Path::new(&worktree),
+            session.get("branch").and_then(|value| value.as_str()),
+            &storage,
+        ) {
+            Ok(()) => eprintln!("Removed {worktree}"),
+            Err(error) => {
+                eprintln!("Cannot remove {worktree}: {error:#} (kept)");
+                kept.insert(worktree, session);
+            }
+        }
+    }
+
+    if kept.is_empty() {
+        let _ = std::fs::remove_file(&path);
+    } else if let Ok(json) = serde_json::to_string_pretty(&kept) {
+        let _ = std::fs::write(&path, json);
+    }
+}
+
+/// `--worktree`：创建（或复用）一个隔离 checkout 并把进程切过去。
+///
+/// 与参考实现的 `--worktree [name]` 对齐：目录落在托管根下、分支为
+/// `worktree/<name>`；不传名称时用随机名。
+fn enter_worktree_for_startup(name: &str) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let storage = cc_agent::app_home::app_home_dir().join("worktrees");
+    let created = match name.trim() {
+        "" => cc_tools::worktree::create(&cwd, None, None, &storage)?,
+        name => cc_tools::worktree::create_named(
+            &cwd,
+            name,
+            Some(&format!("worktree/{name}")),
+            None,
+            &storage,
+        )?,
+    };
+    std::env::set_current_dir(&created.path)?;
+    Ok(())
+}
+
 fn main() -> Result<()> {
     // 最先注入环境变量（进程环境变量优先）
     inject_env_from_settings();
@@ -364,21 +467,32 @@ fn main() -> Result<()> {
     }
 
     match cli.command {
-        None => run_tui(TuiOptions {
-            yolo: cli.yolo,
-            approve: cli.approve,
-            permission_mode: cli.permission_mode,
-            skip_permissions: cli.skip_permissions,
-            model: cli.model,
-            effort: cli.effort,
-            continue_session: cli.cont,
-            resume_session: cli.resume.and_then(|o| o),
-            session_id: cli.session_id,
-            session_name: cli.session_name,
-            settings: cli.settings,
-            allowed_tools: cli.allowed_tools.unwrap_or_default(),
-            disallowed_tools: cli.disallowed_tools.unwrap_or_default(),
-        }),
+        None => {
+            // `--worktree`：在隔离 checkout 中启动（参考实现的启动入口）。
+            // 只对 TUI 生效——`acp`/`plugin`/`update` 子命令不该被它带上一个 checkout。
+            if let Some(name) = cli.worktree.as_deref() {
+                enter_worktree_for_startup(name)?;
+            }
+            let result = run_tui(TuiOptions {
+                yolo: cli.yolo,
+                approve: cli.approve,
+                permission_mode: cli.permission_mode,
+                skip_permissions: cli.skip_permissions,
+                model: cli.model,
+                effort: cli.effort,
+                continue_session: cli.cont,
+                resume_session: cli.resume.and_then(|o| o),
+                session_id: cli.session_id,
+                session_name: cli.session_name,
+                settings: cli.settings,
+                allowed_tools: cli.allowed_tools.unwrap_or_default(),
+                disallowed_tools: cli.disallowed_tools.unwrap_or_default(),
+            });
+            // 退出时若仍在 EnterWorktree 创建的 checkout 里，告知用户被保留的位置，
+            // 避免清理动作悄悄发生（对齐参考实现的 keep/remove 提示语义）。
+            report_leftover_worktrees();
+            result
+        }
         Some(Commands::Acp {
             cwd,
             model: _,
@@ -533,7 +647,10 @@ mod session_end_guard {
                         // 窗口被系统关闭，不是"从 prompt 输入退出"，对齐 CC reason="other"
                         Some("other"),
                     );
-                if tokio::time::timeout(CLOSE_FIRE_TIMEOUT, fire).await.is_err() {
+                if tokio::time::timeout(CLOSE_FIRE_TIMEOUT, fire)
+                    .await
+                    .is_err()
+                {
                     tracing::warn!("SessionEnd hook（关窗路径）超时未完成");
                 }
             });
@@ -615,7 +732,7 @@ fn run_tui(opts: TuiOptions) -> Result<()> {
         // 事件到 STD_INPUT，让 crossterm event::read 能读到；return 1 阻止默认终止。
         unsafe extern "system" fn ctrl_handler(ctrl_type: u32) -> i32 {
             use windows_sys::Win32::System::Console::{
-                GetStdHandle, WriteConsoleInputW, CTRL_BREAK_EVENT, CTRL_C_EVENT, CTRL_CLOSE_EVENT,
+                GetStdHandle, WriteConsoleInputW, CTRL_BREAK_EVENT, CTRL_CLOSE_EVENT, CTRL_C_EVENT,
                 INPUT_RECORD, INPUT_RECORD_0, KEY_EVENT, KEY_EVENT_RECORD, KEY_EVENT_RECORD_0,
                 LEFT_CTRL_PRESSED, STD_INPUT_HANDLE,
             };
@@ -1306,9 +1423,10 @@ async fn run_app(
                 .unwrap_or_default()
                 .as_millis() as u64;
             let last_ms = LAST_SNAPSHOT_MS.load(Ordering::Relaxed);
-            if now_ms.saturating_sub(last_ms) >= 500 && LAST_SNAPSHOT_MS
-                .compare_exchange(last_ms, now_ms, Ordering::Relaxed, Ordering::Relaxed)
-                .is_ok()
+            if now_ms.saturating_sub(last_ms) >= 500
+                && LAST_SNAPSHOT_MS
+                    .compare_exchange(last_ms, now_ms, Ordering::Relaxed, Ordering::Relaxed)
+                    .is_ok()
             {
                 let mut hooks = app
                     .services

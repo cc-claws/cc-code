@@ -24,6 +24,7 @@ pub fn localized_command(mut command: Command, lc: &LcRegistry) -> Command {
         "session_id",
         "session_name",
         "no_session_persistence",
+        "worktree",
         "allowed_tools",
         "disallowed_tools",
         "settings",
@@ -47,7 +48,15 @@ pub fn localized_command(mut command: Command, lc: &LcRegistry) -> Command {
             });
         }
     }
-    for name in ["acp", "update", "plugin", "list", "install", "uninstall", "trust-project"] {
+    for name in [
+        "acp",
+        "update",
+        "plugin",
+        "list",
+        "install",
+        "uninstall",
+        "trust-project",
+    ] {
         if command.get_subcommands().any(|sub| sub.get_name() == name) {
             command = command.mut_subcommand(name, |sub| localized_command(sub, lc));
         }
