@@ -1,20 +1,19 @@
 use super::*;
 use cc_agent::session_cwd::new_session_cwd;
 
-/// 会话登记表是进程级文件：测试必须把它指到临时目录，否则会覆盖开发者本地登记。
+/// 测试专用：把会话登记文件指到临时目录，避免覆盖开发者本地登记。
 ///
-/// `std::env::set_var` 是进程全局的，用互斥锁把写盘类测试串起来。
-static SESSIONS_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn isolate_sessions(dir: &std::path::Path) -> std::sync::MutexGuard<'static, ()> {
-    let guard = SESSIONS_ENV
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
-    std::env::set_var(
-        "CC_CODE_WORKTREE_SESSIONS",
-        dir.join("worktree_sessions.json"),
-    );
-    guard
+/// 复用调用方传入的同一个 `SessionCwd`——工具与测试必须共享同一个句柄，
+/// 否则目录切换在两边看到的不一致。
+fn isolated_pair(
+    handle: &cc_agent::session_cwd::SessionCwd,
+    sessions: &std::path::Path,
+) -> (EnterWorktreeTool, ExitWorktreeTool) {
+    let file = sessions.join("worktree_sessions.json");
+    (
+        EnterWorktreeTool::new(Arc::clone(handle), None).with_sessions_file(&file),
+        ExitWorktreeTool::new(Arc::clone(handle), None).with_sessions_file(&file),
+    )
 }
 
 fn tool_pair(cwd: &str) -> (EnterWorktreeTool, ExitWorktreeTool) {
@@ -99,9 +98,10 @@ async fn test_exit_worktree_outside_session_is_noop() {
 #[tokio::test]
 async fn test_exit_worktree_requires_action_and_rejects_unknown_value() {
     let directory = tempfile::tempdir().unwrap();
-    let _sessions = isolate_sessions(directory.path());
+    let sessions = directory.path().join("worktree_sessions.json");
     let handle = new_session_cwd("/some/worktree");
     persist_session(
+        Some(&sessions),
         "/some/worktree",
         &WorktreeSession {
             original_cwd: "/repo".to_string(),
@@ -110,7 +110,7 @@ async fn test_exit_worktree_requires_action_and_rejects_unknown_value() {
             hook_based: false,
         },
     );
-    let exit = ExitWorktreeTool::new(handle, None);
+    let exit = ExitWorktreeTool::new(handle, None).with_sessions_file(&sessions);
 
     let missing = exit
         .invoke(serde_json::json!({}))
@@ -130,12 +130,13 @@ async fn test_exit_worktree_requires_action_and_rejects_unknown_value() {
 #[tokio::test]
 async fn test_exit_worktree_keep_restores_directory() {
     let directory = tempfile::tempdir().unwrap();
-    let _sessions = isolate_sessions(directory.path());
+    let sessions = directory.path().join("worktree_sessions.json");
     let handle = new_session_cwd("/repo");
-    let exit = ExitWorktreeTool::new(Arc::clone(&handle), None);
+    let exit = ExitWorktreeTool::new(Arc::clone(&handle), None).with_sessions_file(&sessions);
     let worktree = "/managed/worktree";
     session_cwd::switch(&handle, worktree);
     persist_session(
+        Some(&sessions),
         worktree,
         &WorktreeSession {
             original_cwd: "/repo".to_string(),
@@ -153,7 +154,10 @@ async fn test_exit_worktree_keep_restores_directory() {
     assert!(output.contains("Kept worktree (branch worktree/x)"));
     assert!(output.contains("Returned to /repo"));
     assert_eq!(session_cwd::current(&handle), "/repo");
-    assert!(load_sessions().is_empty(), "会话登记应被清理");
+    assert!(
+        load_sessions(Some(&sessions)).is_empty(),
+        "会话登记应被清理"
+    );
 }
 
 fn init_repo(path: &std::path::Path) {
@@ -176,13 +180,11 @@ fn init_repo(path: &std::path::Path) {
 #[tokio::test]
 async fn test_enter_and_exit_worktree_round_trip() {
     let directory = tempfile::tempdir().unwrap();
-    let _sessions = isolate_sessions(directory.path());
     let repository = directory.path();
     init_repo(repository);
 
     let handle = new_session_cwd(repository.to_string_lossy().to_string());
-    let enter = EnterWorktreeTool::new(Arc::clone(&handle), None);
-    let exit = ExitWorktreeTool::new(Arc::clone(&handle), None);
+    let (enter, exit) = isolated_pair(&handle, directory.path());
 
     let entered = enter
         .invoke(serde_json::json!({"name": "round-trip"}))
@@ -218,13 +220,11 @@ async fn test_enter_and_exit_worktree_round_trip() {
 #[tokio::test]
 async fn test_enter_worktree_reuses_same_name() {
     let directory = tempfile::tempdir().unwrap();
-    let _sessions = isolate_sessions(directory.path());
     let repository = directory.path();
     init_repo(repository);
 
     let handle = new_session_cwd(repository.to_string_lossy().to_string());
-    let enter = EnterWorktreeTool::new(Arc::clone(&handle), None);
-    let exit = ExitWorktreeTool::new(Arc::clone(&handle), None);
+    let (enter, exit) = isolated_pair(&handle, directory.path());
 
     enter
         .invoke(serde_json::json!({"name": "again"}))

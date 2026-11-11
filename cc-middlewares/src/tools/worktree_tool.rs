@@ -67,44 +67,44 @@ pub fn storage_root(cwd: &str) -> PathBuf {
         .unwrap_or_else(|| cc_agent::app_home::app_home_dir().join("worktrees"))
 }
 
-/// 会话登记文件路径。
+/// 会话登记文件路径（`override_path` 为测试注入的位置）。
 ///
-/// `CC_CODE_WORKTREE_SESSIONS` 可覆盖（测试用：避免写入真实 home 目录，
-/// 那会清掉开发者本地登记——仓库规范禁止测试写全局配置）。
-fn sessions_path() -> PathBuf {
-    if let Some(path) = std::env::var_os("CC_CODE_WORKTREE_SESSIONS") {
-        return PathBuf::from(path);
-    }
-    cc_agent::app_home::app_home_dir().join("worktree_sessions.json")
+/// 测试必须注入临时路径：默认落在 `~/.cc-code` 下，跑测试会清掉开发者本地登记
+/// （仓库规范禁止测试写全局配置）。这里用依赖注入而不是环境变量——env 是进程级
+/// 的，并发测试之间会互相覆盖。
+fn sessions_path(override_path: Option<&Path>) -> PathBuf {
+    override_path
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| cc_agent::app_home::app_home_dir().join("worktree_sessions.json"))
 }
 
 /// 写入单条登记（读-改-写）。
 ///
 /// 登记表在每次 `build_agent` 时新建，整份覆盖会把其它 thread / 其它会话的记录
 /// 抹掉，因此必须以磁盘快照为基准合并。
-fn persist_session(path: &str, session: &WorktreeSession) {
-    let mut all = load_sessions();
+fn persist_session(override_path: Option<&Path>, path: &str, session: &WorktreeSession) {
+    let mut all = load_sessions(override_path);
     all.insert(path.to_string(), session.clone());
-    save_sessions(&all);
+    save_sessions(override_path, &all);
 }
 
 /// 删除单条登记（读-改-写），不动其它条目。
-fn forget_session(path: &str) {
-    let mut all = load_sessions();
+fn forget_session(override_path: Option<&Path>, path: &str) {
+    let mut all = load_sessions(override_path);
     if all.remove(path).is_some() {
-        save_sessions(&all);
+        save_sessions(override_path, &all);
     }
 }
 
-fn load_sessions() -> HashMap<String, WorktreeSession> {
-    std::fs::read_to_string(sessions_path())
+fn load_sessions(override_path: Option<&Path>) -> HashMap<String, WorktreeSession> {
+    std::fs::read_to_string(sessions_path(override_path))
         .ok()
         .and_then(|json| serde_json::from_str(&json).ok())
         .unwrap_or_default()
 }
 
-fn save_sessions(sessions: &HashMap<String, WorktreeSession>) {
-    let path = sessions_path();
+fn save_sessions(override_path: Option<&Path>, sessions: &HashMap<String, WorktreeSession>) {
+    let path = sessions_path(override_path);
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
@@ -163,11 +163,24 @@ fn is_managed(path: &str, storage: &Path) -> bool {
 pub struct EnterWorktreeTool {
     cwd: SessionCwd,
     hooks: Option<Arc<HookRuntime>>,
+    /// 会话登记文件位置；`None` = `~/.cc-code/worktree_sessions.json`。
+    sessions_file: Option<PathBuf>,
 }
 
 impl EnterWorktreeTool {
     pub(crate) fn new(cwd: SessionCwd, hooks: Option<Arc<HookRuntime>>) -> Self {
-        Self { cwd, hooks }
+        Self {
+            cwd,
+            hooks,
+            sessions_file: None,
+        }
+    }
+
+    /// 注入会话登记文件位置（测试专用，避免写真实 home 目录）。
+    #[cfg(test)]
+    fn with_sessions_file(mut self, path: impl Into<PathBuf>) -> Self {
+        self.sessions_file = Some(path.into());
+        self
     }
 }
 
@@ -175,11 +188,24 @@ impl EnterWorktreeTool {
 pub struct ExitWorktreeTool {
     cwd: SessionCwd,
     hooks: Option<Arc<HookRuntime>>,
+    /// 会话登记文件位置；`None` = `~/.cc-code/worktree_sessions.json`。
+    sessions_file: Option<PathBuf>,
 }
 
 impl ExitWorktreeTool {
     pub(crate) fn new(cwd: SessionCwd, hooks: Option<Arc<HookRuntime>>) -> Self {
-        Self { cwd, hooks }
+        Self {
+            cwd,
+            hooks,
+            sessions_file: None,
+        }
+    }
+
+    /// 注入会话登记文件位置（测试专用）。
+    #[cfg(test)]
+    fn with_sessions_file(mut self, path: impl Into<PathBuf>) -> Self {
+        self.sessions_file = Some(path.into());
+        self
     }
 }
 
@@ -260,7 +286,7 @@ impl BaseTool for EnterWorktreeTool {
                         branch: None,
                         hook_based: true,
                     };
-                    persist_session(&display, &session);
+                    persist_session(self.sessions_file.as_deref(), &display, &session);
                     session_cwd::switch(&self.cwd, display.clone());
                     runtime.fire_cwd_changed(&current, &display).await;
                     return Ok(format!(
@@ -305,7 +331,7 @@ impl BaseTool for EnterWorktreeTool {
             branch: Some(effective_branch.clone()),
             hook_based: false,
         };
-        persist_session(&created.path, &session);
+        persist_session(self.sessions_file.as_deref(), &created.path, &session);
         session_cwd::switch(&self.cwd, created.path.clone());
         if let Some(runtime) = &self.hooks {
             // CwdChanged 是通知型事件：参考实现里它不能被阻断，只用于刷新
@@ -375,7 +401,7 @@ impl BaseTool for ExitWorktreeTool {
         let current = session_cwd::current(&self.cwd);
         // 进程重启后内存登记表为空：回退读取磁盘快照，避免把已存在的
         // isolation worktree 误判成「没有活动会话」。
-        let session = load_sessions().remove(&current);
+        let session = load_sessions(self.sessions_file.as_deref()).remove(&current);
         // 对齐参考实现：不在本会话创建的 worktree 内时是 **no-op**（报告无活动
         // worktree 会话、不做任何改动），而不是报错——模型可能误调，报错只会让
         // 它反复重试。
@@ -453,7 +479,7 @@ impl BaseTool for ExitWorktreeTool {
             }
         }
 
-        forget_session(&current);
+        forget_session(self.sessions_file.as_deref(), &current);
         session_cwd::switch(&self.cwd, session.original_cwd.clone());
         if let Some(runtime) = &self.hooks {
             runtime
