@@ -302,10 +302,11 @@ pub async fn execute_rg_grep(
 
     // 转换路径为相对于 cwd 的格式
     // rg 在 current_dir(cwd) 下运行时，输出路径可能是绝对或相对，统一用 Path 处理
+    // files 模式（-l / -L）整行是文件路径，走单独的归一化分支（见 convert_rg_line_for_mode）
     let cwd_path = Path::new(cwd);
     let converted: Vec<String> = lines
         .iter()
-        .map(|line| convert_rg_line(line, cwd_path))
+        .map(|line| convert_rg_line_for_mode(line, cwd_path, parsed.output_mode))
         .collect();
 
     // FilesOnly / FilesWithoutMatch 模式需要排序
@@ -469,8 +470,30 @@ fn convert_rg_line(line: &str, cwd: &Path) -> String {
         return line.to_string();
     }
 
-    let path_part = &line[..path_end];
-    let rest = &line[path_end..];
+    let display = normalize_display_path(&line[..path_end], cwd);
+    let rest_with_space = fix_line_number_spacing(&line[path_end..]);
+
+    format!("{}{}", display, rest_with_space)
+}
+
+/// 按输出模式转换一行 rg 输出。
+///
+/// files 模式（`-l` / `--files-without-match`）每行是**整行文件路径、无行号冒号**，
+/// [`convert_rg_line`] 的「找第一个 `:`」会落空并原样返回（反斜杠与 `.\` 前缀全部
+/// 残留），因此这两类行直接按整行路径归一化；content / count 行按
+/// `path:line:content` 结构处理，正文中的反斜杠字面量不受影响。
+fn convert_rg_line_for_mode(line: &str, cwd: &Path, mode: OutputMode) -> String {
+    match mode {
+        OutputMode::FilesOnly | OutputMode::FilesWithoutMatch => normalize_display_path(line, cwd),
+        _ => convert_rg_line(line, cwd),
+    }
+}
+
+/// 归一化展示用文件路径：转相对 cwd、`\`→`/`、剥 `./` 前缀。
+///
+/// [`convert_rg_line`] 的路径段与 files 模式的整行路径共用，保证 content 与
+/// files 模式的路径展示一致（Glob 侧同口径见 `glob.rs` 的 `relativize_path`）。
+fn normalize_display_path(path_part: &str, cwd: &Path) -> String {
     let path = Path::new(path_part);
 
     // strip_prefix(cwd) 转相对路径
@@ -479,15 +502,12 @@ fn convert_rg_line(line: &str, cwd: &Path) -> String {
         .map(|rel| rel.to_string_lossy().replace('\\', "/"))
         .unwrap_or_else(|_| path_part.replace('\\', "/"));
 
-    // 清理 ./ 前缀
+    // 清理 ./ 前缀（Windows 的 `.\` 经上面替换后同样归一为 `./`）
     if display.starts_with("./") {
         display = display[2..].to_string();
     }
 
-    // 统一格式：rg 输出 `:123:content`，Rust 引擎 `:123: content`，补空格
-    let rest_with_space = fix_line_number_spacing(rest);
-
-    format!("{}{}", display, rest_with_space)
+    display
 }
 
 /// rg 输出的 `:line:content` 在行号后的 `:` 后无空格，Rust 引擎有空格。
