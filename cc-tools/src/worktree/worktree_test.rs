@@ -153,7 +153,10 @@ fn storage_inside_current_checkout_is_allowed_and_excluded_from_status() -> Resu
 
     let created = create(&repository.path, None, None, &storage)?;
 
-    assert!(Path::new(&created.path).starts_with(&storage));
+    // macOS 的临时目录是符号链接（/tmp → /private/var/...），比较前两边都规范化
+    let created_path = Path::new(&created.path).canonicalize()?;
+    let storage_path = storage.canonicalize()?;
+    assert!(created_path.starts_with(&storage_path));
     // 托管目录位于仓库内时必须自动加入 .git/info/exclude，否则 git status 被污染
     assert!(
         repository.output(&["status", "--porcelain"])?.is_empty(),
@@ -230,7 +233,17 @@ fn failed_checkout_hook_preserves_created_directory_and_branch() -> Result<()> {
     let entries = std::fs::read_dir(&repository.storage)?.collect::<std::io::Result<Vec<_>>>()?;
     assert_eq!(entries.len(), 1, "Git 创建失败后的目录必须保留");
     let checkout = entries[0].path();
-    assert!(error.to_string().contains(&checkout.display().to_string()));
+    // 只比较目录名：Windows 上 `read_dir` 可能返回 verbatim（`\\?\`）形态，
+    // 与错误信息里的普通路径形态不同，直接比全路径会因平台而异。
+    let checkout_name = checkout
+        .file_name()
+        .expect("checkout 目录必须有名字")
+        .to_string_lossy()
+        .to_string();
+    assert!(
+        error.to_string().contains(&checkout_name),
+        "错误信息应包含保留的目录名 {checkout_name}: {error}"
+    );
     assert!(error.to_string().contains("preserved"));
     assert!(checkout.join("tracked.txt").is_file());
     assert_eq!(
