@@ -62,6 +62,7 @@ fn test_real_session_readonly_counted_bash_not() {
         tool_call_id: "call_c6072c4896574474b7ed4189".to_string(),
         content: MessageContent::text("Found 89 files"),
         is_error: false,
+        tool_name: None,
     };
     let vms = MessagePipeline::messages_to_view_models(&[glob_msg, glob_tool], "/p");
     let summary = first_action_summary(&vms);
@@ -78,6 +79,7 @@ fn test_real_session_readonly_counted_bash_not() {
         tool_call_id: "call_bash_1".to_string(),
         content: MessageContent::text("ok"),
         is_error: false,
+        tool_name: None,
     };
     let vms2 = MessagePipeline::messages_to_view_models(&[bash_msg, bash_tool], "/p");
     assert_eq!(first_action_summary(&vms2), None, "写盘 Bash 不应产生只读计数");
@@ -90,6 +92,7 @@ fn test_real_session_readonly_counted_bash_not() {
         tool_call_id: "call_bash_2".to_string(),
         content: MessageContent::text("ok"),
         is_error: false,
+        tool_name: None,
     };
     let vms3 = MessagePipeline::messages_to_view_models(&[stderr_msg, stderr_tool], "/p");
     assert_eq!(
@@ -180,6 +183,7 @@ fn make_merge_sequence() -> Vec<BaseMessage> {
         tool_call_id: tid.to_string(),
         content: MessageContent::text("结果"),
         is_error: false,
+        tool_name: None,
     };
     vec![
         mk_ai("a", "t1", "Read", "/a.rs"),
@@ -278,6 +282,7 @@ fn test_merge_removes_extra_reasoning_blocks_in_same_bubble() {
         tool_call_id: "t1".to_string(),
         content: MessageContent::text("内容"),
         is_error: false,
+        tool_name: None,
     };
 
     // Act
@@ -330,12 +335,14 @@ fn test_parallel_tools_read_counted_alongside_bash() {
             tool_call_id: "b1".to_string(),
             content: MessageContent::text("ok"),
             is_error: false,
+            tool_name: None,
         },
         BaseMessage::Tool {
             id: cc_agent::messages::MessageId::new(),
             tool_call_id: "r1".to_string(),
             content: MessageContent::text("内容"),
             is_error: false,
+            tool_name: None,
         },
     ];
 
@@ -374,6 +381,7 @@ fn test_partial_missing_duration_degrades_whole_segment() {
         tool_call_id: tid.to_string(),
         content: MessageContent::text("x"),
         is_error: false,
+        tool_name: None,
     };
     let msgs = vec![
         mk("a", "t1", Some(1000)),
@@ -415,6 +423,7 @@ fn test_merged_char_count_reflects_all_segments_on_fallback() {
         tool_call_id: tid.to_string(),
         content: MessageContent::text("x"),
         is_error: false,
+        tool_name: None,
     };
     // 段首 2 字，第二段 10 字 → 合并 12 字
     let msgs = vec![

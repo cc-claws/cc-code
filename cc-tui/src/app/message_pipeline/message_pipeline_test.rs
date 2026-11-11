@@ -376,6 +376,7 @@ fn test_tool_args_cwd_consistency() {
             tool_call_id: "tc1".to_string(),
             content: MessageContent::text("file content here"),
             is_error: false,
+            tool_name: None,
         },
     ];
     let restore_vms = MessagePipeline::messages_to_view_models(&msgs, cwd);
@@ -486,6 +487,7 @@ fn test_pipeline_tool_end_no_duplicate() {
             tool_call_id: "tc1".to_string(),
             content: MessageContent::text("content here"),
             is_error: false,
+            tool_name: None,
         },
     ];
     pipeline.set_completed(snapshot);
@@ -1102,6 +1104,7 @@ fn test_e2e_text_visible_between_tool_calls() {
             tool_call_id: "tc1".to_string(),
             content: MessageContent::text("fn main() {}"),
             is_error: false,
+            tool_name: None,
         },
     ]);
     let tail4 = pipeline.build_tail_vms();
@@ -1395,6 +1398,7 @@ fn make_agent_history(agent_count: usize, separated: bool) -> Vec<BaseMessage> {
                 i
             )),
             is_error: false,
+            tool_name: None,
         });
     }
     // 在两组 agent 之间插入非 Agent 消息（测试批次分离）
@@ -1414,6 +1418,7 @@ fn make_agent_history(agent_count: usize, separated: bool) -> Vec<BaseMessage> {
             tool_call_id: "tc_sep".to_string(),
             content: MessageContent::text("[Sub-agent executed 2 tool calls: done_sep]"),
             is_error: false,
+            tool_name: None,
         });
     }
     msgs
@@ -1506,6 +1511,7 @@ fn test_batch_info_reset_on_non_agent_tool() {
         tool_call_id: "tc1".to_string(),
         content: MessageContent::text("[Sub-agent executed 3 tool calls: done1]"),
         is_error: false,
+        tool_name: None,
     });
     // Bash Tool 结果（打断连续区间）
     msgs.push(BaseMessage::Tool {
@@ -1513,6 +1519,7 @@ fn test_batch_info_reset_on_non_agent_tool() {
         tool_call_id: "tc_bash".to_string(),
         content: MessageContent::text("file1.txt"),
         is_error: false,
+        tool_name: None,
     });
     // Agent Tool 结果
     msgs.push(BaseMessage::Tool {
@@ -1520,6 +1527,7 @@ fn test_batch_info_reset_on_non_agent_tool() {
         tool_call_id: "tc2".to_string(),
         content: MessageContent::text("[Sub-agent executed 5 tool calls: done2]"),
         is_error: false,
+        tool_name: None,
     });
     let mut vms = MessagePipeline::messages_to_view_models(&msgs, "/tmp");
     aggregate_batch_groups(&mut vms);
@@ -2464,6 +2472,7 @@ fn make_ai_with_tools(tools: &[(&str, &str)]) -> Vec<BaseMessage> {
             tool_call_id: tc.id.clone(),
             content: MessageContent::text("结果"),
             is_error: false,
+            tool_name: None,
         });
     }
     msgs
@@ -2494,6 +2503,7 @@ fn make_read_then_reasoning_messages() -> Vec<BaseMessage> {
             tool_call_id: read_call.id,
             content: MessageContent::text("文件内容"),
             is_error: false,
+            tool_name: None,
         },
         BaseMessage::Ai {
             id: cc_agent::messages::MessageId::new(),

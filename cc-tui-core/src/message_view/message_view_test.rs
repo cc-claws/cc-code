@@ -28,6 +28,59 @@ fn test_history_rebuild_sets_finished_phase() {
     );
 }
 
+/// 自动改道杂交体回归（docs/2026-11-11-tool-mismatch-reroute-display-hybrid）：
+/// AI 声明 Bash + Grep 参数、实际由 Grep 执行时，Tool 消息自带的执行名必须优先，
+/// 头部展示 Search 而非声明名 Bash。
+#[test]
+fn test_tool_block_prefers_recorded_executed_tool_name() {
+    let mut result = BaseMessage::tool_result("tc1", "Found 3 files");
+    if let BaseMessage::Tool { tool_name, .. } = &mut result {
+        *tool_name = Some("Grep".to_string());
+    }
+    let vm = MessageViewModel::from_base_message(
+        &result,
+        &[(
+            "tc1".to_string(),
+            "Bash".to_string(),
+            json!({"pattern": "err", "output_mode": "files_with_matches"}),
+        )],
+    );
+    match vm {
+        MessageViewModel::ToolBlock {
+            tool_name,
+            display_name,
+            ..
+        } => {
+            assert_eq!(tool_name, "Grep", "应显示实际执行名而非声明名");
+            assert!(
+                display_name.starts_with("Search"),
+                "Grep 的展示名应为 Search，实际: {display_name}"
+            );
+        }
+        _ => panic!("应该是 ToolBlock"),
+    }
+}
+
+/// 旧记录无 tool_name 字段：回退 AI 消息声明名，保持既有展示行为
+#[test]
+fn test_tool_block_falls_back_to_declared_name_without_recorded_name() {
+    let result = BaseMessage::tool_result("tc1", "ok");
+    let vm = MessageViewModel::from_base_message(
+        &result,
+        &[(
+            "tc1".to_string(),
+            "Bash".to_string(),
+            json!({"command": "ls"}),
+        )],
+    );
+    match vm {
+        MessageViewModel::ToolBlock { tool_name, .. } => {
+            assert_eq!(tool_name, "Bash", "无执行名记录时应回退声明名");
+        }
+        _ => panic!("应该是 ToolBlock"),
+    }
+}
+
 /// 测试：AI 消息只有 tool_calls（无 content）时，应正确渲染工具调用
 #[test]
 fn test_ai_message_with_only_tool_calls_renders_tool_use() {

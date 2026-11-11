@@ -86,3 +86,29 @@
             unreachable!("Tool 消息反序列化失败");
         }
     }
+
+    #[test]
+    fn test_tool_message_tool_name_serde_compat() {
+        // 无 tool_name（旧记录形态）：序列化必须省略该字段，反序列化得 None
+        let msg = BaseMessage::tool_result("tc1", "output");
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(!json.contains("tool_name"), "tool_name 为 None 时应跳过序列化");
+        let restored: BaseMessage = serde_json::from_str(&json).unwrap();
+        let BaseMessage::Tool { tool_name, .. } = &restored else {
+            unreachable!("Tool 消息反序列化失败");
+        };
+        assert!(tool_name.is_none(), "旧记录无 tool_name 字段应反序列化为 None");
+
+        // 有 tool_name（自动改道后记录实际执行名）：round-trip 保留
+        let mut msg = BaseMessage::tool_result("tc2", "output");
+        if let BaseMessage::Tool { tool_name, .. } = &mut msg {
+            *tool_name = Some("Grep".to_string());
+        }
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("tool_name"), "tool_name 为 Some 时应参与序列化");
+        let restored: BaseMessage = serde_json::from_str(&json).unwrap();
+        let BaseMessage::Tool { tool_name, .. } = &restored else {
+            unreachable!("Tool 消息反序列化失败");
+        };
+        assert_eq!(tool_name.as_deref(), Some("Grep"), "round-trip 应保留实际执行名");
+    }
