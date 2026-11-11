@@ -306,6 +306,12 @@ async fn test_update_config_returns_error_for_unknown_provider_id() {
 // ── sessionId 校验测试（issue #70） ─────────────────────────────────────────
 
 /// 构造一个最小的可运行 server config，复用 update_config 测试的 fixture 逻辑
+///
+/// 同时在临时 cwd 写入工作区 `.cc-code/settings.json` 钉住 `agent_kernel`：
+/// `session/new` 的 kernel 解析会先读**宿主全局** `~/.cc-code/settings.json`
+/// （`store::load_for_session` → `config_path()`），工作区配置才覆盖它。
+/// 不钉住的话，本机全局配了 dsh/pi 的开发者跑该 fixture 断言 `"cc"` 必挂，
+/// 且报错信息指不到「你改了全局配置」——测试必须自包含，不依赖宿主环境。
 fn make_minimal_cfg() -> (tempfile::TempDir, AcpServerConfig) {
     let tmp = tempfile::TempDir::new().unwrap();
     let provider_a = make_provider_config("a", "openai", "sk-openai-test", "gpt-4o");
@@ -314,7 +320,20 @@ fn make_minimal_cfg() -> (tempfile::TempDir, AcpServerConfig) {
     peri_config.config.providers = vec![provider_a];
     let provider = LlmProvider::from_config(&peri_config).unwrap();
     let cfg = make_server_config(peri_config, provider, &tmp);
+    write_workspace_kernel(tmp.path(), "cc");
     (tmp, cfg)
+}
+
+/// 在给定目录写入工作区 `.cc-code/settings.json`，只钉住 `agent_kernel`，
+/// 其余字段留空（空字段按 `merge_overrides` 语义不覆盖）。
+fn write_workspace_kernel(dir: &std::path::Path, kernel: &str) {
+    let peri_dir = dir.join(".cc-code");
+    std::fs::create_dir_all(&peri_dir).unwrap();
+    std::fs::write(
+        peri_dir.join("settings.json"),
+        format!("{{\"config\":{{\"agent_kernel\":\"{kernel}\"}}}}"),
+    )
+    .unwrap();
 }
 
 #[tokio::test]
