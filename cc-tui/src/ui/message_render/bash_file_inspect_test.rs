@@ -253,7 +253,7 @@ fn test_grep_failed_group_collapsed_keeps_tool_header_and_truncated_summary() {
             tool_name: "Grep".into(),
             display_name: "Search".into(),
             args_display: Some(command.into()),
-            content: output.into(),
+            content: output,
             is_error: true,
             file_inspect: false,
         }],
