@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.272：**自动改道按候选工具重解原始方言入参**——模型把工具名写错、但参数按其**本内核方言**填对时（dsh 下搜索内容却声明 `glob`，参数用 grep 方言 `include`），自动改道此前无法自愈、需额外一轮 LLM 往返。根因是入站归一化按**声明的工具名**查改名规则：名字错成 `glob` 就套用 Glob 的「不改名」，`include` 原样残留而 canonical `Grep` 不认，改道的「恰好一个候选」判定 0 命中。现改用模型**原始方言入参**、按**候选工具自身**的规则重解后再校验，使「能否改道」不再依赖模型是否写对工具名；刻意只放宽内核方言层（`path → file_path` 别名仍按声明名施加），白名单与只读安全边界不变，cc / dsh / pi 三内核实测均恢复自愈（#1018）。同版修复 `cc-acp` kernel 测试依赖宿主全局配置的问题：fixture 曾在全局配了 dsh/pi 的开发机上必挂，现写入工作区配置钉住 `agent_kernel`，用例自包含（#1020）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.271：**聚合组折叠态为失败的 Grep / Glob 补上工具头**——v0.6.269 只让失败的 Bash 在折叠态显示命令头，Grep / Glob 失败时仍只有一段截断错误摘要，看不出是哪个 pattern 挂了（两者显示名同为 `Search`）。现渲染条件放宽到 `Bash | Grep | Glob`，折叠态高度估算同步计入工具头与摘要行，避免滚动定位漂移（#1014）。同版把默认日志过滤中 `cc_middlewares::hooks` 降级到 `warn`——该 loader 在 Windows 关窗路径每 500ms 被反复调用并逐次打 info 日志，实测占用户日志 99.79%（288 万行 / 402 MB），warning 以上日志与显式 `RUST_LOG` 不受影响（#1016）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.270：**MCP 工具头按 server/tool 展示并列出参数**——MCP 工具此前被 `to_pascal` 拼成 `McpTavilyTavilySearch`（server 名重复两遍），参数摘要只取「第一个字符串字段」且丢 key 名（serde_json Map 按字母序迭代，命中 `country` 而非 `query`）。现拆 `mcp__{server}__{tool}`，工具头显示 `tavily - tavily_search (MCP)`，参数逐项输出 `key: value`，状态栏统计改用短名 `tavily_search`；纯展示层改动，不涉及工具执行与权限判定（#1011）。同版对齐 dsh/pi 内核的工具参数映射并明确执行语义（毫秒超时、0-based offset、搜索上限），补齐仅 pi 生效的 `find.limit` 适配（#1008）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。

@@ -4,6 +4,18 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.272 — 2026-11-11
+
+### Fixes
+
+- **自动改道按候选工具重解原始方言入参，修复写错工具名时的自愈失效（#1018）**：模型把工具名写错、但参数按其**本内核方言**填对时（dsh 内核下搜索内容却声明 `glob`，参数用 `grep` 方言 `include`），已有的自动改道（`try_auto_rescue`）无法自愈，只报 `Invalid arguments for tool glob` 并要求额外一轮 LLM 往返。原因是入站归一化（`normalize_reasoning`）按**模型声明的工具名**查 `ParamSpec`：名字错成 `glob` 就套用 Glob 的 `RENAME_NONE`，grep 的 `include` 原样残留，而 canonical `Grep` 不认 `include`，于是改道的「恰好一个候选通过」判定 0 命中、静默回退参数错误——改名规则与「工具名是否正确」形成循环依赖。现改道判定改用模型**原始方言入参**（`normalize_reasoning` 已留存于 `raw_tool_calls`），并按**候选工具自身**的 `ParamSpec` 重新归一化后再跑严格 schema 校验，使「能否改道」不再依赖模型是否写对工具名。严格只放宽内核方言层：`path → file_path` 这类参数别名仍按**声明的工具名**施加、不按候选施加，避免凭空扩大改道面；候选集 `Grep` / `Glob` / `Read`（+ 只读 `Bash`）、「恰好一个命中」歧义判定与只读安全边界均不变。改动文件：`cc-agent/src/agent/executor/tool_dispatch.rs`（`try_auto_rescue` 增 `kernel` / `raw_input`、`rescue_mismatched_call` 增 `raw_input`、`collect_tool_results` 增 `raw_calls` 并按 `tool_call_id` 配对、`dispatch_tools` 传 `reasoning.raw_tool_calls`）、`cc-agent/src/agent/executor/tool_dispatch_test.rs`（新增 2 例：`test_auto_rescue_uses_raw_dialect_input_under_wrong_tool_name`、`test_auto_rescue_does_not_apply_param_alias_by_candidate`，另有 21 处既有调用点补参）。验证：`cc-agent --lib` 692 passed；`clippy --all-targets -D warnings` 无告警；两项负向验证（去掉按候选重解 → 断言 `left: "Glob"` 失败；改为按候选施加别名 → 该调用被静默改道到 `Read`）确认回归保护有效。特性/影响：cc / dsh / pi 三内核的真实工具端到端实测均改道成功（`is_error=false`）；工具调用身份（`tool_name` / `tool_call_id`）与对外事件行为不变。与已关闭的 #988（白名单覆盖不足）机制不同，可独立复现。
+
+### Tests
+
+- **钉住 kernel 测试的 `agent_kernel`，去除对宿主全局配置的依赖（#1020）**：`cc-acp` 的两条 kernel 用例（`test_kernel_switch_persists_recovers_and_forks_without_changing_other_sessions`、`test_failed_kernel_switch_keeps_live_session_and_configuration`）在本机开发环境必挂——`make_minimal_cfg` 未固定 `agent_kernel`，而 `session/new` 的 kernel 解析链会先读宿主全局 `~/.cc-code/settings.json`（`store::load_for_session` → `config_path()`），只有工作区配置才 `merge_overrides` 覆盖它；报错只有 `left: Some("dsh")` / `right: Some("cc")`，看不出根因是「本机全局配了内核」。CI 之所以通过，仅因 runner 不存在该文件（`load_from` 缺失时返回 `PeriConfig::default()` → `agent_kernel = None` → 回退 `cc`）。现 fixture 自包含：`make_minimal_cfg` 在临时 cwd 写入工作区 `.cc-code/settings.json` 钉住 `agent_kernel = "cc"`（新增 `write_workspace_kernel` 辅助，只写该字段，其余留空按 `merge_overrides` 语义不覆盖）。验证：宿主设为 `dsh` / `pi` / 未知值时该 2 例均通过（此前 `dsh` 下必挂）；未削弱断言——把 fixture 钉的值改成 `pi`（与断言不符）时用例仍 FAIL。无生产代码改动，仅测试 fixture。
+
+---
+
 ## v0.6.271 — 2026-11-11
 
 ### Fixes
