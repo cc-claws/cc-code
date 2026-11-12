@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.278 — 2026-11-12
+
+### Fixes
+
+- **worktree 隔离区删除失败不再卡死会话（#1049, #1051）**：在隔离 worktree 内把分支改名后再 `ExitWorktree {action: "remove"}`，checkout 目录实际已被删除，但按登记旧名 `git branch -D` 失败使 `worktree::remove` 整体返回 Err，调用方提前 return 跳过紧随其后的状态复位——会话目录仍指向已删除路径，之后每次 Bash 调用都无法启动（Windows 报 os error 267），`EnterWorktree` 也无法自救。现 `remove()` 中分支清理失败降级为警告（checkout 已移除即视为删除成功，残留分支不构成幽灵状态）；`ExitWorktree` 删除报错后先检查目录是否仍在，已不在则照常执行 `forget_session` + 目录复位，只有目录仍存在才当作真失败。改动文件：`cc-tools/src/worktree/mod.rs`、`cc-middlewares/src/tools/worktree_tool.rs`。新增两条回归测试均先在原实现上失败验证非空转（分支改名后删除复位端到端）。验证：PR #1051 的 Linux、macOS、Windows 三平台 workspace build、tests、Clippy 全部通过。
+
+---
+
 ## v0.6.277 — 2026-11-12
 
 ### Fixes
