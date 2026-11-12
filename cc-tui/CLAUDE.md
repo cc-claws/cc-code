@@ -42,6 +42,8 @@ TUI 输入 → AcpTuiClient.new_session() / .prompt()
 
 交互模式先在正常屏中使用固定区域视口，从 shell 当前输出下方显示紧凑欢迎卡；`cc-terminal/src/terminal_backend/viewport.rs` 的 `ViewportState` 记录真实起点、已占用行数与全屏锁定状态。首帧靠近底部时仅滚动必要行数；正常屏只绘制和清理应用拥有的区域，不能逐帧全屏 Clear。
 
+宿主尺寸变化会物理重排旧帧，残留可能落在新视口上下两侧；重排帧须逐行清理当前可见网格再整帧重绘，不能仅清理视口上方或内部。清理不能追加换行或清除 scrollback；正常帧仍只处理应用视口。
+
 内容超过既有占用高度时向下扩展；每次下方空间不足都原生滚动必要行数并上移 `origin_row`，只有 `max(required_rows, allocated_rows)` 达到整个宿主高度才锁定全屏，不能按起点以下的 `available_rows` 提前切换。全屏锁定是本次终端运行级状态，不写会话，不因折叠、`/clear`、恢复历史或切换子视口解除。全屏消息滚动由 TUI 自渲染滚动条接管，`base_visual` 恒为 0。切换前先等待目标宽度重排，再同步输出切屏、resize 与首帧，并合并重复清屏。
 
 **[TRAP]** 外部编辑器挂起（`panel_memory.rs`）需要关闭鼠标捕获、记录当前终端模式；返回后恢复原模式与应用区域。正常屏编辑时不能无条件 `EnterAlternateScreen`，编辑器临时全屏也不能锁定应用全屏。
