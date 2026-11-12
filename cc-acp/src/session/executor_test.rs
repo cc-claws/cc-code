@@ -270,6 +270,25 @@ fn test_inject_bg_result_dedupes_failed_notification() {
     assert_eq!(history.len(), 1, "失败通知已进历史时不得重复注入");
 }
 
+/// 去重守卫依赖 `to_notification()` 与 `notification_prefix()` 同源。
+///
+/// 两者若各自硬编码一份 `[Background task ...` 字面量，改措辞时会静默失配，
+/// 让已完成的后台结果被重复注入上下文。本测试把「通知正文以判重前缀开头」
+/// 锁成不变量：成功与失败两条路径都必须成立。
+#[test]
+fn test_bg_notification_starts_with_dedup_prefix() {
+    for success in [true, false] {
+        let result = make_bg_result("bg-invariant-0004", success);
+        let notification = result.to_notification();
+        let prefix = result.notification_prefix();
+        assert!(
+            notification.starts_with(&prefix),
+            "to_notification() 必须以 notification_prefix() 开头（success={success}），\
+             否则 is_bg_result_delivered 的判重会静默失效：prefix={prefix:?} notification={notification:?}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn test_runtime_start_persists_model_reasoning_and_project_branch() -> anyhow::Result<()> {
     use cc_agent::thread::{SqliteThreadStore, ThreadMeta, ThreadStore};
