@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.279 — 2026-11-12
+
+### Fixes
+
+- **修复 Windows PowerShell 5.1 上安装/更新脚本解压失败（#1052, #1053）**：`scripts/install.ps1` 的解压步骤使用 `Expand-Archive -Force`，其「覆盖已存在目录」语义依赖 .NET 的三参数 `ExtractToDirectory(path, dest, overwrite)`，而 Windows PowerShell 5.1 的 .NET Framework 4.8 只提供 `(path, dest)` 与 `(path, dest, encoding)` 两个重载，调用即抛「找不到"ExtractToDirectory"的重载，参数计数为:"3"」，导致 `cc-code update` 与官方脚本安装（`irm ... | iex`）在 5.1 环境下整体不可用。现改为先删除已存在的版本目录，再直接调用两参数重载 `ExtractToDirectory(path, dest)`，覆盖语义由前置删除保证。改动文件：`scripts/install.ps1`。验证：本机 PowerShell 5.1.19041.6456 实测原路径复现失败、新路径解压成功且覆盖语义正确；`[Parser]::ParseFile` 语法解析通过。
+
+---
+
 ## v0.6.278 — 2026-11-12
 
 ### Fixes

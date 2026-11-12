@@ -7,6 +7,14 @@
 
 ## 最近更新
 
+v0.6.279：**修复 Windows PowerShell 5.1 上安装/更新脚本解压失败**——`scripts/install.ps1` 的 `Expand-Archive -Force` 在 5.1 环境下因 .NET 缺少三参数 `ExtractToDirectory` 重载而必然报错，导致 `cc-code update` 与官方脚本安装整体不可用。现改为先删除旧版本目录再调用两参数重载，覆盖语义不变（#1052, #1053）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
+v0.6.278：**worktree 隔离区删除失败不再卡死会话**——隔离区内把分支改名后再删除 worktree，checkout 目录实际已删除，但按登记旧名删分支失败使整体返回 Err，跳过状态复位——会话目录仍指向已删除路径，之后每次 Bash 调用都无法启动（Windows 报 os error 267）。现分支清理失败降级为警告，删除报错后先检查目录是否仍在、已不在则照常复位（#1049, #1051）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
+v0.6.277：**恢复输入框 │ 细线光标**——上一版为修复长草稿光标越界把竖线光标换成原生反色块光标，越界修好但视觉回归。现恢复 │ 细线绘制的完整旧行为（行内右移腾格、行首画在左侧内边距、行尾覆盖空格、闪烁灭相留空格），同时保留长草稿/长行滚动后光标仍可见的修复（#1050）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
+v0.6.276：**跨长消息滚动跳位、窗口缩放残影、多行草稿布局、worktree 目录跟随**——一并修复 TUI 视口与 worktree 切换中四个可复现问题：跨未测量长消息滚动时先测量实际跨过的消息再消费滚轮距离，避免跳过或重复移动；窗口缩放时先清理重排到新视口外的旧状态行再完整重绘，避免重复底栏；`ExitWorktree` 删除目录后 Bash 与文件工具每次调用读取当前会话目录，避免从已删除路径启动失败（Windows 错误 267）；多行草稿只借用已分配视口中的消息区、不推动 inline 视口增长，并补齐输入高度上限与长草稿光标可见性。同版修复后台任务结果去重守卫与通知文本各维护一份字面量导致同一 output 注入两次的问题，收敛为单一事实来源（#1042, #1044, #1045, #772, #1043, #1046, #1047）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.275：**worktree 状态即时刷新，修复任务完成后一直 Retrieving**——进入/退出 worktree 后，状态栏在当前轮即可更新 Git 分支并丢弃旧目录查询；任务结束通过显式信号关闭主事件泵，排空尾部消息后发送完成通知，修复缓存工具保留通道 Sender 导致界面长期忙碌的问题。新增 13 项回归，三平台 CI 构建、测试与 Clippy 全绿（#1039, #1040）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.272：**自动改道按候选工具重解原始方言入参**——模型把工具名写错、但参数按其**本内核方言**填对时（dsh 下搜索内容却声明 `glob`，参数用 grep 方言 `include`），自动改道此前无法自愈、需额外一轮 LLM 往返。根因是入站归一化按**声明的工具名**查改名规则：名字错成 `glob` 就套用 Glob 的「不改名」，`include` 原样残留而 canonical `Grep` 不认，改道的「恰好一个候选」判定 0 命中。现改用模型**原始方言入参**、按**候选工具自身**的规则重解后再校验，使「能否改道」不再依赖模型是否写对工具名；刻意只放宽内核方言层（`path → file_path` 别名仍按声明名施加），白名单与只读安全边界不变，cc / dsh / pi 三内核实测均恢复自愈（#1018）。同版修复 `cc-acp` kernel 测试依赖宿主全局配置的问题：fixture 曾在全局配了 dsh/pi 的开发机上必挂，现写入工作区配置钉住 `agent_kernel`，用例自包含（#1020）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
