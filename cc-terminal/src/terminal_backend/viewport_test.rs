@@ -202,21 +202,53 @@ fn test_clear_owned_area_at_terminal_bottom_does_not_scroll() {
 }
 
 #[test]
-fn test_clear_rows_from_top_erases_reflow_leftovers_above_viewport() {
+fn test_clear_reflowed_screen_erases_visible_rows_without_clearing_scrollback() {
     let mut output = Vec::new();
-    clear_rows_from_top(&mut output, 3).expect("清理视口上方残留");
+    clear_reflowed_screen(&mut output, Size::new(80, 3)).expect("清理重排残留");
     assert_eq!(
         output, b"\x1b[1;1H\x1b[2K\x1b[2;1H\x1b[2K\x1b[3;1H\x1b[2K",
-        "只擦除第 1 至 3 行，不追加换行、不移动视口起点"
+        "只逐行擦除可见网格，不能清除滚动历史"
     );
-    assert!(!output.contains(&b'\n'), "上方残留清理不能引起原生滚动");
+    assert!(!output.contains(&b'\n'), "残留清理不能引起原生滚动");
 }
 
 #[test]
-fn test_clear_rows_from_top_with_zero_rows_writes_nothing() {
-    let mut output = Vec::new();
-    clear_rows_from_top(&mut output, 0).expect("无残留行应安全返回");
-    assert!(output.is_empty(), "视口起点为 0 时不能写任何控制序列");
+fn test_reflow_clear_covers_footer_below_compact_viewport_after_shrink_and_expand() {
+    for origin in [0, 4] {
+        let mut state = ViewportState::growing(origin);
+        state.prepare(11, Size::new(120, 40));
+        for size in [Size::new(80, 24), Size::new(120, 40)] {
+            let plan = state.prepare(11, size);
+            assert!(!state.fullscreen_latched, "缩放后仍使用正常屏紧凑视口");
+            assert!(plan.area.bottom() < size.height);
+
+            // 宿主把旧状态栏重排到新视口下方，Fixed resize 不会清理这一行。
+            let stale_footer_row = plan.area.bottom();
+            let mut output = Vec::new();
+            clear_reflowed_screen(&mut output, size).expect("清理缩放残留");
+            let output = String::from_utf8(output).expect("清理序列为 ASCII");
+            assert!(
+                output.contains(&format!("\x1b[{};1H\x1b[2K", stale_footer_row + 1)),
+                "缩小和放大均必须清掉视口下方的旧状态栏"
+            );
+            assert!(
+                output.contains(&format!("\x1b[{};1H\x1b[2K", size.height)),
+                "清理范围必须覆盖当前宿主末行"
+            );
+            assert!(output.starts_with("\x1b[1;1H\x1b[2K"));
+            assert!(!output.contains("\x1b[3J"), "不能清除 shell 滚动历史");
+            assert!(!output.contains('\n'), "不能追加换行滚动正常屏");
+        }
+    }
+}
+
+#[test]
+fn test_clear_reflowed_screen_with_empty_size_writes_nothing() {
+    for size in [Size::new(80, 0), Size::new(0, 24), Size::default()] {
+        let mut output = Vec::new();
+        clear_reflowed_screen(&mut output, size).expect("空网格应安全返回");
+        assert!(output.is_empty(), "空网格不能移动光标或清屏");
+    }
 }
 
 #[test]

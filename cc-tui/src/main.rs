@@ -1653,10 +1653,9 @@ fn draw_prepared_app(
         .ui
         .take_terminal_clear_redraw();
     if reflowed {
-        // 宿主 reflow 把旧帧搬到了视口上方（同 #718 的退出残留），而 Fixed 视口
-        // 的清理只覆盖自己的行；尺寸变化后补清上方残留并整帧重画，否则顶部会
-        // 留下旧欢迎卡/边框的副本。
-        viewport::clear_rows_from_top(terminal.backend_mut(), plan.area.top())?;
+        // 宿主重排可能把旧帧挤到新视口上下两侧，Fixed 清理只覆盖自己的行。
+        // 清掉整个可见网格后整帧重画，避免缩小再放大留下旧状态栏；不清滚动历史。
+        viewport::clear_reflowed_screen(terminal.backend_mut(), size)?;
     }
     if (clear_requested || reflowed) && !resized {
         terminal.clear()?;
