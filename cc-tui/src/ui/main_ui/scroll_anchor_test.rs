@@ -194,17 +194,23 @@ async fn test_scroll_anchor_burst_preserves_steps_past_estimated_top() {
         let sender = app.session_mgr.current().messages.render_tx.clone();
         make_render_barrier(&sender).await;
         make_draw(&mut app, &mut handle);
-        let start = app
-            .session_mgr
-            .current()
-            .messages
-            .render_cache
-            .read()
-            .virtual_layout
-            .as_ref()
-            .unwrap()
-            .message_visual_offsets[1];
-        assert_eq!(start, 3, "第一条长消息必须仍为估算三行，不能预物化掩盖问题");
+        let (start, width) = {
+            let cache = app.session_mgr.current().messages.render_cache.read();
+            (
+                cache
+                    .virtual_layout
+                    .as_ref()
+                    .unwrap()
+                    .message_visual_offsets[1],
+                cache.width,
+            )
+        };
+        // 估算基准为八十列；宿主八十列扣除滚动条后正文为七十九列。
+        let estimated_rows = 240usize.div_ceil(usize::from(width).clamp(20, 80));
+        assert_eq!(
+            start, estimated_rows,
+            "第一条长消息必须仍为估算高度，不能预物化掩盖问题"
+        );
         app.session_mgr
             .current_mut()
             .ui
@@ -487,6 +493,7 @@ async fn test_scroll_anchor_virtual_reflow_with_welcome_uses_message_coordinates
             follow_tail: false,
             anchor: Some(anchor),
             scroll_revision: app.session_mgr.current().ui.scroll_revision,
+            trailing_rows: 0,
         })
         .await
         .expect("同步消息空间视口");
@@ -534,6 +541,7 @@ async fn test_scroll_anchor_virtual_home_before_growth_does_not_inherit_follow_t
             follow_tail: true,
             anchor: None,
             scroll_revision: 0,
+            trailing_rows: 0,
         })
         .await
         .expect("旧布局仍处于跟随模式");

@@ -82,8 +82,8 @@ impl RenderWorker {
                 anchor.prefix_visible = resolved.prefix_visible;
                 anchor.follow_tail = resolved.follow_tail;
                 self.resolved_scroll = Some(*anchor);
+                self.viewport.anchor = Some(anchor.position);
             }
-            self.viewport.anchor = Some(anchor.position);
         }
         let old = {
             let mut cache = self.task.cache.write();
@@ -167,13 +167,13 @@ impl RenderWorker {
         base_anchor: ViewportAnchor,
         prefix_rows: usize,
         base_prefix_visible: usize,
-        trailing_rows: usize,
         full_height: usize,
         steps: &[(u64, isize)],
     ) -> bool {
         if viewport.scroll_revision < self.viewport.scroll_revision {
             return false;
         }
+        let trailing_rows = viewport.trailing_rows;
         let mut runs: Vec<(u64, isize)> = Vec::new();
         for &(revision, delta) in steps
             .iter()
@@ -229,7 +229,15 @@ impl RenderWorker {
                 offset = offset.saturating_add_signed(delta).min(max_scroll);
                 prefix_visible = prefix_rows.saturating_sub(offset);
                 let body_top = offset.saturating_sub(prefix_rows);
-                position = cache.viewport_anchor_at(body_top).unwrap_or(position);
+                position = cache
+                    .viewport_anchor_at(body_top)
+                    .or_else(|| {
+                        let last = cache.total_lines.checked_sub(1)?;
+                        let mut anchor = cache.viewport_anchor_at(last)?;
+                        anchor.after_body_rows = body_top.saturating_sub(last);
+                        Some(anchor)
+                    })
+                    .unwrap_or(position);
                 let resolved = ScrollAnchor {
                     position,
                     visual_row: body_top,
@@ -240,6 +248,7 @@ impl RenderWorker {
                 self.viewport = Viewport {
                     top: body_top,
                     height: full_height.saturating_sub(prefix_visible).max(1),
+                    trailing_rows,
                     follow_tail: resolved.follow_tail,
                     anchor: Some(position),
                     scroll_revision: revision,
@@ -261,7 +270,6 @@ impl RenderWorker {
             .expect("已有虚拟窗口必须有布局模式");
         let tick = current_tool_indicator_tick();
         let full_height = full_height.max(1);
-        self.layout.set_trailing_rows(trailing_rows);
         for (revision, delta) in runs {
             let mut distance = delta.unsigned_abs();
             if delta < 0 && prefix_visible > 0 {
@@ -291,6 +299,7 @@ impl RenderWorker {
             let mut target = Viewport {
                 top: 0,
                 height: full_height.saturating_sub(prefix_visible).max(1),
+                trailing_rows,
                 follow_tail: false,
                 anchor: Some(position),
                 scroll_revision: revision,
@@ -427,7 +436,6 @@ impl RenderWorker {
                     base_anchor,
                     prefix_rows,
                     base_prefix_visible,
-                    trailing_rows,
                     full_height,
                     steps,
                     event: inner,
@@ -438,7 +446,6 @@ impl RenderWorker {
                             base_anchor,
                             prefix_rows,
                             base_prefix_visible,
-                            trailing_rows,
                             full_height,
                             &steps,
                         )
@@ -493,6 +500,7 @@ impl RenderWorker {
                         follow_tail: false,
                         anchor: None,
                         scroll_revision: self.viewport.scroll_revision,
+                        trailing_rows: viewport.trailing_rows,
                     };
                 }
                 self.resize(request.width).await;
@@ -548,6 +556,7 @@ impl RenderWorker {
             RenderEvent::Viewport {
                 top,
                 height,
+                trailing_rows,
                 follow_tail,
                 anchor,
                 scroll_revision,
@@ -558,6 +567,7 @@ impl RenderWorker {
                 self.viewport = self.resolve_viewport_scroll(Viewport {
                     top,
                     height,
+                    trailing_rows,
                     follow_tail,
                     anchor,
                     scroll_revision,

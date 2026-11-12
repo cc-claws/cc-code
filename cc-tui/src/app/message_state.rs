@@ -67,7 +67,7 @@ pub enum QueuedMessageAction {
 
 pub(crate) type SteeringResult = (uuid::Uuid, Result<(), String>);
 
-pub type RenderViewportRequest = (usize, usize, bool, u16, Option<ViewportAnchor>, u64);
+pub type RenderViewportRequest = (usize, usize, bool, u16, Option<ViewportAnchor>, u64, usize);
 
 /// 消息状态：会话级的消息管线、渲染通道、消息列表。
 pub struct MessageState {

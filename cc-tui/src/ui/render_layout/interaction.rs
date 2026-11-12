@@ -5,6 +5,14 @@ use crate::ui::render_thread::{RenderCache, ViewportAnchor};
 impl RenderCache {
     /// 只从已物化行提取锚点；估算区域没有可用的精确行内坐标。
     pub fn viewport_anchor_at(&self, top: usize) -> Option<ViewportAnchor> {
+        if self.virtual_layout.as_ref().is_some_and(|layout| {
+            top >= self.total_lines && top < self.total_lines.saturating_add(layout.trailing_rows)
+        }) {
+            let last = self.total_lines.checked_sub(1)?;
+            let mut anchor = self.viewport_anchor_at(last)?;
+            anchor.after_body_rows = top - last;
+            return Some(anchor);
+        }
         let index = self
             .wrap_map
             .partition_point(|line| line.visual_row_end <= top);
@@ -21,6 +29,7 @@ impl RenderCache {
             message_index,
             logical_line,
             row_in_line: top - line.visual_row_start,
+            after_body_rows: 0,
             relative_rows: 0,
         })
     }
@@ -68,6 +77,7 @@ impl RenderCache {
                             .saturating_sub(line.visual_row_start + 1),
                     ),
                 )
+                .saturating_add(anchor.after_body_rows)
                 .saturating_add_signed(anchor.relative_rows),
         )
     }

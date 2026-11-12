@@ -196,6 +196,7 @@ async fn test_width_recovery_real_virtual_worker_remeasures_full_window_and_rest
         logical_line: 0,
         row_in_line: 0,
         relative_rows: 0,
+        after_body_rows: 0,
     });
     let requested_top = 4096;
     let sender = app.session_mgr.current().messages.render_tx.clone();
@@ -212,6 +213,7 @@ async fn test_width_recovery_real_virtual_worker_remeasures_full_window_and_rest
             height: 1,
             follow_tail: false,
             anchor: tail_anchor,
+            trailing_rows: 0,
         })
         .await
         .expect("初始尾部锚点应入队");
@@ -249,6 +251,7 @@ async fn test_width_recovery_real_virtual_worker_remeasures_full_window_and_rest
             height: request.available_rows,
             follow_tail: false,
             anchor: None,
+            trailing_rows: 0,
         })
         .await
         .expect("头部实测视口应入队");
@@ -275,6 +278,7 @@ async fn test_width_recovery_real_virtual_worker_remeasures_full_window_and_rest
             height: 1,
             follow_tail: false,
             anchor: tail_anchor,
+            trailing_rows: 0,
         })
         .await
         .expect("恢复原尾部锚点应入队");
@@ -319,6 +323,7 @@ async fn test_width_recovery_real_virtual_worker_remeasures_full_window_and_rest
                 height: 1,
                 follow_tail: false,
                 anchor: tail_anchor,
+                trailing_rows: 0,
             })
             .await
             .expect("恢复后的稳定视口应入队");

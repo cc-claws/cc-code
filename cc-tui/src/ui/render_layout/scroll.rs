@@ -14,6 +14,7 @@ fn anchor_at_row(index: usize, payload: &SegmentPayload, row: usize) -> Viewport
             .get(line)
             .map_or(0, |line| row.saturating_sub(line.visual_row_start)),
         relative_rows: 0,
+        after_body_rows: 0,
     }
 }
 
@@ -52,6 +53,17 @@ impl VirtualRenderer {
         let mut remaining = anchor.relative_rows.unsigned_abs();
         let mut overflow = 0;
         if anchor.relative_rows < 0 {
+            let used = remaining.min(anchor.after_body_rows);
+            remaining -= used;
+            if used < anchor.after_body_rows {
+                return (
+                    ViewportAnchor {
+                        after_body_rows: anchor.after_body_rows - used,
+                        ..anchor_at_row(index, &payload, row)
+                    },
+                    0,
+                );
+            }
             while remaining > row && index > 0 {
                 remaining -= row;
                 index -= 1;
@@ -61,15 +73,39 @@ impl VirtualRenderer {
             overflow = remaining.saturating_sub(row);
             row = row.saturating_sub(remaining);
         } else {
+            remaining = remaining.saturating_add(anchor.after_body_rows);
+            let mut last_body = (payload.total > 0).then(|| (index, Arc::clone(&payload)));
             while remaining >= payload.total.saturating_sub(row) && index + 1 < messages.len() {
                 remaining -= payload.total.saturating_sub(row);
                 index += 1;
                 payload = self.payload(index, messages, tick);
+                if payload.total > 0 {
+                    last_body = Some((index, Arc::clone(&payload)));
+                }
                 row = 0;
             }
-            row = row
-                .saturating_add(remaining)
-                .min(payload.total.saturating_sub(1));
+            // 越过正文后仍保留正向距离，不能把尾部位置钳回最后一条消息。
+            if payload.total == 0 {
+                if let Some((last_index, last_payload)) = last_body {
+                    return (
+                        ViewportAnchor {
+                            after_body_rows: remaining.saturating_add(1),
+                            ..anchor_at_row(last_index, &last_payload, last_payload.total - 1)
+                        },
+                        0,
+                    );
+                }
+            } else {
+                let target = row.saturating_add(remaining);
+                let last = payload.total - 1;
+                return (
+                    ViewportAnchor {
+                        after_body_rows: target.saturating_sub(last),
+                        ..anchor_at_row(index, &payload, target.min(last))
+                    },
+                    0,
+                );
+            }
         }
         (anchor_at_row(index, &payload, row), overflow)
     }

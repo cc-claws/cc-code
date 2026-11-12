@@ -35,6 +35,7 @@ fn test_viewport_anchor_preserves_offset_inside_wrapped_line() {
             logical_line: 4,
             row_in_line: 2,
             relative_rows: 0,
+            after_body_rows: 0,
         }),
         "锚点应保存消息原始逻辑行及折行内偏移"
     );

@@ -439,7 +439,9 @@ async fn test_virtual_lru_budget_and_copy_after_actual_eviction() {
                         logical_line: 0,
                         row_in_line: 0,
                         relative_rows: 0,
+                        after_body_rows: 0,
                     }),
+                    trailing_rows: 0,
                 },
                 0,
             )

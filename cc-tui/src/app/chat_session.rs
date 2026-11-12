@@ -166,6 +166,7 @@ impl ChatSession {
         let viewport = RenderViewport {
             top: offset.saturating_sub(prefix),
             height: area.height as usize - prefix_visible,
+            trailing_rows: self.ui.message_suffix_rows,
             follow_tail: self.ui.scroll_follow,
             anchor,
             scroll_revision: self.ui.scroll_revision,
@@ -198,7 +199,6 @@ impl ChatSession {
                         base_anchor: *base_anchor,
                         prefix_rows: self.ui.message_prefix_rows,
                         base_prefix_visible: *base_prefix_visible,
-                        trailing_rows: self.ui.message_suffix_rows,
                         full_height: self
                             .ui
                             .messages_area

@@ -330,10 +330,12 @@ pub(crate) fn render_messages(
             text_area.width,
             anchor,
             session.ui.scroll_revision,
+            session.ui.message_suffix_rows,
         );
         let viewport = crate::ui::render_thread::RenderViewport {
             top: top_msg,
             height: body_height,
+            trailing_rows: session.ui.message_suffix_rows,
             follow_tail: session.ui.scroll_follow,
             anchor,
             scroll_revision: session.ui.scroll_revision,
@@ -343,6 +345,7 @@ pub(crate) fn render_messages(
             RenderEvent::Viewport {
                 top: top_msg,
                 height: body_height,
+                trailing_rows: session.ui.message_suffix_rows,
                 follow_tail: session.ui.scroll_follow,
                 anchor,
                 scroll_revision: session.ui.scroll_revision,
