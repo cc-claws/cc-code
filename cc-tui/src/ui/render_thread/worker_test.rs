@@ -330,6 +330,7 @@ async fn test_worker_strategy_round_trip_releases_old_virtual_residents() {
             message_index: 10,
             logical_line: 0,
             row_in_line: 0,
+            relative_rows: 0,
         }),
     })
     .await

@@ -21,7 +21,25 @@ impl RenderCache {
             message_index,
             logical_line,
             row_in_line: top - line.visual_row_start,
+            relative_rows: 0,
         })
+    }
+
+    /// 相对滚动越过窗口边界时，保留真实边界及位移，不把估算坐标当作内容行。
+    pub fn viewport_anchor_for_scroll(&self, top: usize, relative: bool) -> Option<ViewportAnchor> {
+        if let Some(anchor) = self.viewport_anchor_at(top) {
+            return Some(anchor);
+        }
+        if !relative || self.virtual_layout.is_none() {
+            return None;
+        }
+        let first = self.wrap_map.first()?.visual_row_start;
+        let last = self.wrap_map.last()?.visual_row_end.checked_sub(1)?;
+        let boundary = top.clamp(first, last);
+        let mut anchor = self.viewport_anchor_at(boundary)?;
+        let distance = isize::try_from(top.abs_diff(boundary)).ok()?;
+        anchor.relative_rows = if top < boundary { -distance } else { distance };
+        Some(anchor)
     }
 
     /// 在经典缓存的新布局中恢复消息内的位置；折叠或裁剪后钳到同一消息的可见行。
@@ -43,12 +61,14 @@ impl RenderCache {
         };
         let line = self.wrap_map.get(index)?;
         Some(
-            line.visual_row_start.saturating_add(
-                anchor.row_in_line.min(
-                    line.visual_row_end
-                        .saturating_sub(line.visual_row_start + 1),
-                ),
-            ),
+            line.visual_row_start
+                .saturating_add(
+                    anchor.row_in_line.min(
+                        line.visual_row_end
+                            .saturating_sub(line.visual_row_start + 1),
+                    ),
+                )
+                .saturating_add_signed(anchor.relative_rows),
         )
     }
 

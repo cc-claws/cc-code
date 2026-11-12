@@ -103,17 +103,39 @@ async fn test_scroll_anchor_wheel_crosses_unmeasured_long_message_from_its_end()
     make_draw(&mut app, &mut handle);
     make_render_barrier(&sender).await;
     make_draw(&mut app, &mut handle);
-    let ui = &app.session_mgr.current().ui;
-    let cache = app.session_mgr.current().messages.render_cache.read();
-    let anchor = cache
-        .viewport_anchor_at(ui.scroll_offset)
-        .expect("上滚后应有真实内容锚点");
-    assert_eq!(anchor.message_index, 298, "应进入上一条长消息");
-    assert_eq!(
-        anchor.logical_line, 98,
-        "上滚三行应落在上一条消息末尾，不能跳到开头并漏过 98 行"
+    let resolved_offset = app.session_mgr.current().ui.scroll_offset;
+    {
+        let cache = app.session_mgr.current().messages.render_cache.read();
+        let anchor = cache
+            .viewport_anchor_at(resolved_offset)
+            .expect("上滚后应有真实内容锚点");
+        assert_eq!(anchor.message_index, 298, "应进入上一条长消息");
+        assert_eq!(
+            anchor.logical_line, 98,
+            "上滚三行应落在上一条消息末尾，不能跳到开头并漏过 98 行"
+        );
+        assert_eq!(anchor.relative_rows, 0, "成品只能发布精确锚点");
+    }
+    assert!(
+        !app.session_mgr.current().ui.scroll_follow,
+        "上滚后应保持阅读历史"
     );
-    assert!(!ui.scroll_follow, "上滚后应保持阅读历史");
+    make_render_barrier(&sender).await;
+    make_draw(&mut app, &mut handle);
+    assert_eq!(
+        app.session_mgr.current().ui.scroll_offset,
+        resolved_offset,
+        "后续同宽控制事件不能重复应用相对滚动量"
+    );
+    app.scroll_to_top();
+    make_draw(&mut app, &mut handle);
+    make_render_barrier(&sender).await;
+    make_draw(&mut app, &mut handle);
+    assert_eq!(
+        app.session_mgr.current().ui.scroll_offset,
+        0,
+        "Home 必须仍能绝对定位到顶部"
+    );
 }
 
 #[tokio::test]
@@ -135,6 +157,83 @@ async fn test_scroll_anchor_rebuild_preserves_position_inside_long_history() {
         !app.session_mgr.current().ui.scroll_follow,
         "阅读历史不能恢复跟底"
     );
+}
+
+#[tokio::test]
+async fn test_scroll_anchor_burst_preserves_steps_past_estimated_top() {
+    use crate::ui::message_view::{ToolCategory, ToolEntry};
+    for (reverse, expected_line) in [(false, 95), (true, 98)] {
+        let (mut app, mut handle) = App::new_headless(80, 30).await;
+        app.global_ui.viewport.startup_welcome = false;
+        app.global_ui.viewport.fullscreen_latched = true;
+        let mut messages = vec![
+            MessageViewModel::user("a".repeat(7_700)),
+            MessageViewModel::user("b".repeat(4_004)),
+        ];
+        messages.extend((0..298).map(|_| {
+            let mut message = MessageViewModel::ToolCallGroup {
+                thinking: None,
+                category: ToolCategory::Read,
+                tools: vec![ToolEntry {
+                    tool_name: "Read".into(),
+                    display_name: "Read".into(),
+                    args_display: None,
+                    content: "success".into(),
+                    is_error: false,
+                    file_inspect: false,
+                }],
+                collapsed: true,
+                content_hash: 0,
+                standalone_action: None,
+            };
+            message.recompute_hash();
+            message
+        }));
+        app.session_mgr.current_mut().messages.view_messages = messages;
+        app.render_rebuild();
+        let sender = app.session_mgr.current().messages.render_tx.clone();
+        make_render_barrier(&sender).await;
+        make_draw(&mut app, &mut handle);
+        let start = app
+            .session_mgr
+            .current()
+            .messages
+            .render_cache
+            .read()
+            .virtual_layout
+            .as_ref()
+            .unwrap()
+            .message_visual_offsets[1];
+        assert_eq!(start, 3, "第一条长消息必须仍为估算三行，不能预物化掩盖问题");
+        app.session_mgr
+            .current_mut()
+            .ui
+            .set_scroll_position(start, false);
+        make_draw(&mut app, &mut handle);
+        make_render_barrier(&sender).await;
+        make_draw(&mut app, &mut handle);
+        // 同批事件之间不重绘，不能在估算顶部丢掉第二次上滚。
+        app.scroll_up();
+        app.scroll_up();
+        if reverse {
+            app.scroll_down();
+        }
+        make_draw(&mut app, &mut handle);
+        make_render_barrier(&sender).await;
+        make_draw(&mut app, &mut handle);
+        let session = app.session_mgr.current();
+        let cache = session.messages.render_cache.read();
+        let anchor = cache.viewport_anchor_at(session.ui.scroll_offset).unwrap();
+        assert_eq!(
+            (anchor.message_index, anchor.logical_line),
+            (0, expected_line)
+        );
+        assert!(
+            session.ui.pending_relative_scroll.is_none(),
+            "匹配版本的结果应确认全部步骤"
+        );
+        assert!(!session.ui.scroll_follow);
+    }
 }
 
 #[tokio::test]
@@ -242,6 +341,8 @@ async fn test_scroll_anchor_manual_round_trip_rejects_old_revision_at_same_offse
         position,
         visual_row: 220,
         scroll_revision: revision,
+        follow_tail: false,
+        prefix_visible: 0,
     });
     make_draw(&mut app, &mut handle);
     assert_eq!(
@@ -776,6 +877,8 @@ async fn test_scroll_anchor_view_switch_cannot_relabel_old_child_cache_with_pare
         position: child_position,
         visual_row: 150,
         scroll_revision: revision,
+        follow_tail: false,
+        prefix_visible: 0,
     });
     make_draw(&mut app, &mut handle);
     assert!(

@@ -28,6 +28,8 @@ pub struct UiStateCore {
     pub scroll_follow: bool,
     /// 用户滚动/切换视口的版本，异步布局只能恢复同一版本的位置。
     pub scroll_revision: u64,
+    /// 本次定位来自相对滚动；Home、滚动条和视口恢复使用绝对坐标。
+    pub scroll_relative: bool,
     pub show_tool_messages: bool,
     pub hint_cursor: Option<usize>,
     /// Esc 关掉候选浮层时记下当时的输入文本，文本不变就不再弹。
@@ -99,6 +101,7 @@ impl UiStateCore {
             presented_scroll_offset: 0,
             scroll_follow: true,
             scroll_revision: 0,
+            scroll_relative: false,
             show_tool_messages: false,
             hint_cursor: None,
             hint_dismissed_for: None,
@@ -158,7 +161,13 @@ impl UiStateCore {
     pub fn set_scroll_position(&mut self, offset: usize, follow: bool) {
         self.scroll_offset = offset;
         self.scroll_follow = follow;
+        self.scroll_relative = false;
         self.scroll_revision = self.scroll_revision.wrapping_add(1);
+    }
+
+    pub fn set_relative_scroll_position(&mut self, offset: usize, follow: bool) {
+        self.set_scroll_position(offset, follow);
+        self.scroll_relative = true;
     }
 
     /// 推进光标闪烁状态；返回 true 表示可见性发生切换，调用方应触发重绘。

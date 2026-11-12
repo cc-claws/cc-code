@@ -22,6 +22,8 @@ pub(super) struct RenderWorker {
     latched: bool,
     virtual_active: bool,
     sources: Vec<Arc<MessageViewModel>>,
+    resolved_scroll: Option<ScrollAnchor>,
+    consumed_scroll_revision: u64,
 }
 impl RenderWorker {
     pub fn new(task: RenderTask) -> Self {
@@ -34,6 +36,8 @@ impl RenderWorker {
             latched: false,
             virtual_active: false,
             sources: Vec::new(),
+            resolved_scroll: None,
+            consumed_scroll_revision: 0,
         }
     }
     fn should_virtualize(&self) -> bool {
@@ -70,6 +74,17 @@ impl RenderWorker {
             tracing::error!("virtual renderer panicked; retaining the last published frame");
             return;
         };
+        if let Some(anchor) = &mut next.scroll_anchor {
+            if let Some(resolved) = self
+                .resolved_scroll
+                .filter(|resolved| resolved.scroll_revision == self.viewport.scroll_revision)
+            {
+                anchor.prefix_visible = resolved.prefix_visible;
+                anchor.follow_tail = resolved.follow_tail;
+                self.resolved_scroll = Some(*anchor);
+            }
+            self.viewport.anchor = Some(anchor.position);
+        }
         let old = {
             let mut cache = self.task.cache.write();
             next.version = cache.version.wrapping_add(1);
@@ -96,23 +111,255 @@ impl RenderWorker {
             .map(|anchor| (anchor, self.viewport.scroll_revision))
     }
 
+    fn resolve_viewport_scroll(&mut self, mut viewport: Viewport) -> Viewport {
+        if let Some(resolved) = self
+            .resolved_scroll
+            .filter(|resolved| resolved.scroll_revision == viewport.scroll_revision)
+        {
+            viewport.anchor = Some(resolved.position);
+            viewport.top = resolved.visual_row;
+            viewport.follow_tail = resolved.follow_tail;
+            return viewport;
+        }
+        if let Some(anchor) = viewport.anchor {
+            viewport.anchor = Some(self.resolve_scroll_anchor(anchor, viewport.scroll_revision));
+        }
+        if viewport.scroll_revision > self.consumed_scroll_revision {
+            // 没有步骤包装的新版本来自绝对定位，切断此前尚未确认的相对步骤。
+            self.consumed_scroll_revision = viewport.scroll_revision;
+            if self
+                .resolved_scroll
+                .is_none_or(|resolved| resolved.scroll_revision != viewport.scroll_revision)
+            {
+                self.resolved_scroll = None;
+            }
+        }
+        viewport
+    }
+
+    fn resolve_scroll_anchor(&mut self, anchor: ViewportAnchor, revision: u64) -> ViewportAnchor {
+        if let Some(resolved) = self
+            .resolved_scroll
+            .filter(|resolved| resolved.scroll_revision == revision)
+        {
+            return resolved.position;
+        }
+        if anchor.relative_rows == 0 || !self.virtual_active || self.sources.is_empty() {
+            return anchor;
+        }
+        let position = self.layout.resolve_relative_anchor(
+            &mut self.sources,
+            anchor,
+            current_tool_indicator_tick(),
+        );
+        self.resolved_scroll = Some(ScrollAnchor {
+            position,
+            scroll_revision: revision,
+            ..Default::default()
+        });
+        position
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn apply_relative_scroll(
+        &mut self,
+        viewport: Viewport,
+        base_anchor: ViewportAnchor,
+        prefix_rows: usize,
+        base_prefix_visible: usize,
+        trailing_rows: usize,
+        full_height: usize,
+        steps: &[(u64, isize)],
+    ) -> bool {
+        if viewport.scroll_revision < self.viewport.scroll_revision {
+            return false;
+        }
+        let mut runs: Vec<(u64, isize)> = Vec::new();
+        for &(revision, delta) in steps
+            .iter()
+            .filter(|(revision, _)| *revision > self.consumed_scroll_revision)
+        {
+            if let Some((last_revision, last_delta)) = runs
+                .last_mut()
+                .filter(|(_, last)| last.signum() == delta.signum())
+            {
+                *last_revision = revision;
+                *last_delta = last_delta.saturating_add(delta);
+            } else {
+                runs.push((revision, delta));
+            }
+        }
+        if runs.is_empty() {
+            let mut viewport = viewport;
+            if let Some(resolved) = self
+                .resolved_scroll
+                .filter(|resolved| resolved.scroll_revision == viewport.scroll_revision)
+            {
+                viewport.height = full_height.saturating_sub(resolved.prefix_visible).max(1);
+            }
+            self.viewport = self.resolve_viewport_scroll(viewport);
+            return self
+                .resolved_scroll
+                .is_some_and(|resolved| resolved.scroll_revision == viewport.scroll_revision);
+        }
+        let continuing = steps.first().is_some_and(|(revision, _)| {
+            self.consumed_scroll_revision >= revision.saturating_sub(1)
+        });
+        let previous = self.resolved_scroll.filter(|_| continuing);
+        let mut position = previous.map_or(base_anchor, |resolved| resolved.position);
+        let mut prefix_visible = previous
+            .map_or(base_prefix_visible, |resolved| resolved.prefix_visible)
+            .min(prefix_rows);
+        if !self.virtual_active {
+            let mut cache = self.task.cache.write();
+            let Some(body_top) = cache.visual_row_for_anchor(position) else {
+                return false;
+            };
+            let max_scroll = prefix_rows
+                .saturating_add(cache.total_lines)
+                .saturating_add(trailing_rows)
+                .saturating_sub(full_height);
+            let mut offset = if prefix_visible > 0 {
+                prefix_rows - prefix_visible
+            } else {
+                prefix_rows.saturating_add(body_top)
+            }
+            .min(max_scroll);
+            for (revision, delta) in runs {
+                offset = offset.saturating_add_signed(delta).min(max_scroll);
+                prefix_visible = prefix_rows.saturating_sub(offset);
+                let body_top = offset.saturating_sub(prefix_rows);
+                position = cache.viewport_anchor_at(body_top).unwrap_or(position);
+                let resolved = ScrollAnchor {
+                    position,
+                    visual_row: body_top,
+                    scroll_revision: revision,
+                    follow_tail: delta > 0 && offset >= max_scroll,
+                    prefix_visible,
+                };
+                self.viewport = Viewport {
+                    top: body_top,
+                    height: full_height.saturating_sub(prefix_visible).max(1),
+                    follow_tail: resolved.follow_tail,
+                    anchor: Some(position),
+                    scroll_revision: revision,
+                };
+                self.resolved_scroll = Some(resolved);
+                self.consumed_scroll_revision = revision;
+                cache.scroll_anchor = Some(resolved);
+            }
+            cache.version = cache.version.wrapping_add(1);
+            self.task.notify.notify_one();
+            return true;
+        }
+        if self.sources.is_empty() {
+            return false;
+        }
+        let mode = self
+            .layout
+            .current_mode()
+            .expect("已有虚拟窗口必须有布局模式");
+        let tick = current_tool_indicator_tick();
+        let full_height = full_height.max(1);
+        self.layout.set_trailing_rows(trailing_rows);
+        for (revision, delta) in runs {
+            let mut distance = delta.unsigned_abs();
+            if delta < 0 && prefix_visible > 0 {
+                prefix_visible = prefix_visible.saturating_add(distance).min(prefix_rows);
+            } else {
+                if delta > 0 {
+                    let used = distance.min(prefix_visible);
+                    prefix_visible -= used;
+                    distance -= used;
+                }
+                if distance > 0 {
+                    let signed = isize::try_from(distance).unwrap_or(isize::MAX) * delta.signum();
+                    let (next, overflow) = self.layout.resolve_relative_anchor_with_overflow(
+                        &mut self.sources,
+                        ViewportAnchor {
+                            relative_rows: signed,
+                            ..position
+                        },
+                        tick,
+                    );
+                    position = next;
+                    if delta < 0 {
+                        prefix_visible = overflow.min(prefix_rows);
+                    }
+                }
+            }
+            let mut target = Viewport {
+                top: 0,
+                height: full_height.saturating_sub(prefix_visible).max(1),
+                follow_tail: false,
+                anchor: Some(position),
+                scroll_revision: revision,
+            };
+            let mut measured = self
+                .layout
+                .render(&mut self.sources, mode, target, tick)
+                .await;
+            // 内容不足一屏时，向下滚也不能把欢迎卡从实际 max_scroll 之外藏掉。
+            let visible_floor = full_height
+                .saturating_sub(measured.total_lines.saturating_add(trailing_rows))
+                .min(prefix_rows);
+            if prefix_visible < visible_floor {
+                prefix_visible = visible_floor;
+                target.height = full_height.saturating_sub(prefix_visible).max(1);
+                measured = self
+                    .layout
+                    .render(&mut self.sources, mode, target, tick)
+                    .await;
+            }
+            if let Some(resolved) = measured.scroll_anchor {
+                position = resolved.position;
+                target.top = resolved.visual_row;
+            }
+            let max_scroll = prefix_rows
+                .saturating_add(measured.total_lines)
+                .saturating_add(trailing_rows)
+                .saturating_sub(full_height);
+            let offset = if prefix_visible > 0 {
+                prefix_rows - prefix_visible
+            } else {
+                prefix_rows.saturating_add(target.top)
+            };
+            target.anchor = Some(position);
+            target.follow_tail = delta > 0 && offset >= max_scroll;
+            self.viewport = target;
+            self.consumed_scroll_revision = revision;
+            self.resolved_scroll = Some(ScrollAnchor {
+                position,
+                visual_row: target.top,
+                scroll_revision: revision,
+                follow_tail: target.follow_tail,
+                prefix_visible,
+            });
+        }
+        true
+    }
+
     async fn rebuild_with_scroll_anchor(
         &mut self,
         messages: Vec<MessageViewModel>,
         scroll_anchor: Option<(ViewportAnchor, u64)>,
     ) {
-        let scroll_anchor =
-            scroll_anchor.filter(|(_, revision)| *revision >= self.viewport.scroll_revision);
+        let scroll_anchor = scroll_anchor
+            .filter(|(_, revision)| *revision >= self.viewport.scroll_revision)
+            .map(|(anchor, revision)| (self.resolve_scroll_anchor(anchor, revision), revision));
         let replaced = self.layout.sync_messages(&messages);
         if replaced {
             self.latched = false;
             self.viewport.anchor = None;
+            self.resolved_scroll = None;
         }
         if let Some((anchor, scroll_revision)) = scroll_anchor {
             if scroll_revision >= self.viewport.scroll_revision {
                 self.viewport.anchor = Some(anchor);
                 self.viewport.scroll_revision = scroll_revision;
-                self.viewport.follow_tail = false;
+                self.viewport.follow_tail = self.resolved_scroll.is_some_and(|resolved| {
+                    resolved.scroll_revision == scroll_revision && resolved.follow_tail
+                });
             }
         }
         if self.strategy == Strategy::Auto
@@ -154,6 +401,7 @@ impl RenderWorker {
     }
     async fn handle(&mut self, event: RenderEvent, rx: &mut mpsc::Receiver<RenderEvent>) {
         let mut event = event;
+        let mut relative_revision = None;
         let event = loop {
             match event {
                 RenderEvent::WithDisplay {
@@ -167,15 +415,59 @@ impl RenderWorker {
                     viewport,
                     event: inner,
                 } => {
-                    if viewport.scroll_revision >= self.viewport.scroll_revision {
-                        self.viewport = viewport;
+                    if relative_revision != Some(viewport.scroll_revision)
+                        && viewport.scroll_revision >= self.viewport.scroll_revision
+                    {
+                        self.viewport = self.resolve_viewport_scroll(viewport);
+                    }
+                    event = *inner;
+                }
+                RenderEvent::WithRelativeScroll {
+                    viewport,
+                    base_anchor,
+                    prefix_rows,
+                    base_prefix_visible,
+                    trailing_rows,
+                    full_height,
+                    steps,
+                    event: inner,
+                } => {
+                    let applied = self
+                        .apply_relative_scroll(
+                            viewport,
+                            base_anchor,
+                            prefix_rows,
+                            base_prefix_visible,
+                            trailing_rows,
+                            full_height,
+                            &steps,
+                        )
+                        .await;
+                    if applied {
+                        relative_revision = Some(viewport.scroll_revision);
                     }
                     event = *inner;
                 }
                 event => break event,
             }
         };
-        self.handle_payload(event, rx).await;
+        if !matches!(&event, RenderEvent::Viewport { scroll_revision, .. } if relative_revision == Some(*scroll_revision))
+        {
+            self.handle_payload(event, rx).await;
+        }
+        if !self.virtual_active {
+            if let Some(mut resolved) = self
+                .resolved_scroll
+                .filter(|resolved| resolved.scroll_revision == self.viewport.scroll_revision)
+            {
+                let mut cache = self.task.cache.write();
+                if let Some(row) = cache.visual_row_for_anchor(resolved.position) {
+                    resolved.visual_row = row;
+                    self.resolved_scroll = Some(resolved);
+                    cache.scroll_anchor = Some(resolved);
+                }
+            }
+        }
         // 上下文已接收不代表窗口已发布；同值模式事件也必须兑现新的视口。
         self.publish_viewport_if_needed().await;
     }
@@ -263,13 +555,13 @@ impl RenderWorker {
                 if scroll_revision < self.viewport.scroll_revision {
                     return;
                 }
-                self.viewport = Viewport {
+                self.viewport = self.resolve_viewport_scroll(Viewport {
                     top,
                     height,
                     follow_tail,
                     anchor,
                     scroll_revision,
-                };
+                });
             }
             RenderEvent::CopySelection { start, end, reply } => {
                 if self.virtual_active {
@@ -290,10 +582,12 @@ impl RenderWorker {
             }
             RenderEvent::Clear => {
                 self.layout.clear();
+                self.resolved_scroll = None;
                 self.sources = Vec::new();
                 self.latched = false;
                 self.virtual_active = false;
                 self.published_viewport = None;
+                self.consumed_scroll_revision = self.viewport.scroll_revision;
                 self.viewport = Viewport {
                     scroll_revision: self.viewport.scroll_revision,
                     ..Viewport::default()
@@ -418,3 +712,7 @@ impl RenderWorker {
 #[cfg(test)]
 #[path = "worker_test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "relative_scroll_test.rs"]
+mod relative_scroll_tests;

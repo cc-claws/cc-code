@@ -47,6 +47,8 @@ fn make_published_cache() -> RenderCache {
             position: ViewportAnchor::default(),
             visual_row: 7,
             scroll_revision: 5,
+            follow_tail: false,
+            prefix_visible: 0,
         }),
     }
 }
@@ -83,6 +85,8 @@ fn test_cache_publish_rebuild_preserves_pending_anchor_and_replaces_all_products
                 position: ViewportAnchor::default(),
                 visual_row,
                 scroll_revision: 5,
+                follow_tail: false,
+                prefix_visible: 0,
             }),
         "未消费的滚动锚点必须按新布局恢复，且保留用户滚动版本"
     );

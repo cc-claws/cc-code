@@ -7,6 +7,7 @@ use super::at_mention::AtMentionState;
 use crate::app::text_selection::{
     PanelTextSelection, PresentedSelectionSnapshot, ScreenSelection, ScreenSnapshot, TextSelection,
 };
+use crate::ui::render_thread::ViewportAnchor;
 
 pub use cc_tui_core::ui_state::{PastedTextBlock, SteerForegroundGrace, UiStateCore};
 
@@ -25,6 +26,10 @@ pub struct MessageScrollbarMetrics {
 /// 访问零改动；表现层专属字段（TextArea、Rect 命中几何、Buffer 快照）留在本结构。
 pub struct UiState {
     pub core: UiStateCore,
+    /// 未被渲染结果确认的原始滚轮步骤；不能在估算坐标顶部提前丢弃。
+    pub pending_relative_scroll: Option<(ViewportAnchor, usize, Vec<(u64, isize)>)>,
+    /// 消息之后的 spinner 等尾部占位，供相对滚动计算真实视口底边。
+    pub message_suffix_rows: usize,
     pub textarea: TextArea<'static>,
     pub text_selection: TextSelection,
     pub presented_selection_snapshot: Option<PresentedSelectionSnapshot>,
@@ -66,6 +71,11 @@ impl DerefMut for UiState {
 }
 
 impl UiState {
+    pub fn set_scroll_position(&mut self, offset: usize, follow: bool) {
+        self.pending_relative_scroll = None;
+        self.core.set_scroll_position(offset, follow);
+    }
+
     pub fn new(
         textarea: TextArea<'static>,
         cwd: &str,
@@ -82,6 +92,8 @@ impl UiState {
                 hook_rows_visible,
             ),
             textarea,
+            pending_relative_scroll: None,
+            message_suffix_rows: 0,
             text_selection: TextSelection::new(),
             presented_selection_snapshot: None,
             screen_selection: ScreenSelection::default(),

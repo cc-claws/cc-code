@@ -73,6 +73,9 @@ pub struct ScrollAnchor {
     pub visual_row: usize,
     /// 捕获位置时的用户滚动版本；重排不能覆盖后续的键鼠操作。
     pub scroll_revision: u64,
+    pub follow_tail: bool,
+    /// 当前仍显示在消息之前的欢迎卡行数。
+    pub prefix_visible: usize,
 }
 
 /// 渲染缓存，由渲染线程写入、UI 线程读取
@@ -152,6 +155,16 @@ pub enum RenderEvent {
         viewport: RenderViewport,
         event: Box<RenderEvent>,
     },
+    WithRelativeScroll {
+        viewport: RenderViewport,
+        base_anchor: ViewportAnchor,
+        prefix_rows: usize,
+        base_prefix_visible: usize,
+        trailing_rows: usize,
+        full_height: usize,
+        steps: Arc<[(u64, isize)]>,
+        event: Box<RenderEvent>,
+    },
     /// 仅影响本地渲染，不改变 Agent 或系统提示词。
     SetDetailStrategy(String),
     Viewport {
@@ -198,16 +211,18 @@ impl RenderEvent {
     #[cfg(test)]
     pub(crate) fn into_payload(self) -> Self {
         match self {
-            Self::WithViewport { event, .. } | Self::WithDisplay { event, .. } => {
-                event.into_payload()
-            }
+            Self::WithViewport { event, .. }
+            | Self::WithDisplay { event, .. }
+            | Self::WithRelativeScroll { event, .. } => event.into_payload(),
             event => event,
         }
     }
 
     pub(crate) fn payload(&self) -> &Self {
         match self {
-            Self::WithViewport { event, .. } | Self::WithDisplay { event, .. } => event.payload(),
+            Self::WithViewport { event, .. }
+            | Self::WithDisplay { event, .. }
+            | Self::WithRelativeScroll { event, .. } => event.payload(),
             event => event,
         }
     }
@@ -220,6 +235,25 @@ impl RenderEvent {
             },
             Self::WithViewport { viewport, event } => Self::WithViewport {
                 viewport: *viewport,
+                event: Box::new(event.clone_mode()?),
+            },
+            Self::WithRelativeScroll {
+                viewport,
+                base_anchor,
+                prefix_rows,
+                base_prefix_visible,
+                trailing_rows,
+                full_height,
+                steps,
+                event,
+            } => Self::WithRelativeScroll {
+                viewport: *viewport,
+                base_anchor: *base_anchor,
+                prefix_rows: *prefix_rows,
+                base_prefix_visible: *base_prefix_visible,
+                trailing_rows: *trailing_rows,
+                full_height: *full_height,
+                steps: Arc::clone(steps),
                 event: Box::new(event.clone_mode()?),
             },
             Self::SetDetailStrategy(value) => Self::SetDetailStrategy(value.clone()),
@@ -958,6 +992,8 @@ impl RenderTask {
                         position,
                         visual_row,
                         scroll_revision,
+                        follow_tail: false,
+                        prefix_visible: 0,
                     })
             });
             std::mem::replace(&mut *cache, next)
@@ -1315,6 +1351,8 @@ impl RenderTask {
                         position,
                         visual_row,
                         scroll_revision,
+                        follow_tail: false,
+                        prefix_visible: 0,
                     })
             });
             cache.version += 1;
@@ -1478,7 +1516,10 @@ impl RenderTask {
                 self.apply_display(display);
                 self.handle_event_with_scroll_anchor(*event, rx, scroll_anchor);
             }
-            RenderEvent::WithViewport { viewport, event } => {
+            RenderEvent::WithViewport { viewport, event }
+            | RenderEvent::WithRelativeScroll {
+                viewport, event, ..
+            } => {
                 let anchor = (!viewport.follow_tail)
                     .then_some(viewport.anchor)
                     .flatten()

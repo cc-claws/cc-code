@@ -252,7 +252,10 @@ impl App {
                             .filter(|anchor| anchor.scroll_revision == ui.scroll_revision)
                             .map(|anchor| anchor.position)
                             .or_else(|| {
-                                cache.viewport_anchor_at(ui.scroll_offset - ui.message_prefix_rows)
+                                cache.viewport_anchor_for_scroll(
+                                    ui.scroll_offset - ui.message_prefix_rows,
+                                    ui.scroll_relative,
+                                )
                             })
                     } else {
                         None

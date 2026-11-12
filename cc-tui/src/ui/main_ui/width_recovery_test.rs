@@ -195,6 +195,7 @@ async fn test_width_recovery_real_virtual_worker_remeasures_full_window_and_rest
         message_index: hidden_count,
         logical_line: 0,
         row_in_line: 0,
+        relative_rows: 0,
     });
     let requested_top = 4096;
     let sender = app.session_mgr.current().messages.render_tx.clone();

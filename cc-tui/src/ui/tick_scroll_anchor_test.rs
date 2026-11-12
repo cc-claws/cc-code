@@ -158,6 +158,8 @@ fn test_tick_rebuild_restores_consumed_reading_anchor_for_running_messages() {
             position,
             visual_row: before,
             scroll_revision: 7,
+            follow_tail: false,
+            prefix_visible: 0,
         });
         assert!(task.cache.write().scroll_anchor.take().is_some());
         make_elapsed(&mut task.last_messages[0]);
@@ -194,6 +196,8 @@ fn test_tick_inline_wrap_refresh_restores_reading_and_recomputes_pending_anchor(
             position,
             visual_row: before,
             scroll_revision: 11,
+            follow_tail: false,
+            prefix_visible: 0,
         });
         if consumed {
             assert!(task.cache.write().scroll_anchor.take().is_some());
@@ -248,6 +252,8 @@ fn test_tick_refresh_preserves_latest_scroll_revision_for_rebuild_and_inline_pat
                 position: pending_position,
                 visual_row: pending_row,
                 scroll_revision: pending_revision,
+                follow_tail: false,
+                prefix_visible: 0,
             });
             assert!(task.refresh_running_tool_indicators_with_scroll_anchor(
                 4,
