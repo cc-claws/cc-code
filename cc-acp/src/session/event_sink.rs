@@ -40,6 +40,8 @@ pub trait EventSink: Send + Sync {
 pub struct TransportEventSink {
     transport: std::sync::Arc<dyn AcpTransport>,
     background_registry: Option<std::sync::Arc<cc_middlewares::BackgroundTaskRegistry>>,
+    session_cwd: Option<cc_agent::session_cwd::SessionCwd>,
+    notified_cwd: tokio::sync::Mutex<String>,
 }
 
 impl TransportEventSink {
@@ -47,6 +49,8 @@ impl TransportEventSink {
         Self {
             transport,
             background_registry: None,
+            session_cwd: None,
+            notified_cwd: tokio::sync::Mutex::new(String::new()),
         }
     }
 
@@ -57,11 +61,48 @@ impl TransportEventSink {
         self.background_registry = Some(registry);
         self
     }
+
+    /// 跟随运行中的会话目录，在工具结果到达 TUI 前通知状态栏。
+    pub fn with_session_cwd(mut self, cwd: cc_agent::session_cwd::SessionCwd) -> Self {
+        self.notified_cwd = tokio::sync::Mutex::new(cc_agent::session_cwd::current(&cwd));
+        self.session_cwd = Some(cwd);
+        self
+    }
+
+    async fn notify_cwd_changed(&self, session_id: &str) {
+        let Some(cwd) = &self.session_cwd else {
+            return;
+        };
+        // 主事件泵和后台事件泵共享 sink：比较与发送一起串行化，避免重复或倒序通知。
+        let mut notified_cwd = self.notified_cwd.lock().await;
+        let current_cwd = cc_agent::session_cwd::current(cwd);
+        if *notified_cwd == current_cwd {
+            return;
+        }
+        match self
+            .transport
+            .send_notification(
+                "notifications/peri/cwd_changed",
+                json!({
+                    "sessionId": session_id,
+                    "oldCwd": *notified_cwd,
+                    "newCwd": current_cwd,
+                }),
+            )
+            .await
+        {
+            Ok(()) => *notified_cwd = current_cwd,
+            Err(error) => {
+                error!(%session_id, %error, "EventSink: cwd_changed send failed");
+            }
+        }
+    }
 }
 
 #[async_trait]
 impl EventSink for TransportEventSink {
     async fn push_event(&self, session_id: &str, event: &ExecutorEvent, context_window: u32) {
+        self.notify_cwd_changed(session_id).await;
         if let Some(mut payload) = lifecycle_payload(session_id, event) {
             enrich_lifecycle(&mut payload, self.background_registry.as_deref());
             let _ = self
@@ -115,6 +156,8 @@ impl EventSink for TransportEventSink {
     }
 
     async fn push_done(&self, session_id: &str) {
+        // 取消或错误路径可能没有 ToolEnd，结束前仍需同步已经切换的目录。
+        self.notify_cwd_changed(session_id).await;
         debug!(session_id = %session_id, "EventSink: sending agent_event_done");
         if let Err(e) = self
             .transport

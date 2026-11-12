@@ -431,6 +431,7 @@ pub async fn execute_prompt(
     let bg_sink = Arc::clone(&sink);
     let sid = session_id.clone();
     let (pump_done_tx, pump_done_rx) = oneshot::channel();
+    let (pump_stop_tx, mut pump_stop_rx) = oneshot::channel();
     let pump_cw = effective_context_window;
 
     // Langfuse per-turn tracer
@@ -452,7 +453,7 @@ pub async fn execute_prompt(
             tracer.lock().on_trace_start(&trace_input);
         }
 
-        while let Some(exec_event) = event_rx.recv().await {
+        while let Some(exec_event) = next_pump_event(&mut event_rx, &mut pump_stop_rx).await {
             // Langfuse tracing
             if let Some(ref tracer) = langfuse_tracer {
                 match &exec_event {
@@ -789,6 +790,8 @@ pub async fn execute_prompt(
         persist_runtime_snapshot(store.as_ref(), id, provider, cwd).await;
     }
     close_channel(&event_tx);
+    // 缓存工具仍可能持有 HookRuntime 的 sender；结束不应依赖所有克隆被释放。
+    let _ = pump_stop_tx.send(());
     wait_for_pump(pump_done_rx, &session_id).await;
 
     let recall_items = agent_state.drain_recall();
@@ -876,13 +879,28 @@ fn close_channel(
     *tx_guard = None;
 }
 
+/// 收到执行结束信号后拒绝迟到事件，但完整排空已入队事件，再由事件泵发送 Done。
+async fn next_pump_event(
+    event_rx: &mut tokio::sync::mpsc::UnboundedReceiver<ExecutorEvent>,
+    pump_stop_rx: &mut oneshot::Receiver<()>,
+) -> Option<ExecutorEvent> {
+    tokio::select! {
+        biased;
+        _ = pump_stop_rx, if !event_rx.is_closed() => {
+            event_rx.close();
+            event_rx.recv().await
+        }
+        event = event_rx.recv() => event,
+    }
+}
+
 async fn wait_for_pump(pump_done_rx: oneshot::Receiver<()>, session_id: &str) {
     match tokio::time::timeout(std::time::Duration::from_secs(10), pump_done_rx).await {
         Ok(Ok(())) => debug!(session_id, "Event pump done"),
         Ok(Err(_)) => error!(session_id, "Event pump done channel closed unexpectedly"),
         Err(_) => error!(
             session_id,
-            "Event pump timed out (10s) — Langfuse flush may have blocked push_done"
+            "Event pump timed out (10s) before sending completion"
         ),
     }
 }

@@ -82,6 +82,7 @@ pub(crate) async fn execute_prompt(
     // Read session data under lock, then release immediately.
     let (
         cwd,
+        session_cwd,
         previous_cwd,
         history,
         is_empty,
@@ -124,6 +125,7 @@ pub(crate) async fn execute_prompt(
         }
         (
             current_cwd,
+            Arc::clone(&state.session_cwd),
             previous_cwd,
             state.history.clone(),
             state.history.is_empty(),
@@ -156,6 +158,7 @@ pub(crate) async fn execute_prompt(
     );
     let event_sink = Arc::new(
         TransportEventSink::new(Arc::clone(transport))
+            .with_session_cwd(session_cwd)
             .with_background_registry(Arc::clone(&background_registry)),
     );
 

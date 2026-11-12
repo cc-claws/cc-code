@@ -1,6 +1,166 @@
 use super::*;
 use cc_agent::agent::events::BackgroundTaskResult;
 
+fn make_pump_tool_end(name: &str) -> ExecutorEvent {
+    ExecutorEvent::ToolEnd {
+        message_id: MessageId::new(),
+        tool_call_id: format!("{name}-call"),
+        name: name.into(),
+        output: "finished".into(),
+        is_error: false,
+        source_agent_id: None,
+    }
+}
+
+async fn make_pump_trace(
+    event_rx: &mut tokio::sync::mpsc::UnboundedReceiver<ExecutorEvent>,
+    stop_rx: &mut oneshot::Receiver<()>,
+) -> Vec<String> {
+    let mut trace = Vec::new();
+    while let Some(event) = next_pump_event(event_rx, stop_rx).await {
+        match event {
+            ExecutorEvent::ToolEnd { name, .. } => trace.push(format!("tool:{name}")),
+            ExecutorEvent::AgentExecutionFailed { message } => {
+                trace.push(format!("failed:{message}"));
+            }
+            _ => panic!("测试泵不应收到其他事件"),
+        }
+    }
+    // 对齐实际泵：排空尾部事件后，唯一的退出路径才记录完成。
+    trace.push("done".into());
+    trace
+}
+
+#[tokio::test]
+async fn test_event_pump_stop_drains_tail_with_cached_sender() {
+    let (cached_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (stop_tx, mut stop_rx) = oneshot::channel();
+    cached_tx.send(make_pump_tool_end("Bash")).unwrap();
+    cached_tx
+        .send(ExecutorEvent::AgentExecutionFailed {
+            message: "cancelled".into(),
+        })
+        .unwrap();
+    stop_tx.send(()).unwrap();
+
+    // 缓存工具仍持有 Sender，结束不得依赖它被释放。
+    let trace = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        make_pump_trace(&mut event_rx, &mut stop_rx),
+    )
+    .await
+    .expect("显式结束必须及时排空并完成");
+    assert_eq!(trace, ["tool:Bash", "failed:cancelled", "done"]);
+    assert!(cached_tx.send(make_pump_tool_end("late")).is_err());
+    assert!(
+        next_pump_event(&mut event_rx, &mut stop_rx).await.is_none(),
+        "再次读取关闭的泵不得重读已经完成的 oneshot 或产生迟到事件"
+    );
+}
+
+#[tokio::test]
+async fn test_event_pump_stop_finishes_with_active_async_sender() {
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (started_tx, started_rx) = oneshot::channel();
+    let (stop_tx, mut stop_rx) = oneshot::channel();
+    let producer = tokio::spawn(async move {
+        event_tx.send(make_pump_tool_end("async_hook")).unwrap();
+        started_tx.send(()).unwrap();
+        loop {
+            tokio::task::yield_now().await;
+            if event_tx.send(make_pump_tool_end("async_hook")).is_err() {
+                return;
+            }
+        }
+    });
+    started_rx.await.unwrap();
+    stop_tx.send(()).unwrap();
+
+    let trace = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        make_pump_trace(&mut event_rx, &mut stop_rx),
+    )
+    .await
+    .expect("异步 hook 持续发送也不能阻止本轮结束");
+    assert!(trace.len() >= 2, "至少转发已入队的首条事件并完成");
+    assert!(trace[..trace.len() - 1]
+        .iter()
+        .all(|item| item == "tool:async_hook"));
+    assert_eq!(trace.last().map(String::as_str), Some("done"));
+    assert_eq!(trace.iter().filter(|item| *item == "done").count(), 1);
+    tokio::time::timeout(std::time::Duration::from_secs(1), producer)
+        .await
+        .expect("关闭后异步发送者必须观察到发送失败")
+        .expect("异步发送任务不应 panic");
+    assert!(event_rx.try_recv().is_err(), "完成后不得残留迟到事件");
+}
+
+#[tokio::test]
+async fn test_event_pump_forwards_live_events_until_stop() {
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (stop_tx, mut stop_rx) = oneshot::channel();
+    for name in ["first", "second"] {
+        event_tx.send(make_pump_tool_end(name)).unwrap();
+        let event = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            next_pump_event(&mut event_rx, &mut stop_rx),
+        )
+        .await
+        .expect("尚未结束时也必须实时转发")
+        .expect("收到 stop 前不能提前结束");
+        assert!(matches!(event, ExecutorEvent::ToolEnd { name: actual, .. } if actual == name));
+        assert!(!event_rx.is_closed(), "正常转发不得关闭接收端");
+    }
+    assert!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(10),
+            next_pump_event(&mut event_rx, &mut stop_rx),
+        )
+        .await
+        .is_err(),
+        "无新事件且 stop 未发送时必须继续等待"
+    );
+    stop_tx.send(()).unwrap();
+    assert!(next_pump_event(&mut event_rx, &mut stop_rx).await.is_none());
+}
+
+#[tokio::test]
+async fn test_event_pump_natural_eof_finishes_without_stop() {
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (_stop_tx, mut stop_rx) = oneshot::channel();
+    event_tx.send(make_pump_tool_end("last")).unwrap();
+    drop(event_tx);
+
+    let trace = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        make_pump_trace(&mut event_rx, &mut stop_rx),
+    )
+    .await
+    .expect("所有 Sender 自然释放后不得等待 stop");
+    assert_eq!(trace, ["tool:last", "done"]);
+}
+
+#[tokio::test]
+async fn test_event_pump_dropped_stop_sender_closes_and_drains() {
+    let (cached_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (stop_tx, mut stop_rx) = oneshot::channel::<()>();
+    cached_tx.send(make_pump_tool_end("last")).unwrap();
+    drop(stop_tx);
+
+    let trace = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        make_pump_trace(&mut event_rx, &mut stop_rx),
+    )
+    .await
+    .expect("结束信号发送端异常释放也必须收尾");
+    assert_eq!(trace, ["tool:last", "done"]);
+    assert!(cached_tx.send(make_pump_tool_end("late")).is_err());
+    assert!(
+        next_pump_event(&mut event_rx, &mut stop_rx).await.is_none(),
+        "关闭后不应再次 poll 已取消的 oneshot"
+    );
+}
+
 #[test]
 fn test_background_results_preserve_history_marker_pairs() {
     let results: Vec<_> = [true, false]

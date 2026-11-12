@@ -64,7 +64,8 @@ pub(crate) struct SessionState {
     /// 会话工作目录句柄：`EnterWorktree` / `ExitWorktree` 在运行中改写它，
     /// 每轮 prompt 从这里取当前目录（`cwd` 是会话创建时的快照）。
     pub(crate) session_cwd: cc_agent::session_cwd::SessionCwd,
-    /// 上一次告知 TUI 的工作目录，用于检测运行中切换（状态栏 git 探测跟随）。
+    /// 上一次 prompt 使用的工作目录，用于下一轮提醒与指引重载。
+    /// 运行中给 TUI 的目录通知由 TransportEventSink 单独跟踪，不能提前更新此字段。
     pub(crate) reported_cwd: String,
     history: Vec<BaseMessage>,
     cancel_token: Option<AgentCancellationToken>,
