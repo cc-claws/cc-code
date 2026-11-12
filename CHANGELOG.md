@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.274 — 2026-11-11
+
+### Features
+
+- **Git worktree 能力落地：启动参数、两个 Agent 工具、四个 hook 事件与子 Agent 隔离（#1034）**：worktree 此前只存在于提示词的一句「不承诺隔离」，代码层面没有可执行的能力。现把隔离补齐——**启动参数**：`cc-code --worktree [NAME]` 直接在隔离 checkout 里启动 TUI（目录落 `~/.cc-code/worktrees`，分支 `worktree/<name>`，不传名称用随机名；只对 TUI 生效，`acp` / `plugin` / `update` 子命令不受影响），退出时若仍停在会话内创建的 checkout 里，逐个询问 keep / remove，删除只在用户明确同意时发生。**Agent 工具**：新增 `EnterWorktree` / `ExitWorktree`——前者按 HEAD 建 `worktree/<name>` 分支的独立 checkout 并把会话工作目录切进去（下一轮生效），托管目录优先仓库内 `.claude/worktrees`（创建时自动写入 `.git/info/exclude`，不污染 `git status`），不在 Git 仓库内时回退 `~/.cc-code/worktrees`；名称按「分段白名单 + 64 字符」校验，同名目录直接复用；后者按 keep / remove 收尾，存在未提交文件或新增提交时默认拒绝删除（需显式 `discard_changes`），且只作用于本会话创建的 worktree——跨会话或手工 `git worktree add` 的目录一律不碰，进程重启后回退读磁盘登记快照。**Hook 事件**：新增 `WorktreeCreate` / `WorktreeRemove` / `PermissionDenied` / `CwdChanged` 四个事件，`HookRuntime` 抽为可跨组件共享的执行器，工具这类链外组件也能触发 hook；`WorktreeCreate` hook 可以否决创建或直接交出目录（交出目录时完全不调用 git）。**权限裁决**：`permissionDecision` 的 allow / deny / ask 真正生效——allow 跳过审批弹框，deny 当场拒绝。**会话目录**：新增 `SessionCwd` 共享句柄，ACP 每轮从它取 cwd 并发出 `notifications/peri/cwd_changed`，TUI 状态栏的 git 探测跟随该目录，目录变化后向对话追加 cwd reminder 并按新目录重读 CLAUDE.md / AGENTS.md（会话内冻结的系统提示不受影响）。**子 Agent 隔离**：`isolation: "worktree"` 真正生效——独立 checkout 运行，留下改动则保留并把路径写回结果，无改动删除，变更统计失败按「未知即不安全」保留。改动文件：`cc-tools/src/worktree/`（创建 / 列表 / 删除 / 变更统计）、`cc-middlewares/src/tools/worktree_tool.rs`（两个工具与会话登记）、`cc-middlewares/src/hooks/{types,runtime,executor,permission_bridge}.rs`、`cc-middlewares/src/subagent/tool/execute_bg.rs`、`cc-agent/src/session_cwd.rs`、`cc-acp/src/session/acp_server/prompt.rs`、`cc-tui/src/main.rs` 与 `cc-tui/src/app/agent_ops/acp_bridge.rs`。验证：`cargo check`（cc-middlewares / cc-tools / cc-acp / cc-tui，含 bins）通过；`cargo test`（cc-middlewares 1135、cc-tools 294、cc-acp 262、cc-tui-core 241）通过；`cargo clippy --all-targets -D warnings` 通过。特性/影响：worktree 从「模型口头承诺」变成有工具、有 hook、有退出清理的可执行隔离；既有会话目录与工具调用路径不受影响。
+
+---
+
 ## v0.6.273 — 2026-11-11
 
 ### Fixes
