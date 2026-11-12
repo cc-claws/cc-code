@@ -172,6 +172,7 @@ fn init_repo(path: &std::path::Path) {
     git(&["config", "user.email", "worktree-test@example.invalid"]);
     git(&["config", "user.name", "Worktree Test"]);
     git(&["config", "commit.gpgSign", "false"]);
+    git(&["config", "core.hooksPath", ".git/hooks"]);
     std::fs::write(path.join("tracked.txt"), "committed\n").unwrap();
     git(&["add", "tracked.txt"]);
     git(&["commit", "-qm", "initial"]);
@@ -215,6 +216,250 @@ async fn test_enter_and_exit_worktree_round_trip() {
         "退出后必须回到原目录"
     );
     assert!(!Path::new(&worktree).exists(), "remove 必须删掉 checkout");
+}
+
+fn make_live_file_tools(handle: &SessionCwd, cwd: &str) -> Vec<Box<dyn BaseTool>> {
+    use crate::middleware::FilesystemMiddleware;
+    use cc_agent::{agent::state::AgentState, middleware::Middleware};
+    let middleware = FilesystemMiddleware::new().with_session_cwd(Arc::clone(handle));
+    <FilesystemMiddleware as Middleware<AgentState>>::collect_tools(&middleware, cwd)
+}
+
+fn make_file_tool<'a>(tools: &'a [Box<dyn BaseTool>], name: &str) -> &'a dyn BaseTool {
+    tools
+        .iter()
+        .find(|tool| tool.name() == name)
+        .expect("文件工具必须被中间件注入")
+        .as_ref()
+}
+
+#[tokio::test]
+async fn test_worktree_before_model_syncs_state_cwd_after_each_switch() {
+    use cc_agent::{
+        agent::state::{AgentState, State},
+        middleware::Middleware,
+    };
+    let handle = new_session_cwd("original-directory");
+    let middleware = WorktreeMiddleware::new(Arc::clone(&handle), None);
+    let mut state = AgentState::new("original-directory");
+    for cwd in ["worktree-directory", "original-directory"] {
+        session_cwd::switch(&handle, cwd);
+        middleware.before_model(&mut state).await.unwrap();
+        assert_eq!(state.cwd(), cwd, "每个后续 step 的审批必须使用当前目录");
+    }
+}
+
+#[tokio::test]
+async fn test_same_file_tools_follow_enter_and_removed_worktree() {
+    use crate::middleware::FilesystemMiddleware;
+    let directory = tempfile::tempdir().unwrap();
+    let repository = directory.path();
+    init_repo(repository);
+    std::fs::write(
+        repository.join("original-only.txt"),
+        "original-search-token\n",
+    )
+    .unwrap();
+    std::fs::create_dir(repository.join("nested")).unwrap();
+    std::fs::write(repository.join("nested/original.txt"), "original-nested\n").unwrap();
+    let initial = repository.to_string_lossy().into_owned();
+    let handle = new_session_cwd(&initial);
+    let tools = make_live_file_tools(&handle, &initial);
+    let static_tools =
+        FilesystemMiddleware::build_tools(&initial, cc_agent::kernel::MutationForm::default());
+    let (enter, exit) = isolated_pair(&handle, repository);
+    enter
+        .invoke(serde_json::json!({"name": "live-file-tools"}))
+        .await
+        .expect("进入临时 worktree");
+    let worktree = PathBuf::from(session_cwd::current(&handle));
+    let bash = cc_tools::bash::BashTool::new(worktree.to_string_lossy())
+        .with_session_cwd(Arc::clone(&handle));
+    bash.invoke(serde_json::json!({"command": "echo before-exit", "timeout": 5000}))
+        .await
+        .expect("在 worktree 中构建的同一 BashTool 应能正常执行");
+    std::fs::write(worktree.join("tracked.txt"), "worktree-before\n").unwrap();
+    std::fs::write(
+        worktree.join("worktree-only.txt"),
+        "worktree-search-token\n",
+    )
+    .unwrap();
+    std::fs::create_dir(worktree.join("nested")).unwrap();
+    std::fs::write(worktree.join("nested/worktree.txt"), "worktree-nested\n").unwrap();
+
+    let read = make_file_tool(&tools, "Read");
+    for content in [
+        read.invoke(serde_json::json!({"file_path": "tracked.txt"}))
+            .await
+            .unwrap(),
+        read.invoke_content(serde_json::json!({"file_path": "tracked.txt"}))
+            .await
+            .unwrap()
+            .output,
+    ] {
+        assert!(
+            content.contains("worktree-before"),
+            "同一工具应切换相对读取目录：{content}"
+        );
+    }
+    let original = make_file_tool(&static_tools, "Read")
+        .invoke(serde_json::json!({"file_path": "tracked.txt"}))
+        .await
+        .unwrap();
+    assert!(original.contains("committed"), "静态工具仍留在原作用域");
+    let absolute = read
+        .invoke(serde_json::json!({"file_path": repository.join("tracked.txt")}))
+        .await
+        .unwrap();
+    assert!(
+        absolute.contains("committed"),
+        "绝对路径不受会话目录变化影响"
+    );
+
+    let write = make_file_tool(&tools, "Write");
+    let write_input = serde_json::json!({"file_path": "tracked.txt", "content": "write-token\n"});
+    assert_eq!(
+        write
+            .file_snapshot(&write_input)
+            .unwrap()
+            .old_content
+            .as_deref(),
+        Some("worktree-before\n"),
+        "写入快照必须来自实际执行目录"
+    );
+    write.invoke(write_input).await.unwrap();
+    let edit = make_file_tool(&tools, "Edit");
+    edit.invoke(serde_json::json!({
+        "file_path": "tracked.txt", "old_string": "write-token", "new_string": "single-token"
+    }))
+    .await
+    .unwrap();
+    let batch = serde_json::json!({
+        "path": "tracked.txt", "edits": [{"oldText": "single-token", "newText": "batch-token"}]
+    });
+    assert_eq!(
+        edit.file_snapshot(&batch).unwrap().old_content.as_deref(),
+        Some("single-token\n"),
+        "批量编辑及别名路径的快照也必须切换"
+    );
+    edit.invoke(batch).await.unwrap();
+    assert_eq!(
+        std::fs::read_to_string(worktree.join("tracked.txt")).unwrap(),
+        "batch-token\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(repository.join("tracked.txt")).unwrap(),
+        "committed\n"
+    );
+
+    let glob = make_file_tool(&tools, "Glob");
+    let matches = glob
+        .invoke(serde_json::json!({"pattern": "*.txt"}))
+        .await
+        .unwrap();
+    assert!(
+        matches.contains("worktree-only.txt"),
+        "默认搜索根应跟随：{matches}"
+    );
+    assert!(!matches.contains("original-only.txt"), "不能搜索原仓库");
+    let nested = glob
+        .invoke(serde_json::json!({"pattern": "*.txt", "path": "nested"}))
+        .await
+        .unwrap();
+    assert!(
+        nested.contains("worktree.txt"),
+        "相对搜索根也应跟随：{nested}"
+    );
+    let grep = make_file_tool(&tools, "Grep");
+    let matches = grep
+        .invoke(serde_json::json!({"pattern": "worktree-search-token"}))
+        .await
+        .unwrap();
+    assert!(
+        matches.contains("worktree-only.txt"),
+        "Grep默认目录应跟随：{matches}"
+    );
+    let nested = grep
+        .invoke(serde_json::json!({"pattern": "worktree-nested", "path": "nested"}))
+        .await
+        .unwrap();
+    assert!(
+        nested.contains("worktree.txt"),
+        "Grep相对路径应跟随：{nested}"
+    );
+
+    // 复用原工具集；真实 ExitWorktree 删除目录后不能再访问或重建旧 checkout。
+    exit.invoke(serde_json::json!({"action": "remove", "discard_changes": true}))
+        .await
+        .expect("退出并删除临时 worktree");
+    assert!(!worktree.exists(), "必须真正删除旧目录");
+    let output = bash
+        .invoke(serde_json::json!({"command": "pwd && echo after-exit && cat tracked.txt", "timeout": 5000}))
+        .await
+        .expect("真实 ExitWorktree 删除后同一 BashTool 仍能启动");
+    assert!(output.contains("after-exit") && output.contains("committed"));
+    let restored = read
+        .invoke(serde_json::json!({"file_path": "tracked.txt"}))
+        .await
+        .unwrap();
+    assert!(restored.contains("committed"), "退出后恢复原仓库读取");
+    write
+        .invoke(serde_json::json!({"file_path": "returned.txt", "content": "returned\n"}))
+        .await
+        .unwrap();
+    edit.invoke(serde_json::json!({
+        "file_path": "tracked.txt", "old_string": "committed", "new_string": "original-edited"
+    }))
+    .await
+    .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(repository.join("returned.txt")).unwrap(),
+        "returned\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(repository.join("tracked.txt")).unwrap(),
+        "original-edited\n"
+    );
+    let matches = glob
+        .invoke(serde_json::json!({"pattern": "*.txt"}))
+        .await
+        .unwrap();
+    assert!(
+        matches.contains("original-only.txt"),
+        "Glob恢复原目录：{matches}"
+    );
+    assert!(!matches.contains("worktree-only.txt"));
+    let matches = grep
+        .invoke(serde_json::json!({"pattern": "original-search-token"}))
+        .await
+        .unwrap();
+    assert!(
+        matches.contains("original-only.txt"),
+        "Grep恢复原目录：{matches}"
+    );
+    assert!(!worktree.exists(), "所有后续相对操作都不能重建已删除目录");
+}
+
+#[tokio::test]
+async fn test_live_read_image_uses_current_session_directory() {
+    use base64::Engine;
+    let directory = tempfile::tempdir().unwrap();
+    let current = directory.path().join("current");
+    std::fs::create_dir(&current).unwrap();
+    let handle = new_session_cwd(directory.path().to_string_lossy());
+    let tool = cc_tools::tools::ReadFileTool::new(directory.path().to_string_lossy())
+        .with_session_cwd(Arc::clone(&handle));
+    let image = base64::engine::general_purpose::STANDARD
+        .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGIAAAACAAHlJ978AAAAAElFTkSuQmCC")
+        .unwrap();
+    std::fs::write(current.join("image.png"), image).unwrap();
+    session_cwd::switch(&handle, current.to_string_lossy());
+    let output = tool
+        .invoke_content(serde_json::json!({"file_path": "image.png"}))
+        .await
+        .unwrap();
+    assert!(output.content.is_some(), "图片多模态入口必须读取新目录");
+    assert!(output.output.contains("image/png"));
 }
 
 #[tokio::test]

@@ -229,6 +229,11 @@ fn build_agent_inner(
 
     // TerminalMiddleware：注入 shell_executor（None = InlineShellExecutor，保持原行为）。
     // 同一实例同时用于 parent_tools 构造和中间件链，保证 BashTool 与链共享同一 executor。
+    let worktree_session_cwd = pool
+        .lock()
+        .session_cwd
+        .clone()
+        .unwrap_or_else(|| cc_agent::session_cwd::new_session_cwd(&cwd));
     let terminal_middleware = shell_executor
         .map(TerminalMiddleware::with_executor)
         .unwrap_or_else(TerminalMiddleware::new)
@@ -587,11 +592,18 @@ fn build_agent_inner(
         .add_middleware(Box::new(
             cc_middlewares::AtMentionMiddleware::new(cwd.clone().into()).with_kernel(kernel),
         ))
-        .add_middleware(Box::new(FilesystemMiddleware::new().with_form(edit_form)))
+        .add_middleware(Box::new(
+            FilesystemMiddleware::new()
+                .with_form(edit_form)
+                .with_session_cwd(Arc::clone(&worktree_session_cwd)),
+        ))
         .add_middleware(Box::new(cc_middlewares::GitAttributionMiddleware::new(
             &model_name,
         )))
-        .add_middleware(Box::new(terminal_middleware))
+        .add_middleware(Box::new(
+            // 子代理继承的 parent_tools 保留构建时目录；仅主代理跟随 worktree 切换。
+            terminal_middleware.with_session_cwd(Arc::clone(&worktree_session_cwd)),
+        ))
         .add_middleware(Box::new(WebMiddleware::new()))
         .add_middleware(Box::new(TodoMiddleware::new(todo_tx)))
         .add_middleware(Box::new(CronMiddleware::new(
@@ -657,16 +669,8 @@ fn build_agent_inner(
 
     // worktree 工具：EnterWorktree / ExitWorktree（WorktreeCreate / WorktreeRemove hook
     // 由同一 runtime 触发）。会话句柄由 ACP 侧每轮写入 AgentPool。
-    let worktree_session_cwd = pool
-        .lock()
-        .session_cwd
-        .clone()
-        .unwrap_or_else(|| cc_agent::session_cwd::new_session_cwd(&cwd));
     let executor = executor.add_middleware(Box::new(
-        cc_middlewares::tools::WorktreeMiddleware::new(
-            worktree_session_cwd,
-            worktree_hook_runtime,
-        ),
+        cc_middlewares::tools::WorktreeMiddleware::new(worktree_session_cwd, worktree_hook_runtime),
     ));
 
     let executor = executor.add_middleware(Box::new(hitl));

@@ -1,4 +1,5 @@
 use cc_agent::kernel::MutationForm;
+use cc_agent::session_cwd::{self, SessionCwd};
 use cc_agent::tools::{BaseTool, FileSnapshot};
 use serde_json::Value;
 
@@ -16,6 +17,7 @@ Usage:
 /// Edit tool (replace) - 与 TypeScript replace_tool 对齐
 pub struct EditFileTool {
     pub cwd: String,
+    session_cwd: Option<SessionCwd>,
     /// 变更形态：默认 SingleReplace；由内核 ToolSpec.mutation_form 决定。
     pub form: MutationForm,
 }
@@ -24,12 +26,18 @@ impl EditFileTool {
     pub fn new(cwd: impl Into<String>) -> Self {
         Self {
             cwd: cwd.into(),
+            session_cwd: None,
             form: MutationForm::default(),
         }
     }
 
     pub fn with_form(mut self, form: MutationForm) -> Self {
         self.form = form;
+        self
+    }
+
+    pub fn with_session_cwd(mut self, cwd: SessionCwd) -> Self {
+        self.session_cwd = Some(cwd);
         self
     }
 }
@@ -167,7 +175,8 @@ impl BaseTool for EditFileTool {
         let path = input["file_path"]
             .as_str()
             .or_else(|| input["path"].as_str())?;
-        let resolved = resolve_path(&self.cwd, path);
+        let cwd = session_cwd::current_or(self.session_cwd.as_ref(), &self.cwd);
+        let resolved = resolve_path(&cwd, path);
         Some(FileSnapshot {
             old_content: std::fs::read_to_string(resolved).ok(),
         })
@@ -196,7 +205,8 @@ impl BaseTool for EditFileTool {
             return Err("Error: old_string cannot be empty".into());
         }
 
-        let resolved = resolve_path(&self.cwd, file_path);
+        let cwd = session_cwd::current_or(self.session_cwd.as_ref(), &self.cwd);
+        let resolved = resolve_path(&cwd, file_path);
 
         let raw_content = match std::fs::read_to_string(&resolved) {
             Ok(c) => c,
@@ -218,7 +228,7 @@ impl BaseTool for EditFileTool {
         let old_lines = old_string.lines().count();
         let new_lines = new_string.lines().count();
         let line_diff = new_lines as i64 - old_lines as i64;
-        let rel = super::display_rel_path(&self.cwd, &resolved);
+        let rel = super::display_rel_path(&cwd, &resolved);
 
         // 构建行数变化描述
         let diff_desc = match line_diff.cmp(&0) {
@@ -369,7 +379,8 @@ impl EditFileTool {
         input: &Value,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let plan = BatchEditPlan::parse(input)?;
-        let resolved = resolve_path(&self.cwd, plan.file_path);
+        let cwd = session_cwd::current_or(self.session_cwd.as_ref(), &self.cwd);
+        let resolved = resolve_path(&cwd, plan.file_path);
         let raw_content = match std::fs::read_to_string(&resolved) {
             Ok(c) => c,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -392,7 +403,7 @@ impl EditFileTool {
             ),
             std::cmp::Ordering::Equal => "Replaced text (same line count)".to_string(),
         };
-        let rel = super::display_rel_path(&self.cwd, &resolved);
+        let rel = super::display_rel_path(&cwd, &resolved);
         let total = plan.edits.len();
         let message = format!(
             "Applied {} edits to {} ({}, {} replacements)",

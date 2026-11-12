@@ -1,4 +1,5 @@
 use base64::{engine::general_purpose::STANDARD, Engine as _};
+use cc_agent::session_cwd::{self, SessionCwd};
 use cc_agent::tools::{BaseTool, ToolContent};
 use serde_json::Value;
 
@@ -39,11 +40,20 @@ fn sniff_image_format(bytes: &[u8]) -> Option<&'static str> {
 /// Read tool - 与 TypeScript read_tool 对齐
 pub struct ReadFileTool {
     pub cwd: String,
+    session_cwd: Option<SessionCwd>,
 }
 
 impl ReadFileTool {
     pub fn new(cwd: impl Into<String>) -> Self {
-        Self { cwd: cwd.into() }
+        Self {
+            cwd: cwd.into(),
+            session_cwd: None,
+        }
+    }
+
+    pub fn with_session_cwd(mut self, cwd: SessionCwd) -> Self {
+        self.session_cwd = Some(cwd);
+        self
     }
 }
 
@@ -162,7 +172,8 @@ impl BaseTool for ReadFileTool {
         let offset = input["offset"].as_u64().unwrap_or(0) as usize;
         let limit = input["limit"].as_u64().unwrap_or(MAX_LINES as u64) as usize;
 
-        let resolved = resolve_path(&self.cwd, file_path);
+        let cwd = session_cwd::current_or(self.session_cwd.as_ref(), &self.cwd);
+        let resolved = resolve_path(&cwd, file_path);
 
         let pages = input["pages"].as_str().map(|s| s.to_string());
 
@@ -240,7 +251,8 @@ impl BaseTool for ReadFileTool {
             .as_str()
             .ok_or("The 'file_path' parameter is required for the Read tool. Provide the absolute path to the file.")?;
 
-        let resolved = resolve_path(&self.cwd, file_path);
+        let cwd = session_cwd::current_or(self.session_cwd.as_ref(), &self.cwd);
+        let resolved = resolve_path(&cwd, file_path);
 
         // 图片文件：读取字节 → Base64 编码 → 返回多模态 ToolContent
         if let Some(ext) = resolved.extension().and_then(|e| e.to_str()) {
@@ -251,7 +263,10 @@ impl BaseTool for ReadFileTool {
         }
 
         // 非图片文件：委托给 invoke() 返回纯文本
-        self.invoke(input).await.map(ToolContent::text)
+        ReadFileTool::new(cwd)
+            .invoke(input)
+            .await
+            .map(ToolContent::text)
     }
 }
 

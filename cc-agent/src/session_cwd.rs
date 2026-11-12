@@ -1,15 +1,15 @@
 //! 会话工作目录的共享句柄。
 //!
-//! peri 的 `AgentState.cwd` 是按轮次构造的不可变字符串，工具拿不到会话状态。
+//! `AgentState.cwd` 是普通字符串快照，工具不直接持有会话状态。
 //! `EnterWorktree` / `ExitWorktree` 需要在运行中切换工作目录，因此把 cwd 抽成
 //! 一个可共享的句柄：
 //!
 //! - ACP 会话持有句柄，每轮 `execute_prompt` 从这里取当前值；
-//! - 工具持有同一个句柄，切换后**下一轮**的 state 与工具集即使用新目录。
+//! - worktree、Bash 与文件工具持有同一个句柄，每次调用读取当前目录。
+//! - WorktreeMiddleware 在下一模型 step 前同步状态，供审批等中间件使用。
 //!
-//! 已知限制：同一轮内并行执行的其他工具仍使用切换前的目录（工具集在轮次开始时
-//! 构建）。这与「工具调用立即 chdir」的实现有差异，但对模型可见的行为是
-//! 「切换生效后所有后续操作都在新目录」，由工具返回值明确告知路径。
+//! 已经启动的命令不会被切换目录；仍持有 cwd 字符串快照的其他工具，要到下一轮
+//! 重建工具集后才会使用新目录。
 
 use std::sync::Arc;
 
@@ -26,6 +26,11 @@ pub fn new_session_cwd(cwd: impl Into<String>) -> SessionCwd {
 /// 读取当前工作目录。
 pub fn current(handle: &SessionCwd) -> String {
     handle.read().clone()
+}
+
+/// 有会话句柄时取实时目录，否则保留工具原有的固定目录。
+pub fn current_or(handle: Option<&SessionCwd>, fallback: &str) -> String {
+    handle.map_or_else(|| fallback.to_owned(), current)
 }
 
 /// 切换工作目录。
