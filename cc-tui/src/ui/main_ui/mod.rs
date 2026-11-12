@@ -16,6 +16,7 @@ pub use viewport_layout::{prepare_viewport, required_rows, try_prepare_width};
 pub(crate) use message_area::highlight_line_spans;
 
 use ratatui::{
+    buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::Span,
@@ -403,13 +404,108 @@ fn render_textarea(
         highlight_slash_commands(&mut display_textarea);
     }
 
+    // 聚焦时给原生光标加 REVERSED 标记，借 tui-textarea 内部滚动拿到光标真实
+    // 屏幕坐标（长草稿垂直滚动、长行水平滚动后仍可见）；渲染后由 draw_bar_cursor
+    // 反查该标记重绘为 │ 细线并清除标记，视觉与闪烁由竖线绘制接管。
     let mut cursor_style = Style::default().fg(theme::cur().text);
-    if focused && cursor_visible {
-        // 原生光标与内部滚动共用坐标，长草稿和水平滚动后仍保持可见。
+    if focused {
         cursor_style = cursor_style.add_modifier(Modifier::REVERSED);
     }
     display_textarea.set_cursor_style(cursor_style);
     f.render_widget(&display_textarea, area);
+    if focused {
+        draw_bar_cursor(f.buffer_mut(), &display_textarea, area, cursor_visible);
+    }
+}
+
+/// 在 buffer 中绘制 │ 细线光标。
+///
+/// 光标坐标不自行计算，而是反查渲染前设置的 REVERSED 标记格 —— tui-textarea
+/// 的内部滚动已把光标放到可见位置，长草稿与长行场景下坐标始终正确。
+/// 行内光标右移后续文本腾出 1 格（防止抖动），行首画在左侧内边距不占文本位，
+/// 行尾直接覆盖尾部空格；仅 cursor_visible 时画 │，否则留空格（闪烁灭相）。
+fn draw_bar_cursor(
+    buf: &mut Buffer,
+    textarea: &TextArea<'static>,
+    area: Rect,
+    cursor_visible: bool,
+) {
+    let mut found = None;
+    'outer: for y in area.top()..area.bottom() {
+        for x in area.left()..area.right() {
+            if buf
+                .cell((x, y))
+                .is_some_and(|c| c.modifier.contains(Modifier::REVERSED))
+            {
+                found = Some((x, y));
+                break 'outer;
+            }
+        }
+    }
+    let Some((cell_x, cell_y)) = found else {
+        return;
+    };
+    // 清除定位标记，光标格恢复普通文本视觉；宽字符续格符号为空，一并清除。
+    for x in [cell_x, cell_x + 1] {
+        if x >= area.right() {
+            break;
+        }
+        if let Some(cell) = buf.cell_mut((x, cell_y)) {
+            let style = cell.style().remove_modifier(Modifier::REVERSED);
+            cell.set_style(style);
+        }
+    }
+
+    let (data_row, data_col) = textarea.cursor();
+    let line = textarea
+        .lines()
+        .get(data_row)
+        .map(|s| s.as_str())
+        .unwrap_or("");
+    let at_end_of_line = data_col >= line.chars().count();
+
+    if at_end_of_line {
+        write_cursor_cell(buf, cell_x, cell_y, cursor_visible);
+    } else if data_col == 0 {
+        // 行首：│ 画在左侧内边距，不右移不占文本位置
+        write_cursor_cell(buf, cell_x.saturating_sub(1), cell_y, cursor_visible);
+    } else {
+        // 行内：右移后续文本，腾出 1 格给光标
+        let last_visible = area.right().saturating_sub(1);
+        let mut shift_end = None;
+        for x in (cell_x + 1..area.right()).rev() {
+            if buf.cell((x, cell_y)).is_some_and(|c| c.symbol() != " ") {
+                shift_end = Some(x);
+                break;
+            }
+        }
+        let shift_end = shift_end.unwrap_or(cell_x).min(last_visible.saturating_sub(1));
+        if shift_end >= cell_x {
+            for x in (cell_x..=shift_end).rev() {
+                let (sym, sty) = buf
+                    .cell((x, cell_y))
+                    .map(|c| (c.symbol().to_string(), c.style()))
+                    .unwrap_or_default();
+                if let Some(dst) = buf.cell_mut((x + 1, cell_y)) {
+                    dst.set_symbol(&sym);
+                    dst.set_style(sty);
+                }
+            }
+        }
+        write_cursor_cell(buf, cell_x, cell_y, cursor_visible);
+    }
+}
+
+fn write_cursor_cell(buf: &mut Buffer, x: u16, y: u16, visible: bool) {
+    if let Some(cell) = buf.cell_mut((x, y)) {
+        if visible {
+            cell.set_symbol("│");
+            cell.set_style(Style::default().fg(theme::cur().inactive));
+        } else {
+            cell.set_symbol(" ");
+            cell.set_style(Style::default());
+        }
+    }
 }
 
 fn hide_shell_prefix_for_display(textarea: &mut TextArea<'static>) {

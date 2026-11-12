@@ -26,9 +26,9 @@ fn make_input_buffer(
 fn make_cursor_position(buffer: &Buffer) -> (u16, u16) {
     let cursors: Vec<_> = (0..buffer.area.height)
         .flat_map(|row| (0..buffer.area.width).map(move |column| (column, row)))
-        .filter(|position| buffer[*position].modifier.contains(Modifier::REVERSED))
+        .filter(|position| buffer[*position].symbol() == "│")
         .collect();
-    assert_eq!(cursors.len(), 1, "聚焦输入框应恰好显示一个原生光标");
+    assert_eq!(cursors.len(), 1, "聚焦输入框应恰好显示一个竖线光标");
     cursors[0]
 }
 
@@ -93,7 +93,11 @@ fn test_long_line_cursor_stays_visible_while_scrolling_horizontally() {
     );
     textarea.move_cursor(CursorMove::Head);
     let head = make_input_buffer(&textarea, TextareaShellMode::None, true, true);
-    assert_eq!(make_cursor_position(&head).0, 2, "回到行首后恢复左侧内边距");
+    assert_eq!(
+        make_cursor_position(&head).0,
+        1,
+        "回到行首后竖线位于左侧内边距（文本左缘）"
+    );
 }
 
 #[test]
