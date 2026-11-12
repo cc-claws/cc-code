@@ -78,7 +78,7 @@ TUI 输入 → AcpTuiClient.new_session() / .prompt()
 
 ## 主布局
 
-单 Session 垂直切分（Sticky Header → Messages → Attachment Bar → Panel Area → Input → Status Bar → BG Agent Bar）。`ui/main_ui/viewport_layout.rs` 共用底部高度测量与内容所需行数：Status Bar 空闲 2 行、有活动 3 行；Input 最少 3 行、上限为宿主终端高度的 40%，极小区域按剩余空间降级；面板按宿主尺寸计算。增长判定只计输入基线 3 行，草稿只借已分配消息区行数，不推动视口增长；实际布局与消息排版使用真实输入高度。增长阶段底部区域紧随内容，全屏阶段固定到底部。宽度变化先等待 RenderCache 重排再判断全屏，不能把上一帧剩余留白计入新增内容。
+单 Session 垂直切分（Sticky Header → Messages → Attachment Bar → Panel Area → Input → Status Bar → BG Agent Bar）。`ui/main_ui/viewport_layout.rs` 共用底部高度测量与内容所需行数：Status Bar 空闲 2 行、有活动 3 行；Input 含边框 3～8 行，上限 `clamp(宿主终端高度 / 3, 3, 8)`，极小区域按剩余空间降级；面板按宿主尺寸计算。增长判定只计输入基线 3 行，草稿只借已分配消息区行数，不推动视口增长；实际布局与消息排版使用真实输入高度。所有输入重建由 `build_textarea` 重放 min/max rows 与禁用软换行配置；原生反色光标与内部滚动共用坐标，长行继续水平滚动。增长阶段底部区域紧随内容，全屏阶段固定到底部。宽度变化先等待 RenderCache 重排再判断全屏，不能把上一帧剩余留白计入新增内容。
 
 ### 界面组件
 

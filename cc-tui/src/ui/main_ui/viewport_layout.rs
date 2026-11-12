@@ -11,6 +11,7 @@ use crate::{
 use ratatui::layout::{Rect, Size};
 
 pub(super) const INPUT_MIN_ROWS: u16 = 3;
+const INPUT_MAX_ROWS: u16 = 8;
 const MIN_MESSAGE_ROWS: u16 = 3;
 
 /// 草稿只借用当前区域的消息行，不把实际输入高度反向计入视口增长。
@@ -20,8 +21,8 @@ pub(super) fn input_rows(
     area_height: u16,
     others: u16,
 ) -> u16 {
-    let cap = (terminal_height.saturating_mul(2) / 5).max(INPUT_MIN_ROWS);
-    let wanted = preferred.max(INPUT_MIN_ROWS).min(cap);
+    let cap = (terminal_height / 3).clamp(INPUT_MIN_ROWS, INPUT_MAX_ROWS);
+    let wanted = preferred.clamp(INPUT_MIN_ROWS, INPUT_MAX_ROWS).min(cap);
     let hard_available = area_height.saturating_sub(others).saturating_sub(1);
     let floor = INPUT_MIN_ROWS.min(hard_available);
     let soft_available = area_height

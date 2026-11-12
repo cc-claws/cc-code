@@ -179,6 +179,9 @@ pub fn build_textarea(disabled: bool) -> TextArea<'static> {
 
 fn build_textarea_with_hint(_disabled: bool, hint: &str) -> TextArea<'static> {
     let mut ta = TextArea::default();
+    ta.set_min_rows(3);
+    ta.set_max_rows(8);
+    ta.set_wrap_mode(tui_textarea::WrapMode::None);
 
     // 统一灰色边框
     let border_color = theme::cur().inactive;

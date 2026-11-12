@@ -167,6 +167,27 @@ fn test_input_rows_preserves_message_space_and_fits_tiny_areas() {
     );
 }
 
+#[test]
+fn test_input_rows_uses_host_cap_and_keeps_fullscreen_message_rows() {
+    for (terminal, cap) in [(6, 3), (16, 5), (24, 8), (40, 8), (u16::MAX, 8)] {
+        assert_eq!(
+            input_rows(200, terminal, 40, 2),
+            cap,
+            "输入上限只取宿主高度并封顶八行"
+        );
+    }
+    for terminal in [6, 16, 24, 40] {
+        let input = input_rows(200, terminal, terminal, 2);
+        assert!(input <= INPUT_MAX_ROWS, "全屏输入不得超过八行");
+        if terminal >= INPUT_MIN_ROWS + MIN_MESSAGE_ROWS + 2 {
+            assert!(
+                terminal - 2 - input >= MIN_MESSAGE_ROWS,
+                "足够空间时保留三行消息"
+            );
+        }
+    }
+}
+
 #[tokio::test]
 async fn test_long_draft_keeps_growth_baseline_from_first_frame() {
     for height in [16, 24, 40] {
@@ -178,7 +199,7 @@ async fn test_long_draft_keeps_growth_baseline_from_first_frame() {
             .current_mut()
             .ui
             .textarea
-            .insert_str(&vec!["draft"; 200].join("\n"));
+            .insert_str(&["draft"; 200].join("\n"));
         assert_eq!(
             required_rows(&mut app, terminal),
             baseline,

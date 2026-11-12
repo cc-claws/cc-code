@@ -16,7 +16,6 @@ pub use viewport_layout::{prepare_viewport, required_rows, try_prepare_width};
 pub(crate) use message_area::highlight_line_spans;
 
 use ratatui::{
-    buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::Span,
@@ -404,105 +403,13 @@ fn render_textarea(
         highlight_slash_commands(&mut display_textarea);
     }
 
-    // textarea 自带块光标始终设为与文本同色（视觉不可见），由 draw_bar_cursor 画 │
-    display_textarea.set_cursor_style(Style::default().fg(theme::cur().text));
+    let mut cursor_style = Style::default().fg(theme::cur().text);
+    if focused && cursor_visible {
+        // 原生光标与内部滚动共用坐标，长草稿和水平滚动后仍保持可见。
+        cursor_style = cursor_style.add_modifier(Modifier::REVERSED);
+    }
+    display_textarea.set_cursor_style(cursor_style);
     f.render_widget(&display_textarea, area);
-
-    // 聚焦时画细线光标 │。Command 模式下用 display_textarea（! 前缀已移除、
-    // 光标位置已调整），其他模式用原始 textarea
-    if focused {
-        let cursor_source = if shell_mode == TextareaShellMode::Command {
-            &display_textarea
-        } else {
-            textarea
-        };
-        draw_bar_cursor(f.buffer_mut(), cursor_source, area, cursor_visible);
-    }
-}
-
-/// 在 buffer 中绘制 │ 细线光标
-/// 始终右移 cells（防止抖动），仅 cursor_visible 时画 │，否则留空格
-fn draw_bar_cursor(
-    buf: &mut Buffer,
-    textarea: &TextArea<'static>,
-    area: Rect,
-    cursor_visible: bool,
-) {
-    let (data_row, data_col) = textarea.cursor();
-
-    let inner_x = area.x + 2;
-    let inner_y = area.y + 1;
-    let inner_w = area.width.saturating_sub(2);
-    let inner_h = area.height.saturating_sub(2);
-
-    if inner_w == 0 || inner_h == 0 {
-        return;
-    }
-
-    let line = textarea
-        .lines()
-        .get(data_row)
-        .map(|s| s.as_str())
-        .unwrap_or("");
-    // data_col 是字符索引，需转换为显示列（累加 unicode-width）
-    let display_col: usize = line
-        .chars()
-        .take(data_col)
-        .map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(0))
-        .sum();
-
-    let cell_x = inner_x + display_col as u16;
-    let cell_y = inner_y + data_row as u16;
-
-    if cell_x >= inner_x + inner_w || cell_y >= inner_y + inner_h {
-        return;
-    }
-
-    let at_end_of_line = data_col >= line.chars().count();
-
-    if !at_end_of_line && display_col > 0 {
-        // 光标在行内字符上（非最左）：右移后续文本，腾出 1 格给光标
-        let line_display_width: usize = line
-            .chars()
-            .map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(0))
-            .sum();
-        let last_text_cell = (inner_x + line_display_width as u16).saturating_sub(1);
-        let last_visible = inner_x + inner_w - 1;
-        let shift_end = last_text_cell.min(last_visible.saturating_sub(1));
-
-        if shift_end >= cell_x {
-            for x in (cell_x..=shift_end).rev() {
-                let (sym, sty) = buf
-                    .cell((x, cell_y))
-                    .map(|c| (c.symbol().to_string(), c.style()))
-                    .unwrap_or_default();
-                if let Some(dst) = buf.cell_mut((x + 1, cell_y)) {
-                    dst.set_symbol(&sym);
-                    dst.set_style(sty);
-                }
-            }
-        }
-        write_cursor_cell(buf, cell_x, cell_y, cursor_visible);
-    } else if !at_end_of_line && display_col == 0 {
-        // 光标在最左边：│ 画在 padding 区域，不右移不占文本位置
-        write_cursor_cell(buf, inner_x.saturating_sub(1), cell_y, cursor_visible);
-    } else {
-        // 行尾：直接覆盖光标位空格
-        write_cursor_cell(buf, cell_x, cell_y, cursor_visible);
-    }
-}
-
-/// 在指定 cell 写入 │（亮相）或空格（灭相）
-fn write_cursor_cell(buf: &mut Buffer, x: u16, y: u16, visible: bool) {
-    if let Some(cell) = buf.cell_mut((x, y)) {
-        if visible {
-            cell.set_symbol("│");
-            cell.set_style(Style::default().fg(theme::cur().inactive));
-        } else {
-            cell.set_symbol(" ");
-            cell.set_style(Style::default());
-        }
-    }
 }
 
 fn hide_shell_prefix_for_display(textarea: &mut TextArea<'static>) {
@@ -740,6 +647,10 @@ fn active_panel_height(app: &App, screen_height: u16, screen_width: u16) -> u16 
 #[cfg(test)]
 #[path = "main_ui_test.rs"]
 mod main_ui_test;
+
+#[cfg(test)]
+#[path = "input_draft_test.rs"]
+mod input_draft_tests;
 
 #[cfg(test)]
 #[path = "scroll_anchor_test.rs"]
