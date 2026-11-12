@@ -502,6 +502,36 @@ fn remove_deletes_managed_checkout() -> Result<()> {
 }
 
 #[test]
+fn remove_succeeds_when_managed_branch_was_renamed() -> Result<()> {
+    let repository = Repository::new()?;
+    let tree = create_named(
+        &repository.path,
+        "renamed",
+        Some("worktree/renamed"),
+        None,
+        &repository.storage,
+    )?;
+    // 在 checkout 内把分支改名：checkout 已删除后 `branch -D` 必然失败，
+    // 但这只是残留分支，不能让整个 remove 变成失败（否则调用方跳过 cwd 复位）。
+    git_checked(
+        Path::new(&tree.path),
+        ["branch", "-m", "worktree/renamed", "renamed-later"],
+    )?;
+
+    remove(
+        &repository.path,
+        Path::new(&tree.path),
+        Some("worktree/renamed"),
+        &repository.storage,
+    )?;
+
+    assert!(!Path::new(&tree.path).exists(), "checkout 应被删除");
+    let listing = list(&repository.path)?;
+    assert_eq!(listing.worktrees.len(), 1, "只剩主工作区");
+    Ok(())
+}
+
+#[test]
 fn create_named_reuses_existing_checkout() -> Result<()> {
     let repository = Repository::new()?;
 

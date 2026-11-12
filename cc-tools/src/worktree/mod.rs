@@ -329,10 +329,15 @@ pub fn remove(
     })?;
     // 只删工具自己创建的分支：复用路径可能返回用户手工检出的 checkout，
     // 它的分支（如 `main`）不属于本工具，不能连带删除。
+    //
+    // 分支删除失败**不能**让整个 remove 变成失败：上面的 checkout 已经删掉了，
+    // 返回 Err 会让调用方按「整体失败」处理并跳过必须做的状态复位（会话目录仍
+    // 指向已删除的路径），把一次「残留分支」升级成会话卡死。分支名可能在
+    // worktree 内被改名，此处失败是意料之中的情形。
     if let Some(branch) = branch {
         let managed = branch.strip_prefix("worktree/").is_some();
         if managed && !branch.starts_with('-') && branch.trim() == branch {
-            git_checked(
+            if let Err(error) = git_checked(
                 repo,
                 [
                     OsStr::new("branch"),
@@ -340,8 +345,14 @@ pub fn remove(
                     OsStr::new("--"),
                     OsStr::new(branch),
                 ],
-            )
-            .with_context(|| format!("Worktree removed, but cannot delete branch {branch:?}"))?;
+            ) {
+                let detail = format!("{error:#}");
+                tracing::warn!(
+                    branch,
+                    error = %detail,
+                    "worktree 已删除，但残留分支未能清理（可能是分支被改名）"
+                );
+            }
         }
     }
     Ok(())
