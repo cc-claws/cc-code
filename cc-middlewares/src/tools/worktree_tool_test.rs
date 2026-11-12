@@ -447,7 +447,7 @@ async fn test_live_read_image_uses_current_session_directory() {
     let current = directory.path().join("current");
     std::fs::create_dir(&current).unwrap();
     let handle = new_session_cwd(directory.path().to_string_lossy());
-    let tool = cc_tools::tools::ReadFileTool::new(directory.path().to_string_lossy())
+    let tool = crate::tools::ReadFileTool::new(directory.path().to_string_lossy())
         .with_session_cwd(Arc::clone(&handle));
     let image = base64::engine::general_purpose::STANDARD
         .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGIAAAACAAHlJ978AAAAAElFTkSuQmCC")
