@@ -199,7 +199,7 @@ async fn test_long_draft_keeps_growth_baseline_from_first_frame() {
             .current_mut()
             .ui
             .textarea
-            .insert_str(&["draft"; 200].join("\n"));
+            .insert_str(["draft"; 200].join("\n"));
         assert_eq!(
             required_rows(&mut app, terminal),
             baseline,

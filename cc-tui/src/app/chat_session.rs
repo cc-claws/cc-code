@@ -212,6 +212,8 @@ impl ChatSession {
         event
     }
 
+    // 与 MessageState::send_render_event 相同的大错误豁免，见彼处注释。
+    #[allow(clippy::result_large_err)]
     pub(crate) fn send_render_event(
         &self,
         event: crate::ui::render_thread::RenderEvent,

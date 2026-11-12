@@ -36,7 +36,7 @@ fn make_cursor_position(buffer: &Buffer) -> (u16, u16) {
 fn test_long_draft_cursor_stays_visible_while_moving_vertically() {
     let mut textarea = crate::app::build_textarea(false);
     textarea.insert_str(
-        &(0..200)
+        (0..200)
             .map(|row| format!("row-{row:03}"))
             .collect::<Vec<_>>()
             .join("\n"),
@@ -70,7 +70,7 @@ fn test_long_draft_cursor_stays_visible_while_moving_vertically() {
 #[test]
 fn test_long_line_cursor_stays_visible_while_scrolling_horizontally() {
     let mut textarea = crate::app::build_textarea(false);
-    textarea.insert_str(&"abcdef".repeat(30));
+    textarea.insert_str("abcdef".repeat(30));
     let end = make_input_buffer(&textarea, TextareaShellMode::None, true, true);
     assert_eq!(
         make_cursor_position(&end).0,
@@ -117,7 +117,7 @@ fn test_shell_display_prefix_and_cursor_keep_draft_intact() {
     );
     assert_eq!(textarea.cursor(), cursor, "展示不改变真实光标");
 
-    textarea.insert_str(&" argument".repeat(20));
+    textarea.insert_str(" argument".repeat(20));
     let long = make_input_buffer(&textarea, TextareaShellMode::Command, true, true);
     assert!(
         make_cursor_position(&long).0 < 24,

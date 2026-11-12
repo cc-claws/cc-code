@@ -20,6 +20,9 @@ pub struct MessageScrollbarMetrics {
     pub down_btn_area: Option<ratatui::layout::Rect>,
 }
 
+/// 未被渲染结果确认的滚轮批次：（视口锚点、消息前缀可见行数、（消息 ID、步进）列表）。
+pub type PendingRelativeScroll = (ViewportAnchor, usize, Vec<(u64, isize)>);
+
 /// UI 交互状态：纯状态核心（`cc-tui-core::UiStateCore`）+ 表现层控件与几何。
 ///
 /// 纯状态字段通过 `Deref`/`DerefMut` 委托给 `core`，全仓 `ui.scroll_offset` 等
@@ -27,7 +30,7 @@ pub struct MessageScrollbarMetrics {
 pub struct UiState {
     pub core: UiStateCore,
     /// 未被渲染结果确认的原始滚轮步骤；不能在估算坐标顶部提前丢弃。
-    pub pending_relative_scroll: Option<(ViewportAnchor, usize, Vec<(u64, isize)>)>,
+    pub pending_relative_scroll: Option<PendingRelativeScroll>,
     /// 消息之后的 spinner 等尾部占位，供相对滚动计算真实视口底边。
     pub message_suffix_rows: usize,
     pub textarea: TextArea<'static>,
