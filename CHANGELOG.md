@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.277 — 2026-11-12
+
+### Fixes
+
+- **恢复输入框 │ 细线光标（回归自 #1043，#1050）**：v0.6.276 为修复长草稿光标越界，把 `draw_bar_cursor` 的竖线光标整体替换为 tui-textarea 原生 REVERSED 反色块光标，越界修好但视觉回归——输入框竖线消失。现恢复 │ 细线绘制的完整旧行为：行内光标右移后续文本腾出 1 格（防抖动）、行首画在左侧内边距不占文本位、行尾覆盖尾部空格、闪烁灭相留空格；同时保留 v0.6.276 的滚动可见性修复——光标坐标不再自行计算（旧实现在长草稿/长行时越界丢失），改为渲染后反查 REVERSED 定位标记，借 tui-textarea 内部滚动使长草稿垂直滚动与长行水平滚动后光标仍可见，渲染后清除标记不残留反色格。改动文件：`cc-tui/src/ui/main_ui/mod.rs`（恢复 `draw_bar_cursor` / `write_cursor_cell`，定位改为反查）、`cc-tui/src/ui/main_ui/input_draft_test.rs`（光标定位断言改为竖线符号，行首断言按旧行为落左侧内边距）。验证：PR #1050 的 Linux、macOS、Windows 三平台 workspace build、tests、Clippy 全部通过，长草稿滚动、长行水平滚动、shell 前缀隐藏、闪烁灭相四组回归保留。
+
+---
+
 ## v0.6.276 — 2026-11-12
 
 ### Fixes
