@@ -4,6 +4,17 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.275 — 2026-11-12
+
+### Fixes
+
+- **进入/退出 worktree 后状态栏及时跟随目录（#1039, #1040）**：`EnterWorktree` 成功后原先要等下一次 prompt 才发送目录变化通知；运行中追加消息仍属同一轮，状态栏会一直显示主工作区分支。现向 `TransportEventSink` 注入共享会话 cwd，在工具结果与结束通知之前发送 `notifications/peri/cwd_changed`，覆盖 `ExecuteExtraTool` 包装调用，并串行去重、失败重试；TUI 清空旧 Git 缓存并替换查询器，避免旧目录的在途结果覆盖新分支。下一轮的目录提醒与指引重载保留。
+- **修复任务完成后长期停留在 Retrieving（#1039, #1040）**：跨轮工具缓存持有 worktree 工具及其 `HookRuntime`，间接保留主事件通道的 Sender；清掉原始发送端后，事件泵仍等不到 EOF，导致模型和 prompt 已完成但 TUI 收不到 Done。现由执行结束信号显式关闭接收端，完整排空已入队事件后发送唯一完成通知，正常、错误与取消共用该收尾路径；迟到事件被拒绝，避免下一轮释放旧工具时补发 Done。同步修正超时日志，避免误导为 Langfuse flush 阻塞。
+
+改动文件：`cc-acp/src/session/{event_sink,executor}.rs`、`cc-acp/src/session/acp_server/{mod,prompt}.rs`、`cc-tui/src/app/agent_ops/acp_bridge.rs` 及对应测试。新增 13 项回归，覆盖目录通知、并发去重、失败重试、保留 Sender 时的收尾、尾部事件排空和 TUI 缓存/会话过滤。验证：PR #1040 的 Linux、macOS、Windows 三平台 workspace build、tests、Clippy 全部通过。
+
+---
+
 ## v0.6.274 — 2026-11-11
 
 ### Features
