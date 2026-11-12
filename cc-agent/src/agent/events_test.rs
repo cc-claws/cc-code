@@ -318,3 +318,65 @@ fn test_system_notice_serde_roundtrip() {
         panic!("Deserialized to wrong variant");
     }
 }
+
+fn make_bg_result(task_id: &str, success: bool) -> BackgroundTaskResult {
+    BackgroundTaskResult {
+        task_id: task_id.into(),
+        agent_name: "reviewer".into(),
+        prompt_summary: String::new(),
+        success,
+        output: "结果正文".into(),
+        tool_calls_count: 2,
+        duration_ms: 1500,
+        child_thread_id: None,
+    }
+}
+
+/// 通知正文必须以前缀标记开头：这是 `cc-acp` 侧 `is_bg_result_delivered`
+/// 判重的唯一依据，二者同源才能保证已完成结果不被重复注入。
+#[test]
+fn test_notification_text_starts_with_its_prefix() {
+    for success in [true, false] {
+        let result = make_bg_result("bg-prefix-0001", success);
+        let prefix = result.notification_prefix();
+        let notification = result.to_notification();
+        assert!(
+            notification.starts_with(&prefix),
+            "success={success} 时通知正文须以前缀开头：prefix={prefix:?} notification={notification:?}"
+        );
+    }
+}
+
+/// 前缀只取 task_id 前 8 位，并保留结尾空格作为 completed/failed 的分界。
+#[test]
+fn test_notification_prefix_uses_short_id_and_trailing_space() {
+    let result = make_bg_result("0123456789abcdef", true);
+    assert_eq!(result.notification_prefix(), "[Background task 01234567 ");
+}
+
+/// 即使 task_id 短于 8 位也不得 panic（切片边界由 min 兜底）。
+#[test]
+fn test_notification_prefix_handles_short_task_id() {
+    let result = make_bg_result("abc", true);
+    assert_eq!(result.notification_prefix(), "[Background task abc ");
+}
+
+/// 成功与失败两条路径的正文措辞：结果体接在 completed 之后、错误接在 failed 之后。
+#[test]
+fn test_notification_text_distinguishes_success_and_failure() {
+    let ok_result = make_bg_result("bg-status-0002", true);
+    let ok = ok_result.to_notification();
+    assert!(ok.starts_with(&ok_result.notification_prefix()), "{ok}");
+    assert!(ok.contains("completed]"), "{ok}");
+    assert!(ok.contains("Result:\n结果正文"), "{ok}");
+
+    let failed_result = make_bg_result("bg-status-0002", false);
+    let failed = failed_result.to_notification();
+    assert!(
+        failed.starts_with(&failed_result.notification_prefix()),
+        "{failed}"
+    );
+    assert!(failed.contains("failed]"), "{failed}");
+    assert!(failed.contains("Error:\n结果正文"), "{failed}");
+    assert!(!failed.contains("Result:"), "{failed}");
+}

@@ -14,21 +14,33 @@ pub struct BackgroundTaskResult {
 }
 
 impl BackgroundTaskResult {
+    /// 通知文本的起始标记（形如 `[Background task {short_id} `）。
+    ///
+    /// [`Self::to_notification`] 与续接去重守卫（`cc-acp` 的 `is_bg_result_delivered`）
+    /// 共用这一份标记，构成跨 crate 的**单一事实来源**：两处若各写一份字面量，
+    /// 一方改了措辞、另一方会静默失配，导致已完成的后台结果被重复注入上下文。
+    ///
+    /// 用英文：这段文本属于 agent 内部上下文（不经过 TUI 的 i18n 层——Fluent 在更上层
+    /// 的 crate，分层上不可反向依赖），英文与 UI 语言解耦，避免非英文环境泄漏中文。
+    pub fn notification_prefix(&self) -> String {
+        let short_id = &self.task_id[..8.min(self.task_id.len())];
+        format!("[Background task {short_id} ")
+    }
+
     /// 格式化为注入到 LLM 消息流的通知文本。
     ///
-    /// 使用英文：这段文本属于 agent 内部上下文（不经过 TUI 的 i18n 层），
-    /// 英文与 UI 语言解耦，避免非英文环境泄漏中文。
+    /// 措辞与 [`Self::notification_prefix`] 同源，改动需保持二者一致。
     pub fn to_notification(&self) -> String {
-        let short_id = &self.task_id[..8.min(self.task_id.len())];
+        let prefix = self.notification_prefix();
         if self.success {
             format!(
-                "[Background task {} completed] Agent: {} | Tool calls: {} | Duration: {}ms\nResult:\n{}",
-                short_id, self.agent_name, self.tool_calls_count, self.duration_ms, self.output,
+                "{prefix}completed] Agent: {} | Tool calls: {} | Duration: {}ms\nResult:\n{}",
+                self.agent_name, self.tool_calls_count, self.duration_ms, self.output,
             )
         } else {
             format!(
-                "[Background task {} failed] Agent: {}\nError:\n{}",
-                short_id, self.agent_name, self.output,
+                "{prefix}failed] Agent: {}\nError:\n{}",
+                self.agent_name, self.output,
             )
         }
     }
