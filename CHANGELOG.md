@@ -4,6 +4,15 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.276 — 2026-11-12
+
+### Fixes
+
+- **跨长消息滚动不再跳位、窗口缩放残影清理、多行草稿布局稳定与 worktree 删除后工具目录跟随（#1042, #1044, #1045, #772, #1043）**：一并修复 TUI 视口与 worktree 切换中四个可复现问题。**滚动跳位**：跨未测量的长消息向上滚动时先测量实际跨过的消息再消费滚轮距离，连续输入、反向滚动和重排按 revision 确认，避免跳过内容或重复移动；未被渲染结果确认的滚轮批次随 `ViewportAnchor` 保留在 `pending_relative_scroll`，不在估算坐标顶部提前丢弃。**窗口残影**：紧凑启动后缩小、放大终端时，先清理重排到新视口之外的旧状态行再完整重绘，避免重复底栏；清理覆盖当前可见网格并保留滚动历史。**worktree 工具目录**：`ExitWorktree` 删除目录后，已有 Bash 与文件工具每次调用读取当前会话目录（`SessionCwd` 共享句柄），避免从已删除路径启动失败（Windows 错误 267）；主代理审批目录同步更新，子代理仍保留原作用域。**草稿布局**：多行草稿只借用已分配视口中的消息区，不推动 inline 视口增长；补齐输入高度上限及长草稿光标可见性，删除后恢复布局。改动文件：`cc-tui/src/app/{chat_session,message_state,thread_ops,ui_state}.rs`、`cc-tui/src/ui/render_thread{,/worker}.rs`、`cc-tui/src/ui/main_ui/{viewport_layout,message_area,mod}.rs`、`cc-terminal/src/terminal_backend/viewport.rs`、`cc-middlewares/src/tools/worktree_tool.rs`、`cc-tools/src/bash/mod.rs`、`cc-agent/src/session_cwd.rs`、`cc-tools/src/tools/filesystem/*.rs` 及对应测试与文档。新增回归覆盖滚动 revision 确认、尾部消失、极小窗口、视口去重、草稿光标可见性（输入高度函数 harness 2,113,528 组组合验证）与 worktree 目录跟随。验证：PR #1043 的 Linux、macOS、Windows 三平台 workspace build、tests、Clippy 全部通过。
+- **后台任务结果去重守卫与通知文本共用单一事实来源（#1046, #1047）**：后台任务续接的去重守卫 `is_bg_result_delivered` 原先用独立硬编码字面量判重，与 `BackgroundTaskResult::to_notification()` 生成通知文本的前缀各自维护一份；任一处改措辞都会静默失配，导致已投递结果在续接时被再次以合成 `tool_result` 注入，同一份 output 在上下文出现两次。现新增 `BackgroundTaskResult::notification_prefix()` 收敛为单一事实来源，`to_notification()` 复用它拼接（输出逐字节不变），守卫改调同一份判据；新增跨 crate 不变量测试锁死「通知必须以前缀开头」，负向验证确认测试非空转。该文本刻意不走 i18n（属 agent 内部上下文），故采用共享生成逻辑而非翻译化。改动文件：`cc-agent/src/agent/events.rs`、`cc-acp/src/session/executor.rs` 及对应测试。验证：PR #1047 的 Linux、macOS、Windows 三平台 workspace build、tests、Clippy 全部通过。
+
+---
+
 ## v0.6.275 — 2026-11-12
 
 ### Fixes
