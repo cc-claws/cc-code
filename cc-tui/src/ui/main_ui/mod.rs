@@ -68,7 +68,12 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
         },
     );
     let heights = viewport_layout::BottomHeights::measure(app, terminal_area);
-    let input_height = heights.input;
+    let others = heights.total().saturating_sub(heights.input);
+    let input_height = if heights.input == 0 {
+        0
+    } else {
+        viewport_layout::input_rows(heights.input, terminal_area.height, area.height, others)
+    };
     let queued_height = heights.queued;
     let attachment_height = heights.attachment;
     let panel_height = heights.panel;

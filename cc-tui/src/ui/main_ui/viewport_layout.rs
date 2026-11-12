@@ -10,6 +10,26 @@ use crate::{
 };
 use ratatui::layout::{Rect, Size};
 
+pub(super) const INPUT_MIN_ROWS: u16 = 3;
+const MIN_MESSAGE_ROWS: u16 = 3;
+
+/// 草稿只借用当前区域的消息行，不把实际输入高度反向计入视口增长。
+pub(super) fn input_rows(
+    preferred: u16,
+    terminal_height: u16,
+    area_height: u16,
+    others: u16,
+) -> u16 {
+    let cap = (terminal_height.saturating_mul(2) / 5).max(INPUT_MIN_ROWS);
+    let wanted = preferred.max(INPUT_MIN_ROWS).min(cap);
+    let hard_available = area_height.saturating_sub(others).saturating_sub(1);
+    let floor = INPUT_MIN_ROWS.min(hard_available);
+    let soft_available = area_height
+        .saturating_sub(others)
+        .saturating_sub(MIN_MESSAGE_ROWS);
+    wanted.min(soft_available.max(floor)).min(hard_available)
+}
+
 /// 只在目标布局就绪后提交视口计划，等待期间继续保留上一帧。
 pub fn prepare_viewport(
     app: &mut App,
@@ -94,26 +114,49 @@ impl BottomHeights {
                 background: 0,
             };
         }
+        let attachment = if app
+            .session_mgr
+            .current()
+            .metadata
+            .pending_attachments
+            .is_empty()
+        {
+            0
+        } else {
+            3
+        };
+        let panel = active_panel_height(app, terminal.height, terminal.width);
+        let queued = queued_messages::height(app);
+        let status = status_bar::status_bar_height(app);
+        let background = bg_agent_bar::bg_bar_height(app, terminal.height);
+        let others = [attachment, panel, queued, status, background]
+            .into_iter()
+            .fold(0, u16::saturating_add);
         Self {
-            attachment: if app
-                .session_mgr
-                .current()
-                .metadata
-                .pending_attachments
-                .is_empty()
-            {
-                0
-            } else {
-                3
-            },
-            panel: active_panel_height(app, terminal.height, terminal.width),
-            queued: queued_messages::height(app),
-            input: (line_count.saturating_add(2).min(u16::MAX as usize) as u16)
-                .min(terminal.height.saturating_mul(2) / 5)
-                .max(3),
-            status: status_bar::status_bar_height(app),
-            background: bg_agent_bar::bg_bar_height(app, terminal.height),
+            attachment,
+            panel,
+            queued,
+            input: input_rows(
+                line_count.saturating_add(2).min(u16::MAX as usize) as u16,
+                terminal.height,
+                terminal.height,
+                others,
+            ),
+            status,
+            background,
         }
+    }
+
+    pub(super) fn measure_for_growth(app: &App, terminal: Rect) -> Self {
+        let mut heights = Self::measure(app, terminal);
+        // 审批面板隐藏输入；普通草稿始终只贡献单行输入的基线高度。
+        if !matches!(
+            app.session_mgr.current().agent.interaction_prompt,
+            Some(crate::app::InteractionPrompt::Approval(_))
+        ) {
+            heights.input = INPUT_MIN_ROWS;
+        }
+        heights
     }
 
     pub(super) fn total(&self) -> u16 {
@@ -169,7 +212,7 @@ pub fn required_rows(app: &mut App, terminal: Rect) -> u16 {
     if app.global_ui.setup_wizard.is_some() || app.global_ui.agent_center.is_some() {
         return terminal.height;
     }
-    let bottom = BottomHeights::measure(app, terminal);
+    let bottom = BottomHeights::measure_for_growth(app, terminal);
     let content = content_rows(app, terminal.width).max(1);
     bottom
         .total()

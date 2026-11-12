@@ -106,7 +106,7 @@ async fn test_compact_idle_height_is_stable_and_input_follows_card() {
 }
 
 #[tokio::test]
-async fn test_draft_grows_without_shrinking_and_preserves_cursor() {
+async fn test_draft_borrows_message_rows_without_growing_viewport() {
     let (mut app, _) = App::new_headless(80, 40).await;
     app.global_ui.viewport = ViewportState::growing(2);
     let terminal = Rect::new(0, 0, 80, 40);
@@ -117,18 +117,94 @@ async fn test_draft_grows_without_shrinking_and_preserves_cursor() {
         .ui
         .textarea
         .insert_str("第一行\n第二行\nthird");
-    let grown = required_rows(&mut app, terminal);
-    assert_eq!(grown, first + 2);
-    app.global_ui.viewport.prepare(grown, Size::new(80, 40));
+    let multiline = required_rows(&mut app, terminal);
+    assert_eq!(multiline, first, "多行草稿不得推动视口增长");
+    let plan = app.global_ui.viewport.prepare(multiline, Size::new(80, 40));
+    let heights = BottomHeights::measure(&app, terminal);
+    let input = input_rows(
+        heights.input,
+        40,
+        plan.area.height,
+        heights.total() - heights.input,
+    );
+    assert!(input > INPUT_MIN_ROWS, "多行草稿应借用已有消息区的行");
     let cursor = app.session_mgr.current().ui.textarea.cursor();
     app.session_mgr.current_mut().ui.textarea.delete_char();
     let shorter = required_rows(&mut app, terminal);
     let plan = app.global_ui.viewport.prepare(shorter, Size::new(80, 40));
-    assert_eq!(plan.area.height, grown, "删除输入不能缩回已占用行数");
+    assert_eq!(plan.area.height, first, "删除后仍保留原始视口高度");
     assert_eq!(
         app.session_mgr.current().ui.textarea.cursor(),
         (cursor.0, cursor.1 - 1)
     );
+}
+
+#[test]
+fn test_input_rows_preserves_message_space_and_fits_tiny_areas() {
+    let others = 2;
+    assert_eq!(
+        input_rows(8, 40, others + 11, others),
+        8,
+        "保留三行消息后可借八行"
+    );
+    for area in [4, 6, 24] {
+        let input = input_rows(200, 40, area, others);
+        assert!(
+            input + others < area,
+            "区域 {area} 至少留一行消息且不得溢出"
+        );
+    }
+    assert_eq!(
+        input_rows(8, 40, 4, others),
+        1,
+        "极小区域允许输入框低于三行"
+    );
+    assert_eq!(input_rows(8, 40, 6, others), 3, "空间紧张时退回三行输入");
+    assert_eq!(
+        input_rows(8, 40, 2, others),
+        0,
+        "底栏已占满时不能继续分配输入"
+    );
+}
+
+#[tokio::test]
+async fn test_long_draft_keeps_growth_baseline_from_first_frame() {
+    for height in [16, 24, 40] {
+        let (mut app, _) = App::new_headless(80, height).await;
+        app.global_ui.viewport = ViewportState::growing(0);
+        let terminal = Rect::new(0, 0, 80, height);
+        let baseline = required_rows(&mut app, terminal);
+        app.session_mgr
+            .current_mut()
+            .ui
+            .textarea
+            .insert_str(&vec!["draft"; 200].join("\n"));
+        assert_eq!(
+            required_rows(&mut app, terminal),
+            baseline,
+            "两百行草稿与单行所需高度相同"
+        );
+        let plan = app
+            .global_ui
+            .viewport
+            .prepare(baseline, Size::new(80, height));
+        assert_eq!(plan.area.height, baseline, "首次绘制只分配基线高度");
+        assert!(!plan.enter_fullscreen, "草稿不得假性锁定全屏");
+        assert_eq!(
+            BottomHeights::measure_for_growth(&app, terminal).input,
+            INPUT_MIN_ROWS
+        );
+        app.session_mgr.current_mut().ui.textarea = crate::app::build_textarea(false);
+        let cleared = required_rows(&mut app, terminal);
+        let cleared_plan = app
+            .global_ui
+            .viewport
+            .prepare(cleared, Size::new(80, height));
+        assert_eq!(
+            cleared_plan.area.height, baseline,
+            "清空后没有草稿产生的留白"
+        );
+    }
 }
 
 #[tokio::test]
