@@ -211,6 +211,7 @@ async fn measure_windows(
                         message_index: index,
                         logical_line,
                         row_in_line: 0,
+                        relative_rows: 0,
                     }),
                     scroll_revision,
                 },
