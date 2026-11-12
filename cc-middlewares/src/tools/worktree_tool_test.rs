@@ -218,6 +218,41 @@ async fn test_enter_and_exit_worktree_round_trip() {
     assert!(!Path::new(&worktree).exists(), "remove 必须删掉 checkout");
 }
 
+#[tokio::test]
+async fn test_exit_worktree_remove_restores_directory_after_branch_rename() {
+    let directory = tempfile::tempdir().unwrap();
+    let repository = directory.path();
+    init_repo(repository);
+    let handle = new_session_cwd(repository.to_string_lossy().to_string());
+    let (enter, exit) = isolated_pair(&handle, repository);
+    enter
+        .invoke(serde_json::json!({"name": "renamed-branch"}))
+        .await
+        .expect("进入临时 worktree");
+    let worktree = PathBuf::from(session_cwd::current(&handle));
+    // 在 checkout 内把分支改名：checkout 删除后按登记旧名删分支必然失败，
+    // 但这只是残留分支，不能让 remove 失败并跳过会话目录复位。
+    let renamed = std::process::Command::new("git")
+        .args(["branch", "-m", "worktree/renamed-branch", "renamed-later"])
+        .current_dir(&worktree)
+        .output()
+        .expect("git 必须可用");
+    assert!(renamed.status.success(), "改分支名应成功");
+
+    let exited = exit
+        .invoke(serde_json::json!({"action": "remove"}))
+        .await
+        .expect("分支被改名不应让删除整体失败");
+
+    assert!(exited.contains("Removed worktree"), "unexpected: {exited}");
+    assert_eq!(
+        session_cwd::current(&handle),
+        repository.to_string_lossy().to_string(),
+        "退出后必须回到原目录，否则后续 Bash 调用会因目录不存在而失败"
+    );
+    assert!(!worktree.exists(), "checkout 应被删除");
+}
+
 fn make_live_file_tools(handle: &SessionCwd, cwd: &str) -> Vec<Box<dyn BaseTool>> {
     use crate::middleware::FilesystemMiddleware;
     use cc_agent::{agent::state::AgentState, middleware::Middleware};

@@ -465,7 +465,7 @@ impl BaseTool for ExitWorktreeTool {
                 let repo = session.original_cwd.clone();
                 let target = current.clone();
                 let branch = session.branch.clone();
-                tokio::task::spawn_blocking(move || {
+                let removal = tokio::task::spawn_blocking(move || {
                     worktree::remove(
                         Path::new(&repo),
                         Path::new(&target),
@@ -474,8 +474,22 @@ impl BaseTool for ExitWorktreeTool {
                     )
                 })
                 .await
-                .map_err(|error| tool_error(format!("Worktree task failed: {error}")))?
-                .map_err(|error| tool_error(format!("Cannot remove worktree: {error:#}")))?;
+                .map_err(|error| tool_error(format!("Worktree task failed: {error}")))?;
+
+                if let Err(error) = removal {
+                    // 目录已经不在，说明删除其实生效了（典型：残留分支清理失败）：
+                    // 此时必须照常复位会话目录，否则 cwd 会指向不存在的路径，
+                    // 之后所有 Bash 调用都无法启动。只有目录仍在时才当作真失败。
+                    if Path::new(&current).exists() {
+                        return Err(tool_error(format!("Cannot remove worktree: {error:#}")));
+                    }
+                    let detail = format!("{error:#}");
+                    tracing::warn!(
+                        worktree = %current,
+                        error = %detail,
+                        "worktree 目录已移除，忽略删除过程中的错误并复位会话目录"
+                    );
+                }
             }
         }
 
