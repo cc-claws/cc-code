@@ -156,20 +156,64 @@ impl ChatSession {
                     .scroll_anchor
                     .filter(|anchor| anchor.scroll_revision == self.ui.scroll_revision)
                     .map(|anchor| anchor.position)
-                    .or_else(|| cache.viewport_anchor_at(offset.saturating_sub(prefix)))
+                    .or_else(|| {
+                        cache.viewport_anchor_for_scroll(
+                            offset.saturating_sub(prefix),
+                            self.ui.scroll_relative,
+                        )
+                    })
             };
-        RenderEvent::WithViewport {
-            viewport: RenderViewport {
-                top: offset.saturating_sub(prefix),
-                height: area.height as usize - prefix_visible,
-                follow_tail: self.ui.scroll_follow,
-                anchor,
-                scroll_revision: self.ui.scroll_revision,
+        let viewport = RenderViewport {
+            top: offset.saturating_sub(prefix),
+            height: area.height as usize - prefix_visible,
+            trailing_rows: self.ui.message_suffix_rows,
+            follow_tail: self.ui.scroll_follow,
+            anchor,
+            scroll_revision: self.ui.scroll_revision,
+        };
+        self.with_relative_scroll(
+            viewport,
+            RenderEvent::WithViewport {
+                viewport,
+                event: Box::new(event),
             },
-            event: Box::new(event),
-        }
+        )
     }
 
+    pub(crate) fn with_relative_scroll(
+        &self,
+        viewport: crate::ui::render_thread::RenderViewport,
+        event: crate::ui::render_thread::RenderEvent,
+    ) -> crate::ui::render_thread::RenderEvent {
+        use crate::ui::render_thread::RenderEvent;
+        if self.ui.scroll_relative {
+            if let Some((base_anchor, base_prefix_visible, steps)) =
+                &self.ui.pending_relative_scroll
+            {
+                if steps
+                    .last()
+                    .is_some_and(|(revision, _)| *revision == viewport.scroll_revision)
+                {
+                    return RenderEvent::WithRelativeScroll {
+                        viewport,
+                        base_anchor: *base_anchor,
+                        prefix_rows: self.ui.message_prefix_rows,
+                        base_prefix_visible: *base_prefix_visible,
+                        full_height: self
+                            .ui
+                            .messages_area
+                            .map_or(viewport.height, |area| area.height as usize),
+                        steps: steps.clone().into(),
+                        event: Box::new(event),
+                    };
+                }
+            }
+        }
+        event
+    }
+
+    // 与 MessageState::send_render_event 相同的大错误豁免，见彼处注释。
+    #[allow(clippy::result_large_err)]
     pub(crate) fn send_render_event(
         &self,
         event: crate::ui::render_thread::RenderEvent,

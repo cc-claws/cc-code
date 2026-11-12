@@ -244,6 +244,180 @@ async fn test_bash_normal_command() {
 }
 
 #[tokio::test]
+async fn test_terminal_middleware_reads_live_session_cwd_per_invocation() {
+    let executor = make_completed_executor("ok", "", 0);
+    let cwd = session_cwd::new_session_cwd("initial-directory");
+    let middleware =
+        TerminalMiddleware::with_executor(executor.clone()).with_session_cwd(Arc::clone(&cwd));
+    let tools = middleware.build_tools("initial-directory");
+    session_cwd::switch(&cwd, "current-directory");
+
+    tools[0]
+        .invoke(serde_json::json!({"command": "echo ok"}))
+        .await
+        .expect("目录切换后仍复用同一个工具");
+
+    let requests = executor.requests.lock().await;
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].cwd, "current-directory");
+}
+
+#[tokio::test]
+async fn test_bash_without_session_cwd_preserves_configured_directory() {
+    let executor = make_completed_executor("ok", "", 0);
+    let tool = BashTool::with_executor("configured-directory", executor.clone());
+    tool.invoke(serde_json::json!({"command": "echo ok"}))
+        .await
+        .expect("未注入会话句柄时保留原行为");
+    assert_eq!(
+        executor.requests.lock().await[0].cwd,
+        "configured-directory"
+    );
+}
+
+#[tokio::test]
+async fn test_bash_missing_live_session_directory_does_not_fallback() {
+    let temporary = tempfile::tempdir().expect("创建隔离目录");
+    let missing = temporary.path().join("missing-directory");
+    let cwd = session_cwd::new_session_cwd(missing.to_string_lossy());
+    let tool = BashTool::new(temporary.path().to_string_lossy()).with_session_cwd(cwd);
+    tool.invoke(serde_json::json!({
+        "command": "printf unexpected > must-not-run",
+        "timeout": 5000
+    }))
+    .await
+    .expect_err("当前会话目录不存在时必须报错，不能偷偷回退构建目录");
+    assert!(!temporary.path().join("must-not-run").exists());
+}
+
+#[tokio::test]
+async fn test_bash_same_instances_follow_worktree_entry_and_removal() {
+    let temporary = tempfile::tempdir().expect("创建独立临时仓库");
+    let repository = temporary.path().join("repo with spaces");
+    let storage = temporary.path().join("worktrees");
+    std::fs::create_dir(&repository).expect("创建临时主目录");
+    for args in [
+        vec!["init", "-q"],
+        vec!["config", "core.hooksPath", ".git/hooks"],
+        vec![
+            "commit",
+            "--allow-empty",
+            "-m",
+            "test: initial isolated commit",
+        ],
+    ] {
+        let mut command = std::process::Command::new("git");
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x08000000);
+        }
+        let output = command
+            .current_dir(&repository)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .args([
+                "-c",
+                "user.name=Bash Cwd Test",
+                "-c",
+                "user.email=bash-cwd@example.invalid",
+                "-c",
+                "commit.gpgSign=false",
+                "-c",
+                "core.hooksPath=.git/hooks",
+            ])
+            .args(args)
+            .output()
+            .expect("Git 应能操作独立临时仓库");
+        assert!(
+            output.status.success(),
+            "临时仓库初始化失败：{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    std::fs::write(repository.join("relative.txt"), "original-directory\n")
+        .expect("创建主目录相对路径文件");
+    let cwd = session_cwd::new_session_cwd(repository.to_string_lossy());
+    let original_tool =
+        BashTool::new(repository.to_string_lossy()).with_session_cwd(Arc::clone(&cwd));
+    original_tool
+        .invoke(serde_json::json!({"command": "echo before-entry", "timeout": 5000}))
+        .await
+        .expect("进入 worktree 前工具可执行");
+
+    let worktree = crate::worktree::create_named(
+        &repository,
+        "bash-cwd-test",
+        Some("worktree/bash-cwd-test"),
+        None,
+        &storage,
+    )
+    .expect("创建独立 worktree");
+    let worktree_path = Path::new(&worktree.path);
+    std::fs::write(worktree_path.join("relative.txt"), "worktree-directory\n")
+        .expect("创建 worktree 相对路径文件");
+    // 对齐 EnterWorktree：不重建工具，仅更新同一个会话句柄。
+    session_cwd::switch(&cwd, &worktree.path);
+    let inside = original_tool
+        .invoke(serde_json::json!({
+            "command": "pwd && cat relative.txt && printf worktree-updated > relative.txt",
+            "timeout": 5000
+        }))
+        .await
+        .expect("进入后同一个工具应从 worktree 启动");
+    assert!(
+        inside.contains("worktree-directory"),
+        "相对读取应切换：{inside}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(worktree_path.join("relative.txt")).unwrap(),
+        "worktree-updated",
+        "相对写入应落在 worktree"
+    );
+    assert_eq!(
+        std::fs::read_to_string(repository.join("relative.txt")).unwrap(),
+        "original-directory\n",
+        "主目录文件不能被同轮命令误写"
+    );
+
+    let worktree_tool = BashTool::new(&worktree.path).with_session_cwd(Arc::clone(&cwd));
+    worktree_tool
+        .invoke(serde_json::json!({"command": "echo before-removal", "timeout": 5000}))
+        .await
+        .expect("在 worktree 中构建的工具先正常启动");
+    // 对齐 ExitWorktree remove：先真正删除 checkout，再切回原目录。
+    crate::worktree::remove(
+        &repository,
+        worktree_path,
+        worktree.branch.as_deref(),
+        &storage,
+    )
+    .expect("仅删除临时托管 worktree");
+    assert!(
+        !worktree_path.exists(),
+        "旧 cwd 必须真的消失才能覆盖 spawn 回归"
+    );
+    session_cwd::switch(&cwd, repository.to_string_lossy());
+    for tool in [&original_tool, &worktree_tool] {
+        let output = tool
+            .invoke(serde_json::json!({
+                "command": "pwd && echo after-removal && cat relative.txt",
+                "timeout": 5000
+            }))
+            .await
+            .expect("删除旧目录后两个既有工具都应从原目录启动");
+        assert!(
+            output.contains("after-removal"),
+            "echo 应真实执行：{output}"
+        );
+        assert!(
+            output.contains("original-directory"),
+            "退出后相对路径应恢复原目录：{output}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn test_bash_nonzero_exit_code() {
     let tool = BashTool::new(std::env::temp_dir().to_str().unwrap());
     let result = tool

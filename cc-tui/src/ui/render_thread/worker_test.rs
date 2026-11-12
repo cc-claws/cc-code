@@ -83,6 +83,7 @@ async fn test_worker_scroll_anchor_publishes_viewport_for_unchanged_width_contro
             follow_tail: false,
             anchor: None,
             scroll_revision: 1,
+            trailing_rows: 0,
         };
         let (done, completion) = tokio::sync::oneshot::channel();
         let (reply, prepared) = tokio::sync::oneshot::channel();
@@ -151,6 +152,7 @@ async fn test_worker_scroll_anchor_publishes_viewport_for_unchanged_strategy() {
             follow_tail: false,
             anchor: None,
             scroll_revision: 1,
+            trailing_rows: 0,
         },
         event: Box::new(RenderEvent::SetDetailStrategy("virtual".to_owned())),
     })
@@ -164,6 +166,7 @@ async fn test_worker_scroll_anchor_publishes_viewport_for_unchanged_strategy() {
         follow_tail: false,
         anchor: None,
         scroll_revision: 1,
+        trailing_rows: 0,
     })
     .await
     .expect("下一帧上报相同视口");
@@ -194,6 +197,7 @@ async fn test_worker_auto_promotes_anchored_rebuild_without_rendering_full_histo
         height: 8,
         follow_tail: true,
         anchor: None,
+        trailing_rows: 0,
     })
     .await
     .expect("视口应入队");
@@ -309,6 +313,7 @@ async fn test_worker_strategy_round_trip_releases_old_virtual_residents() {
         height: 3,
         follow_tail: true,
         anchor: None,
+        trailing_rows: 0,
     })
     .await
     .expect("视口应入队");
@@ -330,7 +335,10 @@ async fn test_worker_strategy_round_trip_releases_old_virtual_residents() {
             message_index: 10,
             logical_line: 0,
             row_in_line: 0,
+            relative_rows: 0,
+            after_body_rows: 0,
         }),
+        trailing_rows: 0,
     })
     .await
     .expect("中段视口应入队");
@@ -342,6 +350,7 @@ async fn test_worker_strategy_round_trip_releases_old_virtual_residents() {
         height: 3,
         follow_tail: false,
         anchor: None,
+        trailing_rows: 0,
     })
     .await
     .expect("头部视口应入队");
@@ -632,6 +641,7 @@ async fn test_worker_tick_not_starved_by_viewport_flood() {
                     height: 8,
                     follow_tail: true,
                     anchor: None,
+                    trailing_rows: 0,
                 })
                 .await
                 .is_err()

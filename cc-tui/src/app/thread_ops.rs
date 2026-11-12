@@ -2,19 +2,16 @@ use super::*;
 
 impl App {
     pub fn scroll_up(&mut self) {
-        let ui = &mut self.session_mgr.current_mut().ui;
-        let max_scroll = ui.scrollbar_max_offset;
-        let min_scroll = ui.scrollbar_min_offset.min(max_scroll);
-        let current = if ui.scroll_follow {
-            max_scroll
-        } else {
-            ui.scroll_offset.clamp(min_scroll, max_scroll)
-        };
-        ui.set_scroll_position(current.saturating_sub(3).max(min_scroll), false);
+        self.scroll_by(-3);
     }
 
     pub fn scroll_down(&mut self) {
-        let ui = &mut self.session_mgr.current_mut().ui;
+        self.scroll_by(3);
+    }
+
+    fn scroll_by(&mut self, rows: isize) {
+        let session = self.session_mgr.current_mut();
+        let ui = &mut session.ui;
         let max_scroll = ui.scrollbar_max_offset;
         let min_scroll = ui.scrollbar_min_offset.min(max_scroll);
         let current = if ui.scroll_follow {
@@ -22,8 +19,45 @@ impl App {
         } else {
             ui.scroll_offset.clamp(min_scroll, max_scroll)
         };
-        let next = current.saturating_add(3).min(max_scroll);
-        ui.set_scroll_position(next, next >= max_scroll);
+        let pending_matches = ui.scroll_relative
+            && ui
+                .pending_relative_scroll
+                .as_ref()
+                .is_some_and(|(_, _, steps)| {
+                    steps
+                        .last()
+                        .is_some_and(|(revision, _)| *revision == ui.scroll_revision)
+                });
+        if !pending_matches {
+            let cache = session.messages.render_cache.read();
+            let anchor = cache.virtual_layout.as_ref().and_then(|_| {
+                cache
+                    .scroll_anchor
+                    .filter(|anchor| anchor.scroll_revision == ui.scroll_revision)
+                    .map(|anchor| anchor.position)
+                    .or_else(|| {
+                        cache.viewport_anchor_for_scroll(
+                            current.saturating_sub(ui.message_prefix_rows),
+                            true,
+                        )
+                    })
+            });
+            ui.pending_relative_scroll = anchor.map(|anchor| {
+                (
+                    anchor,
+                    ui.message_prefix_rows.saturating_sub(current),
+                    Vec::new(),
+                )
+            });
+        }
+        let next = current
+            .saturating_add_signed(rows)
+            .clamp(min_scroll, max_scroll);
+        ui.set_relative_scroll_position(next, rows > 0 && next >= max_scroll);
+        let revision = ui.scroll_revision;
+        if let Some((_, _, steps)) = &mut ui.pending_relative_scroll {
+            steps.push((revision, rows));
+        }
     }
 
     /// 滚动到底部（恢复 follow 模式）

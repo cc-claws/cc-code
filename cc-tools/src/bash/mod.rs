@@ -1,6 +1,10 @@
 use async_trait::async_trait;
 use cc_agent::{
-    agent::state::State, middleware::r#trait::Middleware, shell::ShellExecutor, tools::BaseTool,
+    agent::state::State,
+    middleware::r#trait::Middleware,
+    session_cwd::{self, SessionCwd},
+    shell::ShellExecutor,
+    tools::BaseTool,
 };
 use serde_json::Value;
 use std::path::Path;
@@ -68,6 +72,7 @@ pub fn get_max_bash_timeout_ms() -> u64 {
 }
 pub struct BashTool {
     pub cwd: String,
+    session_cwd: Option<SessionCwd>,
     /// Shell 执行器：把命令委托给应用层（cc-tui shell 池）以支持 Ctrl+B 后台化。
     /// 默认为 [`InlineShellExecutor`]（仅前台，并发捕获 stdout/stderr），
     /// cc-tui 会注入真正的实现。
@@ -87,6 +92,7 @@ impl BashTool {
     pub fn with_executor(cwd: impl Into<String>, executor: Arc<dyn ShellExecutor>) -> Self {
         Self {
             cwd: cwd.into(),
+            session_cwd: None,
             executor,
             output_streaming: true,
         }
@@ -94,6 +100,11 @@ impl BashTool {
 
     pub fn with_output_streaming(mut self, enabled: bool) -> Self {
         self.output_streaming = enabled;
+        self
+    }
+
+    pub fn with_session_cwd(mut self, cwd: SessionCwd) -> Self {
+        self.session_cwd = Some(cwd);
         self
     }
 }
@@ -289,7 +300,8 @@ impl BaseTool for BashTool {
             original_command: user_command.clone(),
             description,
             shell: cc_agent::shell::ShellDialect::Bash,
-            cwd: self.cwd.clone(),
+            // 同一轮内的 Enter/ExitWorktree 也会切目录，不能复用构建工具时的快照。
+            cwd: session_cwd::current_or(self.session_cwd.as_ref(), &self.cwd),
             timeout_ms,
             execution_timeout_ms,
             run_in_background,
@@ -384,6 +396,7 @@ pub struct TerminalMiddleware {
     /// None 时使用默认 [`InlineShellExecutor`]（仅前台执行）。
     executor: Option<Arc<dyn ShellExecutor>>,
     output_streaming: bool,
+    session_cwd: Option<SessionCwd>,
 }
 
 impl TerminalMiddleware {
@@ -391,6 +404,7 @@ impl TerminalMiddleware {
         Self {
             executor: None,
             output_streaming: true,
+            session_cwd: None,
         }
     }
 
@@ -399,11 +413,17 @@ impl TerminalMiddleware {
         Self {
             executor: Some(executor),
             output_streaming: true,
+            session_cwd: None,
         }
     }
 
     pub fn with_output_streaming(mut self, enabled: bool) -> Self {
         self.output_streaming = enabled;
+        self
+    }
+
+    pub fn with_session_cwd(mut self, cwd: SessionCwd) -> Self {
+        self.session_cwd = Some(cwd);
         self
     }
 
@@ -413,9 +433,12 @@ impl TerminalMiddleware {
             .executor
             .clone()
             .unwrap_or_else(|| Arc::new(InlineShellExecutor));
-        vec![Box::new(
-            BashTool::with_executor(cwd, executor).with_output_streaming(self.output_streaming),
-        )]
+        let mut tool =
+            BashTool::with_executor(cwd, executor).with_output_streaming(self.output_streaming);
+        if let Some(cwd) = &self.session_cwd {
+            tool = tool.with_session_cwd(Arc::clone(cwd));
+        }
+        vec![Box::new(tool)]
     }
 
     pub fn tool_names() -> Vec<&'static str> {

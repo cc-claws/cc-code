@@ -1,23 +1,32 @@
 use async_trait::async_trait;
 use cc_agent::kernel::MutationForm;
+use cc_agent::session_cwd::SessionCwd;
 use cc_agent::{agent::state::State, middleware::r#trait::Middleware, tools::BaseTool};
+use std::sync::Arc;
 
 use crate::tools::{EditFileTool, GlobFilesTool, GrepTool, ReadFileTool, WriteFileTool};
 
 pub struct FilesystemMiddleware {
     /// Edit 的变更形态，由内核 ToolSpec.mutation_form 决定（默认 SingleReplace）。
     form: MutationForm,
+    session_cwd: Option<SessionCwd>,
 }
 
 impl FilesystemMiddleware {
     pub fn new() -> Self {
         Self {
             form: MutationForm::default(),
+            session_cwd: None,
         }
     }
 
     pub fn with_form(mut self, form: MutationForm) -> Self {
         self.form = form;
+        self
+    }
+
+    pub fn with_session_cwd(mut self, cwd: SessionCwd) -> Self {
+        self.session_cwd = Some(cwd);
         self
     }
 
@@ -45,7 +54,20 @@ impl Default for FilesystemMiddleware {
 #[async_trait]
 impl<S: State> Middleware<S> for FilesystemMiddleware {
     fn collect_tools(&self, cwd: &str) -> Vec<Box<dyn BaseTool>> {
-        Self::build_tools(cwd, self.form)
+        let Some(session_cwd) = &self.session_cwd else {
+            return Self::build_tools(cwd, self.form);
+        };
+        vec![
+            Box::new(ReadFileTool::new(cwd).with_session_cwd(Arc::clone(session_cwd))),
+            Box::new(WriteFileTool::new(cwd).with_session_cwd(Arc::clone(session_cwd))),
+            Box::new(
+                EditFileTool::new(cwd)
+                    .with_form(self.form)
+                    .with_session_cwd(Arc::clone(session_cwd)),
+            ),
+            Box::new(GlobFilesTool::new(cwd).with_session_cwd(Arc::clone(session_cwd))),
+            Box::new(GrepTool::new(cwd).with_session_cwd(Arc::clone(session_cwd))),
+        ]
     }
 
     fn name(&self) -> &str {

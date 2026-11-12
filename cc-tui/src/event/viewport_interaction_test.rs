@@ -3,7 +3,10 @@ use crate::{
     app::MessageViewModel,
     ui::{
         main_ui::message_area::render_messages,
-        render_thread::{RenderEvent, VirtualLayoutSnapshot, WrappedLineInfo},
+        render_thread::{
+            spawn_render_thread, RenderEvent, ViewportAnchor, VirtualLayoutSnapshot,
+            WrappedLineInfo,
+        },
     },
 };
 use ratatui::crossterm::event::MouseEvent;
@@ -101,6 +104,7 @@ async fn wait_for_real_viewport(
     height: usize,
     width: u16,
     previous_version: u64,
+    expected_anchor: Option<(ViewportAnchor, u64)>,
 ) {
     let session = app.session_mgr.current();
     let cache = Arc::clone(&session.messages.render_cache);
@@ -113,7 +117,16 @@ async fn wait_for_real_viewport(
                 cache.version > previous_version
                     && cache.width == width
                     && cache.virtual_layout.as_ref().is_some_and(|layout| {
-                        layout.requested_top == top && layout.requested_height == height
+                        let position_matches = expected_anchor.map_or_else(
+                            || layout.requested_top == top,
+                            |(position, revision)| {
+                                cache.scroll_anchor.is_some_and(|anchor| {
+                                    anchor.position == position
+                                        && anchor.scroll_revision == revision
+                                })
+                            },
+                        );
+                        position_matches && layout.requested_height == height
                     })
             };
             if ready {
@@ -151,7 +164,7 @@ async fn test_real_renderer_scroll_event_publishes_and_draws_requested_window() 
         .await
         .expect("启用真实虚拟渲染任务");
     sender
-        .send(RenderEvent::Rebuild(messages))
+        .send(RenderEvent::Rebuild(messages.clone()))
         .await
         .expect("发送真实用户消息");
     handle
@@ -159,7 +172,7 @@ async fn test_real_renderer_scroll_event_publishes_and_draws_requested_window() 
         .draw(|frame| render_messages(frame, &mut app, Rect::default(), frame.area()))
         .expect("首次绘制上报真实宽度和高度");
     // 初次空缓存尚无滚动条，先发布80列，再由下一帧实际布局请求79列。
-    wait_for_real_viewport(&app, 0, 10, 80, 0).await;
+    wait_for_real_viewport(&app, 0, 10, 80, 0, None).await;
     let initial_version = app
         .session_mgr
         .current()
@@ -172,7 +185,7 @@ async fn test_real_renderer_scroll_event_publishes_and_draws_requested_window() 
         .draw(|frame| render_messages(frame, &mut app, Rect::default(), frame.area()))
         .expect("绘制真实尾部窗口");
     let tail_top = app.session_mgr.current().ui.scroll_offset;
-    wait_for_real_viewport(&app, tail_top, 10, 79, initial_version).await;
+    wait_for_real_viewport(&app, tail_top, 10, 79, initial_version, None).await;
     handle
         .terminal
         .draw(|frame| render_messages(frame, &mut app, Rect::default(), frame.area()))
@@ -191,6 +204,48 @@ async fn test_real_renderer_scroll_event_publishes_and_draws_requested_window() 
         .as_ref()
         .expect("真实虚拟窗口")
         .window_start;
+    let base_anchor = {
+        let session = app.session_mgr.current();
+        session
+            .messages
+            .render_cache
+            .read()
+            .viewport_anchor_at(
+                session
+                    .ui
+                    .scroll_offset
+                    .saturating_sub(session.ui.message_prefix_rows),
+            )
+            .expect("滚轮输入前应有真实尾窗锚点")
+    };
+    // 用独立经典布局的完整实测行建立距离基准，避免把旧估算 offset 当作滚动结果。
+    let (oracle_sender, oracle_cache, _) = spawn_render_thread(79);
+    oracle_sender
+        .send(RenderEvent::SetDetailStrategy("cache".into()))
+        .await
+        .expect("使用完整实测布局校验滚轮距离");
+    oracle_sender
+        .send(RenderEvent::Rebuild(messages))
+        .await
+        .expect("渲染同一份历史作为距离基准");
+    let (reply, ready) = tokio::sync::oneshot::channel();
+    oracle_sender
+        .send(RenderEvent::ResizeAndWait(79, reply))
+        .await
+        .expect("等待实测布局");
+    tokio::time::timeout(std::time::Duration::from_secs(5), ready)
+        .await
+        .expect("实测布局应及时完成")
+        .expect("实测布局不得丢失完成信号");
+    let expected_anchor = {
+        let cache = oracle_cache.read();
+        let start = cache
+            .visual_row_for_anchor(base_anchor)
+            .expect("同一消息锚点应映射到实测布局");
+        cache
+            .viewport_anchor_at(start.saturating_sub(45 * 3))
+            .expect("上滚135行后应仍在正文内")
+    };
     for _ in 0..45 {
         handle_event(&mut app, make_mouse(MouseEventKind::ScrollUp, 10, 5))
             .await
@@ -221,7 +276,18 @@ async fn test_real_renderer_scroll_event_publishes_and_draws_requested_window() 
         handle.contains("render-message-0199"),
         "等待真实任务物化新窗时不能清空正文"
     );
-    wait_for_real_viewport(&app, requested_top, 10, 79, previous_version).await;
+    wait_for_real_viewport(
+        &app,
+        requested_top,
+        10,
+        79,
+        previous_version,
+        Some((
+            expected_anchor,
+            app.session_mgr.current().ui.scroll_revision,
+        )),
+    )
+    .await;
     handle
         .terminal
         .draw(|frame| render_messages(frame, &mut app, Rect::default(), frame.area()))

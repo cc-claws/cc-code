@@ -3,7 +3,7 @@
 //! 语义对齐参考实现的两个工具：
 //!
 //! - `EnterWorktree { name? }`：在托管目录下创建独立 worktree，并把**会话工作目录**
-//!   切过去；切换对该工具之后的轮次生效。
+//!   切过去；后续 Bash 与文件工具调用读取新目录。
 //! - `ExitWorktree { action: keep|remove, discard_changes? }`：回到进入前的目录；
 //!   `remove` 会先统计变更，有未提交内容或新提交时必须显式 `discard_changes: true`，
 //!   统计失败（`None`）一律拒绝删除（fail-closed）。
@@ -233,7 +233,7 @@ impl BaseTool for EnterWorktreeTool {
          - Must not already be inside a worktree created by this tool\n\n\
          ## Behavior\n\
          - Creates a checkout with a new branch `worktree/<name>` based on HEAD\n\
-         - Switches the session's working directory to it; the switch applies from the next turn\n\
+         - Switches the session's working directory for subsequent Bash and file tool calls\n\
          - Use ExitWorktree to leave the worktree mid-session (keep or remove)"
     }
 
@@ -290,8 +290,8 @@ impl BaseTool for EnterWorktreeTool {
                     session_cwd::switch(&self.cwd, display.clone());
                     runtime.fire_cwd_changed(&current, &display).await;
                     return Ok(format!(
-                        "Switched to hook-provided worktree\n{display}\nTool calls from the next \
-                         turn on run in that directory. Use ExitWorktree when done."
+                        "Switched to hook-provided worktree\n{display}\nSubsequent Bash and file \
+                         tool calls run in that directory. Use ExitWorktree when done."
                     ));
                 }
                 WorktreeCreateHookOutcome::NotConfigured
@@ -342,7 +342,7 @@ impl BaseTool for EnterWorktreeTool {
         Ok(format!(
             // 前两行对齐参考实现的渲染（结论行 + 路径行），第三行是给模型的
             // 生效说明——TUI 的工具结果按纯文本渲染，排版靠返回文本本身。
-            "{}\n{}\nTool calls from the next turn on run in that directory. \
+            "{}\n{}\nSubsequent Bash and file tool calls run in that directory. \
              Use ExitWorktree when done.",
             if reused {
                 format!("Reusing worktree on branch {effective_branch}")
@@ -527,6 +527,12 @@ impl WorktreeMiddleware {
 impl<S: cc_agent::agent::state::State> cc_agent::middleware::Middleware<S> for WorktreeMiddleware {
     fn name(&self) -> &str {
         "WorktreeMiddleware"
+    }
+
+    async fn before_model(&self, state: &mut S) -> cc_agent::error::AgentResult<()> {
+        // 后续 step 的审批路径与工具实际使用的会话目录保持一致，不重建工具集。
+        state.set_cwd(session_cwd::current(&self.cwd));
+        Ok(())
     }
 
     fn collect_tools(&self, _cwd: &str) -> Vec<Box<dyn BaseTool>> {

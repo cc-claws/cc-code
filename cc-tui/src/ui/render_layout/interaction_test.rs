@@ -34,6 +34,8 @@ fn test_viewport_anchor_preserves_offset_inside_wrapped_line() {
             message_index: 21,
             logical_line: 4,
             row_in_line: 2,
+            relative_rows: 0,
+            after_body_rows: 0,
         }),
         "锚点应保存消息原始逻辑行及折行内偏移"
     );
@@ -43,6 +45,24 @@ fn test_viewport_anchor_preserves_offset_inside_wrapped_line() {
         "未物化区域不能伪造锚点"
     );
     assert_eq!(cache.viewport_anchor_at(6_003), None, "右开边界不属于该行");
+}
+
+#[test]
+fn test_viewport_relative_anchor_preserves_distance_outside_materialized_window() {
+    let cache = make_window_cache();
+    for (top, row_in_line, relative_rows) in [(5_997, 0, -3), (6_006, 2, 4)] {
+        assert!(
+            cache.viewport_anchor_for_scroll(top, false).is_none(),
+            "Home 和滚动条绝对定位不能转换为相对滚动"
+        );
+        let anchor = cache
+            .viewport_anchor_for_scroll(top, true)
+            .expect("相对滚动应保留真实窗口边界");
+        assert_eq!(anchor.message_index, 21);
+        assert_eq!(anchor.logical_line, 4);
+        assert_eq!(anchor.row_in_line, row_in_line);
+        assert_eq!(anchor.relative_rows, relative_rows);
+    }
 }
 
 #[test]

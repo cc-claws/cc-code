@@ -9,6 +9,7 @@ use std::{collections::HashMap, sync::Arc};
 
 pub(super) mod estimator;
 mod interaction;
+mod scroll;
 
 pub const DETAIL_CACHE_BUDGET: usize = 16 * 1024 * 1024;
 /// auto 模式下估算总行数达到该值就切虚拟布局。
@@ -27,6 +28,10 @@ pub struct ViewportAnchor {
     pub message_index: usize,
     pub logical_line: usize,
     pub row_in_line: usize,
+    /// 正文末行之后的精确距离，保留 spinner 等尾部行中的阅读位置。
+    pub after_body_rows: usize,
+    /// 相对已物化边界的待执行位移；发布到缓存的精确锚点始终为零。
+    pub relative_rows: isize,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SelectionAnchor {
@@ -54,6 +59,7 @@ pub struct VirtualLayoutSnapshot {
     pub window_start: usize,
     pub requested_top: usize,
     pub requested_height: usize,
+    pub trailing_rows: usize,
     pub diagnostics: VirtualRenderStats,
 }
 
@@ -69,6 +75,8 @@ pub(super) struct LayoutMode {
 pub struct Viewport {
     pub top: usize,
     pub height: usize,
+    /// UI 在正文之后绘制的当前行数，随每个视口快照一起同步。
+    pub trailing_rows: usize,
     pub follow_tail: bool,
     pub anchor: Option<ViewportAnchor>,
     pub scroll_revision: u64,
@@ -78,6 +86,7 @@ impl Default for Viewport {
         Self {
             top: 0,
             height: 40,
+            trailing_rows: 0,
             follow_tail: true,
             anchor: None,
             scroll_revision: 0,
@@ -208,6 +217,10 @@ impl Default for VirtualRenderer {
 }
 
 impl VirtualRenderer {
+    pub fn current_mode(&self) -> Option<LayoutMode> {
+        self.mode
+    }
+
     pub fn clear(&mut self) {
         let next = self.history_epoch.wrapping_add(1);
         *self = Self::default();
@@ -504,6 +517,9 @@ impl VirtualRenderer {
         }
         let height = viewport.height.max(1);
         let mut anchor = viewport.anchor.filter(|a| a.message_index < messages.len());
+        if let Some(position) = anchor.filter(|a| a.relative_rows != 0) {
+            anchor = Some(self.resolve_relative_anchor(messages, position, tick));
+        }
         if !viewport.follow_tail && anchor.is_none() {
             let i = self.heights.locate(viewport.top);
             let local = viewport.top.saturating_sub(self.heights.prefix(i));
@@ -517,6 +533,8 @@ impl VirtualRenderer {
                     message_index: i,
                     logical_line: payload.origins[line],
                     row_in_line: local.saturating_sub(w.visual_row_start),
+                    after_body_rows: 0,
+                    relative_rows: 0,
                 });
             }
         }
@@ -529,7 +547,10 @@ impl VirtualRenderer {
         let mut top = 0usize;
         for _ in 0..messages.len().saturating_add(2) {
             top = if viewport.follow_tail {
-                self.heights.total().saturating_sub(height)
+                self.heights
+                    .total()
+                    .saturating_add(viewport.trailing_rows)
+                    .saturating_sub(height)
             } else if let Some(a) = anchor {
                 let p = self.payload(a.message_index, messages, tick);
                 let local = p
@@ -542,12 +563,19 @@ impl VirtualRenderer {
                             + a.row_in_line
                                 .min(w.visual_row_end.saturating_sub(w.visual_row_start + 1))
                     })
+                    + a.after_body_rows
             } else {
-                viewport
-                    .top
-                    .min(self.heights.total().saturating_sub(height))
+                viewport.top.min(
+                    self.heights
+                        .total()
+                        .saturating_add(viewport.trailing_rows)
+                        .saturating_sub(height),
+                )
             };
-            first = self.heights.locate(top);
+            // 尾部行没有消息段；仍保留正文末行，供精确尾部锚点定位。
+            first = self
+                .heights
+                .locate(top.min(self.heights.total().saturating_sub(1)));
             last = first;
             let before = self.heights.total();
             loop {
@@ -570,13 +598,38 @@ impl VirtualRenderer {
             if tail_changed {
                 self.metadata[self.tail].measured = None;
             }
-            let new_first = if viewport.follow_tail {
+            let new_top = if viewport.follow_tail {
                 self.heights
-                    .locate(self.heights.total().saturating_sub(height))
+                    .total()
+                    .saturating_add(viewport.trailing_rows)
+                    .saturating_sub(height)
             } else {
-                self.heights.locate(top)
+                top
             };
+            let new_first = self
+                .heights
+                .locate(new_top.min(self.heights.total().saturating_sub(1)));
             if !tail_changed && before == self.heights.total() && new_first == first {
+                // 先实测候选窗口，再向真实底边回走并重新物化；不能只在发布时改 top。
+                let max_top = self
+                    .heights
+                    .total()
+                    .saturating_add(viewport.trailing_rows)
+                    .saturating_sub(height);
+                if !viewport.follow_tail && top > max_top {
+                    if let Some(position) = anchor {
+                        let distance = isize::try_from(top - max_top).unwrap_or(isize::MAX);
+                        anchor = Some(self.resolve_relative_anchor(
+                            messages,
+                            ViewportAnchor {
+                                relative_rows: -distance,
+                                ..position
+                            },
+                            tick,
+                        ));
+                        continue;
+                    }
+                }
                 break;
             }
             tokio::task::yield_now().await;
@@ -605,7 +658,12 @@ impl VirtualRenderer {
         }
         self.evict(&pinned);
         output.total_lines = self.heights.total();
-        let resolved_top = top.min(output.total_lines.saturating_sub(height));
+        let resolved_top = top.min(
+            output
+                .total_lines
+                .saturating_add(viewport.trailing_rows)
+                .saturating_sub(height),
+        );
         // 兼容字段仅含窗口局部下标，所有全局定位必须使用 snapshot 的视觉前缀。
         if self.offsets_dirty {
             let mut offset = 0usize;
@@ -625,6 +683,7 @@ impl VirtualRenderer {
         output.virtual_layout = Some(Arc::new(VirtualLayoutSnapshot {
             requested_top: viewport.top,
             requested_height: viewport.height,
+            trailing_rows: viewport.trailing_rows,
             message_visual_offsets: Arc::clone(&self.offset_snapshot),
             line_origins: origins,
             message_versions: Arc::clone(&self.version_snapshot),
@@ -650,6 +709,8 @@ impl VirtualRenderer {
                     position,
                     visual_row: resolved_top,
                     scroll_revision: viewport.scroll_revision,
+                    follow_tail: viewport.follow_tail,
+                    prefix_visible: 0,
                 });
         output
     }

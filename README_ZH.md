@@ -90,7 +90,7 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **ACP 协议** | 接入 Zed 等 IDE，也支持自建 "Cloud Code" 平台 |
 | **Auto Compact** | 长会话自动压缩，保持响应快且省 token |
 | **Sub-Agent 并发** | 后台子 agent 并行执行，支持 fork 和 background 模式 |
-| **Git Worktree** | `--worktree` 在隔离 checkout 中启动会话，`EnterWorktree` / `ExitWorktree` 让 Agent 进出独立工作目录，子 Agent 可用 `isolation: "worktree"` 隔离 —— 会话工作目录随之切换 |
+| **Git Worktree** | `--worktree` 在隔离 checkout 中启动会话，`EnterWorktree` / `ExitWorktree` 让 Agent 进出独立工作目录，后续 shell 与文件工具调用立即使用新目录；子 Agent 可用 `isolation: "worktree"` 获得独立 checkout |
 | **HITL 审批** | 敏感操作由 JEV 语义门拦截 —— 独立 LLM 判定，只在判不准时才弹窗 |
 | **双引擎文件搜索** | Grep/Glob 优先使用外部 ripgrep 二进制，回退到内置 Rust 引擎 |
 

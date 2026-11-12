@@ -1,3 +1,4 @@
+use cc_agent::session_cwd::{self, SessionCwd};
 use cc_agent::tools::BaseTool;
 use serde_json::Value;
 use std::{
@@ -19,11 +20,20 @@ use ignore::WalkBuilder;
 /// Grep tool - 与 CC Grep 工具对齐
 pub struct GrepTool {
     pub cwd: String,
+    session_cwd: Option<SessionCwd>,
 }
 
 impl GrepTool {
     pub fn new(cwd: impl Into<String>) -> Self {
-        Self { cwd: cwd.into() }
+        Self {
+            cwd: cwd.into(),
+            session_cwd: None,
+        }
+    }
+
+    pub fn with_session_cwd(mut self, cwd: SessionCwd) -> Self {
+        self.session_cwd = Some(cwd);
+        self
     }
 }
 
@@ -582,7 +592,7 @@ impl BaseTool for GrepTool {
 
         let head_limit = grep_input.head_limit;
         let offset = grep_input.offset.unwrap_or(0);
-        let cwd = self.cwd.clone();
+        let cwd = session_cwd::current_or(self.session_cwd.as_ref(), &self.cwd);
 
         // 优先尝试 rg CLI 引擎
         if let Some(rg_path) = super::rg_engine::resolve_rg() {

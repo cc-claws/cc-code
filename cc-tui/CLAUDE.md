@@ -42,6 +42,8 @@ TUI 输入 → AcpTuiClient.new_session() / .prompt()
 
 交互模式先在正常屏中使用固定区域视口，从 shell 当前输出下方显示紧凑欢迎卡；`cc-terminal/src/terminal_backend/viewport.rs` 的 `ViewportState` 记录真实起点、已占用行数与全屏锁定状态。首帧靠近底部时仅滚动必要行数；正常屏只绘制和清理应用拥有的区域，不能逐帧全屏 Clear。
 
+宿主尺寸变化会物理重排旧帧，残留可能落在新视口上下两侧；重排帧须逐行清理当前可见网格再整帧重绘，不能仅清理视口上方或内部。清理不能追加换行或清除 scrollback；正常帧仍只处理应用视口。
+
 内容超过既有占用高度时向下扩展；每次下方空间不足都原生滚动必要行数并上移 `origin_row`，只有 `max(required_rows, allocated_rows)` 达到整个宿主高度才锁定全屏，不能按起点以下的 `available_rows` 提前切换。全屏锁定是本次终端运行级状态，不写会话，不因折叠、`/clear`、恢复历史或切换子视口解除。全屏消息滚动由 TUI 自渲染滚动条接管，`base_visual` 恒为 0。切换前先等待目标宽度重排，再同步输出切屏、resize 与首帧，并合并重复清屏。
 
 **[TRAP]** 外部编辑器挂起（`panel_memory.rs`）需要关闭鼠标捕获、记录当前终端模式；返回后恢复原模式与应用区域。正常屏编辑时不能无条件 `EnterAlternateScreen`，编辑器临时全屏也不能锁定应用全屏。
@@ -60,7 +62,7 @@ TUI 输入 → AcpTuiClient.new_session() / .prompt()
 
 渲染模式事件拥塞时按类型只保留最新值（最多五种），后续轮询先重试模式，再重试内容快照；成功发送新值或通道关闭时必须丢弃同类型旧值。hook 显隐与其他布局模式一样推进 layout epoch。
 
-历史阅读位置使用消息索引、渲染逻辑行和行内偏移组成的锚点，经典缓存与虚拟窗口共用同一语义。用户滚动、拖动和切换视口递增 scroll revision，异步结果只能恢复同版本位置；连续重建应沿用尚未消费的语义锚点。模式和宽度重排命令须原子携带当前视口，不能等下一帧才同步用户滚动。worker 仅在缓存发布成功后确认视口；同宽准备、同值策略仍须兑现待发布窗口，完成回复不能早于发布。内容收缩、重排、命令完成与后台续接只钳位当前位置，不能恢复自动跟随；主动滚到底或提交新消息才恢复跟随。保留的内容快照和模式更新必须先入队，再准备宽度，避免按旧视图高度钳位新视图。切视图首帧不采旧缓存锚点；Markdown 自身预折行尚无文本来源映射，跨宽度仅按渲染行恢复，不能保证同一字位置。
+历史阅读位置使用消息索引、渲染逻辑行和行内偏移组成的锚点，经典缓存与虚拟窗口共用同一语义。用户滚动、拖动和切换视口递增 scroll revision，异步结果只能恢复同版本位置；连续重建应沿用尚未消费的语义锚点。模式和宽度重排命令须原子携带当前视口，不能等下一帧才同步用户滚动。滚轮保留有序相对步骤，跨消息先实测实际行高再消费距离；worker 按 revision 去重，欢迎前缀和尾部占位参与真实边界钳位，Home/End/拖动仍为绝对定位。worker 仅在缓存发布成功后确认视口；同宽准备、同值策略仍须兑现待发布窗口，完成回复不能早于发布。内容收缩、重排、命令完成与后台续接只钳位当前位置，不能恢复自动跟随；主动滚到底或提交新消息才恢复跟随。保留的内容快照和模式更新必须先入队，再准备宽度，避免按旧视图高度钳位新视图。切视图首帧不采旧缓存锚点；Markdown 自身预折行尚无文本来源映射，跨宽度仅按渲染行恢复，不能保证同一字位置。
 
 **[TRAP]** Ephemeral VM（SystemNote/CacheWarning）依赖锚点机制：`ephemeral_notes: Vec<(usize, MessageViewModel)>` 记录插入时的 `view_messages.len()` 作为位置索引（非 MessageId）。RebuildAll 时通过 `(anchor - prefix_len).min(tail_len) + prefix_len` 计算插入位置。`retain()` 路径通过 `anchor >= prefix_len` 过滤过期锚点。新增 ephemeral VM 类型必须同步更新过滤逻辑。（详见 spec/global/domains/message-pipeline.md#issue_2026-05-12-systemnote-position-drift-on-rebuild）
 
@@ -76,7 +78,7 @@ TUI 输入 → AcpTuiClient.new_session() / .prompt()
 
 ## 主布局
 
-单 Session 垂直切分（Sticky Header → Messages → Attachment Bar → Panel Area → Input → Status Bar → BG Agent Bar）。`ui/main_ui/viewport_layout.rs` 共用底部高度测量与内容所需行数：Status Bar 空闲 2 行、有活动 3 行；Input 最少 3 行、上限为宿主终端高度的 40%；面板按宿主尺寸计算。增长阶段底部区域紧随内容，全屏阶段固定到底部。宽度变化先等待 RenderCache 重排再判断全屏，不能把上一帧剩余留白计入新增内容。
+单 Session 垂直切分（Sticky Header → Messages → Attachment Bar → Panel Area → Input → Status Bar → BG Agent Bar）。`ui/main_ui/viewport_layout.rs` 共用底部高度测量与内容所需行数：Status Bar 空闲 2 行、有活动 3 行；Input 含边框 3～8 行，上限 `clamp(宿主终端高度 / 3, 3, 8)`，极小区域按剩余空间降级；面板按宿主尺寸计算。增长判定只计输入基线 3 行，草稿只借已分配消息区行数，不推动视口增长；实际布局与消息排版使用真实输入高度。所有输入重建由 `build_textarea` 重放 min/max rows 与禁用软换行配置；原生反色光标与内部滚动共用坐标，长行继续水平滚动。增长阶段底部区域紧随内容，全屏阶段固定到底部。宽度变化先等待 RenderCache 重排再判断全屏，不能把上一帧剩余留白计入新增内容。
 
 ### 界面组件
 

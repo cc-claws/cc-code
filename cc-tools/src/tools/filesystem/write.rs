@@ -1,3 +1,4 @@
+use cc_agent::session_cwd::{self, SessionCwd};
 use cc_agent::tools::{BaseTool, FileSnapshot};
 use serde_json::Value;
 use std::time::Duration;
@@ -17,11 +18,20 @@ Usage:
 /// Write tool - 与 TypeScript write_tool 对齐
 pub struct WriteFileTool {
     pub cwd: String,
+    session_cwd: Option<SessionCwd>,
 }
 
 impl WriteFileTool {
     pub fn new(cwd: impl Into<String>) -> Self {
-        Self { cwd: cwd.into() }
+        Self {
+            cwd: cwd.into(),
+            session_cwd: None,
+        }
+    }
+
+    pub fn with_session_cwd(mut self, cwd: SessionCwd) -> Self {
+        self.session_cwd = Some(cwd);
+        self
     }
 }
 
@@ -42,7 +52,8 @@ impl BaseTool for WriteFileTool {
             .get("file_path")?
             .as_str()
             .filter(|path| !path.is_empty())?;
-        let path = resolve_path(&self.cwd, file_path);
+        let cwd = session_cwd::current_or(self.session_cwd.as_ref(), &self.cwd);
+        let path = resolve_path(&cwd, file_path);
         let old_content = std::fs::metadata(&path)
             .ok()
             .filter(|meta| meta.is_file() && meta.len() <= MAX_SNAPSHOT_BYTES)
@@ -91,9 +102,10 @@ impl BaseTool for WriteFileTool {
             .ok_or("The 'content' parameter is required for the Write tool.")?;
 
         let append = input["append"].as_bool().unwrap_or(false);
+        let cwd = session_cwd::current_or(self.session_cwd.as_ref(), &self.cwd);
 
         let result = tokio::time::timeout(Duration::from_secs(120), async {
-            let resolved = resolve_path(&self.cwd, file_path);
+            let resolved = resolve_path(&cwd, file_path);
             let line_count = content.lines().count();
 
             if let Some(parent) = resolved.parent() {
@@ -117,7 +129,7 @@ impl BaseTool for WriteFileTool {
                     .map(|s| s.lines().count())
                     .unwrap_or(line_count);
 
-                let rel = super::display_rel_path(&self.cwd, &resolved);
+                let rel = super::display_rel_path(&cwd, &resolved);
                 let lines_label = if line_count == 1 { "line" } else { "lines" };
                 Ok::<String, Box<dyn std::error::Error + Send + Sync>>(format!(
                     "Appended {} {} to {} (file total: {} lines)",
@@ -133,7 +145,7 @@ impl BaseTool for WriteFileTool {
                 }
                 match std::fs::rename(&tmp_path, &resolved) {
                     Ok(_) => {
-                        let rel = super::display_rel_path(&self.cwd, &resolved);
+                        let rel = super::display_rel_path(&cwd, &resolved);
                         let lines_label = if line_count == 1 { "line" } else { "lines" };
                         Ok(format!("Wrote {} {} {}", line_count, lines_label, rel))
                     }

@@ -143,6 +143,7 @@ async fn measure_case(count: usize) -> Value {
         follow_tail: true,
         anchor: None,
         scroll_revision: 0,
+        trailing_rows: 0,
     })
     .await
     .expect("设置视口失败");
@@ -211,8 +212,11 @@ async fn measure_windows(
                         message_index: index,
                         logical_line,
                         row_in_line: 0,
+                        relative_rows: 0,
+                        after_body_rows: 0,
                     }),
                     scroll_revision,
+                    trailing_rows: 0,
                 },
             )
             .await;

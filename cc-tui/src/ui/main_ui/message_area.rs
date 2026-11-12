@@ -192,6 +192,8 @@ pub(crate) fn render_messages(
     app.session_mgr.current_mut().ui.messages_area = Some(text_area);
     let prefix_rows = welcome_rows(app, text_area.width);
     app.session_mgr.current_mut().ui.message_prefix_rows = prefix_rows;
+    app.session_mgr.current_mut().ui.message_suffix_rows =
+        visual_line_count(&tail, text_area.width);
 
     // 渲染驱动宽度同步：用 last_resize_width 去抖——宽度未变时跳过重复发送，
     // 避免每秒 N 次 resize 事件导致渲染线程队列积压和 CPU 暴涨
@@ -226,16 +228,22 @@ pub(crate) fn render_messages(
         let max_scroll = visual_total
             .saturating_sub(visible_height as usize)
             .max(min_scroll);
-        let scroll_follow = app.session_mgr.current().ui.scroll_follow;
+        let mut scroll_follow = app.session_mgr.current().ui.scroll_follow;
         let scroll_offset = app.session_mgr.current().ui.scroll_offset;
         let scroll_revision = app.session_mgr.current().ui.scroll_revision;
         // 切视图后的首帧尚未上报当前位置，缓存可能仍按旧视图的欢迎前缀计算。
         let view_presented = app.session_mgr.current().messages.last_viewport.is_some();
-        let scroll_anchor = cache.scroll_anchor.take().filter(|anchor| {
+        let acknowledged = cache.scroll_anchor.take().filter(|anchor| {
             view_presented
-                && anchor.scroll_revision == scroll_revision
+                && anchor.scroll_revision <= scroll_revision
                 && (cache.virtual_layout.is_none() || cache.width == text_area.width)
         });
+        let scroll_anchor = acknowledged.filter(|anchor| anchor.scroll_revision == scroll_revision);
+        let relative_resolved =
+            scroll_anchor.is_some() && app.session_mgr.current().ui.scroll_relative;
+        if relative_resolved {
+            scroll_follow = scroll_anchor.is_some_and(|anchor| anchor.follow_tail);
+        }
         let dragging = app.session_mgr.current().ui.message_scrollbar_dragging;
         let (new_follow, off) = if dragging {
             // dragging 期间跳过 follow/anchor 优先级，强制使用用户拖拽的 offset
@@ -243,6 +251,14 @@ pub(crate) fn render_messages(
             (scroll_follow, off)
         } else if scroll_follow {
             (true, max_scroll)
+        } else if relative_resolved {
+            let anchor = scroll_anchor.expect("相对步骤已确认");
+            let off = if anchor.prefix_visible > 0 {
+                prefix_rows.saturating_sub(anchor.prefix_visible)
+            } else {
+                anchor.visual_row.saturating_add(prefix_rows)
+            };
+            (false, off.clamp(min_scroll, max_scroll))
         } else if scroll_offset < prefix_rows {
             // 消息锚点不包含欢迎卡；浏览前缀时重建不能把用户推到消息起点。
             let off = scroll_offset.min(max_scroll);
@@ -261,7 +277,10 @@ pub(crate) fn render_messages(
 
         let version = cache.version;
         // 与本帧滚动位置从同一缓存取样，不能在 worker 发布下一布局后重新解释旧 off。
-        let viewport_anchor = cache.viewport_anchor_at(off.saturating_sub(prefix_rows));
+        let viewport_anchor = cache.viewport_anchor_for_scroll(
+            off.saturating_sub(prefix_rows),
+            app.session_mgr.current().ui.scroll_relative,
+        );
         drop(cache);
 
         app.session_mgr.current_mut().messages.last_render_version = version;
@@ -269,6 +288,25 @@ pub(crate) fn render_messages(
         app.session_mgr.current_mut().ui.scroll_offset = off;
         app.session_mgr.current_mut().ui.scrollbar_min_offset = min_scroll;
         app.session_mgr.current_mut().ui.scrollbar_max_offset = max_scroll;
+        if let Some(acknowledged) = acknowledged {
+            let ui = &mut app.session_mgr.current_mut().ui;
+            if let Some((base, prefix_visible, steps)) = &mut ui.pending_relative_scroll {
+                if steps
+                    .first()
+                    .is_some_and(|(revision, _)| *revision <= acknowledged.scroll_revision)
+                {
+                    steps.retain(|(revision, _)| *revision > acknowledged.scroll_revision);
+                    *base = acknowledged.position;
+                    *prefix_visible = acknowledged.prefix_visible;
+                    if steps.is_empty() {
+                        ui.pending_relative_scroll = None;
+                        ui.scroll_relative = false;
+                    }
+                }
+            } else if relative_resolved {
+                ui.scroll_relative = false;
+            }
+        }
 
         (min_scroll, max_scroll, off, viewport_anchor)
     };
@@ -292,19 +330,29 @@ pub(crate) fn render_messages(
             text_area.width,
             anchor,
             session.ui.scroll_revision,
+            session.ui.message_suffix_rows,
+        );
+        let viewport = crate::ui::render_thread::RenderViewport {
+            top: top_msg,
+            height: body_height,
+            trailing_rows: session.ui.message_suffix_rows,
+            follow_tail: session.ui.scroll_follow,
+            anchor,
+            scroll_revision: session.ui.scroll_revision,
+        };
+        let event = session.with_relative_scroll(
+            viewport,
+            RenderEvent::Viewport {
+                top: top_msg,
+                height: body_height,
+                trailing_rows: session.ui.message_suffix_rows,
+                follow_tail: session.ui.scroll_follow,
+                anchor,
+                scroll_revision: session.ui.scroll_revision,
+            },
         );
         if session.messages.last_viewport != Some(request)
-            && session
-                .messages
-                .render_tx
-                .try_send(RenderEvent::Viewport {
-                    top: top_msg,
-                    height: body_height,
-                    follow_tail: session.ui.scroll_follow,
-                    anchor,
-                    scroll_revision: session.ui.scroll_revision,
-                })
-                .is_ok()
+            && session.messages.render_tx.try_send(event).is_ok()
         {
             session.messages.last_viewport = Some(request);
         }

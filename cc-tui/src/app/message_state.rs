@@ -67,7 +67,7 @@ pub enum QueuedMessageAction {
 
 pub(crate) type SteeringResult = (uuid::Uuid, Result<(), String>);
 
-pub type RenderViewportRequest = (usize, usize, bool, u16, Option<ViewportAnchor>, u64);
+pub type RenderViewportRequest = (usize, usize, bool, u16, Option<ViewportAnchor>, u64, usize);
 
 /// 消息状态：会话级的消息管线、渲染通道、消息列表。
 pub struct MessageState {
@@ -148,6 +148,9 @@ impl MessageState {
     }
 
     /// 所有内容/模式变更共用此入口；发送失败不把新布局标记为已入队。
+    // RenderEvent 是渲染线程的大枚举（≥184B），TrySendError 需携带失败事件供
+    // 调用方回收重排；Box 化会波及十余个调用点，故豁免。
+    #[allow(clippy::result_large_err)]
     pub(crate) fn send_render_event(
         &self,
         event: RenderEvent,

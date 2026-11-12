@@ -1,3 +1,4 @@
+use cc_agent::session_cwd::{self, SessionCwd};
 use cc_agent::tools::BaseTool;
 use serde_json::Value;
 use std::cmp::Reverse;
@@ -11,11 +12,20 @@ use crate::tools::output_persist::persist_truncated_output;
 /// Glob tool - 与 TypeScript glob_tool 对齐
 pub struct GlobFilesTool {
     pub cwd: String,
+    session_cwd: Option<SessionCwd>,
 }
 
 impl GlobFilesTool {
     pub fn new(cwd: impl Into<String>) -> Self {
-        Self { cwd: cwd.into() }
+        Self {
+            cwd: cwd.into(),
+            session_cwd: None,
+        }
+    }
+
+    pub fn with_session_cwd(mut self, cwd: SessionCwd) -> Self {
+        self.session_cwd = Some(cwd);
+        self
     }
 }
 
@@ -214,10 +224,11 @@ impl BaseTool for GlobFilesTool {
             .as_str()
             .ok_or("The 'pattern' parameter is required for the Glob tool.")?;
 
+        let cwd = session_cwd::current_or(self.session_cwd.as_ref(), &self.cwd);
         let search_root = if let Some(p) = input["path"].as_str() {
-            resolve_path(&self.cwd, p)
+            resolve_path(&cwd, p)
         } else {
-            Path::new(&self.cwd).to_path_buf()
+            Path::new(&cwd).to_path_buf()
         };
 
         if !search_root.exists() {
@@ -230,7 +241,7 @@ impl BaseTool for GlobFilesTool {
                 rg_path,
                 pattern,
                 &search_root,
-                &self.cwd,
+                &cwd,
                 MAX_RESULTS,
             )
             .await
@@ -249,7 +260,7 @@ impl BaseTool for GlobFilesTool {
         // 移到 spawn_blocking 避免阻塞 tokio 工作线程，外层加超时兜底
         let pattern_owned = pattern.to_string();
         let search_root_owned = search_root.clone();
-        let cwd_owned = self.cwd.clone();
+        let cwd_owned = cwd;
 
         let result = tokio::time::timeout(
             Duration::from_secs(GLOB_TIMEOUT_SECS),
