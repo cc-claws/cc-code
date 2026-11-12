@@ -452,8 +452,9 @@ impl App {
             return (false, false, false);
         }
         self.services.agent_cwd = next;
-        // 目录变了，缓存里的分支属于旧目录：要求下一帧立即重新探测。
-        self.services.git_branch_poller.get_mut().invalidate();
+        // 旧目录的缓存和在途查询都不能复用，否则稍后返回的 main 会覆盖新分支。
+        self.services.git_branch_cache.get_mut().set_status(None);
+        *self.services.git_branch_poller.get_mut() = service_registry::GitBranchPoller::new();
         (true, false, false)
     }
 }

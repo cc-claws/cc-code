@@ -9,6 +9,83 @@
 use crate::acp_client::AcpNotification;
 use crate::app::App;
 
+#[tokio::test]
+async fn test_cwd_changed_discards_old_git_cache_and_inflight_query() {
+    let (mut app, _handle) = App::new_headless(100, 30).await;
+    app.session_mgr.current_mut().current_thread_id = Some("worktree-session".into());
+    app.session_mgr.current_mut().ui.loading = true;
+    let original_cwd = app.services.cwd.clone();
+    let worktree_cwd = format!("{original_cwd}/.claude/worktrees/status-test");
+    app.services.git_branch_cache.lock().set_status(Some(
+        crate::app::service_registry::GitBranchStatus {
+            branch: "main".into(),
+            dirty: true,
+        },
+    ));
+    let old_query = app.services.git_branch_poller.get_mut().begin();
+    let result = app.handle_acp_notification(AcpNotification::Peri {
+        session_id: "worktree-session".into(),
+        method: "notifications/peri/cwd_changed".into(),
+        params: serde_json::json!({"newCwd": worktree_cwd}),
+    });
+    assert_eq!(result, (true, false, false));
+    assert_eq!(
+        app.services.agent_cwd.as_deref(),
+        Some(worktree_cwd.as_str())
+    );
+    assert_eq!(app.services.cwd, original_cwd);
+    assert!(app.services.git_branch_cache.lock().get_cached().is_none());
+    assert!(old_query.send(None).is_err(), "旧目录的在途探测必须被丢弃");
+    assert!(app.services.git_branch_poller.get_mut().due());
+}
+
+#[tokio::test]
+async fn test_cwd_changed_restores_original_directory_and_filters_other_sessions() {
+    let (mut app, _handle) = App::new_headless(100, 30).await;
+    app.session_mgr.current_mut().current_thread_id = Some("worktree-session".into());
+    let original_cwd = app.services.cwd.clone();
+    let worktree_cwd = format!("{original_cwd}/.claude/worktrees/status-test");
+    app.handle_acp_notification(AcpNotification::Peri {
+        session_id: "worktree-session".into(),
+        method: "notifications/peri/cwd_changed".into(),
+        params: serde_json::json!({"newCwd": worktree_cwd}),
+    });
+    assert_eq!(
+        app.handle_acp_notification(AcpNotification::Peri {
+            session_id: "another-session".into(),
+            method: "notifications/peri/cwd_changed".into(),
+            params: serde_json::json!({"newCwd": original_cwd}),
+        }),
+        (false, false, false)
+    );
+    assert_eq!(
+        app.services.agent_cwd.as_deref(),
+        Some(worktree_cwd.as_str())
+    );
+    assert_eq!(
+        app.handle_acp_notification(AcpNotification::Peri {
+            session_id: "worktree-session".into(),
+            method: "notifications/peri/cwd_changed".into(),
+            params: serde_json::json!({"newCwd": original_cwd}),
+        }),
+        (true, false, false)
+    );
+    assert!(app.services.agent_cwd.is_none());
+    assert!(app.services.git_branch_poller.get_mut().due());
+}
+
+#[tokio::test]
+async fn test_cwd_changed_duplicate_keeps_current_git_query() {
+    let (mut app, _handle) = App::new_headless(100, 30).await;
+    let worktree_cwd = format!("{}/.claude/worktrees/status-test", app.services.cwd);
+    let params = serde_json::json!({"newCwd": worktree_cwd});
+    app.handle_cwd_changed(&params);
+    let query = app.services.git_branch_poller.get_mut().begin();
+    assert_eq!(app.handle_cwd_changed(&params), (false, false, false));
+    assert!(query.send(None).is_ok(), "重复通知不得丢弃新目录的探测");
+    assert!(!app.services.git_branch_poller.get_mut().due());
+}
+
 fn make_tool_phase(app: &App, id: &str) -> crate::ui::message_view::ToolPhase {
     app.session_mgr
         .current()
