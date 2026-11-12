@@ -382,7 +382,16 @@ function Main {
     # Extract
     step "Extracting..."
     try {
-        Expand-Archive -Path $ZipPath -DestinationPath $VersionDir -Force
+        # Expand-Archive 的 -Force（覆盖已存在目录）在 Windows PowerShell 5.1 上不可用：
+        # 它内部调用 .NET 的三参数 ExtractToDirectory(path, dest, overwrite)，而 5.1 的
+        # .NET Framework 4.8 只提供 (path, dest) 与 (path, dest, encoding) 两个重载，
+        # 调用即抛「找不到 ExtractToDirectory 的重载，参数计数为"3"」。覆盖语义因此
+        # 只能由前面的 Remove-Item 保证，这里直接调用两参数重载。
+        if (Test-Path -LiteralPath $VersionDir) {
+            Remove-Item -LiteralPath $VersionDir -Recurse -Force -ErrorAction Stop
+        }
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($ZipPath, $VersionDir)
     } catch {
         error "Extraction failed: $_"
         exit 1
