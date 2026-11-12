@@ -60,6 +60,63 @@ async fn make_history() -> (App, HeadlessHandle) {
 }
 
 #[tokio::test]
+async fn test_scroll_anchor_wheel_crosses_unmeasured_long_message_from_its_end() {
+    let (mut app, mut handle) = App::new_headless(80, 30).await;
+    app.global_ui.viewport.startup_welcome = false;
+    app.global_ui.viewport.fullscreen_latched = true;
+    let mut messages: Vec<_> = (0..298)
+        .map(|index| MessageViewModel::user(format!("历史消息 {index}")))
+        .collect();
+    // 消息区为 79 列，减去气泡前缀后为 77 列；两条消息分别有 100、52 行正文。
+    messages.push(MessageViewModel::user("a".repeat(7_700)));
+    messages.push(MessageViewModel::user("b".repeat(4_004)));
+    app.session_mgr.current_mut().messages.view_messages = messages;
+    app.render_rebuild();
+    let sender = app.session_mgr.current().messages.render_tx.clone();
+    make_render_barrier(&sender).await;
+    make_draw(&mut app, &mut handle);
+    let next_message_start = {
+        let cache = app.session_mgr.current().messages.render_cache.read();
+        let layout = cache
+            .virtual_layout
+            .as_ref()
+            .expect("300 条消息应自动启用虚拟布局");
+        assert!(
+            layout.diagnostics.estimated_segments >= 299,
+            "尾部窗口不能提前实测前面的长消息"
+        );
+        layout.message_visual_offsets[299]
+    };
+    app.session_mgr
+        .current_mut()
+        .ui
+        .set_scroll_position(next_message_start, false);
+    make_draw(&mut app, &mut handle);
+    make_render_barrier(&sender).await;
+    make_draw(&mut app, &mut handle);
+    assert_eq!(
+        app.session_mgr.current().ui.scroll_offset,
+        next_message_start,
+        "先定位到下一条消息的首行"
+    );
+    app.scroll_up();
+    make_draw(&mut app, &mut handle);
+    make_render_barrier(&sender).await;
+    make_draw(&mut app, &mut handle);
+    let ui = &app.session_mgr.current().ui;
+    let cache = app.session_mgr.current().messages.render_cache.read();
+    let anchor = cache
+        .viewport_anchor_at(ui.scroll_offset)
+        .expect("上滚后应有真实内容锚点");
+    assert_eq!(anchor.message_index, 298, "应进入上一条长消息");
+    assert_eq!(
+        anchor.logical_line, 98,
+        "上滚三行应落在上一条消息末尾，不能跳到开头并漏过 98 行"
+    );
+    assert!(!ui.scroll_follow, "上滚后应保持阅读历史");
+}
+
+#[tokio::test]
 async fn test_scroll_anchor_rebuild_preserves_position_inside_long_history() {
     let (mut app, mut handle) = make_history().await;
     let original = app.session_mgr.current().ui.scroll_offset;
