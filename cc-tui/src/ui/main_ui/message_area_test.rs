@@ -482,6 +482,51 @@ fn test_handle_error_retains_failed_summary_in_visible_tail() {
     );
 }
 
+/// 回归：报错后 executor 仍补发 `Done`（Error → Done 固定顺序），
+/// `handle_done` 会再走一次 `cleanup_agent_state`，此前会把刚写入的失败总结行清掉。
+#[test]
+fn test_handle_error_then_done_retains_failed_summary() {
+    let mut app = make_app();
+    app.set_loading(true);
+    std::thread::sleep(std::time::Duration::from_millis(15));
+
+    app.handle_agent_event(crate::app::AgentEvent::Error(
+        "LLM 连接失败 (URL: http://127.0.0.1:3425/v1/messages)".to_string(),
+    ));
+    app.handle_agent_event(crate::app::AgentEvent::Done);
+
+    assert_eq!(
+        app.session_mgr.current().spinner_state.last_summary_verb(),
+        "Failed",
+        "补发的 Done 不应清空失败总结行动词"
+    );
+    assert!(
+        app.session_mgr
+            .current()
+            .spinner_state
+            .last_summary_is_error(),
+        "补发的 Done 后仍应保持失败态"
+    );
+    assert!(
+        app.session_mgr
+            .current()
+            .spinner_state
+            .last_summary_elapsed_ms()
+            >= 10,
+        "补发的 Done 后应保留耗时"
+    );
+
+    let tail = visible_tail(&app);
+    let tail_text: String = tail
+        .iter()
+        .flat_map(|line| line.spans.iter().map(|s| s.content.as_ref()))
+        .collect();
+    assert!(
+        tail_text.contains("✻ Failed after"),
+        "补发的 Done 后 visible_tail 仍应渲染失败总结行: {tail_text}"
+    );
+}
+
 /// spinner 行的异步 hook 文案：单个带事件名，同事件计数，两种列名，三种以上收敛。
 #[test]
 fn test_async_hook_tip_variants() {
