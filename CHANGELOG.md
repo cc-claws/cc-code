@@ -4,6 +4,15 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.280 — 2026-11-14
+
+### Fixes
+
+- **报错后失败总结行不再被补发的 Done 清空（#1055, #1056）**：TUI 中一轮以 LLM 报错结束时（如 provider 端点不可达，界面出现 `Agent Error` 卡片），错误卡片下方完全空白——正常完成时可见的 `✻ Charged for 36s · done 20:29` 总结行消失，本轮耗时与完成时刻无从获知。原因是结算顺序：ACP executor 恒定先发 `Error` 再补发 `AgentDone`，`handle_error` 经 `cleanup_agent_state(Some(..))` 写入失败总结行后，紧随的 `handle_done` 会以 `langfuse_error = None` 再走一次同一函数；此时 `is_abnormal` 因 `reconcile_already_done` 仍为真，落进清空支执行 `clear_summary()`，把刚写入的失败总结行连同耗时、完成时刻一起擦掉，`persist_last_task_summary()` 也随之被覆盖成 `None`，`-c`/`-r` 恢复会话时失败耗时同样丢失。现于清空支增加 `last_summary_is_error()` 守卫——已结算为失败总结行时不再清空；中断 / 取消清的是非错误态总结行，行为不变。改动文件：`cc-tui/src/app/agent_ops/lifecycle.rs`（守卫）、`cc-tui/src/ui/main_ui/message_area_test.rs`（新增回归 `test_handle_error_then_done_retains_failed_summary`，按真实事件时序 `AgentError` → `Done` 断言失败总结行存活；原测试只覆盖 `handle_error` 单步，正是该缺陷的盲区）。验证：`cargo test -p cc-tui --lib` 1617 passed / 0 failed；PR #1056 的 Linux、macOS、Windows 三平台 workspace build、tests、Clippy 全部通过。
+- **解除 clippy 1.100.0 新增告警造成的 CI 门禁全平台失败（#1056）**：stable 通道升到 1.100.0 后，`needless_range_loop` 命中 `cc-widgets/src/markdown/mod_test.rs` 两处 `for i in 1..len` 索引循环，使 `main` 与所有 PR 均无法通过 Clippy 步骤——非代码回归，属 toolchain 漂移（1.100.0 于 2026-11-09 发布、stable 约 11-12 切换，同期 `main` 上一轮 CI 仍为绿）。现改为 `text.lines.iter().enumerate().skip(1)`，与原索引语义等价。仅测试代码，无产品行为变更。改动文件：`cc-widgets/src/markdown/mod_test.rs`。
+
+---
+
 ## v0.6.279 — 2026-11-12
 
 ### Fixes
