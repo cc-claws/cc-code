@@ -41,13 +41,23 @@ impl App {
         }
         self.set_loading(false);
         // 异常终止（报错、中断、取消超时）：
-        // 报错时记录失败总结行（包含耗时和时间戳），中断/取消时清空总结行
+        // 报错时记录失败总结行（包含耗时和时间戳），中断/取消时清空总结行。
+        // 守卫 `last_summary_is_error`：报错后 executor 仍会补发 `Done`（Error → Done 固定顺序），
+        // `handle_done` 会以 `langfuse_error = None` 再走一次本函数，此时 `is_abnormal` 因
+        // `reconcile_already_done` 仍为真；若直接清空，会把上面刚写入的失败总结行擦掉，
+        // 导致错误卡片下方空白、`✻ Failed after Xs · HH:MM` 丢失。中断/取消清的是非错误态总结行，不受影响。
         if langfuse_error.is_some() {
             self.session_mgr
                 .current_mut()
                 .spinner_state
                 .finish_with_error();
-        } else if is_abnormal || self.session_mgr.current().agent.reconcile_already_done {
+        } else if (is_abnormal || self.session_mgr.current().agent.reconcile_already_done)
+            && !self
+                .session_mgr
+                .current()
+                .spinner_state
+                .last_summary_is_error()
+        {
             self.session_mgr.current_mut().spinner_state.clear_summary();
         }
         // 持久化完成态总结行（须在 set_loading(false) 捕获 summary 之后），
