@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.280：**报错后失败总结行不再消失**——一轮以 LLM 报错结束时，错误卡片下方空白，正常完成时可见的 `✻ Charged for 36s · done 20:29` 总结行消失，本轮耗时与完成时刻无从获知。原因是 executor 恒定先发 `Error` 再补发 `Done`，`handle_error` 写入的失败总结行随后被 `handle_done` 判为异常终止而清空，`-c`/`-r` 恢复会话时同样丢失。现增加失败态守卫，报错后保留 `✻ Failed after Xs · HH:MM`，中断 / 取消行为不变（#1055, #1056）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+
 v0.6.279：**修复 Windows PowerShell 5.1 上安装/更新脚本解压失败**——`scripts/install.ps1` 的 `Expand-Archive -Force` 在 5.1 环境下因 .NET 缺少三参数 `ExtractToDirectory` 重载而必然报错，导致 `cc-code update` 与官方脚本安装整体不可用。现改为先删除旧版本目录再调用两参数重载，覆盖语义不变（#1052, #1053）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.278：**worktree 隔离区删除失败不再卡死会话**——隔离区内把分支改名后再删除 worktree，checkout 目录实际已删除，但按登记旧名删分支失败使整体返回 Err，跳过状态复位——会话目录仍指向已删除路径，之后每次 Bash 调用都无法启动（Windows 报 os error 267）。现分支清理失败降级为警告，删除报错后先检查目录是否仍在、已不在则照常复位（#1049, #1051）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
