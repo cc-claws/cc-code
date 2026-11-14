@@ -572,8 +572,8 @@ fn test_unordered_list_hanging_indent() {
     );
 
     // 续行应以空格开头（悬挂缩进），宽度 = bullet 显示宽度
-    for i in 1..text.lines.len() {
-        let line: String = text.lines[i]
+    for (i, raw_line) in text.lines.iter().enumerate().skip(1) {
+        let line: String = raw_line
             .spans
             .iter()
             .map(|s| s.content.as_ref())
@@ -613,8 +613,8 @@ fn test_ordered_list_hanging_indent() {
     assert!(first_line.contains("1."), "首行应包含序号 '1.'");
 
     // 续行缩进 = "1. " 的宽度 = 3
-    for i in 1..text.lines.len() {
-        let line: String = text.lines[i]
+    for (i, raw_line) in text.lines.iter().enumerate().skip(1) {
+        let line: String = raw_line
             .spans
             .iter()
             .map(|s| s.content.as_ref())
