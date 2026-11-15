@@ -38,7 +38,7 @@ fn test_input_pump_stalled_consumer_coalesces_one_hundred_thousand_moves() {
     // source 的计数早于入队，等待最后一次入队完成。
     loop {
         let queue = pump.shared.queue.lock();
-        if queue.events.back() == Some(&make_hover(19)) {
+        if queue.events.back().map(|stamped| &stamped.event) == Some(&make_hover(19)) {
             break;
         }
         drop(queue);
@@ -51,7 +51,9 @@ fn test_input_pump_stalled_consumer_coalesces_one_hundred_thousand_moves() {
         "悬停事件不能无限增长"
     );
     assert_eq!(
-        pump.next(Duration::ZERO).expect("读取成功"),
+        pump.next(Duration::ZERO)
+            .expect("读取成功")
+            .map(|stamped| stamped.event),
         Some(make_hover(19))
     );
 }
@@ -76,14 +78,19 @@ fn test_input_pump_keeps_keyboard_click_wheel_paste_and_resize_order() {
     let mut expected = Vec::new();
     for boundary in boundaries {
         for event in [make_hover(1), make_hover(2), boundary.clone()] {
-            if !queue.coalesce_hover(&event) {
-                queue.events.push_back(event);
+            let stamped = StampedEvent::now(event);
+            if !queue.coalesce_hover(&stamped) {
+                queue.events.push_back(stamped);
             }
         }
         expected.extend([make_hover(2), boundary]);
     }
     assert_eq!(
-        queue.events.into_iter().collect::<Vec<_>>(),
+        queue
+            .events
+            .into_iter()
+            .map(|stamped| stamped.event)
+            .collect::<Vec<_>>(),
         expected,
         "不能跨输入边界合并"
     );

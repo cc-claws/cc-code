@@ -2,22 +2,26 @@ use super::*;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent};
 use std::collections::VecDeque;
 
-fn make_mouse(kind: MouseEventKind, row: u16) -> Event {
-    Event::Mouse(MouseEvent {
+fn make_mouse(kind: MouseEventKind, row: u16) -> StampedEvent {
+    StampedEvent::now(Event::Mouse(MouseEvent {
         kind,
         column: 10,
         row,
         modifiers: KeyModifiers::NONE,
-    })
+    }))
 }
 
-fn make_batch(queue: &mut VecDeque<Event>) -> Vec<Event> {
+fn make_key(code: KeyCode) -> StampedEvent {
+    StampedEvent::now(Event::Key(KeyEvent::new(code, KeyModifiers::NONE)))
+}
+
+fn make_batch(queue: &mut VecDeque<StampedEvent>) -> Vec<StampedEvent> {
     let first = queue.pop_front().expect("测试队列不能为空");
     let mut pending = None;
     let batch = collect_mouse_batch(first, &mut pending, || Ok(queue.pop_front()))
         .expect("模拟队列读取应成功");
-    if let Some(event) = pending {
-        queue.push_front(event);
+    if let Some(stamped) = pending {
+        queue.push_front(stamped);
     }
     batch
 }
@@ -44,7 +48,7 @@ fn test_mouse_batch_wheel_burst_preserves_distance_and_direction() {
 fn test_mouse_batch_drag_keeps_final_position_before_release() {
     let final_drag = make_mouse(MouseEventKind::Drag(MouseButton::Left), 8);
     let release = make_mouse(MouseEventKind::Up(MouseButton::Left), 8);
-    let key = Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let key = make_key(KeyCode::Enter);
     let mut queue = VecDeque::from([
         make_mouse(MouseEventKind::Drag(MouseButton::Left), 4),
         final_drag.clone(),
@@ -60,7 +64,7 @@ fn test_mouse_batch_drag_keeps_final_position_before_release() {
 #[test]
 fn test_mouse_batch_stops_at_keyboard_boundary() {
     let wheel = make_mouse(MouseEventKind::ScrollUp, 4);
-    let key = Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+    let key = make_key(KeyCode::Char('x'));
     let mut queue = VecDeque::from([wheel.clone(), key.clone(), wheel.clone()]);
     assert_eq!(make_batch(&mut queue), vec![wheel.clone()]);
     assert_eq!(
@@ -88,7 +92,7 @@ fn test_mouse_batch_bounds_continuous_input() {
 
 #[test]
 fn test_mouse_batch_does_not_drain_after_key() {
-    let key = Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+    let key = make_key(KeyCode::Char('x'));
     let mut queue = VecDeque::from([key.clone(), make_mouse(MouseEventKind::ScrollDown, 1)]);
     assert_eq!(make_batch(&mut queue), vec![key]);
     assert_eq!(queue.len(), 1);
@@ -138,9 +142,11 @@ async fn test_mouse_batch_long_history_matches_individual_scrolls_with_one_redra
         ))
         .collect();
     let mut old_redraws = 0;
-    for event in queue.iter().cloned() {
+    for stamped in queue.iter().cloned() {
         if matches!(
-            handle_event(&mut app, event).await.expect("旧路径应成功"),
+            handle_event(&mut app, stamped.event)
+                .await
+                .expect("旧路径应成功"),
             Some(Action::Redraw)
         ) {
             old_redraws += 1;
@@ -153,7 +159,11 @@ async fn test_mouse_batch_long_history_matches_individual_scrolls_with_one_redra
     let expected_offset = app.session_mgr.current().ui.scroll_offset;
     let expected_frame = handle.snapshot();
     app.session_mgr.current_mut().ui.scroll_offset = 500;
-    let action = handle_event_batch(&mut app, make_batch(&mut queue))
+    let batch: Vec<Event> = make_batch(&mut queue)
+        .into_iter()
+        .map(|stamped| stamped.event)
+        .collect();
+    let action = handle_event_batch(&mut app, batch)
         .await
         .expect("批处理应成功");
     handle

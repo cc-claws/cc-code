@@ -34,6 +34,7 @@ async fn test_input_backlog_reaches_keyboard_while_layout_worker_is_pending() {
             KeyCode::Char('x'),
             KeyModifiers::NONE,
         ))])
+        .map(StampedEvent::now)
         .collect();
     let now = Instant::now();
     let mut scheduler = RedrawScheduler::new(Duration::from_millis(33), now);
@@ -44,13 +45,23 @@ async fn test_input_backlog_reaches_keyboard_while_layout_worker_is_pending() {
         let batch =
             mouse_batch::collect_mouse_batch(first, &mut boundary, || Ok(queue.pop_front()))
                 .expect("批量读取积压输入");
-        if let Some(boundary) = boundary {
-            queue.push_front(boundary);
+        if let Some(stamped) = boundary {
+            queue.push_front(stamped);
         }
-        wheel_batches += usize::from(matches!(batch.first(), Some(Event::Mouse(_))));
-        let action = handle_event_batch(&mut app, batch)
-            .await
-            .expect("后台未回复时仍应正常派发输入");
+        wheel_batches += usize::from(
+            batch
+                .first()
+                .is_some_and(|stamped| matches!(stamped.event, Event::Mouse(_))),
+        );
+        let action = handle_event_batch(
+            &mut app,
+            batch
+                .into_iter()
+                .map(|stamped| stamped.event)
+                .collect::<Vec<_>>(),
+        )
+        .await
+        .expect("后台未回复时仍应正常派发输入");
         if matches!(action, Some(Action::Redraw)) {
             scheduler.request_redraw();
         }

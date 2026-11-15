@@ -52,7 +52,10 @@ fn test_hover_conpty_flood_does_not_become_keyboard_input() -> anyhow::Result<()
     let mut buttons = Vec::new();
     let mut finished = false;
     while std::time::Instant::now() < deadline {
-        match pump.next(Duration::from_millis(50))? {
+        match pump
+            .next(Duration::from_millis(50))?
+            .map(|stamped| stamped.event)
+        {
             Some(Event::Mouse(mouse)) if mouse.kind == MouseEventKind::Moved => {
                 moves += 1;
                 last_position = Some((mouse.column, mouse.row));
