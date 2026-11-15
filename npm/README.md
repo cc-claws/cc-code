@@ -7,7 +7,7 @@
 
 ## 最近更新
 
-v0.6.281：**连按 Enter 不再被误判为多行粘贴**——Windows Terminal 上，Agent 运行（loading）期间连续按 Enter，输入框会偶发凭空出现 `[Pasted text #N +X lines]` 占位符，而用户并未粘贴任何内容。原因是模拟粘贴检测的起始窗口用 `pump.next(START_WINDOW = 1 ms)` 实现，但输入泵对已进入内部队列的事件会立即返回、不看 deadline，「1ms 内是否还有后续事件」实际退化成「输入泵此刻是否已有排队事件」——主线程渲染/流式让队列积压，连按时多个 Enter 同批入队被合并成 `Event::Paste("\n\n")`，再折叠成占位符。现给事件带上到达时刻并按真实到达间隔判定窗口，超窗事件退回队列按独立按键逐轮处理，既不并入粘贴也不丢弃、顺序保持单调（#1060, #1061）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
+v0.6.281：**连按 Enter 不再被误判为多行粘贴**——Windows Terminal 上，Agent 运行（loading）期间连续按 Enter，输入框会偶发凭空出现 `[Pasted text #N +X lines]` 占位符，而用户并未粘贴任何内容。原因是模拟粘贴检测的起始窗口用 `pump.next(START_WINDOW = 1 ms)` 实现，但输入泵对已进入内部队列的事件会立即返回、不看 deadline，「1ms 内是否还有后续事件」实际退化成「输入泵此刻是否已有排队事件」——主线程渲染/流式让队列积压，连按时多个 Enter 同批入队被合并成 `Event::Paste("\n\n")`，再折叠成占位符。现给事件带上到达时刻并按真实到达间隔判定窗口，超窗事件退回队列按独立按键逐轮处理，既不并入粘贴也不丢弃、顺序保持单调（#1060, #1061）。同版修复 `cc-code update` 在 Windows 上解压阶段必然失败——v0.6.279 把覆盖语义改由「解压前删除并重建版本目录」保证，而待解压的 zip 恰在该目录内、被一起删掉，解压即报「未能找到路径……的一部分」；现把 zip 改到系统临时目录，覆盖语义不变。0.6.279 / 0.6.280 内嵌脚本引用钉在含缺陷的 commit 上、无法自更新，是最后需要手工 `irm … | iex` 的两个版本，0.6.281 起恢复正常（#1058, #1059）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
 v0.6.280：**报错后失败总结行不再消失**——一轮以 LLM 报错结束时，错误卡片下方空白，正常完成时可见的 `✻ Charged for 36s · done 20:29` 总结行消失，本轮耗时与完成时刻无从获知。原因是 executor 恒定先发 `Error` 再补发 `Done`，`handle_error` 写入的失败总结行随后被 `handle_done` 判为异常终止而清空，`-c`/`-r` 恢复会话时同样丢失。现增加失败态守卫，报错后保留 `✻ Failed after Xs · HH:MM`，中断 / 取消行为不变（#1055, #1056）。完整记录见 [CHANGELOG](https://github.com/cc-claws/cc-code/blob/main/CHANGELOG.md)。
 
