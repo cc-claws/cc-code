@@ -322,7 +322,10 @@ function Main {
     $VersionDir = Join-Path $InstallDir $VersionTag
     New-Item -ItemType Directory -Force -Path $VersionDir | Out-Null
 
-    $ZipPath = Join-Path $VersionDir $AssetName
+    # zip 必须落在 $VersionDir 之外（#1058）：解压前会先删除并重建 $VersionDir 以保证覆盖语义
+    # （见下方 Extract 段），zip 若放在里面会随目录一起被删掉，ExtractToDirectory 随即
+    # 报「未能找到路径……的一部分」。这里放在系统临时目录，收尾时按变量清理。
+    $ZipPath = Join-Path ([System.IO.Path]::GetTempPath()) "cc-code-$VersionTag-$AssetName"
 
     # Download
     $FinalUrl = Get-DownloadUrl $DownloadUrl
