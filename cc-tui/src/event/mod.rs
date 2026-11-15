@@ -12,6 +12,7 @@ pub mod mouse;
 mod mouse_batch;
 mod redraw_scheduler;
 pub use input_pump::pause_input;
+use input_pump::StampedEvent;
 pub use redraw_scheduler::RedrawScheduler;
 
 #[cfg(test)]
@@ -107,7 +108,7 @@ pub enum Action {
 // ── Event loop ──────────────────────────────────────────────────────────────
 
 pub struct EventReader {
-    pending: VecDeque<Event>,
+    pending: VecDeque<StampedEvent>,
     pump: input_pump::InputPump,
     selection_frame_pending: bool,
     waiting_for_frame: bool,
@@ -154,24 +155,28 @@ pub async fn next_event(
         }
     }
 
-    let ev = match reader.pending.pop_front() {
-        Some(ev) => ev,
+    let stamped = match reader.pending.pop_front() {
+        Some(stamped) => stamped,
         None => match reader.pump.next(timeout)? {
-            Some(ev) => ev,
+            Some(stamped) => stamped,
             None => return Ok(None),
         },
     };
     // MouseUp 会从已呈现快照提取选区并复制。合并重画后仍须保留旧的先画后释放顺序。
-    if selection_needs_frame(app, reader.selection_frame_pending, &ev) {
-        reader.pending.push_front(ev);
+    if selection_needs_frame(app, reader.selection_frame_pending, &stamped.event) {
+        reader.pending.push_front(stamped);
         reader.waiting_for_frame = true;
         return Ok(Some(Action::Redraw));
     }
-    let ev = detect_simulated_paste(ev, &mut reader.pending, |timeout| reader.pump.next(timeout))?;
+    let stamped = detect_simulated_paste(stamped, &mut reader.pending, |timeout| {
+        reader.pump.next(timeout)
+    })?;
     let mut boundary = None;
-    let events =
-        mouse_batch::collect_mouse_batch(ev, &mut boundary, || reader.pump.next(Duration::ZERO))?;
+    let events = mouse_batch::collect_mouse_batch(stamped, &mut boundary, || {
+        reader.pump.next(Duration::ZERO)
+    })?;
     reader.pending.extend(boundary);
+    let events: Vec<Event> = events.into_iter().map(|stamped| stamped.event).collect();
     let action = handle_event_batch(app, events).await?;
     if matches!(&action, Some(Action::Redraw)) && selection_is_dragging(app) {
         reader.selection_frame_pending = true;
@@ -217,68 +222,92 @@ async fn handle_event_batch(app: &mut App, events: Vec<Event>) -> Result<Option<
 /// A 1 ms start window is too short for human typing to trigger in practice.
 /// Once a burst is detected, a small idle window lets slower Windows terminals
 /// deliver the rest of the paste without fragmenting it at every newline.
+///
+/// 两个窗口都按事件的**到达时刻**判定，不看"此刻队列里有没有事件"：主线程渲染/
+/// 流式处理会让输入队列积压，连按 Enter 时后一个 Enter 早已排进队列，只看队列就会把
+/// 相隔几百毫秒的两次按键合成一次多行粘贴（表现为输入框出现 `[Pasted text #N]`）。
+/// 真正被模拟的粘贴里相邻事件到达间隔在亚毫秒级，1 ms 起始窗口不会误判人工输入。
 fn detect_simulated_paste(
-    ev: Event,
-    pending: &mut VecDeque<Event>,
-    mut next: impl FnMut(Duration) -> std::io::Result<Option<Event>>,
-) -> std::io::Result<Event> {
+    first: StampedEvent,
+    pending: &mut VecDeque<StampedEvent>,
+    mut next: impl FnMut(Duration) -> std::io::Result<Option<StampedEvent>>,
+) -> std::io::Result<StampedEvent> {
     const START_WINDOW: Duration = Duration::from_millis(1);
     const IDLE_WINDOW: Duration = Duration::from_millis(15);
 
-    if !is_simulated_paste_start(&ev) {
-        return Ok(ev);
+    if !is_simulated_paste_start(&first.event) {
+        return Ok(first);
     }
 
-    // Quick probe: any queued event within 1 ms?
-    let Some(first) = next(START_WINDOW)? else {
-        return Ok(ev);
+    // Quick probe: any event that *arrived* within 1 ms?
+    let Some(second) = next_within(START_WINDOW, first.arrived_at, pending, &mut next)? else {
+        return Ok(first);
     };
 
-    let original_ev = ev.clone();
     let mut text = String::new();
-    let _ = key_event_to_text(ev, &mut text);
+    let _ = key_event_to_text(first.event.clone(), &mut text);
     let mut meaningful_after_first = false;
 
-    let mut queued = Some(first);
-    let mut last_text = Instant::now();
+    let mut queued = Some(second);
+    let mut last_arrived = first.arrived_at;
     // 完整粘贴以空闲或非文本事件为边界；不能按字符数截断，让末尾 Enter 误触提交。
-    while let Some(event) = queued.take() {
-        if matches!(&event, Event::Mouse(mouse) if mouse.kind == MouseEventKind::Moved) {
+    while let Some(stamped) = queued.take() {
+        if matches!(&stamped.event, Event::Mouse(mouse) if mouse.kind == MouseEventKind::Moved) {
             // 悬停不打断文本粘贴，否则尾部 Enter 会落回提交分支。
             // 只延后被动悬停，保留最终位置；点击和快捷键仍是有序边界。
-            if matches!(pending.back(), Some(Event::Mouse(mouse)) if mouse.kind == MouseEventKind::Moved)
+            if matches!(pending.back().map(|queued| &queued.event),
+                Some(Event::Mouse(mouse)) if mouse.kind == MouseEventKind::Moved)
             {
                 pending.pop_back();
             }
-            pending.push_back(event);
-            let remaining = IDLE_WINDOW.saturating_sub(last_text.elapsed());
-            if remaining.is_zero() {
-                break;
-            }
-            queued = next(remaining)?;
+            pending.push_back(stamped);
+            queued = next_within(IDLE_WINDOW, last_arrived, pending, &mut next)?;
             continue;
         }
-        let release = matches!(&event, Event::Key(key) if key.kind == KeyEventKind::Release);
-        let text_event = is_simulated_paste_start(&event)
-            || matches!(&event, Event::Paste(_))
-            || matches!(&event, Event::Key(key) if key.code == KeyCode::Backspace && key.modifiers == KeyModifiers::NONE);
+        let release =
+            matches!(&stamped.event, Event::Key(key) if key.kind == KeyEventKind::Release);
+        let text_event = is_simulated_paste_start(&stamped.event)
+            || matches!(&stamped.event, Event::Paste(_))
+            || matches!(&stamped.event, Event::Key(key) if key.code == KeyCode::Backspace && key.modifiers == KeyModifiers::NONE);
         if !release && !text_event {
             // 鼠标/快捷键/resize 是边界，必须留给下一轮，不能在粘贴检测中吞掉。
-            pending.push_back(event);
+            pending.push_back(stamped);
             break;
         }
-        meaningful_after_first |= key_event_to_text(event, &mut text);
-        last_text = Instant::now();
-        queued = next(IDLE_WINDOW)?;
+        meaningful_after_first |= key_event_to_text(stamped.event, &mut text);
+        last_arrived = stamped.arrived_at;
+        queued = next_within(IDLE_WINDOW, last_arrived, pending, &mut next)?;
     }
 
     // A key release queued behind the press is not a paste. It is safe that the
     // release event was consumed because the TUI only acts on key presses.
     if !meaningful_after_first {
-        return Ok(original_ev);
+        return Ok(first);
     }
 
-    Ok(Event::Paste(text))
+    Ok(StampedEvent::now(Event::Paste(text)))
+}
+
+/// 取下一个"到达时刻距 `since` 仍在 `window` 内"的事件。
+///
+/// 队列中积压的旧事件（多为渲染/流式处理期间排队）不算续帧：放回 `pending`
+/// 留给下一轮独立处理，并结束本次检测。已弹出的事件必须放回，否则会被丢弃。
+fn next_within(
+    window: Duration,
+    since: Instant,
+    pending: &mut VecDeque<StampedEvent>,
+    next: &mut impl FnMut(Duration) -> std::io::Result<Option<StampedEvent>>,
+) -> std::io::Result<Option<StampedEvent>> {
+    // 预算扣除主线程已经花掉的时间，等满窗口即止。
+    let budget = window.saturating_sub(since.elapsed());
+    let Some(stamped) = next(budget)? else {
+        return Ok(None);
+    };
+    if stamped.arrived_at.saturating_duration_since(since) > window {
+        pending.push_back(stamped);
+        return Ok(None);
+    }
+    Ok(Some(stamped))
 }
 
 fn is_simulated_paste_start(ev: &Event) -> bool {

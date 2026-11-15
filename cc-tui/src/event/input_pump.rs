@@ -21,16 +21,38 @@ pub fn pause_input() -> MutexGuard<'static, ()> {
     INPUT_GATE.lock()
 }
 
+/// 终端事件 + 输入线程读到它的时刻。
+///
+/// 时间戳必须在 `event::read()` 返回的瞬间打上：主线程渲染/流式处理会让队列积压，
+/// 若等到弹出事件时才取当前时间，积压的旧事件会被下游误判成"刚刚连续到达"。
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct StampedEvent {
+    pub(super) arrived_at: Instant,
+    pub(super) event: Event,
+}
+
+impl StampedEvent {
+    /// 以当前时刻作为到达时刻（仅用于合成事件与测试夹具）。
+    pub(super) fn now(event: Event) -> Self {
+        Self::at(event, Instant::now())
+    }
+
+    pub(super) fn at(event: Event, arrived_at: Instant) -> Self {
+        Self { arrived_at, event }
+    }
+}
+
 #[derive(Default)]
 struct Queue {
-    events: VecDeque<Event>,
+    events: VecDeque<StampedEvent>,
     error: Option<io::Error>,
 }
 
 impl Queue {
-    fn coalesce_hover(&mut self, event: &Event) -> bool {
-        if matches!(event, Event::Mouse(m) if m.kind == MouseEventKind::Moved)
-            && matches!(self.events.back(), Some(Event::Mouse(m)) if m.kind == MouseEventKind::Moved)
+    fn coalesce_hover(&mut self, event: &StampedEvent) -> bool {
+        if matches!(&event.event, Event::Mouse(m) if m.kind == MouseEventKind::Moved)
+            && matches!(self.events.back().map(|stamped| &stamped.event),
+                Some(Event::Mouse(m)) if m.kind == MouseEventKind::Moved)
         {
             *self.events.back_mut().expect("已有悬停事件") = event.clone();
             true
@@ -84,7 +106,7 @@ impl InputPump {
                         source(POLL_INTERVAL)
                     };
                     let event = match result {
-                        Ok(Some(event)) => event,
+                        Ok(Some(event)) => StampedEvent::now(event),
                         Ok(None) => continue,
                         Err(error) => {
                             shared.queue.lock().error = Some(error);
@@ -115,7 +137,7 @@ impl InputPump {
         })
     }
 
-    pub fn next(&self, timeout: Duration) -> io::Result<Option<Event>> {
+    pub fn next(&self, timeout: Duration) -> io::Result<Option<StampedEvent>> {
         let deadline = Instant::now() + timeout;
         let mut queue = self.shared.queue.lock();
         loop {
