@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.281 — 2026-11-15
+
+### Fixes
+
+- **连按 Enter 不再被误判为多行粘贴（#1060, #1061）**：Windows Terminal 上，Agent 运行（loading）期间连续按 Enter，输入框会偶发凭空出现 `[Pasted text #N +X lines]` 占位符，而用户并未执行任何粘贴操作。原因是模拟粘贴检测（为不支持 bracketed paste 的终端把逐字符 Key 突发合并成 `Event::Paste`）的起始窗口用 `pump.next(START_WINDOW = 1 ms)` 实现，但输入泵对内部队列里已缓存的事件会立即返回、根本不看 deadline，「1ms 内是否还有后续事件」实际退化成「输入泵此刻是否已有排队事件」；主线程渲染/流式处理让队列积压，连按时多个 Enter 同时排队，被合并为 `Event::Paste("\n\n")`，再经 `paste_line_count > 1` 折叠成占位符落进输入框。现给事件带上被读到瞬间的到达时刻（`StampedEvent` 在输入线程 `event::read()` 返回后立刻打点），起始探测与空闲续帧一律改按真实到达间隔判定，超窗事件退回队列按独立按键逐轮处理——既不并入粘贴也不丢弃，事件顺序保持单调；顺带修掉「加载/流式卡顿期间快速打字被误判成粘贴」的同类隐患。改动文件：`cc-tui/src/event/input_pump.rs`、`cc-tui/src/event/mod.rs`、`cc-tui/src/event/mouse_batch.rs`，以及 `input_pump_test.rs` / `mouse_batch_test.rs` / `responsiveness_test.rs` / `hover_console_test.rs` / `paste_boundary_test.rs`（新增 4 条回归：积压多 Enter 必须逐个独立提交、超窗事件必须推迟到下一轮、0.5ms 慢连发仍合并为完整 Paste、2ms 间隔超出起始窗口必须拆分）。验证：`cargo test -p cc-tui --lib` 1621 passed / 0 failed；`cargo clippy -p cc-tui --all-targets` 0 warning；反转验证（临时把 START_WINDOW 放大成旧语义）下新增回归测试失败并打印 `left: Paste("\n\n")`，确认测试非空转；PR #1061 的 Linux、macOS、Windows 三平台 workspace build 全部通过。
+
+---
+
 ## v0.6.280 — 2026-11-14
 
 ### Fixes
