@@ -11,9 +11,7 @@ use std::sync::OnceLock;
 
 mod capture;
 pub use capture::ManagedChild;
-pub use capture::{
-    output_with_input_timeout, output_with_input_timeout_observed, OutputObserver,
-};
+pub use capture::{output_with_input_timeout, output_with_input_timeout_observed, OutputObserver};
 
 /// 后台/管道 shell 不能共享 TUI 控制台，否则 PHP 等程序会修改其代码页或模式。
 /// stdin/stdout/stderr 仍由调用方配置；不用于需要真实终端的交互式 PTY。

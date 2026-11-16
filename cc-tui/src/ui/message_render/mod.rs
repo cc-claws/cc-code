@@ -999,10 +999,8 @@ fn push_group_entry_header(
     let verbose = verbose_tool_args(&entry.tool_name, args);
     let summary = tool_args_header(&verbose, max_args_width);
     let header_line = lines.len().saturating_sub(1);
-    let args_start_g = indicator.graphemes(true).count()
-        + 1
-        + entry.display_name.graphemes(true).count()
-        + 1;
+    let args_start_g =
+        indicator.graphemes(true).count() + 1 + entry.display_name.graphemes(true).count() + 1;
     // 只读工具组里的 Read 路径同样可点：命中区只覆盖路径本身
     if let (Some(url), Some(path_text)) = (
         tool_file_url(&entry.tool_name, args),
@@ -1027,10 +1025,7 @@ fn push_group_entry_header(
         if entry.tool_name == "Bash" {
             last_line.spans.extend([
                 Span::raw("("),
-                Span::styled(
-                    summary,
-                    Style::default().fg(theme::cur().text_soft),
-                ),
+                Span::styled(summary, Style::default().fg(theme::cur().text_soft)),
                 Span::raw(")"),
             ]);
         } else {

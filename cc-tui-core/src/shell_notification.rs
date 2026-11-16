@@ -56,7 +56,10 @@ pub fn shell_notification_display_text_with(
 /// 在 `cursor` 中定位最早出现的通知块，返回 `(tag, body_start, body_end)`。
 ///
 /// `body_start`/`body_end` 为开标签之后、闭标签之前的正文区间（相对 `cursor`）。
-pub fn next_notification_block<'a>(cursor: &str, tags: &[&'a str]) -> Option<(&'a str, usize, usize)> {
+pub fn next_notification_block<'a>(
+    cursor: &str,
+    tags: &[&'a str],
+) -> Option<(&'a str, usize, usize)> {
     tags.iter()
         .filter_map(|tag| {
             let open = format!("<{tag}>");

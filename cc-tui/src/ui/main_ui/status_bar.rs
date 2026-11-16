@@ -1472,8 +1472,20 @@ mod tests {
         let at = |ms: u64| base + std::time::Duration::from_millis(ms);
 
         // ① 两个 Read 并发运行
-        comm.push_recent_tool(make_recent_entry_at("tc-a", "Read", "src/a.rs", true, at(0)));
-        comm.push_recent_tool(make_recent_entry_at("tc-b", "Read", "src/b.rs", true, at(1)));
+        comm.push_recent_tool(make_recent_entry_at(
+            "tc-a",
+            "Read",
+            "src/a.rs",
+            true,
+            at(0),
+        ));
+        comm.push_recent_tool(make_recent_entry_at(
+            "tc-b",
+            "Read",
+            "src/b.rs",
+            true,
+            at(1),
+        ));
         let line = render_recent_tools_line(&comm, &colors, base);
         println!("[① 两个 Read 并行] {line}");
         assert_eq!(
@@ -1491,7 +1503,13 @@ mod tests {
         );
 
         // ③ 第三个 Read 进来，挤掉最老的 a
-        comm.push_recent_tool(make_recent_entry_at("tc-c", "Read", "src/c.rs", true, at(3)));
+        comm.push_recent_tool(make_recent_entry_at(
+            "tc-c",
+            "Read",
+            "src/c.rs",
+            true,
+            at(3),
+        ));
         let line = render_recent_tools_line(&comm, &colors, at(100));
         println!("[③ 第三个 Read 挤掉最老] {line}");
         assert_eq!(
@@ -1516,7 +1534,13 @@ mod tests {
             true,
             base - std::time::Duration::from_secs(10),
         ));
-        comm.push_recent_tool(make_recent_entry_at("tc-read", "Read", "src/x.rs", true, at(0)));
+        comm.push_recent_tool(make_recent_entry_at(
+            "tc-read",
+            "Read",
+            "src/x.rs",
+            true,
+            at(0),
+        ));
 
         // ④ Read 只跑了 50ms 就结束：仍要垫满最短可见窗口
         comm.finish_recent_tool("tc-read", at(50));
@@ -1528,11 +1552,8 @@ mod tests {
         );
 
         // ⑤ 越过停留窗口：Read 消失，Bash 继续跑
-        let line = render_recent_tools_line(
-            &comm,
-            &colors,
-            at(crate::app::TOOL_MIN_VISIBLE_MS + 100),
-        );
+        let line =
+            render_recent_tools_line(&comm, &colors, at(crate::app::TOOL_MIN_VISIBLE_MS + 100));
         println!(
             "[⑤ 越过 {}ms 停留窗口] {line}",
             crate::app::TOOL_MIN_VISIBLE_MS

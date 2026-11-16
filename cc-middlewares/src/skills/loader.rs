@@ -14,9 +14,10 @@ pub struct SkillMetadata {
 pub fn load_skill_metadata(path: &Path) -> Option<SkillMetadata> {
     let content = std::fs::read_to_string(path).ok()?;
     let (frontmatter, _) = parse_skill(&content).ok()?;
-    let name = frontmatter.name.filter(|name| !name.trim().is_empty()).or_else(|| {
-        path.parent()?.file_name()?.to_str().map(str::to_string)
-    })?;
+    let name = frontmatter
+        .name
+        .filter(|name| !name.trim().is_empty())
+        .or_else(|| path.parent()?.file_name()?.to_str().map(str::to_string))?;
 
     Some(SkillMetadata {
         name,

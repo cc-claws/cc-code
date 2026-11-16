@@ -436,8 +436,7 @@ impl<'a> BatchEditPlan<'a> {
     fn parse(input: &'a Value) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         if input.get("old_string").is_some() || input.get("new_string").is_some() {
             return Err(
-                "Error: 'edits' cannot be combined with top-level 'old_string'/'new_string'"
-                    .into(),
+                "Error: 'edits' cannot be combined with top-level 'old_string'/'new_string'".into(),
             );
         }
         let file_path = input["file_path"]

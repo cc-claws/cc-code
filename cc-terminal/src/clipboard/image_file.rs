@@ -18,9 +18,7 @@ pub fn is_image_path(path: &Path) -> bool {
         })
 }
 
-pub fn image_file_as_png_base64(
-    path: &Path,
-) -> Result<(String, usize, u32, u32), PasteImageError> {
+pub fn image_file_as_png_base64(path: &Path) -> Result<(String, usize, u32, u32), PasteImageError> {
     let (bytes, width, height) = decode_image_file(path)?;
     encode_base64(&bytes, width, height)
 }

@@ -32,17 +32,32 @@ fn make_payload(message: &BaseMessage) -> serde_json::Value {
 
 #[test]
 fn test_skill_name_from_token_handles_namespace_and_multiple_tokens() {
-    assert_eq!(skill_name_from_token("/plugin:review"), Some("plugin:review"));
+    assert_eq!(
+        skill_name_from_token("/plugin:review"),
+        Some("plugin:review")
+    );
     assert_eq!(skill_name_from_token("/fix-issue"), Some("fix-issue"));
     assert_eq!(skill_name_from_token("/api.guide"), Some("api.guide"));
 }
 
 #[test]
 fn test_skill_name_from_token_rejects_paths_and_incomplete_tokens() {
-    assert!(skill_name_from_token("/").is_none(), "空 token 不应被当作技能");
-    assert!(skill_name_from_token("/foo/bar").is_none(), "目录路径不应被当作技能");
-    assert!(skill_name_from_token("/review?").is_none(), "不完整指令不应被当作技能");
-    assert!(skill_name_from_token("https://example.com").is_none(), "网址不应被当作技能");
+    assert!(
+        skill_name_from_token("/").is_none(),
+        "空 token 不应被当作技能"
+    );
+    assert!(
+        skill_name_from_token("/foo/bar").is_none(),
+        "目录路径不应被当作技能"
+    );
+    assert!(
+        skill_name_from_token("/review?").is_none(),
+        "不完整指令不应被当作技能"
+    );
+    assert!(
+        skill_name_from_token("https://example.com").is_none(),
+        "网址不应被当作技能"
+    );
 }
 
 #[tokio::test]

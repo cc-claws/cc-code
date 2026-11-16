@@ -1,7 +1,7 @@
 use std::hash::{Hash, Hasher};
 
-use crate::tool_display::build_diff_input;
 use crate::theme;
+use crate::tool_display::build_diff_input;
 use cc_agent::messages::{BaseMessage, ContentBlock, MessageContent};
 use ratatui::{style::Color, text::Text};
 
@@ -42,12 +42,7 @@ pub struct ToolOutputPreview {
 }
 
 impl ToolOutputPreview {
-    pub fn new(
-        tail: String,
-        total_lines: usize,
-        total_bytes: usize,
-        elapsed_ms: u64,
-    ) -> Self {
+    pub fn new(tail: String, total_lines: usize, total_bytes: usize, elapsed_ms: u64) -> Self {
         let tail = if tail.len() > 64 * 1024 {
             let minimum = tail.len() - 64 * 1024;
             let start = tail
@@ -887,7 +882,9 @@ impl MessageViewModel {
                     vm.recompute_hash();
                     return vm;
                 }
-                if let Some(display) = crate::shell_notification::shell_notification_display_text(&raw) {
+                if let Some(display) =
+                    crate::shell_notification::shell_notification_display_text(&raw)
+                {
                     let mut vm = MessageViewModel::SystemNote {
                         content: display.text,
                         content_hash: 0,
@@ -917,8 +914,9 @@ impl MessageViewModel {
                             .iter()
                             .filter(|block| matches!(block, ContentBlock::Image { .. }))
                             .count();
-                        let mut ids =
-                            cc_terminal::clipboard::image_placeholder::parse_placeholders(&display_text);
+                        let mut ids = cc_terminal::clipboard::image_placeholder::parse_placeholders(
+                            &display_text,
+                        );
                         ids.sort_unstable();
                         ids.dedup();
                         // 旧消息没有独立编号元数据，引用与图片块数量不一致时只显示降级行。
@@ -1138,8 +1136,7 @@ impl MessageViewModel {
                 // cwd 参数确保流式和恢复路径产生一致的路径显示
                 let display_name =
                     crate::tool_display::format_tool_name_with_input(&tool_name, Some(&input));
-                let args_display =
-                    crate::tool_display::format_tool_args(&tool_name, &input, cwd);
+                let args_display = crate::tool_display::format_tool_args(&tool_name, &input, cwd);
                 let color = if *is_error {
                     theme::cur().error
                 } else {
@@ -1154,8 +1151,7 @@ impl MessageViewModel {
                 let file_inspect = tools::is_file_inspect(&tool_name, &input);
                 // Agent(action="stop") 的结果行（「⎿ 任务摘要 · stopped」）默认展开，
                 // 否则停止操作完成后对用户不可见（issue #831）
-                let agent_stop =
-                    crate::tool_display::is_agent_stop(&tool_name, Some(&input));
+                let agent_stop = crate::tool_display::is_agent_stop(&tool_name, Some(&input));
                 let mut vm = MessageViewModel::ToolBlock {
                     tool_name,
                     tool_call_id: tool_call_id.clone(),
@@ -1299,7 +1295,8 @@ impl MessageViewModel {
 
     /// 创建用户消息
     pub fn user(content: String) -> Self {
-        if let Some(display) = crate::shell_notification::shell_notification_display_text(&content) {
+        if let Some(display) = crate::shell_notification::shell_notification_display_text(&content)
+        {
             // 通知消息保留状态色，不能走 `system()`（它只能从文本里再猜 tone）。
             let mut vm = MessageViewModel::SystemNote {
                 content: display.text,
@@ -1330,7 +1327,8 @@ impl MessageViewModel {
 
     /// 创建带展开内容的用户消息（用于粘贴内容的详细模式显示）
     pub fn user_with_expanded(content: String, expanded: String) -> Self {
-        if let Some(display) = crate::shell_notification::shell_notification_display_text(&content) {
+        if let Some(display) = crate::shell_notification::shell_notification_display_text(&content)
+        {
             let mut vm = MessageViewModel::SystemNote {
                 content: display.text,
                 content_hash: 0,
@@ -1489,10 +1487,11 @@ impl MessageViewModel {
     /// 创建系统消息
     pub fn system(content: String) -> Self {
         // 后台任务通知走强调色渲染；其它系统提示保持原有灰色单行样式。
-        let (content, tone) = match crate::shell_notification::shell_notification_display_text(&content) {
-            Some(display) => (display.text, Some(display.tone)),
-            None => (content, None),
-        };
+        let (content, tone) =
+            match crate::shell_notification::shell_notification_display_text(&content) {
+                Some(display) => (display.text, Some(display.tone)),
+                None => (content, None),
+            };
         let mut vm = MessageViewModel::SystemNote {
             content,
             content_hash: 0,
@@ -1509,10 +1508,11 @@ impl MessageViewModel {
     /// 创建带详细模式内容的系统消息（如子 Agent 启动摘要在详细模式下展开显示每个任务的 Prompt）
     pub fn system_with_detail(content: String, detail_content: String) -> Self {
         // 详细内容只用于展开态，通知正文仍按统一规则解析出文案与状态色。
-        let (content, tone) = match crate::shell_notification::shell_notification_display_text(&content) {
-            Some(display) => (display.text, Some(display.tone)),
-            None => (content, None),
-        };
+        let (content, tone) =
+            match crate::shell_notification::shell_notification_display_text(&content) {
+                Some(display) => (display.text, Some(display.tone)),
+                None => (content, None),
+            };
         let mut vm = MessageViewModel::SystemNote {
             content,
             content_hash: 0,

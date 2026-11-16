@@ -130,7 +130,9 @@ fn test_size_classes_decompose_allocated() {
     for _ in 0..8 {
         let classes = query_size_classes().expect("query_size_classes 应返回数据");
         let sum: usize = classes.iter().map(|c| c.bytes()).sum();
-        let allocated = query_breakdown().expect("query_breakdown 应返回数据").allocated;
+        let allocated = query_breakdown()
+            .expect("query_breakdown 应返回数据")
+            .allocated;
         observed.push((classes.len(), sum, allocated));
         if allocated > 0 && sum == allocated {
             matched = true;
@@ -171,10 +173,9 @@ fn test_mimalloc_allocated_from_json_negative_is_unreliable() {
     .unwrap();
     assert_eq!(mimalloc_allocated_from_json(&v), None);
 
-    let v: serde_json::Value = serde_json::from_str(
-        r#"{"malloc_normal":{"current":1024},"malloc_huge":{"current":-5}}"#,
-    )
-    .unwrap();
+    let v: serde_json::Value =
+        serde_json::from_str(r#"{"malloc_normal":{"current":1024},"malloc_huge":{"current":-5}}"#)
+            .unwrap();
     assert_eq!(mimalloc_allocated_from_json(&v), None);
 }
 

@@ -61,11 +61,16 @@ pub(crate) fn build_subagent_middlewares(
     }
     middlewares.push(Box::new(skills));
     if !config.skill_names.is_empty() {
-        let skill_tool = config.skill_tool.unwrap_or_else(|| crate::tools::SkillTool::new(SkillsMiddleware::resolve_dirs_static(&config.cwd, &config.extra_skill_dirs)));
-        middlewares.push(Box::new(SkillPreloadMiddleware::new(
-            config.skill_names,
-            &config.cwd,
-        ).with_skill_tool(skill_tool)));
+        let skill_tool = config.skill_tool.unwrap_or_else(|| {
+            crate::tools::SkillTool::new(SkillsMiddleware::resolve_dirs_static(
+                &config.cwd,
+                &config.extra_skill_dirs,
+            ))
+        });
+        middlewares.push(Box::new(
+            SkillPreloadMiddleware::new(config.skill_names, &config.cwd)
+                .with_skill_tool(skill_tool),
+        ));
     }
     middlewares.push(Box::new(TodoMiddleware::new({
         let (tx, _rx) = mpsc::channel(8);

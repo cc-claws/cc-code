@@ -243,7 +243,8 @@ impl App {
         if prefix_len < session.messages.view_messages.len() {
             let mut i = prefix_len;
             while i < session.messages.view_messages.len() {
-                if matches!(&session.messages.view_messages[i], MessageViewModel::SystemNote { content, .. } if content.starts_with(BG_WAITING_MARKER) && content.ends_with(BG_WAITING_SUFFIX)) {
+                if matches!(&session.messages.view_messages[i], MessageViewModel::SystemNote { content, .. } if content.starts_with(BG_WAITING_MARKER) && content.ends_with(BG_WAITING_SUFFIX))
+                {
                     session.messages.view_messages.remove(i);
                 } else {
                     i += 1;

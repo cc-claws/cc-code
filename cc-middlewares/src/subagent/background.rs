@@ -187,8 +187,7 @@ impl BackgroundTaskRegistry {
 
     pub fn complete(&self, task_id: &str, result: BackgroundTaskResult) {
         let stopped = if let Some(runtime) = self.runtimes.lock().get_mut(task_id) {
-            let is_stopped =
-                runtime.cancel.is_cancelled() && !result.output.contains("timed out");
+            let is_stopped = runtime.cancel.is_cancelled() && !result.output.contains("timed out");
             runtime.snapshot.status = if is_stopped {
                 BackgroundTaskStatus::Stopped
             } else if result.success {

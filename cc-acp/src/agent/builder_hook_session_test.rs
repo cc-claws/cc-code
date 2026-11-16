@@ -12,8 +12,8 @@ use crate::{
 };
 use cc_agent::agent::{AgentCancellationToken, AgentInput, AgentState, FnEventHandler};
 use cc_middlewares::{
-    hooks::types::{HookEvent, HookType, RegisteredHook},
     hitl::{ApprovalMemory, PermissionMode, SharedPermissionMode},
+    hooks::types::{HookEvent, HookType, RegisteredHook},
     tool_search::ToolSearchIndex,
 };
 use parking_lot::{Mutex, RwLock};

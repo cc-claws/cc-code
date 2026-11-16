@@ -7,7 +7,11 @@ fn test_desired_height_adaptive_with_few_rows() {
     for index in 0..5 {
         panel.rows.push(ListRow::Header(format!("h{index}")));
     }
-    assert_eq!(panel.desired_height(80, 120), 10, "5 行内容 + 5 行 chrome = 10");
+    assert_eq!(
+        panel.desired_height(80, 120),
+        10,
+        "5 行内容 + 5 行 chrome = 10"
+    );
 }
 
 #[test]

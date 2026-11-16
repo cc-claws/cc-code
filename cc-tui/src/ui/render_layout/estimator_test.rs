@@ -55,10 +55,7 @@ fn test_is_live_covers_active_thinking_rows() {
         collapsed: false,
         content_hash: 0,
     };
-    assert!(
-        !is_live(&frozen_bubble),
-        "已冻结的思考不再需要每帧刷新"
-    );
+    assert!(!is_live(&frozen_bubble), "已冻结的思考不再需要每帧刷新");
 
     let group = MessageViewModel::ToolCallGroup {
         category: crate::ui::message_view::ToolCategory::Inspect,

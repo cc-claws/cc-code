@@ -21,9 +21,7 @@ fn aggregatable_category(vm: &MessageViewModel) -> Option<ToolCategory> {
     // 对齐参考实现：运行中的文件查询 Bash 也进组（计数含在跑的这条）。
     // 仍排除已转后台 / 后台启动标记的——它们要留在单条里显示后台状态。
     if tool_name == "Bash"
-        && (!file_inspect
-            || *shell_backgrounded
-            || BackgroundTaskStarted::parse(content).is_some())
+        && (!file_inspect || *shell_backgrounded || BackgroundTaskStarted::parse(content).is_some())
     {
         return None;
     }
