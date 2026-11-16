@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.282 — 2026-11-16
+
+### Fixes
+
+- **修复首轮会话标题被思考残片污染（#1064, #1065）**：新开会话发出首轮消息后，标题栏显示的不是会话主题而是模型的思考过程（形如「我们需要回答用户？但注意系统说你是会话主题生成工具…」），并写入会话库 `threads.title` 持久化。原因是标题提炼请求在 `cc-tui/src/terminal_title.rs` 硬编码了 `max_tokens: 30` 且经 `provider.into_model()` 继承会话的 thinking 配置——推理模型的思考与正文共享同一份输出预算，30 个 token 被思考全部吃光后 API 以 `stop_reason = max_tokens` 返回截断结果，响应 `content` 是思考残片而非标题，被原样渲染成标题并落库（实测同配置 `max_tokens=1024` 时 `stop_reason=end_turn`、标题正常）。现移除硬编码的 `max_tokens`（它是上限而非预留，放宽不额外计费），拆出 `build_title_request` / `extract_title_from_response` 两个纯函数，并新增截断守卫：`stop_reason == MaxTokens` 一律丢弃、回退本地确定性标题；同一教训与规则提炼路径（`cc-middlewares/src/hitl/jev/rules.rs`）的既有结论对齐。改动文件：`cc-tui/src/terminal_title.rs`、`cc-tui/src/terminal_title_test.rs`（新增 8 条回归：锁死「标题请求不得自带 `max_tokens`」与「截断响应必须丢弃」）。验证：`cargo test -p cc-tui --lib -- terminal_title` 8/8 通过；`cargo clippy -p cc-tui --all-targets -- -D warnings` 干净；真实网关端到端对照修复前 5/5 截断为思考残片、修复后 5/5 输出正常标题（均在 8s 硬超时内）；PR #1065 三平台 CI 全绿。
+
+---
+
 ## v0.6.281 — 2026-11-15
 
 ### Fixes
