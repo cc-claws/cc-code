@@ -14,9 +14,7 @@ use crate::{agent_define::AgentOverrides, claude_agent_parser::ToolsValue, tools
 /// 把工具名归一到规范名再比较：subagent 的 `disallowedTools` 可能用任一内核的
 /// 方言名（如 pi 的 `edit`/`write`），不归一会让只读 agent 拿到写权限。
 fn canonical_lower(name: &str) -> String {
-    canonical_tool_name(name)
-        .unwrap_or(name)
-        .to_lowercase()
+    canonical_tool_name(name).unwrap_or(name).to_lowercase()
 }
 
 /// Filter tools from parent set based on agent definition's tools/disallowedTools fields.
@@ -46,10 +44,7 @@ pub fn filter_tools(
             if name == TOOL_AGENT {
                 return false;
             }
-            if !is_wildcard
-                && !allowed_list.is_empty()
-                && !allowed_keys.contains(&name_key)
-            {
+            if !is_wildcard && !allowed_list.is_empty() && !allowed_keys.contains(&name_key) {
                 return false;
             }
             if disallowed_keys.contains(&name_key) {

@@ -60,11 +60,7 @@ pub trait ThreadStore: Send + Sync {
     /// 更新会话内核身份快照（切换/建会话时调用，频率低）。
     ///
     /// 单独成方法而非并入 update_runtime_snapshot，避免改动既有调用链签名。
-    async fn update_kernel_snapshot(
-        &self,
-        id: &ThreadId,
-        kernel_id: Option<String>,
-    ) -> Result<()> {
+    async fn update_kernel_snapshot(&self, id: &ThreadId, kernel_id: Option<String>) -> Result<()> {
         let mut meta = self.load_meta(id).await?;
         meta.kernel_id = kernel_id;
         self.update_meta(id, meta).await

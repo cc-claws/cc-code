@@ -82,7 +82,11 @@ fn test_real_session_readonly_counted_bash_not() {
         tool_name: None,
     };
     let vms2 = MessagePipeline::messages_to_view_models(&[bash_msg, bash_tool], "/p");
-    assert_eq!(first_action_summary(&vms2), None, "写盘 Bash 不应产生只读计数");
+    assert_eq!(
+        first_action_summary(&vms2),
+        None,
+        "写盘 Bash 不应产生只读计数"
+    );
 
     // Bash（只读，带 2>/dev/null）→ 应注入 shell 命令计数
     let stderr_msg: BaseMessage =
@@ -130,7 +134,10 @@ fn all_reasoning_meta(vms: &[MessageViewModel]) -> Vec<(Option<u64>, Option<Stri
     vms.iter()
         .flat_map(|vm| {
             // 一等公民：思考行可能挂在折叠组上
-            if let MessageViewModel::ToolCallGroup { thinking: Some(t), .. } = vm {
+            if let MessageViewModel::ToolCallGroup {
+                thinking: Some(t), ..
+            } = vm
+            {
                 return vec![(t.duration_ms, t.action_summary.clone())];
             }
             if let MessageViewModel::AssistantBubble { blocks, .. } = vm {

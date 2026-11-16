@@ -479,7 +479,9 @@ fn draw_bar_cursor(
                 break;
             }
         }
-        let shift_end = shift_end.unwrap_or(cell_x).min(last_visible.saturating_sub(1));
+        let shift_end = shift_end
+            .unwrap_or(cell_x)
+            .min(last_visible.saturating_sub(1));
         if shift_end >= cell_x {
             for x in (cell_x..=shift_end).rev() {
                 let (sym, sty) = buf

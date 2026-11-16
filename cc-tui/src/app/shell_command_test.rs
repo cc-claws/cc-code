@@ -634,7 +634,6 @@ async fn test_handle_done_drains_all_pending_bg_notifications_into_one_turn() {
     }
 }
 
-
 // ── 前台 `!` 命令回流 Agent 上下文（shell_context_messages） ──────────────
 
 fn make_context_record(

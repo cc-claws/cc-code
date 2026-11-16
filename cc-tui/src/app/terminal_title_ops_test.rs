@@ -100,7 +100,9 @@ fn test_app_terminal_title_animates_with_rotating_chrysanthemum() {
 
     // 标题帧按单调时钟每 `TERMINAL_TITLE_FRAME_MS` 交替一次，必须真的等过一个窗口；
     // 推进 tick 与标题帧无关（标题帧只吃 `animation_elapsed_ms`）。
-    std::thread::sleep(std::time::Duration::from_millis(TERMINAL_TITLE_FRAME_MS + 100));
+    std::thread::sleep(std::time::Duration::from_millis(
+        TERMINAL_TITLE_FRAME_MS + 100,
+    ));
     app.refresh_terminal_title();
     let frame2 = app.global_ui.last_terminal_title.clone().unwrap();
 
@@ -156,7 +158,9 @@ fn test_app_terminal_title_animates_while_waiting_subagents() {
 
     // 标题帧按单调时钟每 `TERMINAL_TITLE_FRAME_MS` 交替一次，必须真的等过一个窗口；
     // 推进 tick 与标题帧无关（标题帧只吃 `animation_elapsed_ms`）。
-    std::thread::sleep(std::time::Duration::from_millis(TERMINAL_TITLE_FRAME_MS + 100));
+    std::thread::sleep(std::time::Duration::from_millis(
+        TERMINAL_TITLE_FRAME_MS + 100,
+    ));
     app.refresh_terminal_title();
     let frame2 = app.global_ui.last_terminal_title.clone().unwrap();
 

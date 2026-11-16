@@ -80,29 +80,52 @@ impl SkillTool {
     }
 
     /// 用户显式 Slash 可以加载 disable-model-invocation 技能。
-    pub async fn invoke_for_user(&self, input: SkillToolInput) -> Result<SkillToolOutput, SkillError> {
+    pub async fn invoke_for_user(
+        &self,
+        input: SkillToolInput,
+    ) -> Result<SkillToolOutput, SkillError> {
         self.execute(input, true).await
     }
 
-    async fn execute(&self, input: SkillToolInput, user_invoked: bool) -> Result<SkillToolOutput, SkillError> {
+    async fn execute(
+        &self,
+        input: SkillToolInput,
+        user_invoked: bool,
+    ) -> Result<SkillToolOutput, SkillError> {
         let _invocation_guard = self.invocation_lock.lock().await;
         let dirs = self.dirs.clone();
         let request = input.clone();
         let mut skill = tokio::task::spawn_blocking(move || {
             load_skill(&dirs, &request.skill, request.args.as_deref())
-        }).await.map_err(|error| format!("Failed to load skill: {error}"))??;
+        })
+        .await
+        .map_err(|error| format!("Failed to load skill: {error}"))??;
         if !user_invoked && skill.frontmatter.disable_model_invocation {
-            return Err(format!("Skill {} cannot be used with the Skill tool due to disable-model-invocation", skill.name).into());
+            return Err(format!(
+                "Skill {} cannot be used with the Skill tool due to disable-model-invocation",
+                skill.name
+            )
+            .into());
         }
         if user_invoked && !skill.frontmatter.user_invocable {
             return Err(format!("Skill {} is not user-invocable", skill.name).into());
         }
         if let Some(session_id) = &self.session_id {
-            skill.instruction = skill.instruction.replace("${CLAUDE_SESSION_ID}", session_id);
+            skill.instruction = skill
+                .instruction
+                .replace("${CLAUDE_SESSION_ID}", session_id);
         }
-        let allowed_tools = skill.frontmatter.allowed_tools.as_ref()
-            .map(|tools| tools.to_vec()).filter(|tools| !tools.is_empty());
-        let model = skill.frontmatter.model.clone().filter(|model| !model.is_empty() && model != "inherit");
+        let allowed_tools = skill
+            .frontmatter
+            .allowed_tools
+            .as_ref()
+            .map(|tools| tools.to_vec())
+            .filter(|tools| !tools.is_empty());
+        let model = skill
+            .frontmatter
+            .model
+            .clone()
+            .filter(|model| !model.is_empty() && model != "inherit");
         let mut output = SkillToolOutput {
             success: true,
             command_name: skill.name,
@@ -116,12 +139,14 @@ impl SkillTool {
         };
         if skill.frontmatter.context.as_deref() == Some("fork") {
             let runner = self.fork_tool.as_ref().ok_or("Forked skill execution is not available in this agent; delegate this skill to the parent agent")?;
-            let (agent_id, result) = runner.invoke_skill(
-                &output.command_name,
-                output.instruction.as_deref().unwrap_or_default(),
-                skill.frontmatter.agent.as_deref(),
-                output.model.as_deref(),
-            ).await?;
+            let (agent_id, result) = runner
+                .invoke_skill(
+                    &output.command_name,
+                    output.instruction.as_deref().unwrap_or_default(),
+                    skill.frontmatter.agent.as_deref(),
+                    output.model.as_deref(),
+                )
+                .await?;
             output.status = "forked".to_string();
             output.instruction = None;
             output.agent_id = Some(agent_id);

@@ -478,12 +478,7 @@ fn test_extract_snapshot_text_cjk_no_inserted_spaces_from_real_buffer() {
 #[test]
 fn test_extract_snapshot_text_cjk_mixed_line_from_real_buffer() {
     let mut buffer = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, 30, 1));
-    buffer.set_string(
-        0,
-        0,
-        "中文 ok 混排 test",
-        ratatui::style::Style::default(),
-    );
+    buffer.set_string(0, 0, "中文 ok 混排 test", ratatui::style::Style::default());
     let snapshot = ScreenSnapshot::from_buffer(&buffer);
     let result = extract_snapshot_text(&snapshot, (0, 0), (0, 29));
     assert_eq!(result, Some("中文 ok 混排 test".to_string()));

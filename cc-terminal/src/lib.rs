@@ -29,8 +29,7 @@ pub mod terminal_title;
 pub(crate) mod test_lock {
     use std::time::Duration;
 
-    pub(crate) static PROCESS_TEST_LOCK: tokio::sync::Mutex<()> =
-        tokio::sync::Mutex::const_new(());
+    pub(crate) static PROCESS_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     pub(crate) const PROCESS_TEST_TIMEOUT: Duration = Duration::from_secs(30);
 }

@@ -131,7 +131,12 @@ pub(super) fn build_content(app: &App, width: usize) -> Option<ApprovalContent> 
                     for (key, value) in map {
                         if matches!(
                             key.as_str(),
-                            "file_path" | "path" | "command" | "old_string" | "new_string" | "edits"
+                            "file_path"
+                                | "path"
+                                | "command"
+                                | "old_string"
+                                | "new_string"
+                                | "edits"
                         ) {
                             continue;
                         }

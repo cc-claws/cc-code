@@ -456,10 +456,7 @@ async fn test_subagent_cancel_then_restart_no_duplicate_render() {
                 json!({"action": "stop", "task_id": "bg-1"}),
             )],
         ),
-        cc_agent::messages::BaseMessage::tool_result(
-            "tc_stop",
-            "Stopped background task bg-1.",
-        ),
+        cc_agent::messages::BaseMessage::tool_result("tc_stop", "Stopped background task bg-1."),
         cc_agent::messages::BaseMessage::ai("已成功终止子 Agent 任务。"),
     ]));
     app.handle_agent_event(AgentEvent::Done);
@@ -570,5 +567,8 @@ async fn test_subagent_cancel_then_restart_no_duplicate_render() {
         "AI 文本不应重复渲染: ai_restart_texts={ai_restart_texts}"
     );
     // 轮次 1 有一个启动摘要，轮次 3 有一个启动摘要，两者各自独立保留在对应轮次
-    assert_eq!(cards, 2, "历史轮次与当前轮次各保留 1 个启动卡片: cards={cards}");
+    assert_eq!(
+        cards, 2,
+        "历史轮次与当前轮次各保留 1 个启动卡片: cards={cards}"
+    );
 }

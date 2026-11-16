@@ -59,7 +59,12 @@ impl super::SubAgentTool {
             child_meta.parent_thread_id = self.parent_thread_id.clone();
             child_meta.snapshot_at_message_id = options.snapshot_at_message_id.clone();
             child_meta.hidden = true;
-            child_meta.cancel_policy = if options.cascade_cancel { "cascade" } else { "independent" }.to_string();
+            child_meta.cancel_policy = if options.cascade_cancel {
+                "cascade"
+            } else {
+                "independent"
+            }
+            .to_string();
             child_meta.title = Some(agent_name.to_string());
             child_meta.kernel_id = Some(self.kernel.id().to_string());
             store
@@ -80,9 +85,11 @@ impl super::SubAgentTool {
         // 子代理的激活记录必须独立，不能沿用父工具闭包中的会话 registry。
         // 保留定义工具白名单：父工具集中没有 Skill 时不擅自添加。
         let invoked_skills = cc_agent::agent::compact::re_inject::InvokedSkillRegistry::default();
-        let child_skill_tool = crate::tools::SkillTool::new(crate::skills::SkillsMiddleware::resolve_dirs_static(cwd, &self.extra_skill_dirs))
-            .with_session_id(Some(child_thread_id.clone()))
-            .with_invoked_skills(invoked_skills);
+        let child_skill_tool = crate::tools::SkillTool::new(
+            crate::skills::SkillsMiddleware::resolve_dirs_static(cwd, &self.extra_skill_dirs),
+        )
+        .with_session_id(Some(child_thread_id.clone()))
+        .with_invoked_skills(invoked_skills);
         for tool in &mut filtered_tools {
             if tool.name() == "Skill" {
                 *tool = Box::new(child_skill_tool.clone());
@@ -145,26 +152,23 @@ impl super::SubAgentTool {
 
         // 7. Middlewares（fork 不带 agent.md 的 skills，其余链完全一致）
         let mut middleware_config = self.permission_config(
-                if options.fork {
-                    SubAgentMiddlewareConfig::for_fork(cwd)
-                } else {
-                    SubAgentMiddlewareConfig::for_agent_def(
-                        agent_def.frontmatter.skills.clone(),
-                        cwd,
-                    )
-                }
-                .with_inherited_instructions(self.inherited_instructions.clone()),
-                if options.fork {
-                    &ToolsValue::Empty
-                } else {
-                    &agent_def.frontmatter.tools
-                },
-                if options.fork {
-                    &ToolsValue::Empty
-                } else {
-                    &agent_def.frontmatter.disallowed_tools
-                },
-            );
+            if options.fork {
+                SubAgentMiddlewareConfig::for_fork(cwd)
+            } else {
+                SubAgentMiddlewareConfig::for_agent_def(agent_def.frontmatter.skills.clone(), cwd)
+            }
+            .with_inherited_instructions(self.inherited_instructions.clone()),
+            if options.fork {
+                &ToolsValue::Empty
+            } else {
+                &agent_def.frontmatter.tools
+            },
+            if options.fork {
+                &ToolsValue::Empty
+            } else {
+                &agent_def.frontmatter.disallowed_tools
+            },
+        );
         middleware_config.skill_tool = Some(child_skill_tool);
         middleware_config.kernel = self.kernel;
         middleware_config.available_tools = filtered_tools
@@ -181,7 +185,12 @@ impl super::SubAgentTool {
                     .map(|tool| tool.name().to_string())
             }))
             .filter(|name| {
-                tool_is_visible(self.kernel, &allowed_for_prompt, &disallowed_for_prompt, name)
+                tool_is_visible(
+                    self.kernel,
+                    &allowed_for_prompt,
+                    &disallowed_for_prompt,
+                    name,
+                )
             })
             .collect();
         visible_tools.sort();
@@ -221,7 +230,10 @@ impl super::SubAgentTool {
 
         // 11. 后台任务独立于父级取消；同步 Skill 的取消必须级联。
         let cancel_token = Some(if options.cascade_cancel {
-            self.cancel.as_ref().map(AgentCancellationToken::child_token).unwrap_or_default()
+            self.cancel
+                .as_ref()
+                .map(AgentCancellationToken::child_token)
+                .unwrap_or_default()
         } else {
             AgentCancellationToken::new()
         });

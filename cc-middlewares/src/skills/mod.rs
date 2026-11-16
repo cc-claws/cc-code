@@ -1,5 +1,5 @@
-pub mod loader;
 pub mod invocation;
+pub mod loader;
 
 pub use loader::{list_skills, load_skill_metadata, SkillMetadata};
 
@@ -206,13 +206,29 @@ impl SkillsMiddleware {
 
     /// 生成 skills 摘要系统消息内容
     pub fn build_summary(skills: &[SkillMetadata]) -> String {
-        let visible: Vec<_> = skills.iter().filter(|skill| {
-            std::fs::read_to_string(&skill.path).ok()
-                .and_then(|content| invocation::parse_skill(&content).ok())
-                .is_none_or(|(frontmatter, _)| !frontmatter.disable_model_invocation)
-        }).collect();
-        let name_chars = visible.iter().map(|skill| skill.name.chars().count() + 5).sum::<usize>();
-        let descriptions = visible.iter().map(|skill| skill.description.chars().count().min(MAX_LISTING_DESC_CHARS)).sum::<usize>();
+        let visible: Vec<_> = skills
+            .iter()
+            .filter(|skill| {
+                std::fs::read_to_string(&skill.path)
+                    .ok()
+                    .and_then(|content| invocation::parse_skill(&content).ok())
+                    .is_none_or(|(frontmatter, _)| !frontmatter.disable_model_invocation)
+            })
+            .collect();
+        let name_chars = visible
+            .iter()
+            .map(|skill| skill.name.chars().count() + 5)
+            .sum::<usize>();
+        let descriptions = visible
+            .iter()
+            .map(|skill| {
+                skill
+                    .description
+                    .chars()
+                    .count()
+                    .min(MAX_LISTING_DESC_CHARS)
+            })
+            .sum::<usize>();
         // 不丢技能名称；预算不足时均匀缩短描述，与 CC 的发现列表策略一致。
         let description_limit = if name_chars + descriptions <= DEFAULT_LISTING_CHAR_BUDGET {
             MAX_LISTING_DESC_CHARS
@@ -226,9 +242,19 @@ impl SkillsMiddleware {
             String::new(),
         ];
         for skill in visible {
-            let description = skill.description.split_whitespace().collect::<Vec<_>>().join(" ");
+            let description = skill
+                .description
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
             let description = if description.chars().count() > description_limit {
-                format!("{}…", description.chars().take(description_limit.saturating_sub(1)).collect::<String>())
+                format!(
+                    "{}…",
+                    description
+                        .chars()
+                        .take(description_limit.saturating_sub(1))
+                        .collect::<String>()
+                )
             } else {
                 description
             };

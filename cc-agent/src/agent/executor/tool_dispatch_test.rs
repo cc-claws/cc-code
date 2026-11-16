@@ -2307,7 +2307,6 @@ async fn test_proxy_schema_error_preserves_classification_target_and_call_identi
     }
 }
 
-
 // ============================================================================
 // Auto-rescue tests — 工具纠错：调错工具但参数 100% 符合唯一只读工具时静默改道。
 //
@@ -2455,10 +2454,14 @@ async fn test_auto_rescue_grep_with_unique_grep_params() {
     let (results, _cancelled, _deferred_error) = collect_tool_results(
         &agent,
         &mut state,
-        vec![ToolCall::new("call-1", "WrongTool", serde_json::json!({
-            "pattern": "error",
-            "output_mode": "content",
-        }))],
+        vec![ToolCall::new(
+            "call-1",
+            "WrongTool",
+            serde_json::json!({
+                "pattern": "error",
+                "output_mode": "content",
+            }),
+        )],
         &tools,
         &CancellationToken::new(),
         MessageId::new(),
@@ -2474,7 +2477,12 @@ async fn test_auto_rescue_grep_with_unique_grep_params() {
     assert_eq!(result.tool_name, "Grep");
     assert_eq!(result.output, "grep output");
     assert!(!result.is_error);
-    let v = grep.received.lock().unwrap().take().expect("Grep 应被实际执行");
+    let v = grep
+        .received
+        .lock()
+        .unwrap()
+        .take()
+        .expect("Grep 应被实际执行");
     assert_eq!(v.get("pattern").and_then(|v| v.as_str()), Some("error"));
     assert!(glob.received.lock().unwrap().is_none(), "Glob 不应执行");
     assert!(read.received.lock().unwrap().is_none(), "Read 不应执行");
@@ -2591,10 +2599,14 @@ async fn test_no_auto_rescue_on_ambiguous_pattern_path() {
     let (results, _cancelled, _deferred_error) = collect_tool_results(
         &agent,
         &mut state,
-        vec![ToolCall::new("call-1", "WrongTool", serde_json::json!({
-            "pattern": "*.rs",
-            "path": "/virtual/project",
-        }))],
+        vec![ToolCall::new(
+            "call-1",
+            "WrongTool",
+            serde_json::json!({
+                "pattern": "*.rs",
+                "path": "/virtual/project",
+            }),
+        )],
         &tools,
         &CancellationToken::new(),
         MessageId::new(),
@@ -2604,10 +2616,19 @@ async fn test_no_auto_rescue_on_ambiguous_pattern_path() {
     .unwrap();
 
     assert!(results.len() == 1);
-    assert_eq!(results[0].1.error_kind.unwrap(), ToolErrorKind::SchemaValidation);
+    assert_eq!(
+        results[0].1.error_kind.unwrap(),
+        ToolErrorKind::SchemaValidation
+    );
     assert!(results[0].1.output.contains("Invalid arguments for tool"));
-    assert!(grep.received.lock().unwrap().is_none(), "歧义输入不应改道执行 Grep");
-    assert!(glob.received.lock().unwrap().is_none(), "歧义输入不应改道执行 Glob");
+    assert!(
+        grep.received.lock().unwrap().is_none(),
+        "歧义输入不应改道执行 Grep"
+    );
+    assert!(
+        glob.received.lock().unwrap().is_none(),
+        "歧义输入不应改道执行 Glob"
+    );
 }
 
 #[tokio::test]
@@ -2626,10 +2647,14 @@ async fn test_auto_rescue_glob_when_glob_is_the_unique_match() {
     let (results, _cancelled, _deferred_error) = collect_tool_results(
         &agent,
         &mut state,
-        vec![ToolCall::new("call-1", "WrongTool", serde_json::json!({
-            "pattern": "**/*.rs",
-            "path": "/virtual/project",
-        }))],
+        vec![ToolCall::new(
+            "call-1",
+            "WrongTool",
+            serde_json::json!({
+                "pattern": "**/*.rs",
+                "path": "/virtual/project",
+            }),
+        )],
         &tools,
         &CancellationToken::new(),
         MessageId::new(),
@@ -2640,7 +2665,12 @@ async fn test_auto_rescue_glob_when_glob_is_the_unique_match() {
 
     assert!(results.len() == 1);
     assert_eq!(&results[0].1.output, "glob output");
-    let v = glob.received.lock().unwrap().take().expect("Glob 应被实际执行");
+    let v = glob
+        .received
+        .lock()
+        .unwrap()
+        .take()
+        .expect("Glob 应被实际执行");
     assert_eq!(v.get("pattern").and_then(|v| v.as_str()), Some("**/*.rs"));
 }
 
@@ -2663,10 +2693,14 @@ async fn test_auto_rescue_read_with_unique_read_params() {
     let (results, _cancelled, _deferred_error) = collect_tool_results(
         &agent,
         &mut state,
-        vec![ToolCall::new("call-1", "WrongTool", serde_json::json!({
-            "file_path": "/virtual/project/README.md",
-            "limit": 100,
-        }))],
+        vec![ToolCall::new(
+            "call-1",
+            "WrongTool",
+            serde_json::json!({
+                "file_path": "/virtual/project/README.md",
+                "limit": 100,
+            }),
+        )],
         &tools,
         &CancellationToken::new(),
         MessageId::new(),
@@ -2677,8 +2711,16 @@ async fn test_auto_rescue_read_with_unique_read_params() {
 
     assert!(results.len() == 1);
     assert_eq!(&results[0].1.output, "read output");
-    let v = read.received.lock().unwrap().take().expect("Read 应被实际执行");
-    assert_eq!(v.get("file_path").and_then(|v| v.as_str()), Some("/virtual/project/README.md"));
+    let v = read
+        .received
+        .lock()
+        .unwrap()
+        .take()
+        .expect("Read 应被实际执行");
+    assert_eq!(
+        v.get("file_path").and_then(|v| v.as_str()),
+        Some("/virtual/project/README.md")
+    );
     assert!(grep.received.lock().unwrap().is_none());
     assert!(glob.received.lock().unwrap().is_none());
 }
@@ -2724,9 +2766,13 @@ async fn test_no_auto_rescue_when_target_is_not_readonly_tool() {
     let (results, _cancelled, _deferred_error) = collect_tool_results(
         &agent,
         &mut state,
-        vec![ToolCall::new("call-1", "WrongTool", serde_json::json!({
-            "command": "echo hello",
-        }))],
+        vec![ToolCall::new(
+            "call-1",
+            "WrongTool",
+            serde_json::json!({
+                "command": "echo hello",
+            }),
+        )],
         &tools,
         &CancellationToken::new(),
         MessageId::new(),
@@ -2737,7 +2783,10 @@ async fn test_no_auto_rescue_when_target_is_not_readonly_tool() {
 
     assert!(!*executed.lock().unwrap(), "Bash 绝不应被执行");
     assert!(results.len() == 1);
-    assert_eq!(results[0].1.error_kind.unwrap(), ToolErrorKind::SchemaValidation);
+    assert_eq!(
+        results[0].1.error_kind.unwrap(),
+        ToolErrorKind::SchemaValidation
+    );
     assert!(!results[0].1.output.contains("shell output"));
 }
 
@@ -2824,7 +2873,10 @@ async fn test_no_auto_rescue_when_input_matches_no_tool() {
         .unwrap();
 
         assert!(results.len() == 1);
-        assert_eq!(results[0].1.error_kind.unwrap(), ToolErrorKind::SchemaValidation);
+        assert_eq!(
+            results[0].1.error_kind.unwrap(),
+            ToolErrorKind::SchemaValidation
+        );
         assert!(results[0].1.output.contains("Invalid arguments for tool"));
     }
     assert!(grep.received.lock().unwrap().is_none());
@@ -2852,10 +2904,14 @@ async fn test_auto_rescue_does_not_trigger_circuit_breaker() {
         let (res, _cancelled, _deferred_error) = collect_tool_results(
             &agent,
             &mut state,
-            vec![ToolCall::new(format!("call-{i}"), "WrongTool", serde_json::json!({
-                "pattern": "x",
-                "output_mode": "content",
-            }))],
+            vec![ToolCall::new(
+                format!("call-{i}"),
+                "WrongTool",
+                serde_json::json!({
+                    "pattern": "x",
+                    "output_mode": "content",
+                }),
+            )],
             &tools,
             &CancellationToken::new(),
             MessageId::new(),
@@ -2891,10 +2947,14 @@ async fn test_uppercase_tool_name_resolves_without_rescue() {
     let (results, _cancelled, _deferred_error) = collect_tool_results(
         &agent,
         &mut state,
-        vec![ToolCall::new("call-1", "GREP", serde_json::json!({
-            "pattern": "error",
-            "output_mode": "content",
-        }))],
+        vec![ToolCall::new(
+            "call-1",
+            "GREP",
+            serde_json::json!({
+                "pattern": "error",
+                "output_mode": "content",
+            }),
+        )],
         &tools,
         &CancellationToken::new(),
         MessageId::new(),
@@ -2905,7 +2965,10 @@ async fn test_uppercase_tool_name_resolves_without_rescue() {
 
     assert!(results.len() == 1);
     assert_eq!(&results[0].1.output, "grep output");
-    assert!(grep.received.lock().unwrap().is_some(), "GREP 应大小写无关地解析到 Grep 执行");
+    assert!(
+        grep.received.lock().unwrap().is_some(),
+        "GREP 应大小写无关地解析到 Grep 执行"
+    );
 }
 
 #[tokio::test]
@@ -2929,10 +2992,14 @@ async fn test_auto_rescue_from_uppercase_tool_name() {
     let (results, _cancelled, _deferred_error) = collect_tool_results(
         &agent,
         &mut state,
-        vec![ToolCall::new("call-1", "READ", serde_json::json!({
-            "pattern": "error",
-            "output_mode": "content",
-        }))],
+        vec![ToolCall::new(
+            "call-1",
+            "READ",
+            serde_json::json!({
+                "pattern": "error",
+                "output_mode": "content",
+            }),
+        )],
         &tools,
         &CancellationToken::new(),
         MessageId::new(),
@@ -3030,10 +3097,14 @@ async fn test_no_rescue_on_parameter_name_case_mismatch() {
     let (results, _cancelled, _deferred_error) = collect_tool_results(
         &agent,
         &mut state,
-        vec![ToolCall::new("call-1", "WrongTool", serde_json::json!({
-            "pattern": "error",
-            "Output_Mode": "content",
-        }))],
+        vec![ToolCall::new(
+            "call-1",
+            "WrongTool",
+            serde_json::json!({
+                "pattern": "error",
+                "Output_Mode": "content",
+            }),
+        )],
         &tools,
         &CancellationToken::new(),
         MessageId::new(),
@@ -3043,8 +3114,14 @@ async fn test_no_rescue_on_parameter_name_case_mismatch() {
     .unwrap();
 
     assert!(results.len() == 1);
-    assert_eq!(results[0].1.error_kind.unwrap(), ToolErrorKind::SchemaValidation);
-    assert!(grep.received.lock().unwrap().is_none(), "参数名大小写不符不应改道执行");
+    assert_eq!(
+        results[0].1.error_kind.unwrap(),
+        ToolErrorKind::SchemaValidation
+    );
+    assert!(
+        grep.received.lock().unwrap().is_none(),
+        "参数名大小写不符不应改道执行"
+    );
     assert!(glob.received.lock().unwrap().is_none());
     assert!(read.received.lock().unwrap().is_none());
 }

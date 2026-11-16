@@ -3512,7 +3512,6 @@ async fn test_command_palette_renders_compact_with_few_models() {
     );
 }
 
-
 #[tokio::test(flavor = "multi_thread")]
 async fn test_clear_keeps_fullscreen_latch_by_design() {
     let (mut app, _handle) = App::new_headless(120, 30).await;

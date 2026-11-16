@@ -109,14 +109,20 @@ pub struct LoadedSkill {
 
 /// 仅从发现目录的目录表定位技能；不把模型输入拼成文件路径。
 pub fn find_skill<'a>(skills: &'a [SkillMetadata], requested: &str) -> Option<&'a SkillMetadata> {
-    let name = requested.trim().strip_prefix('/').unwrap_or(requested.trim());
+    let name = requested
+        .trim()
+        .strip_prefix('/')
+        .unwrap_or(requested.trim());
     if name.is_empty() || name.contains(['/', '\\']) {
         return None;
     }
     if let Some(skill) = skills.iter().find(|skill| skill.name == name) {
         return Some(skill);
     }
-    if let Some(skill) = skills.iter().find(|skill| skill.name.eq_ignore_ascii_case(name)) {
+    if let Some(skill) = skills
+        .iter()
+        .find(|skill| skill.name.eq_ignore_ascii_case(name))
+    {
         return Some(skill);
     }
     // 无命名空间时允许唯一的插件简称；显式限定名称不能误选另一插件。
@@ -124,7 +130,11 @@ pub fn find_skill<'a>(skills: &'a [SkillMetadata], requested: &str) -> Option<&'
         if let Some((_, basename)) = name.rsplit_once(':') {
             !skill.name.contains(':') && skill.name.eq_ignore_ascii_case(basename)
         } else {
-            skill.name.rsplit(':').next().is_some_and(|base| base.eq_ignore_ascii_case(name))
+            skill
+                .name
+                .rsplit(':')
+                .next()
+                .is_some_and(|base| base.eq_ignore_ascii_case(name))
         }
     });
     let matched = matches.next()?;
@@ -148,7 +158,11 @@ pub fn parse_skill(content: &str) -> Result<(SkillFrontmatter, String), SkillErr
     Ok((frontmatter, parsed.content))
 }
 
-pub fn load_skill(dirs: &[PathBuf], requested: &str, args: Option<&str>) -> Result<LoadedSkill, SkillError> {
+pub fn load_skill(
+    dirs: &[PathBuf],
+    requested: &str,
+    args: Option<&str>,
+) -> Result<LoadedSkill, SkillError> {
     let skills = list_skills(dirs);
     let metadata = find_skill(&skills, requested)
         .ok_or_else(|| format!("Unknown or ambiguous skill: {}", requested.trim()))?;
@@ -157,7 +171,11 @@ pub fn load_skill(dirs: &[PathBuf], requested: &str, args: Option<&str>) -> Resu
     let (frontmatter, body) = parse_skill(&content)?;
     let skill_dir = metadata.path.parent().unwrap_or_else(|| Path::new("."));
     let skill_dir = skill_dir.to_string_lossy().replace('\\', "/");
-    let names = frontmatter.arguments.as_ref().map(SkillArgumentNames::to_vec).unwrap_or_default();
+    let names = frontmatter
+        .arguments
+        .as_ref()
+        .map(SkillArgumentNames::to_vec)
+        .unwrap_or_default();
     // CC 的 SkillTool 将省略的 args 也按空串传给 getPromptForCommand。
     let body = substitute_arguments(&body, args.unwrap_or_default(), &names);
     let body = body.replace("${CLAUDE_SKILL_DIR}", &skill_dir);
@@ -228,9 +246,11 @@ pub fn substitute_arguments(content: &str, args: &str, names: &[String]) -> Stri
         let mut replaced = String::new();
         let mut cursor = 0;
         for matched in pattern.find_iter(&result) {
-            if result[matched.end()..].chars().next().is_some_and(|next| {
-                next == '[' || next.is_ascii_alphanumeric() || next == '_'
-            }) {
+            if result[matched.end()..]
+                .chars()
+                .next()
+                .is_some_and(|next| next == '[' || next.is_ascii_alphanumeric() || next == '_')
+            {
                 continue;
             }
             replaced.push_str(&result[cursor..matched.start()]);
@@ -241,13 +261,27 @@ pub fn substitute_arguments(content: &str, args: &str, names: &[String]) -> Stri
         result = replaced;
     }
     let indexed = Regex::new(r"\$ARGUMENTS\[(\d+)\]").expect("固定正则必须有效");
-    result = indexed.replace_all(&result, |capture: &Captures<'_>| {
-        capture[1].parse::<usize>().ok().and_then(|index| parsed.get(index)).cloned().unwrap_or_default()
-    }).into_owned();
+    result = indexed
+        .replace_all(&result, |capture: &Captures<'_>| {
+            capture[1]
+                .parse::<usize>()
+                .ok()
+                .and_then(|index| parsed.get(index))
+                .cloned()
+                .unwrap_or_default()
+        })
+        .into_owned();
     let shorthand = Regex::new(r"\$(\d+)\b").expect("固定正则必须有效");
-    result = shorthand.replace_all(&result, |capture: &Captures<'_>| {
-        capture[1].parse::<usize>().ok().and_then(|index| parsed.get(index)).cloned().unwrap_or_default()
-    }).into_owned();
+    result = shorthand
+        .replace_all(&result, |capture: &Captures<'_>| {
+            capture[1]
+                .parse::<usize>()
+                .ok()
+                .and_then(|index| parsed.get(index))
+                .cloned()
+                .unwrap_or_default()
+        })
+        .into_owned();
     result = result.replace("$ARGUMENTS", args);
     if result == content && !args.is_empty() {
         result.push_str("\n\nARGUMENTS: ");

@@ -656,11 +656,7 @@ impl ThreadStore for SqliteThreadStore {
 
     /// 窄更新内核字段：单列 UPDATE，避免 load_meta + 全量回写覆盖并发写入的
     /// 标题 / 状态 / 回顾 / 上下文缓存。
-    async fn update_kernel_snapshot(
-        &self,
-        id: &ThreadId,
-        kernel_id: Option<String>,
-    ) -> Result<()> {
+    async fn update_kernel_snapshot(&self, id: &ThreadId, kernel_id: Option<String>) -> Result<()> {
         sqlx::query("UPDATE threads SET kernel_id = ?1 WHERE id = ?2")
             .bind(kernel_id)
             .bind(id.as_str())

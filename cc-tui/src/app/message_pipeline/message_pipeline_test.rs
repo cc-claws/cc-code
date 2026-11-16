@@ -194,11 +194,7 @@ fn test_merge_file_inspect_preserves_reasoning_and_duration() {
         .flat_map(|vm| match vm {
             MessageViewModel::ToolCallGroup {
                 thinking: Some(t), ..
-            } => vec![(
-                t.text.as_str(),
-                t.duration_ms,
-                t.action_summary.as_deref(),
-            )],
+            } => vec![(t.text.as_str(), t.duration_ms, t.action_summary.as_deref())],
             MessageViewModel::AssistantBubble { blocks, .. } => blocks
                 .iter()
                 .filter_map(|block| match block {
@@ -264,7 +260,8 @@ fn test_merge_thinking_counts_shell_commands_only_from_groups() {
         "运行中与带 timeout 的 file_inspect Bash 也应计入组内"
     );
     assert!(
-        !vms.iter().any(|vm| matches!(vm, MessageViewModel::ToolBlock { .. })),
+        !vms.iter()
+            .any(|vm| matches!(vm, MessageViewModel::ToolBlock { .. })),
         "三条都应进组，不应残留单条 ToolBlock"
     );
     let entries = vms
@@ -3297,7 +3294,10 @@ fn test_mark_live_thinking_aligns_rows_to_frozen_groups() {
     let mut pipeline = MessagePipeline::new("/p".to_string());
     pipeline.finished_groups = vec![8_000, 12_000];
     pipeline.last_event_at = Some(std::time::Instant::now());
-    let mut vms = vec![make_thinking_bubble("旧思考"), make_thinking_bubble("新思考")];
+    let mut vms = vec![
+        make_thinking_bubble("旧思考"),
+        make_thinking_bubble("新思考"),
+    ];
     // Act
     pipeline.mark_live_thinking(&mut vms);
     // Assert：新行取最新组、旧行取次新组，不重复消费同一组
@@ -3321,16 +3321,17 @@ fn test_tool_gap_does_not_create_extra_group() {
     pipeline.push_reasoning("思考内容");
     pipeline.push_chunk("第一段答案");
     // Act
-    pipeline.tool_start_internal("t1", "Read", serde_json::json!({ "file_path": "a.rs" }), false);
+    pipeline.tool_start_internal(
+        "t1",
+        "Read",
+        serde_json::json!({ "file_path": "a.rs" }),
+        false,
+    );
     pipeline.tool_end_internal("t1", "Read", "ok", false);
     pipeline.push_chunk("第二段答案");
     pipeline.done();
     // Assert：只有思考那一组，工具间隙不产生无主组
-    assert_eq!(
-        pipeline.finished_groups.len(),
-        1,
-        "工具边界不应产生无主组"
-    );
+    assert_eq!(pipeline.finished_groups.len(), 1, "工具边界不应产生无主组");
 }
 
 /// 测试：工具运行时长不混入思考耗时（回归：思考 → 工具 → 正文被算成一段）。
@@ -3340,7 +3341,12 @@ fn test_tool_runtime_excluded_from_thinking_group() {
     let mut pipeline = MessagePipeline::new("/p".to_string());
     pipeline.push_reasoning("思考内容");
     // Act
-    pipeline.tool_start_internal("t1", "Read", serde_json::json!({ "file_path": "a.rs" }), false);
+    pipeline.tool_start_internal(
+        "t1",
+        "Read",
+        serde_json::json!({ "file_path": "a.rs" }),
+        false,
+    );
     std::thread::sleep(std::time::Duration::from_millis(120));
     pipeline.tool_end_internal("t1", "Read", "ok", false);
     pipeline.push_chunk("答案");

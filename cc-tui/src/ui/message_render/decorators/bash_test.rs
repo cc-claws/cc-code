@@ -113,7 +113,10 @@ fn test_transform_head_window_skips_prettify_when_over_limit() {
     let head = transform_bash_output_lines(&input, None, &mut buf_head, BodyWindow::HeadLines(3));
     let full_texts: Vec<&str> = full.lines.iter().map(|l| l.text.as_ref()).collect();
     let head_texts: Vec<&str> = head.lines.iter().map(|l| l.text.as_ref()).collect();
-    assert!(full_texts.starts_with(&head_texts[..]), "超长场景前缀也应一致");
+    assert!(
+        full_texts.starts_with(&head_texts[..]),
+        "超长场景前缀也应一致"
+    );
     assert_eq!(head_texts.len(), 3, "未美化时窗口应恰好取 3 个源行");
     assert_eq!(
         head_texts[0],

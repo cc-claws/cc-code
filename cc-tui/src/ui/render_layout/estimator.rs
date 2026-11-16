@@ -1,6 +1,6 @@
 //! 高度只用于滚动定位；可见区域始终由真实 renderer 计算。
-use super::super::message_view::{ContentBlockView, MessageViewModel, ToolPhase};
 use super::super::message_render::ERROR_SUMMARY_MAX_LINES;
+use super::super::message_view::{ContentBlockView, MessageViewModel, ToolPhase};
 use crate::ui::message_render::decorators::bash::{
     parse_exit_code, transform_bash_output_lines, BodyWindow,
 };
@@ -268,9 +268,9 @@ pub(in crate::ui) fn is_live(vm: &MessageViewModel) -> bool {
         } => *phase != ToolPhase::Finished && !*is_error && tool_name != "AskUserQuestion",
         MessageViewModel::ShellCommand { exit_code, .. } => exit_code.is_none(),
         MessageViewModel::SubAgentGroup { is_running, .. } => *is_running,
-        MessageViewModel::AssistantBubble { blocks, .. } => blocks.iter().any(|b| {
-            matches!(b, ContentBlockView::Reasoning { active, .. } if *active)
-        }),
+        MessageViewModel::AssistantBubble { blocks, .. } => blocks
+            .iter()
+            .any(|b| matches!(b, ContentBlockView::Reasoning { active, .. } if *active)),
         MessageViewModel::ToolCallGroup {
             thinking: Some(t), ..
         } => t.active,

@@ -203,7 +203,6 @@ impl HookMiddleware {
             PermissionDecision::Ask | PermissionDecision::Passthrough => None,
         }
     }
-
 }
 
 #[async_trait]
@@ -233,7 +232,8 @@ impl<S: State> Middleware<S> for HookMiddleware {
                 &self.current_model,
             );
             let action = self
-                .runtime.fire(HookEvent::SessionStart, &input, None, None, None)
+                .runtime
+                .fire(HookEvent::SessionStart, &input, None, None, None)
                 .await;
             match &action {
                 HookAction::Block { reason } => {
@@ -272,7 +272,8 @@ impl<S: State> Middleware<S> for HookMiddleware {
             &prompt,
         );
         let action = self
-            .runtime.fire(HookEvent::UserPromptSubmit, &input, None, None, None)
+            .runtime
+            .fire(HookEvent::UserPromptSubmit, &input, None, None, None)
             .await;
 
         // Handle UserPromptSubmit actions
@@ -312,7 +313,8 @@ impl<S: State> Middleware<S> for HookMiddleware {
 
         // Fire PreToolUse
         let action = self
-            .runtime.fire(
+            .runtime
+            .fire(
                 HookEvent::PreToolUse,
                 &input,
                 Some(&tool_call.name),
@@ -372,7 +374,8 @@ impl<S: State> Middleware<S> for HookMiddleware {
 
         if is_sensitive && needs_dialog {
             let action = self
-                .runtime.fire(
+                .runtime
+                .fire(
                     HookEvent::PermissionRequest,
                     &input,
                     Some(&tool_call.name),
@@ -422,14 +425,15 @@ impl<S: State> Middleware<S> for HookMiddleware {
             }
 
             // Fire Notification (agent is waiting for user permission)
-            self.runtime.fire(
-                HookEvent::Notification,
-                &input,
-                Some(&tool_call.name),
-                Some(&tool_call.input),
-                Some(&tool_call.id),
-            )
-            .await;
+            self.runtime
+                .fire(
+                    HookEvent::Notification,
+                    &input,
+                    Some(&tool_call.name),
+                    Some(&tool_call.input),
+                    Some(&tool_call.id),
+                )
+                .await;
         }
 
         Ok(tool_call.clone())
@@ -466,7 +470,8 @@ impl<S: State> Middleware<S> for HookMiddleware {
         );
 
         let _action = self
-            .runtime.fire(
+            .runtime
+            .fire(
                 event,
                 &input,
                 Some(&tool_call.name),
@@ -510,7 +515,10 @@ impl<S: State> Middleware<S> for HookMiddleware {
             new_cwd: None,
         };
 
-        let stop_action = self.runtime.fire(HookEvent::Stop, &input, None, None, None).await;
+        let stop_action = self
+            .runtime
+            .fire(HookEvent::Stop, &input, None, None, None)
+            .await;
 
         // Stop hook Block/PreventContinuation 语义：CC 规范中，Stop hook
         // 返回 block 时 agent 不应停止而应继续工作。这里捕获 action 并把 reason
@@ -539,7 +547,8 @@ impl<S: State> Middleware<S> for HookMiddleware {
         };
 
         // Fire Notification (agent done, waiting for user input)
-        self.runtime.fire(HookEvent::Notification, &input, None, None, None)
+        self.runtime
+            .fire(HookEvent::Notification, &input, None, None, None)
             .await;
 
         Ok(output.clone())
@@ -606,7 +615,8 @@ impl<S: State> Middleware<S> for HookMiddleware {
             new_cwd: None,
         };
 
-        self.runtime.fire(HookEvent::StopFailure, &input, None, None, None)
+        self.runtime
+            .fire(HookEvent::StopFailure, &input, None, None, None)
             .await;
 
         Ok(())
@@ -687,7 +697,10 @@ pub async fn fire_standalone_lifecycle_hooks_blocking(
             let _ = handle.await;
         }
     };
-    if tokio::time::timeout(EXIT_HOOK_WAIT, join_all).await.is_err() {
+    if tokio::time::timeout(EXIT_HOOK_WAIT, join_all)
+        .await
+        .is_err()
+    {
         tracing::warn!(
             event = ?event,
             "standalone lifecycle hooks 超时未全部完成，继续退出"

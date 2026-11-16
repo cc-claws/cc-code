@@ -11,6 +11,26 @@ env:
     CARGO_TERM_COLOR: always
 
 jobs:
+    # 格式门禁：rustfmt 默认风格，edition 取自各 crate 的 Cargo.toml
+    # （workspace.package.edition = "2021"）。
+    # 与 lefthook pre-commit 的 `cargo fmt --all -- --check` 同一标准，避免本地被
+    # hook 拦下、进 CI 却漏网的差异。格式与平台无关，单跑 ubuntu 即可。
+    fmt:
+        name: Rustfmt
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@master
+              with:
+                  toolchain: stable
+                  components: rustfmt
+
+            - name: Check formatting
+              run: cargo fmt --all -- --check
+
     build:
         name: Build (${{ matrix.os }})
         runs-on: ${{ matrix.os }}

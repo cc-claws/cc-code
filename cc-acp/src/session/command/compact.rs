@@ -6,9 +6,7 @@
 use std::sync::Arc;
 
 use cc_agent::agent::{
-    compact::{
-        build_compacted_messages, extract_file_info, extract_skill_names, full_compact,
-    },
+    compact::{build_compacted_messages, extract_file_info, extract_skill_names, full_compact},
     events::AgentEvent as ExecutorEvent,
 };
 use tracing::{info, warn};
@@ -154,7 +152,13 @@ impl AgentCommand for CompactCommand {
         );
 
         // 执行 re_inject
-        let re_inject_result = cc_agent::agent::compact::re_inject::re_inject_with_registry(&history, &compact_config, &cwd, &invoked_skills).await;
+        let re_inject_result = cc_agent::agent::compact::re_inject::re_inject_with_registry(
+            &history,
+            &compact_config,
+            &cwd,
+            &invoked_skills,
+        )
+        .await;
 
         info!(
             files_injected = re_inject_result.files_injected,

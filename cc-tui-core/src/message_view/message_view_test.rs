@@ -332,7 +332,10 @@ fn test_aggregate_bash_file_inspect_joins_group_unless_backgrounded() {
         )];
         aggregate_tool_groups(&mut messages);
         assert!(
-            matches!(messages.as_slice(), [MessageViewModel::ToolCallGroup { .. }]),
+            matches!(
+                messages.as_slice(),
+                [MessageViewModel::ToolCallGroup { .. }]
+            ),
             "应入组: phase={phase:?} timeout={timeout_ms:?}"
         );
     }
