@@ -2,6 +2,7 @@
 name = "cc-middlewares"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 description = "Rust Agent middleware implementations, aligned with @langgraph-js/agent-middlewares"
 license.workspace = true
 authors.workspace = true

@@ -17,6 +17,11 @@ resolver = "2"
 [workspace.package]
 version = "0.2.0"
 edition = "2021"
+# MSRV：代码用到 u64::isolate_lowest_one（1.97 稳定），sysinfo 0.39 要求
+# rustc >= 1.95，取两者更高的 1.97。低于此版本构建会失败。
+# 与 rust-toolchain.toml（channel = "stable"）配合：本地工具链过旧时
+# rustup 会自动切换，而 cargo 会在版本不足时给出明确报错。
+rust-version = "1.97"
 authors = ["cc-claws"]
 license = "Apache-2.0"
 

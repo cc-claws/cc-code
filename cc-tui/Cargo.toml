@@ -2,6 +2,7 @@
 name = "cc-tui"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 description = "TUI interface for Rust Agent - interactive terminal playground"
 license.workspace = true
 authors.workspace = true
@@ -74,8 +75,6 @@ url = { workspace = true }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
-mimalloc.workspace = true
-libmimalloc-sys.workspace = true
 tikv-jemallocator.workspace = true
 tikv-jemalloc-ctl.workspace = true
 tikv-jemalloc-sys.workspace = true
