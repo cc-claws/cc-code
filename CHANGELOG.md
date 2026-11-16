@@ -4,6 +4,22 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.284 — 2026-11-16
+
+### Chores
+
+- **全仓 rustfmt 格式化并新增 CI 格式门禁（#1067, #1068）**：仓库既无 `rustfmt.toml` 也无格式化基线，`cargo fmt --all -- --check` 在 45 个文件上报差异（累计 +713 / −340），而 CI 只有 build / test / clippy 三个 job，格式把关完全依赖本地 `lefthook.yml` 的 pre-commit——未执行 `lefthook install`、或提交时用 `--no-verify` 的未格式化代码可以一路合进 `main`。现按 rustfmt 默认风格（edition 取自各 crate 的 `Cargo.toml`，workspace 为 2021）重排这 45 个 `.rs` 文件，全部为超长调用折行、缩进与空行规范化，无任何逻辑变更；并在 `.github/workflows/ci.yml` 新增独立 `fmt` job（`ubuntu-latest`，置于 `build` 之前）执行 `cargo fmt --all -- --check`，与本地 hook 同一判定规则，未格式化代码在 PR 阶段直接变红（格式判定与平台无关，故不参与三平台构建矩阵）。验证：`cargo fmt --all -- --check` 退出码 0、`cargo check --workspace --all-targets` 0 error / 0 warning、`cargo test --workspace` 2177 passed（唯一失败为本机未安装 PowerShell 7 的 `pwsh` 用例，`#[cfg(windows)]` 且要求原生 `pwsh`，与格式化无关，CI 的 windows runner 自带 pwsh）、PR #1068 新增的 `Rustfmt` 门禁 18 秒通过。
+
+---
+
+## v0.6.283 — 2026-11-16
+
+### Fixes
+
+- **声明 MSRV 并修正平台相关依赖（#1066）**：rustc 1.93 上首次 `cargo build` 直接失败——`sysinfo 0.39` 要求 rustc >= 1.95，而项目未声明最低版本，用户只能看到来自依赖内部的报错。现新增 `rust-toolchain.toml`（`channel = "stable"` + rustfmt/clippy 组件），并在根 `Cargo.toml` 声明 `workspace.package.rust-version = "1.97"`（`u64::isolate_lowest_one` 稳定版本与 sysinfo 要求取高者），11 个成员继承；同时修正三处依赖声明位置与代码实际使用平台不符的问题：`cc-agent` 的 `encoding_rs` 移入 `cfg(windows)`，`cc-tools` / `cc-terminal` 的 `tempfile` 移入 `dev-dependencies`，`cc-tui` 从 `cfg(not(windows))` 移除 `mimalloc` / `libmimalloc-sys`，`cc-acp` 删除未引用的 `agent-client-protocol-tokio`；并修复一条在 root 与 Windows 环境下必失败的测试（`cc-tools/src/tools/filesystem/write_test.rs` 特权 Unix 与 Windows 改用 ENOTDIR 分支）。验证：`cargo build --workspace` 零告警，`cargo test --workspace` 5017 passed / 0 failed / 30 ignored；非 Windows 构建少编译 mimalloc 与 `libmimalloc-sys`（后者含 C 源码），测试行为不变。
+
+---
+
 ## v0.6.282 — 2026-11-16
 
 ### Fixes
