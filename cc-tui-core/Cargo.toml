@@ -2,6 +2,7 @@
 name = "cc-tui-core"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 description = "Pure session/domain logic and shared primitives for cc-tui"
 license.workspace = true
 authors.workspace = true

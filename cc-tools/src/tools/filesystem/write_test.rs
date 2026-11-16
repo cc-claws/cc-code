@@ -119,24 +119,47 @@
         assert!(dir.path().join("clean.txt").exists());
     }
 
+    // root 持有 CAP_DAC_OVERRIDE，会绕过目录权限位，「只读目录」构造不出写入失败
+    #[cfg(unix)]
+    fn runs_privileged() -> bool {
+        unsafe { libc::geteuid() == 0 }
+    }
+
     #[tokio::test]
     async fn test_write_file_error_propagates() {
         let dir = tempfile::tempdir().unwrap();
-        // 在只读目录上写入应返回 Err
-        let readonly_dir = dir.path().join("readonly");
-        std::fs::create_dir(&readonly_dir).unwrap();
+
+        // 只有「非特权 Unix」能靠权限位制造 EACCES：
+        //   - root 持有 CAP_DAC_OVERRIDE，会绕过目录权限位
+        //   - Windows 目录的 readonly 属性不阻止在其中创建文件，写入会成功
+        // 其余情形统一用「父路径是普通文件」制造 ENOTDIR，该错误与身份、平台无关
         #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&readonly_dir, std::fs::Permissions::from_mode(0o444))
-                .unwrap();
-        }
-        let tool = WriteFileTool::new(readonly_dir.to_str().unwrap());
-        let _result = tool
+        let readonly_denies = !runs_privileged();
+        #[cfg(not(unix))]
+        let readonly_denies = false;
+
+        let (root, case) = if readonly_denies {
+            let readonly_dir = dir.path().join("readonly");
+            std::fs::create_dir(&readonly_dir).unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&readonly_dir, std::fs::Permissions::from_mode(0o555))
+                    .unwrap();
+            }
+            (readonly_dir, "EACCES")
+        } else {
+            let blocker = dir.path().join("blocker");
+            std::fs::write(&blocker, b"not a directory").unwrap();
+            (blocker, "ENOTDIR")
+        };
+
+        let tool = WriteFileTool::new(root.to_str().unwrap());
+        let result = tool
             .invoke(serde_json::json!({"file_path": "sub/nope.txt", "content": "x"}))
             .await;
-        #[cfg(unix)]
-        assert!(_result.is_err(), "写入只读目录应返回 Err");
+
+        assert!(result.is_err(), "写入不可写路径应返回 Err（{case}）");
     }
 
     #[test]

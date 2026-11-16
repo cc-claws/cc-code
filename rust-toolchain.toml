@@ -1,0 +1,7 @@
+[toolchain]
+# 与 CI 保持一致：跟随 stable。
+# MSRV 为 1.97（u64::isolate_lowest_one 的稳定版本，见 workspace.package.rust-version）。
+# 固定 channel 为 stable 而非具体版本，可避免本地工具链陈旧导致的构建失败
+# （rustup 会按本文件自动切换到最新 stable）。
+channel = "stable"
+components = ["rustfmt", "clippy"]

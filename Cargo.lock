@@ -443,7 +443,6 @@ version = "0.2.0"
 dependencies = [
  "agent-client-protocol",
  "agent-client-protocol-schema",
- "agent-client-protocol-tokio",
  "anyhow",
  "async-trait",
  "cc-agent",

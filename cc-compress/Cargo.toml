@@ -2,6 +2,7 @@
 name = "cc-compress"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 description = "CLI output compression filters for agent-facing command results (leaf crate)"
 license.workspace = true
 authors.workspace = true

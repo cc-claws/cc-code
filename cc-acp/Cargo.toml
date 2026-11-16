@@ -2,6 +2,7 @@
 name = "cc-acp"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 description = "ACP Agent service layer — Session management, Agent construction, Middleware chain, Transport abstraction"
 license.workspace = true
 authors.workspace = true
@@ -17,7 +18,6 @@ cc-lsp = { path = "../cc-lsp" }
 langfuse-client = { path = "../langfuse-client" }
 agent-client-protocol = { version = "0.11", features = ["unstable"] }
 agent-client-protocol-schema = { version = "0.12", features = ["unstable_elicitation", "unstable_auth_methods"] }
-agent-client-protocol-tokio = { version = "0.11" }
 tokio.workspace = true
 async-trait.workspace = true
 serde.workspace = true

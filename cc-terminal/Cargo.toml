@@ -2,6 +2,7 @@
 name = "cc-terminal"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 description = "Cross-platform terminal backend, clipboard, PTY/ConPTY and color primitives"
 license.workspace = true
 authors.workspace = true
@@ -16,7 +17,6 @@ anyhow.workspace = true
 thiserror.workspace = true
 url.workspace = true
 uuid.workspace = true
-tempfile.workspace = true
 arboard = "3"
 base64 = { version = "0.22", features = ["alloc"] }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif", "bmp"] }
@@ -39,4 +39,5 @@ windows-sys = { version = "0.59", features = [
 
 [dev-dependencies]
 serde_json.workspace = true
+tempfile.workspace = true
 tracing-subscriber.workspace = true
