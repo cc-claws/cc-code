@@ -327,7 +327,12 @@ async fn test_http_hook_circuit_breaker_skips_when_open() {
     let action = execute_http_hook(&hook, &input).await;
     let elapsed = start.elapsed();
 
-    assert!(matches!(action, HookAction::Allow));
+    // 熔断期内不再发请求，但必须如实上报失败：静默 Allow 会让 UI 记成
+    // 一条「0ms 的成功 hook」，用户看到的是假象。
+    assert!(
+        matches!(action, HookAction::Error { ref reason } if reason.contains("circuit breaker")),
+        "熔断短路必须上报为 hook 失败：{action:?}"
+    );
     assert!(elapsed < std::time::Duration::from_millis(50));
     crate::hooks::http_health::reset_all_http_health_for_test();
 }
@@ -361,10 +366,13 @@ async fn test_http_hook_connect_failure_trips_circuit_breaker() {
     // 验证熔断已被触发
     assert!(health.is_open());
 
-    // 验证后续请求直接瞬间跳过（熔断期间不上报失败，避免刷屏）
+    // 验证后续请求直接瞬间跳过（熔断期间不重复打端点，但仍如实上报失败）
     let start_second = std::time::Instant::now();
     let action_second = execute_http_hook(&hook, &input).await;
-    assert!(matches!(action_second, HookAction::Allow));
+    assert!(
+        matches!(action_second, HookAction::Error { ref reason } if reason.contains("circuit breaker")),
+        "熔断短路必须上报为 hook 失败：{action_second:?}"
+    );
     assert!(start_second.elapsed() < std::time::Duration::from_millis(50));
 
     crate::hooks::http_health::reset_all_http_health_for_test();

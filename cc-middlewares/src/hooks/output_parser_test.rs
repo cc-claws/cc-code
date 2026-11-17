@@ -219,3 +219,52 @@ fn test_sync_response_decision_approve_is_allow() {
     // Approve is not Block, so falls through to Allow
     assert!(matches!(sync_response_to_action(&resp), HookAction::Allow));
 }
+
+// === PermissionRequest 裁决 tests ===
+
+#[test]
+fn test_parse_http_permission_request_allow() {
+    // 桌面宠物等外部审批端点用 behavior 判别式返回裁决（对齐参考实现 schema）
+    let body = r#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"#;
+    assert!(
+        matches!(
+            parse_http_hook_response(body),
+            HookAction::PermissionOverride { decision, reason, new_input }
+                if decision == PermissionDecision::Allow && reason.is_none() && new_input.is_none()
+        ),
+        "PermissionRequest allow 必须转成放行裁决"
+    );
+}
+
+#[test]
+fn test_parse_http_permission_request_allow_with_updated_input() {
+    let body = r#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow","updatedInput":{"command":"ls"}}}}"#;
+    assert!(
+        matches!(
+            parse_http_hook_response(body),
+            HookAction::PermissionOverride { decision, new_input: Some(input), .. }
+                if decision == PermissionDecision::Allow && input["command"] == "ls"
+        ),
+        "PermissionRequest allow 必须同时透传 updatedInput"
+    );
+}
+
+#[test]
+fn test_parse_http_permission_request_deny() {
+    let body = r#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"not allowed here"}}}"#;
+    assert!(
+        matches!(
+            parse_http_hook_response(body),
+            HookAction::PermissionOverride { decision, reason: Some(reason), .. }
+                if decision == PermissionDecision::Deny && reason == "not allowed here"
+        ),
+        "PermissionRequest deny 必须转成拒绝裁决并带上原因"
+    );
+}
+
+#[test]
+fn test_parse_http_permission_request_without_decision_is_allow() {
+    // 端点只回了事件名没给裁决 → 不干预，继续走原生审批弹框
+    let body = r#"{"hookSpecificOutput":{"hookEventName":"PermissionRequest"}}"#;
+    assert!(matches!(parse_http_hook_response(body), HookAction::Allow));
+}

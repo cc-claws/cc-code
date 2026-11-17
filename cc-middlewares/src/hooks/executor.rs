@@ -324,7 +324,18 @@ pub async fn execute_http_hook(hook: &HookType, input: &HookInput) -> HookAction
             crate::hooks::http_health::CIRCUIT_OPEN_SECS,
             url
         );
-        return HookAction::Allow;
+        // 熔断期内不再发请求，但必须如实上报「这次没跑成」——静默返回 Allow 会让 UI
+        // 把它记成一条 `0ms` 的成功 hook，用户看到的是「hook 跑了但没耗时」这种假象。
+        // 对齐参考实现的 non_blocking_error 语义：不阻断调用，但留下可见的失败记录。
+        return HookAction::Error {
+            reason: hook_error_reason(
+                &format!(
+                    "hook skipped: endpoint circuit breaker open (cooling down {}s)",
+                    crate::hooks::http_health::CIRCUIT_OPEN_SECS
+                ),
+                url,
+            ),
+        };
     }
 
     let input_json = match serde_json::to_string(input) {
