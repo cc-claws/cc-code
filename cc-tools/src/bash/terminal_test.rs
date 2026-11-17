@@ -557,11 +557,14 @@ async fn test_bash_timeout_returns_quickly() {
     let tool = BashTool::new(std::env::temp_dir().to_str().unwrap());
     let start = Instant::now();
 
-    // Windows 用 ping 模拟 sleep，Unix 用 sleep
+    // Windows 用 ping 模拟 sleep，Unix 用 sleep。
+    // 注：不能用裸 `sleep N` —— 首个子命令是 `sleep N`（N ≥ 2）时会被
+    // detect_blocked_sleep_pattern 拦截（见 sleep_guard_test），而本用例要验证的是
+    // 超时路径。改用 `sleep 0.5` 循环累加等待，首个子命令不是整数秒 sleep，不触发拦截。
     let (sleep_cmd, timeout_ms) = if cfg!(target_os = "windows") {
         ("ping -n 60 127.0.0.1", 1000)
     } else {
-        ("sleep 60", 1000)
+        ("while true; do sleep 1; done", 1000)
     };
 
     let result = tool

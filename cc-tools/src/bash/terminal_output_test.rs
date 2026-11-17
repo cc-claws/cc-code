@@ -137,7 +137,8 @@ async fn test_no_output_streaming_when_disabled_preserves_final_result() {
         let tool = TerminalMiddleware::new()
             .with_output_streaming(enabled)
             .build_tools(std::env::temp_dir().to_str().expect("临时目录为 UTF-8"))
-            .pop()
+            .into_iter()
+            .find(|tool| tool.name() == "Bash")
             .expect("中间件提供 Bash");
         let output = ToolOutputContext::scope(
             Some(context),

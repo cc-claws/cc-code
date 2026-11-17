@@ -148,6 +148,129 @@ fn escape_xml_text(value: &str) -> String {
         .replace('>', "&gt;")
 }
 
+/// 首个 `sleep N` 的整数秒数达到该阈值即视为阻塞轮询。
+///
+/// 与 CC `detectBlockedSleepPattern` 保持一致：2 秒以内的 sleep 属于限流/节流，
+/// 是合法用法，不拦截。
+const BLOCKED_SLEEP_MIN_SECONDS: u64 = 2;
+
+/// 按 `&&`、`||`、`;`、`|`（以及单个 `&`）把命令行切成子命令，**跳过引号内内容**。
+///
+/// 只做浅层切分，足以定位「首个发生副作用的子命令」；不做重定向剥离、
+/// 变量展开等完整 shell 语义（CC 用完整解析器，peri 此处刻意保持轻量）。
+fn split_shell_subcommands(command: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut chars = command.chars().peekable();
+    // 当前所处的引号类型；`None` 表示不在引号内。
+    let mut quote: Option<char> = None;
+
+    while let Some(ch) = chars.next() {
+        match quote {
+            Some(q) => {
+                current.push(ch);
+                if ch == q {
+                    quote = None;
+                } else if ch == '\\' && q == '"' {
+                    // 双引号内的反斜杠转义，吞掉下一个字符避免误判闭合引号。
+                    if let Some(next) = chars.next() {
+                        current.push(next);
+                    }
+                }
+            }
+            None => match ch {
+                '\'' | '"' => {
+                    quote = Some(ch);
+                    current.push(ch);
+                }
+                '\\' => {
+                    // 反斜杠转义：连同下一个字符一起保留在当前子命令内。
+                    current.push(ch);
+                    if let Some(next) = chars.next() {
+                        current.push(next);
+                    }
+                }
+                '&' | '|' | ';' => {
+                    // `&&`、`||` 的第二个字符一并消费。
+                    if matches!(ch, '&' | '|') && chars.peek() == Some(&ch) {
+                        chars.next();
+                    }
+                    parts.push(std::mem::take(&mut current));
+                }
+                _ => current.push(ch),
+            },
+        }
+    }
+    parts.push(current);
+
+    parts
+        .into_iter()
+        .map(|p| p.trim().to_string())
+        .filter(|p| !p.is_empty())
+        .collect()
+}
+
+/// 解析 `sleep N` 形式的首个子命令，返回整数秒数。
+///
+/// 仅接受十进制整数秒；`sleep 0.5` 这类浮点属于节流节流，放行。
+fn parse_sleep_seconds(segment: &str) -> Option<u64> {
+    let mut fields = segment.split_whitespace();
+    if fields.next()? != "sleep" {
+        return None;
+    }
+    let arg = fields.next()?;
+    // 必须恰好是 `sleep N`，多出参数（如 `sleep 5 &&` 之外的 `sleep 5s`）不匹配。
+    if fields.next().is_some() {
+        return None;
+    }
+    if !arg.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    arg.parse::<u64>().ok()
+}
+
+/// 检测「以 `sleep N`（N ≥ 2 整数秒）开头」的阻塞轮询命令。
+///
+/// 命中返回人类可读的模式描述（用于拼接拦截文案），否则返回 `None`。
+///
+/// 只拦首个子命令：`sleep` 出现在管道、子 shell 或脚本内部属于合法用法，
+/// 因为这些场景里 shell 并没有被「纯等待」占住。
+///
+/// 对齐 CC `detectBlockedSleepPattern`（BashTool.tsx:461）。
+pub fn detect_blocked_sleep_pattern(command: &str) -> Option<String> {
+    let parts = split_shell_subcommands(command);
+    let first = parts.first()?;
+    let secs = parse_sleep_seconds(first)?;
+    if secs < BLOCKED_SLEEP_MIN_SECONDS {
+        return None;
+    }
+
+    // `sleep 5` → "standalone sleep 5"
+    // `sleep 5 && check` → "sleep 5 followed by: check"
+    let rest = parts[1..].join(" ");
+    let rest = rest.trim();
+    Some(if rest.is_empty() {
+        format!("standalone sleep {secs}")
+    } else {
+        format!("sleep {secs} followed by: {rest}")
+    })
+}
+
+/// 命中阻塞 sleep 时返回给模型的拦截文案。
+///
+/// 措辞对齐 peri 现有风格：先说明被拦的具体模式，再给出三条可执行的替代路径，
+/// 并显式堵住「拆成多个短 sleep 绕过」的做法（CC 文案同样强调这一点）。
+fn blocked_sleep_message(pattern: &str) -> String {
+    format!(
+        "Blocked: {pattern}. To wait for a condition, use an until-loop \
+         (e.g. `until <check>; do sleep 2; done`) or run the blocking command with \
+         `run_in_background: true` and wait for its completion notification. \
+         To wait without holding a shell, use the Sleep tool. \
+         Do not chain shorter sleeps to work around this block. If you genuinely \
+         need a delay (rate limiting, deliberate pacing), keep it under 2 seconds."
+    )
+}
+
 fn format_background_task_started(task_id: &str, command: &str, output_path: &Path) -> String {
     format!(
         "<background-task-started><task-id>{}</task-id><command>{}</command><output>{}</output></background-task-started>",
@@ -282,6 +405,15 @@ impl BaseTool for BashTool {
             }
         };
         let run_in_background = input["run_in_background"].as_bool().unwrap_or(false);
+
+        // 阻塞轮询拦截：`sleep N`（N ≥ 2）作为首个子命令时直接拒绝执行，
+        // 引导模型改用 until-loop / run_in_background / Sleep 工具。
+        // 显式要求后台运行时放行——此时 shell 不会被纯等待占住。
+        if !run_in_background {
+            if let Some(pattern) = detect_blocked_sleep_pattern(command) {
+                return Err(blocked_sleep_message(&pattern).into());
+            }
+        }
 
         let user_command = command.to_string();
         // 轨一：尝试使用 RTK 重写命令（对齐 CC / Codex 代理模式）
@@ -428,21 +560,33 @@ impl TerminalMiddleware {
     }
 
     /// 构造 BashTool。executor 为 None 时使用默认 InlineShellExecutor。
+    ///
+    /// 同时提供 Monitor（流式后台监控）与 Sleep（不占 shell 的等待）两个配套工具：
+    /// 它们是 Bash 阻塞 sleep 拦截文案里指向的替代路径，缺一不可。
     pub fn build_tools(&self, cwd: &str) -> Vec<Box<dyn BaseTool>> {
         let executor = self
             .executor
             .clone()
             .unwrap_or_else(|| Arc::new(InlineShellExecutor));
-        let mut tool =
-            BashTool::with_executor(cwd, executor).with_output_streaming(self.output_streaming);
+        let mut tool = BashTool::with_executor(cwd, Arc::clone(&executor))
+            .with_output_streaming(self.output_streaming);
         if let Some(cwd) = &self.session_cwd {
             tool = tool.with_session_cwd(Arc::clone(cwd));
         }
-        vec![Box::new(tool)]
+        // Monitor 与 Bash 共享同一 executor 和会话 cwd 句柄，保证后台通道与目录一致。
+        let mut monitor = crate::tools::monitor::MonitorTool::with_executor(cwd, executor);
+        if let Some(cwd) = &self.session_cwd {
+            monitor = monitor.with_session_cwd(Arc::clone(cwd));
+        }
+        vec![
+            Box::new(tool),
+            Box::new(monitor),
+            Box::new(crate::tools::sleep::SleepTool::new()),
+        ]
     }
 
     pub fn tool_names() -> Vec<&'static str> {
-        vec!["Bash"]
+        vec!["Bash", "Monitor", "Sleep"]
     }
 }
 
@@ -474,3 +618,7 @@ mod tests;
 #[cfg(test)]
 #[path = "terminal_output_test.rs"]
 mod output_tests;
+
+#[cfg(test)]
+#[path = "sleep_guard_test.rs"]
+mod sleep_guard_tests;
