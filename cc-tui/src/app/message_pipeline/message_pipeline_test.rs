@@ -3358,3 +3358,128 @@ fn test_tool_runtime_excluded_from_thinking_group() {
         "工具运行时长不应混入思考耗时"
     );
 }
+
+/// 统计 VMs（含被 aggregate_tool_groups 折叠进 ToolCallGroup 的条目）
+/// 中「非错误工具块」的出现次数。
+///
+/// 注意：折叠成 ToolCallGroup 后 ToolEntry 已不带 tool_call_id，因此这里
+/// 按 display_name 计数；用例里刻意让同 id 的工具产生相同 display_name。
+fn count_display_name_occurrences(vms: &[MessageViewModel], display: &str) -> usize {
+    let mut n = 0;
+    for vm in vms {
+        match vm {
+            MessageViewModel::ToolBlock { display_name, .. } => {
+                if display_name == display {
+                    n += 1;
+                }
+            }
+            MessageViewModel::ToolCallGroup { tools, .. } => {
+                n += tools.iter().filter(|e| e.display_name == display).count();
+            }
+            _ => {}
+        }
+    }
+    n
+}
+
+/// 同一 tool_call_id 重复上报 ToolEnd 时不应渲染成两个工具块。
+///
+/// 真机场景：bili 的 acp-loop 在压缩后 re-request，同一工具结果可能被再报一次；
+/// 若 completed_tools 允许同 id 累积，build_tail_vms 的补挂分支会为同一调用
+/// 生成两个 ToolBlock，表现为同一行显示两遍。
+#[test]
+fn test_pipeline_tool_end_same_id_twice_no_duplicate_block() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.begin_round();
+    let _ = pipeline.handle_event(AgentEvent::ToolStart {
+        tool_call_id: "tc-dup".into(),
+        name: "Read".into(),
+        display: "ReadFile".into(),
+        args: "test.txt".into(),
+        input: json!({"file_path": "/tmp/test.txt"}),
+        source_agent_id: None,
+    });
+    for _ in 0..2 {
+        let _ = pipeline.handle_event(AgentEvent::ToolEnd {
+            tool_call_id: "tc-dup".into(),
+            name: "Read".into(),
+            output: "content here".into(),
+            is_error: false,
+            source_agent_id: None,
+        });
+    }
+
+    assert_eq!(
+        pipeline.completed_tools.len(),
+        1,
+        "同一 tool_call_id 只应保留一条 completed_tools 记录"
+    );
+    assert_eq!(
+        pipeline.current_ai_tool_calls.len(),
+        1,
+        "register_tool_call 也应按 id 去重"
+    );
+
+    let vms = pipeline.build_tail_vms();
+    let expected = tool_display::format_tool_name_with_input(
+        "Read",
+        Some(&json!({"file_path": "/tmp/test.txt"})),
+    );
+    assert_eq!(
+        count_display_name_occurrences(&vms, &expected),
+        1,
+        "tail 中同一工具调用只应出现一次"
+    );
+}
+
+/// StateSnapshot 已把 Tool 消息写进 completed 后，
+/// completed_tools 里的同 id 条目不应再被补挂一次（reconcile 与补挂路径不得叠加）。
+#[test]
+fn test_build_tail_vms_skips_tool_already_in_completed() {
+    let mut pipeline = MessagePipeline::new("/tmp".to_string());
+    pipeline.begin_round();
+    let snapshot = vec![
+        BaseMessage::ai_with_tool_calls(
+            MessageContent::text("reading"),
+            vec![ToolCallRequest::new(
+                "tc-both",
+                "Read",
+                json!({"file_path": "/tmp/test.txt"}),
+            )],
+        ),
+        BaseMessage::Tool {
+            id: cc_agent::messages::MessageId::new(),
+            tool_call_id: "tc-both".to_string(),
+            content: MessageContent::text("content here"),
+            is_error: false,
+            tool_name: None,
+        },
+    ];
+    // set_completed 会清空 completed_tools；手工重建"补挂路径仍持有同 id"的重叠窗口。
+    pipeline.set_completed(snapshot);
+    pipeline.completed_tools.push(CompletedTool {
+        tool_call_id: "tc-both".to_string(),
+        name: "Read".to_string(),
+        input: json!({"file_path": "/tmp/test.txt"}),
+        output: "content here".to_string(),
+        is_error: false,
+    });
+    pipeline
+        .current_ai_tool_calls
+        .push(ToolCallRequest::new(
+            "tc-both",
+            "Read",
+            json!({"file_path": "/tmp/test.txt"}),
+        ));
+
+    let vms = pipeline.build_tail_vms();
+    let expected = tool_display::format_tool_name_with_input(
+        "Read",
+        Some(&json!({"file_path": "/tmp/test.txt"})),
+    );
+    assert_eq!(
+        count_display_name_occurrences(&vms, &expected),
+        1,
+        "reconcile 与补挂两条路径不得为同一 tool_call_id 各渲染一次"
+    );
+}
