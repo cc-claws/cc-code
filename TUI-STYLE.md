@@ -43,7 +43,7 @@
 | 层级 | 色值 | 用途 |
 |------|------|------|
 | TEXT | `#FFFFFF` | 纯白：主文字、AI 回复前缀、Running 指示器、展开工具组标题 |
-| MUTED | `#999999` | 浅灰：次要文字、标签、路径、工具参数、聚合摘要、Spinner 辅助信息 |
+| MUTED | `#999999` | 浅灰：次要文字、标签、路径、工具参数、聚合摘要、Spinner 辅助信息、未送出用户消息正文 |
 | DIM | `#505050` | 深灰：极弱文字、占位、已完成项、分隔符、折叠工具组参数 |
 
 ### 底色
@@ -100,10 +100,10 @@
 
 | 类型 | 前缀 | 前缀色 | 说明 |
 |------|------|--------|------|
-| 用户消息 | `❯` | ACCENT + BOLD | USER_BG 底色，所有行带底色 |
+| 用户消息 | `❯` | ACCENT + BOLD | USER_BG 底色，所有行带底色；正文色随投递状态翻转：已送出为 TEXT，尚未送出（排队）为 MUTED |
 | AI 回复 | `●` | TEXT (纯白) | 首行文本合并到 `●` 后，支持 markdown 渲染 |
-| 思考 (Reasoning) | — | — | 不在消息流中渲染，完全隐藏 |
-| 工具调用 | `⏺` | SAGE (绿) | 工具名 TEXT_SOFT，参数 DIM `(...)` |
+| 思考 (Reasoning) | — | — | 普通模式只看一行摘要（`Thought for Ns`）；`Ctrl+O` 详细模式展开正文，正文色 `thinking_body`（INACTIVE 向 THINKING 插值 25%） |
+| 工具调用 | `⏺` | SAGE (绿) | 工具名 TEXT，参数 DIM `(...)` |
 | 工具聚合组 | `⏺` | SAGE (绿) 前缀 + MUTED 汇总文字 | 仅一行汇总文本，不可展开 |
 | AskUserQuestion | `⏺` | SAGE (绿) | 标题 `User answered CC Code's questions:` + `⎿ · header → answer` |
 | SubAgent | `●` | SAGE / ERROR | 折叠：名称 + 任务预览；展开：嵌套消息 + 执行结果 |
@@ -118,13 +118,13 @@
 
 ### 工具状态指示器
 
-指示器 `⏺` 按状态变化，单条及分组内工具名称统一 TEXT_SOFT，参数用 DIM 色 `(...)` 显示：
+指示器 `⏺` 按状态变化，单条及分组内工具名称统一 TEXT（亮白），参数用 DIM 色 `(...)` 显示：
 
 | 状态 | 指示器 | 指示器颜色 | 工具名颜色 |
 |------|--------|-----------|-----------|
-| Running | `⏺` 闪烁（200ms 周期，⏺/空格交替） | SAGE | TEXT_SOFT |
-| Completed | `⏺` | SAGE | TEXT_SOFT |
-| Failed | `✗` | ERROR | TEXT_SOFT |
+| Running | `⏺` 闪烁（200ms 周期，⏺/空格交替） | SAGE | TEXT |
+| Completed | `⏺` | SAGE | TEXT |
+| Failed | `✗` | ERROR | TEXT |
 
 工具结果行格式：`  ⎿  ` 前缀（5 列：前 2 空格 + `⎿` + 后 2 空格；INACTIVE 色，失败时 ERROR 色）+ 内容（TEXT_SOFT 色，失败时 ERROR 色）。多行输出的续行使用 5 空格悬挂缩进（`BranchPrefix::HANG`），正文严格左对齐。错误折叠时显示 error_summary（最多 400 Unicode 字符，ERROR 色 `⎿` 前缀）。
 

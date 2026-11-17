@@ -190,6 +190,11 @@ pub enum MessageViewModel {
         content_hash: u64,
         /// 是否为 <system-reminder> 包裹的系统提醒消息（compact summary 等）
         system_reminder: bool,
+        /// 是否已送出给 agent（agent 已开始处理 / 已有回馈）。
+        ///
+        /// false = 仍停留在排队区，渲染为 MUTED 灰；true = 已提交，正文翻为亮白 TEXT。
+        /// 参与 hash，翻亮瞬间必须触发重渲染，否则缓存行会停在灰字。
+        dispatched: bool,
         /// 展开后的内容（用于详细模式显示粘贴的完整文本）
         /// 当 content 包含 [Pasted text #N +M lines] 占位符时，此字段存储展开后的实际内容
         expanded_content: Option<String>,
@@ -554,6 +559,7 @@ impl Hash for MessageViewModel {
                 system_reminder,
                 image_paths,
                 image_ids,
+                dispatched,
                 ..
             } => {
                 0u8.hash(state);
@@ -561,6 +567,8 @@ impl Hash for MessageViewModel {
                 system_reminder.hash(state);
                 image_paths.hash(state);
                 image_ids.hash(state);
+                // dispatched 改变前景色（排队灰 → 已提交亮白），必须进 hash
+                dispatched.hash(state);
             }
             MessageViewModel::AssistantBubble {
                 blocks,
@@ -932,6 +940,8 @@ impl MessageViewModel {
                     image_ids,
                     content_hash: 0,
                     system_reminder,
+                    // 历史消息来自会话快照 = 已经送出，按亮白显示
+                    dispatched: true,
                     expanded_content: None,
                 };
                 vm.recompute_hash();
@@ -1287,7 +1297,11 @@ impl MessageViewModel {
         }
     }
 
-    /// 创建用户消息
+    /// 创建用户消息。
+    ///
+    /// 默认 `dispatched: false`（MUTED 排队外观）：真实提交路径在 VM 入列后
+    /// 立即调用 [`Self::mark_dispatched`] 翻为亮白——agent 是否已经回话与
+    /// 「消息已交出」是同一时刻，不需要等待首个事件。
     pub fn user(content: String) -> Self {
         if let Some(display) = crate::shell_notification::shell_notification_display_text(&content)
         {
@@ -1313,6 +1327,7 @@ impl MessageViewModel {
             image_ids: Vec::new(),
             content_hash: 0,
             system_reminder: false,
+            dispatched: false,
             expanded_content: None,
         };
         vm.recompute_hash();
@@ -1344,10 +1359,23 @@ impl MessageViewModel {
             image_ids: Vec::new(),
             content_hash: 0,
             system_reminder: false,
+            dispatched: false,
             expanded_content: Some(expanded),
         };
         vm.recompute_hash();
         vm
+    }
+
+    /// 标记该用户消息已送出给 agent：正文由 MUTED 翻为亮白 TEXT。
+    ///
+    /// 只在状态真正变化时重算 hash，重复调用无副作用（每轮提交都会走到）。
+    pub fn mark_dispatched(&mut self) {
+        if let Self::UserBubble { dispatched, .. } = self {
+            if !*dispatched {
+                *dispatched = true;
+                self.recompute_hash();
+            }
+        }
     }
 
     pub fn set_image_ids(&mut self, mut ids: Vec<usize>) {

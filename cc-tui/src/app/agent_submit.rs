@@ -236,6 +236,9 @@ impl App {
             MessageViewModel::user(display.clone())
         };
         user_vm.set_image_ids(image_ids);
+        // 消息就此交出给 agent（随后 set_loading(true)），气泡正文由 MUTED 排队灰
+        // 翻为亮白 TEXT；仍停在 queued_messages 队列里的消息不收此标记，保持灰。
+        user_vm.mark_dispatched();
         self.apply_pipeline_action(PipelineAction::add_message(user_vm));
         // round_start_vm_idx 在 UserBubble 推入之后设置，
         // 确保 RebuildAll 不会截掉当前轮次的用户消息
@@ -480,7 +483,9 @@ impl App {
             .messages
             .pipeline
             .begin_round();
-        let user_vm = MessageViewModel::user(display.clone());
+        let mut user_vm = MessageViewModel::user(display.clone());
+        // 后台结果续接不发用户消息，但气泡同样在提交瞬间翻亮白（与主动提交同口径）
+        user_vm.mark_dispatched();
         self.apply_pipeline_action(PipelineAction::add_message(user_vm));
         self.session_mgr.current_mut().messages.round_start_vm_idx =
             self.session_mgr.current_mut().messages.view_messages.len();
