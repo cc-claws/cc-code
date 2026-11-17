@@ -4,6 +4,22 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.287 — 2026-11-17
+
+### Fixes
+
+- **消息流三处配色调整：工具名亮白、思考正文提亮、用户消息按投递状态翻白（#1074, #1075）**：三处都是「让固定字段更易扫读」方向，不改布局与交互。**工具名**：此前是 `TEXT_SOFT`（#D0D0D0），与同行参数摘要同色，一行内两个字段争抢注意力；改为 `TEXT`（#FFFFFF）后工具名成为行内唯一被强调的固定字段，状态语义仍由 `●` 指示器承载（PR #914 曾反向改回 `TEXT_SOFT`，本次按最新偏好调回），单条 `ToolBlock` 与 `ToolCallGroup` 组内条目两条路径同步。**思考正文**：原来用 `subtle`（#505050），深色底上几乎不可读；新增派生函数 `theme::thinking_body()`，取 `inactive`（#999999）向 `thinking`（#A2A9E4）插值 25%，保留紫调且明显暗于正文——派生而非新增调色板字段，八套主题自动跟随各自的 `inactive`/`thinking`，不触发 `palettes_parity_test` 的字段锁定；思考摘要行（`Thought for Ns`）同款提亮，并保留「活跃与冻结同色」不变性，冻结瞬间无亮度跳变。**用户消息**：正文原本无前景色（终端默认），无法表达「是否已被 agent 接收」；`UserBubble` 新增 `dispatched` 字段，未送出渲染 `MUTED`（与排队区预览一致）、已送出渲染 `TEXT`，提交路径在 `apply_pipeline_action` 前调用 `mark_dispatched()`，历史消息快照一律 `true`，子会话「投递确认前的用户消息」保持 `false`；`dispatched` 参与 `Hash`，否则渲染线程会命中缓存行停在灰字。提交瞬间「灰 → 白」形成转正反馈。改动文件：`cc-tui/src/ui/message_render/mod.rs`、`cc-tui-core/src/theme/mod.rs`、`cc-tui-core/src/message_view/mod.rs`、`cc-tui/src/app/agent_submit.rs`，文档同步 `TUI-STYLE.md`。验证：新增 `test_user_bubble_body_color_follows_dispatched_state` 覆盖三种情形，`cargo test -p cc-tui --lib message_render` 246 项全过、`-p cc-tui-core --lib` 247 项全过，PR 的 Rustfmt 与三平台 Build CI 全绿。
+
+---
+
+## v0.6.286 — 2026-11-17
+
+### Chores
+
+- **版本号 bump 至 0.6.286**：由 `auto-release-npm.yml` 自动发布流程产出，仅更新 `npm/package.json` 的 `version` 与 5 个平台包（`win32-x64` / `darwin-x64` / `darwin-arm64` / `linux-x64` / `linux-arm64`）在 `optionalDependencies` 中的版本钉，无代码或行为变更。
+
+---
+
 ## v0.6.285 — 2026-11-17
 
 ### Fixes

@@ -37,6 +37,7 @@
 - **输出处理：** 输出过滤、截断落盘、Todo 解析
 - **Grep / Glob 的 `pattern` 语义歧义与零匹配兜底（v0.6.265，#986, #987）:** 向 `Grep` 传文件路径或 glob 形态的 `pattern`（如 `src/*.rs`）对 schema 完全合法，会被当作正则执行（`.` 通配、`*` 作量词）而合法地匹配不到任何内容，静默返回 `No files found`；既有的错配诊断、自动改道、失败熔断全挂在参数校验失败路径上，无一触发，易把零匹配误判为「该路径下确实没有这些文件」。现两侧 `pattern` 参数级描述写明各自接收何种输入并给出就地反例，零匹配且 `pattern` 含 glob 元字符时复用 Glob 的 `collect_files` 反查命中数、命中则追加 `💡 Did you mean to use 'Glob'?` 提示。三重收窄保证真阴性不出噪音：仅零匹配介入、仅含 `*` / `?` / `[` 才试探、仅 glob 确有命中才提示
 - **RTK 重写 `exit 3` 被采纳（v0.6.268，#999, #1000）:** Bash 工具执行前调 `rtk rewrite "<cmd>"` 获取 RTK 输出压缩，此前只接受 `exit code 0`，而 RTK 文档化的 `3`（打印了重写命令、但 allow 未全覆盖，含「未配置任何规则」的默认情形）被当作失败丢弃，导致 `git status` / `log` / `diff` 等常见命令的压缩从未生效。现新增 `rtk_rewrite_succeeded()` 认可 `0` / `3`、拒绝 `1` / `2` 及其余非文档化码；审批语义不变（调用点位于审批之后，HITL 门控仍用零子进程的纯字符串预测 `predict_rtk_rewrite`）
+- **Monitor / Sleep 等待工具（v0.6.285，#1070）:** 新增两个核心等待能力，替代用 `sleep` 干等的旧习惯。`Monitor` 在后台起条件等待任务并返回 `taskId` 与输出文件，主线程可继续做别的事；`Sleep` 按 `duration_seconds` 单纯等待，不占用 shell 进程且可被 Ctrl+C 打断。前台 `Bash` / `PowerShell` 调用若以 `sleep N`（N ≥ 2 秒、其后不接管道）开头则直接拒绝执行并返回改用提示——裸 `sleep` 会占住整个 shell，期间既无法响应中断也看不到任何输出；不足 2 秒的限流写法、`run_in_background` 与 `Monitor` 场景不受此限
 - **边界：** 仅依赖 `cc-agent`；复合工具（Skill/AskUser/SubAgent/ToolSearch）依赖上层状态，仍保留在 cc-middlewares
 
 ## 输出压缩（cc-compress）
@@ -91,6 +92,8 @@
 - **Bash 跨平台健壮性:** 多行命令（含字面换行）在 Windows 改走 Git Bash 避免 `cmd /C` 截断；管道超时保留已累积输出；后台 shell 任务在 fork 常驻子进程后不再永久挂起；移除 Git Bash fallback 重试标记（`[Retried with Git Bash]`）混入上下文
 
 ## TUI 界面（cc-tui）
+
+- **工具名亮白、思考正文提亮、用户消息按投递状态翻白（#1074，v0.6.287）：** 三处消息流配色调整，都是「让固定字段更易扫读」方向，不改布局与交互。工具名由 `TEXT_SOFT` 改为 `TEXT`，成为行内唯一被强调的固定字段（状态语义仍由 `●` 指示器承载），单条 `ToolBlock` 与 `ToolCallGroup` 组内条目同步；思考正文改用新增的派生色 `theme::thinking_body()`（`inactive` 向 `thinking` 插值 25%），替代此前几乎不可读的 `subtle`，摘要行同款提亮并保留「活跃与冻结同色」不变性；`UserBubble` 新增 `dispatched` 字段，未送出渲染 `MUTED`、已送出渲染 `TEXT`，提交路径在投递前调用 `mark_dispatched()`，历史快照恒为 `true`、子会话待确认消息保持 `false`，该字段参与 `Hash` 以避免渲染缓存停在灰字
 
 - **图片附件落盘与可点击引用（Phase 1，v0.6.192）：** 发送时仅将仍有占位符的图片保存至 `temp_dir()/cc-code-images/<session_uuid>/<image_id>.<ext>`；写盘失败只记 `warn`，不阻断模型发送。正文下每图一行 `  ⎿  [Image #N]`，有保存路径且超链接开启时通过既有 OSC 8 通道显示引用行（取 text_soft、无人工下划线、不改前景色）；`DISABLE_HYPERLINKS=1` 或缺路径时显示不可点击的普通文本。新消息移除图片数量尾巴；清会话只清内存路径索引、不删文件，恢复会话不保证链接可用，不向模型注入路径。完整边界见 [CHANGELOG](../../CHANGELOG.md)。
 - **Bash 执行阶段与实时输出（#675，v0.6.184）：** 排队、等待审批、运行与完成按调用精确推进；运行中的 stdout/stderr 以有界尾部显示，普通模式保留最后五个视觉行，Ctrl+O 展开保留尾部。`config.tool_output_streaming` 默认启用，项目配置可覆盖；完整行为与验证边界见 [PRD](../../docs/prd/bash-execution-status-alignment.md)。
@@ -207,4 +210,4 @@
 - **终端色彩能力探测与输出降级（v0.6.223，#601）:** 自动根据 `NO_COLOR` 与终端环境变量四档降级色深输出
 
 ---
-*最后更新: 2026-11-12 — 补 #772 草稿基线、输入封顶与光标规则；此前：2026-11-11 — 补 cc-compress 分组与独立基础库分组（cc-widgets / cc-lsp / langfuse-client），补 v0.6.251~v0.6.270 功能条目，修正只读 Bash 词法判定的归属描述；此前：2026-11-04 — 补充 cc-tools / cc-terminal / cc-tui-core 拆分后的 crate 分组；2026-11-03 — LLM baseUrl 自动容错清洗与友好提示（v0.6.227，#856, #857）*
+*最后更新: 2026-11-17 — 补工具名/思考正文/用户消息配色条目（v0.6.287，#1074）；此前：2026-11-17 — 补 Monitor / Sleep 等待工具条目（v0.6.285，#1070）；此前：2026-11-12 — 补 #772 草稿基线、输入封顶与光标规则；此前：2026-11-11 — 补 cc-compress 分组与独立基础库分组（cc-widgets / cc-lsp / langfuse-client），补 v0.6.251~v0.6.270 功能条目，修正只读 Bash 词法判定的归属描述；此前：2026-11-04 — 补充 cc-tools / cc-terminal / cc-tui-core 拆分后的 crate 分组；2026-11-03 — LLM baseUrl 自动容错清洗与友好提示（v0.6.227，#856, #857）*

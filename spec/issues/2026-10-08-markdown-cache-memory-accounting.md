@@ -1,9 +1,11 @@
 # Markdown 缓存内存统计缺口与字节预算评估
 
-**状态**：Open（已补诊断，原始会话缓存字节待采集）
+**状态**：Closed（GitHub #350 已于 2026-10-08 CLOSED；字节预算已落地，2026-11-17 核实）
 **创建日期**：2026-10-08
-**分支**：`feat/markdown-cache-memory-stats`
+**分支**：`feat/markdown-cache-memory-stats`（已合并删除）
 **GitHub Issue**：[#350](https://github.com/cc-claws/cc-code/issues/350)
+
+> 核实补记（2026-11-17）：`cc-widgets/src/markdown/cache.rs` 现有 `CACHE_BUDGET_BYTES = 8 MiB` 硬预算与 `estimate_doc_bytes` 估算函数，`/gc` 的 `estimated_heap_bytes` 与缓存计量同口径；`budget` / `estimated_heap_bytes` / `largest_entry_heap_bytes` 三项统计字段均已存在。原记录末尾「原始会话实测字节待采集」已不再是阻塞项——该项是数据采集而非实现缺口，关闭当时即以「测试构造数据不能替代实测」为由留白。
 
 ## 已有数据
 
