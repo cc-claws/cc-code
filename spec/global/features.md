@@ -94,6 +94,8 @@
 
 ## TUI 界面（cc-tui）
 
+- **思考正文回退 INACTIVE、用户气泡按 agent 接活翻白、块边界空行补齐（#1082, #1084, #1083，v0.6.289）：** v0.6.287 配色改动的两处后续修正。①思考正文：派生的 `theme::thinking_body()`（`inactive` 向 `thinking` 插值 25%，得 `#9B9DAC`）与相邻 hook 汇总行的纯 `inactive` 色相不一致，整段删除，思考正文 / `Thought for Ns` 摘要行 / `ToolCallGroup` 组内思考行三处统一改用 `theme::cur().inactive`，八套主题各自跟随调色板。②用户气泡翻白时机：原先回车交出即翻白，但那只是「进队列」，中途失败会出现「白字却什么都没发生」；改由 `App::mark_turn_user_dispatched()` 在 agent 首次产出正式内容（`AssistantChunk` 正文或 `ToolStart`）时触发，从尾部翻白并重建一次，纯 `AiReasoning` 不算，排队消息不在 `view_messages` 内，历史快照恒为 `dispatched: true`。③块边界空行：压缩通知作为 text block 与 `Thought for Ns` 摘要行同属一条 `AssistantBubble`，`ContentBlockView::Text` 渲染完不补空行、`Reasoning` 只在尾部补，于是消息内部的 text → reasoning 边界无分隔；现于 `Reasoning` 分支入口、`lines` 非空且末行含非空白内容时补一行，思考作为首个 block 的常规路径渲染不变
+
 - **工具名亮白、思考正文提亮、用户消息按投递状态翻白（#1074，v0.6.287）：** 三处消息流配色调整，都是「让固定字段更易扫读」方向，不改布局与交互。工具名由 `TEXT_SOFT` 改为 `TEXT`，成为行内唯一被强调的固定字段（状态语义仍由 `●` 指示器承载），单条 `ToolBlock` 与 `ToolCallGroup` 组内条目同步；思考正文改用新增的派生色 `theme::thinking_body()`（`inactive` 向 `thinking` 插值 25%），替代此前几乎不可读的 `subtle`，摘要行同款提亮并保留「活跃与冻结同色」不变性；`UserBubble` 新增 `dispatched` 字段，未送出渲染 `MUTED`、已送出渲染 `TEXT`，提交路径在投递前调用 `mark_dispatched()`，历史快照恒为 `true`、子会话待确认消息保持 `false`，该字段参与 `Hash` 以避免渲染缓存停在灰字
 
 - **图片附件落盘与可点击引用（Phase 1，v0.6.192）：** 发送时仅将仍有占位符的图片保存至 `temp_dir()/cc-code-images/<session_uuid>/<image_id>.<ext>`；写盘失败只记 `warn`，不阻断模型发送。正文下每图一行 `  ⎿  [Image #N]`，有保存路径且超链接开启时通过既有 OSC 8 通道显示引用行（取 text_soft、无人工下划线、不改前景色）；`DISABLE_HYPERLINKS=1` 或缺路径时显示不可点击的普通文本。新消息移除图片数量尾巴；清会话只清内存路径索引、不删文件，恢复会话不保证链接可用，不向模型注入路径。完整边界见 [CHANGELOG](../../CHANGELOG.md)。
@@ -211,4 +213,4 @@
 - **终端色彩能力探测与输出降级（v0.6.223，#601）:** 自动根据 `NO_COLOR` 与终端环境变量四档降级色深输出
 
 ---
-*最后更新: 2026-11-17 — 补 PermissionRequest 裁决解析与 HTTP hook 熔断条目（v0.6.288，#1078）；此前：2026-11-17 — 补工具名/思考正文/用户消息配色条目（v0.6.287，#1074）；此前：2026-11-17 — 补 Monitor / Sleep 等待工具条目（v0.6.285，#1070）；此前：2026-11-12 — 补 #772 草稿基线、输入封顶与光标规则；此前：2026-11-11 — 补 cc-compress 分组与独立基础库分组（cc-widgets / cc-lsp / langfuse-client），补 v0.6.251~v0.6.270 功能条目，修正只读 Bash 词法判定的归属描述；此前：2026-11-04 — 补充 cc-tools / cc-terminal / cc-tui-core 拆分后的 crate 分组；2026-11-03 — LLM baseUrl 自动容错清洗与友好提示（v0.6.227，#856, #857）*
+*最后更新: 2026-11-17 — 补思考正文配色回退、用户气泡翻白时机与块边界空行条目（v0.6.289，#1082, #1084）；此前：2026-11-17 — 补 PermissionRequest 裁决解析与 HTTP hook 熔断条目（v0.6.288，#1078）；此前：2026-11-17 — 补工具名/思考正文/用户消息配色条目（v0.6.287，#1074）；此前：2026-11-17 — 补 Monitor / Sleep 等待工具条目（v0.6.285，#1070）；此前：2026-11-12 — 补 #772 草稿基线、输入封顶与光标规则；此前：2026-11-11 — 补 cc-compress 分组与独立基础库分组（cc-widgets / cc-lsp / langfuse-client），补 v0.6.251~v0.6.270 功能条目，修正只读 Bash 词法判定的归属描述；此前：2026-11-04 — 补充 cc-tools / cc-terminal / cc-tui-core 拆分后的 crate 分组；2026-11-03 — LLM baseUrl 自动容错清洗与友好提示（v0.6.227，#856, #857）*

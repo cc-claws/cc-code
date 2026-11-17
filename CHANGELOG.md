@@ -4,6 +4,15 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.289 — 2026-11-17
+
+### Fixes
+
+- **思考正文配色回退到 INACTIVE，用户气泡翻白改由 agent 真正接活触发（#1082）**：修 #1074 / #1075 引入的两处观感偏差。**思考正文色**：`theme::thinking_body()` 取 `inactive`（#999999）向 `thinking`（#A2A9E4）插值 25% 得到 `#9B9DAC`，灰里透蓝紫；同屏的 hook 汇总行走纯 `inactive`，两行色相不一致显得突兀。整段删除该派生函数，三处着色点（思考正文 / `Thought for Ns` 摘要行 / `ToolCallGroup` 组内思考行）统一改用 `theme::cur().inactive`，同屏不再有色相跳变，八套主题各自跟随自身调色板。**用户气泡翻白时机**：原先按下回车、消息交出瞬间就翻白，但那只是「消息进了队列」，agent 真正开始干活是稍后的事，事件中途失败时会出现「白字却什么都没发生」。改为 `App::mark_turn_user_dispatched()`，由 agent 首次产出正式内容（`AssistantChunk` 正文文本或 `ToolStart` 工具调用）触发，从尾部找到未送出的气泡翻白并重建一次；纯思考（`AiReasoning`）不算正式内容，排队中的消息不在 `view_messages` 内不受影响；提交路径与后台结果续接路径均不再在 `apply_pipeline_action` 前调用 `mark_dispatched()`。历史消息快照仍恒为 `dispatched: true`，打开旧会话观感不变。改动文件：`cc-tui-core/src/theme/mod.rs`、`cc-tui/src/app/{agent_ops/mod,agent_render,agent_submit}.rs`、`cc-tui/src/ui/message_render/{mod,message_render_test}.rs`，文档同步 `TUI-STYLE.md`（4 处 dim 断言同步改为 `theme::cur().inactive`）。验证：`cargo check -p cc-tui-core -p cc-tui --lib` 通过，PR 的 Rustfmt 与三平台 Build CI 全绿。
+- **补齐同一 assistant 消息内 text → reasoning 的块边界空行（#1084, #1083）**：上下文压缩代理把 `📦 [ACP] Compressed …` 通知作为 text block 注入 assistant 消息，与紧随的 `Thought for Ns, ran N shell commands (ctrl+o to expand)` 摘要行紧贴，缺空行分隔，连续多条时整段糊成一片。根因在同一 `AssistantBubble` 的 `for block in blocks` 循环内：`ContentBlockView::Text` 分支渲染完直接结束、不补空行，而 `ContentBlockView::Reasoning` 分支只在**尾部**补空行（`DetailMode` 关闭时），于是消息**内部**的 text → reasoning 边界没有分隔；消息**之间**由 `render_thread.rs` 末尾补空行 + 全局空行 dedup 保证，所以问题只在同一条 assistant 消息内暴露。现于 `ContentBlockView::Reasoning` 分支入口补块边界空行，仅当 `lines` 非空且最后一行含非空白内容时才 push，思考作为首个 block 的常规路径（后台 continuation、AskUser 气泡等）`lines` 为空不触发、渲染结果不变。改动文件：`cc-tui/src/ui/message_render/mod.rs`。验证：`cargo test -p cc-tui --lib message_render` 246 项全过，`cargo fmt -p cc-tui` 已执行，PR 的 Rustfmt 与三平台 Build CI 全绿。
+
+---
+
 ## v0.6.288 — 2026-11-17
 
 ### Fixes
