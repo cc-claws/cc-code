@@ -897,16 +897,7 @@ impl MessageViewModel {
                     vm.recompute_hash();
                     return vm;
                 }
-                let (display_text, system_reminder) = if raw.contains("<system-reminder>") {
-                    let cleaned = raw
-                        .replacen("<system-reminder>\n", "", 1)
-                        .replacen("\n</system-reminder>", "", 1)
-                        .trim()
-                        .to_string();
-                    (cleaned, true)
-                } else {
-                    (raw, false)
-                };
+                let (display_text, system_reminder) = utils::strip_system_reminder(&raw);
                 let doc = parse_markdown_default_rich(&display_text);
                 let mut image_ids = match content {
                     MessageContent::Blocks(blocks) => {

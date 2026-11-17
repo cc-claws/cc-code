@@ -220,6 +220,11 @@ impl<S: State> Middleware<S> for HookMiddleware {
             .find(|m| matches!(m, BaseMessage::Human { .. }))
             .map(|m| m.content())
             .unwrap_or_default();
+        // 送给 hook 的 prompt 必须剥掉 system-reminder：那是 peri 与模型之间的内部
+        // 标记（如滞留的后台任务完成通知由 agent_submit 拼在用户输入之后），外部
+        // hook 生态（如 clawd 宠物组件）拿到原文会直接把 XML 展示给用户。
+        // 只影响 hook payload，发给模型的消息不变。
+        let prompt = strip_system_reminder(&prompt);
 
         // SessionStart: 触发条件由 session_start_source 决定，source 同时作为
         // CC matcher 字段（startup/resume/clear/compact）传给 hook。
@@ -903,6 +908,38 @@ pub async fn fire_standalone_lifecycle_hooks_with_tx(
 #[cfg(test)]
 #[path = "middleware_test.rs"]
 mod tests;
+
+/// 剥离文本中所有 `<system-reminder>...</system-reminder>` 片段。
+///
+/// 用于构造喂给外部 hook 的 payload：这些标记是 peri 内部使用的，不属于用户输入，
+/// 外部组件拿到会原样展示（如 clawd 宠物直接显示 XML）。按区间切除因此标签出现在
+/// 中间（`agent_submit` 把通知拼在用户输入之后）也能剥干净；未闭合的开标签连同
+/// 其后内容一并剥离，避免把提醒正文当成用户提示词漏出去。
+///
+/// 无标签时原样返回，不做 trim，以免改动正常 prompt 的空白。
+pub(crate) fn strip_system_reminder(raw: &str) -> String {
+    const OPEN: &str = "<system-reminder>";
+    const CLOSE: &str = "</system-reminder>";
+    if !raw.contains(OPEN) {
+        return raw.to_string();
+    }
+
+    let mut out = String::with_capacity(raw.len());
+    let mut rest = raw;
+    while let Some(start) = rest.find(OPEN) {
+        out.push_str(&rest[..start]);
+        let after_open = &rest[start + OPEN.len()..];
+        match after_open.find(CLOSE) {
+            Some(end) => rest = &after_open[end + CLOSE.len()..],
+            None => {
+                rest = "";
+                break;
+            }
+        }
+    }
+    out.push_str(rest);
+    out.trim().to_string()
+}
 
 /// 把一次 hook 执行汇总成 [`AgentEvent::HooksCompleted`] 发到事件通道。
 ///
