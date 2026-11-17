@@ -1983,6 +1983,17 @@ pub fn render_view_model_with_flags(
                         active: block_active,
                         ..
                     } => {
+                        // [TRAP] 同一 AssistantBubble 内 text → reasoning 的边界必须留空行。
+                        // 上下文压缩代理会把 `📦 [ACP] Compressed …` 之类的通知作为 text
+                        // block 注入 assistant 消息，形成 `[text 通知, reasoning 思考, tool_use]`。
+                        // Text 分支收尾不补空行（空行只在 Reasoning 结尾补），于是通知行与
+                        // `Thought for Ns` 摘要行紧贴在一起。仅当思考前面已有内容时补一个空行，
+                        // 思考作为首个 block 的常规路径仍是零偏移。
+                        if lines.last().is_some_and(|line| {
+                            line.spans.iter().any(|s| !s.content.trim().is_empty())
+                        }) {
+                            lines.push(Line::from(""));
+                        }
                         // 运行中（本轮未结束且非详细模式）：行首圆点 + 现在时 + 字数，**不吐思考正文**。
                         // 活跃态报本段已流式产出的思考字数（用户能看着数字涨），耗时只在冻结后
                         // 落成 `Thought for Ns`——同一段思考不出现两种单位。
