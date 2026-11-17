@@ -844,6 +844,7 @@ fn push_visual_capped_output<T, F>(
     items: &[T],
     max_lines: usize,
     border_color: Color,
+    hint_color: Color,
     hint_remaining: Option<usize>,
     mut format_line: F,
 ) where
@@ -862,7 +863,7 @@ fn push_visual_capped_output<T, F>(
             let hint = format_expand_hint(remaining_of(i));
             out.push(Line::from(vec![
                 Span::styled(BranchPrefix::HANG, Style::default().fg(border_color)),
-                Span::styled(hint, Style::default().fg(theme::cur().subtle)),
+                Span::styled(hint, Style::default().fg(hint_color)),
             ]));
             return;
         }
@@ -877,7 +878,7 @@ fn push_visual_capped_output<T, F>(
                 let hint = format_expand_hint(remaining_of(i + 1));
                 out.push(Line::from(vec![
                     Span::styled(BranchPrefix::HANG, Style::default().fg(border_color)),
-                    Span::styled(hint, Style::default().fg(theme::cur().subtle)),
+                    Span::styled(hint, Style::default().fg(hint_color)),
                 ]));
                 return;
             }
@@ -886,7 +887,7 @@ fn push_visual_capped_output<T, F>(
             let hint = format_expand_hint(remaining_of(i + 1));
             out.push(Line::from(vec![
                 Span::styled(BranchPrefix::HANG, Style::default().fg(border_color)),
-                Span::styled(hint, Style::default().fg(theme::cur().subtle)),
+                Span::styled(hint, Style::default().fg(hint_color)),
             ]));
             return;
         }
@@ -897,7 +898,7 @@ fn push_visual_capped_output<T, F>(
             let hint = format_expand_hint(remaining);
             out.push(Line::from(vec![
                 Span::styled(BranchPrefix::HANG, Style::default().fg(border_color)),
-                Span::styled(hint, Style::default().fg(theme::cur().subtle)),
+                Span::styled(hint, Style::default().fg(hint_color)),
             ]));
         }
     }
@@ -1677,6 +1678,7 @@ fn render_shell_command(
             &output_lines,
             max_lines,
             theme::cur().subtle,
+            theme::cur().subtle,
             None,
             |(line, is_error), idx, _out_base| {
                 // 与 Bash 工具结果行口径一致：成功输出用 TEXT_SOFT，非零退出码用 ERROR。
@@ -2413,6 +2415,7 @@ pub fn render_view_model_with_flags(
                         &b_out.lines,
                         max_lines,
                         border_color,
+                        theme::cur().subtle,
                         (!detail_mode)
                             .then(|| b_out.source_total.saturating_sub(b_out.source_taken)),
                         |item, _i, _out_base| {
@@ -2436,6 +2439,13 @@ pub fn render_view_model_with_flags(
                         &result_lines,
                         max_lines,
                         border_color,
+                        // Write 的工具结果行与同行的 `⎿` 前缀同色（inactive），
+                        // 避免折叠提示比折角暗一档；其余工具维持原有的 subtle。
+                        if tool_name == "Write" {
+                            theme::cur().inactive
+                        } else {
+                            theme::cur().subtle
+                        },
                         None,
                         |line, i, out_base| {
                             let first_prefix = if i == 0 && tool_name != "Glob" {
