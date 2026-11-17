@@ -4800,6 +4800,7 @@ fn test_push_visual_capped_hint_remaining_override() {
         &items,
         2,
         Color::Reset,
+        Color::Reset,
         Some(117),
         |line, _i, _base| vec![Line::from((*line).to_string())],
     );
@@ -4826,6 +4827,7 @@ fn test_push_visual_capped_hint_defaults_to_items_count() {
         &mut out,
         &items,
         2,
+        Color::Reset,
         Color::Reset,
         None,
         |line, _i, _base| vec![Line::from((*line).to_string())],
