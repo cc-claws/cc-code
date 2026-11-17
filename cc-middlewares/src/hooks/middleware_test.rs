@@ -1524,3 +1524,59 @@ async fn test_fire_cwd_changed_without_hooks_returns_allow() {
 
     assert!(matches!(action, HookAction::Allow));
 }
+
+// ── strip_system_reminder：hook payload 不泄露内部标记 ──────────────────────────
+
+#[test]
+fn test_strip_system_reminder_removes_trailing_block() {
+    // agent_submit 的真实形态：用户输入 + 拼在后面的后台通知。
+    let raw = "帮我看看这个报错\n\n<system-reminder>\n<background-task-completed>\n<task-id>abc</task-id>\n</background-task-completed>\n</system-reminder>";
+    let cleaned = super::strip_system_reminder(raw);
+    assert_eq!(cleaned, "帮我看看这个报错", "应只保留用户输入");
+    assert!(!cleaned.contains("system-reminder"), "不应残留标签");
+    assert!(!cleaned.contains("task-id"), "不应残留通知正文");
+}
+
+#[test]
+fn test_strip_system_reminder_wrapped_summary_not_leaked_as_prompt() {
+    // compact 摘要形态：整条消息就是提醒正文，剥掉后为空——摘要属于系统内容，
+    // 不应作为「用户提示词」送给外部 hook。
+    let raw = "<system-reminder>\n摘要正文\n</system-reminder>";
+    let cleaned = super::strip_system_reminder(raw);
+    assert!(
+        !cleaned.contains("摘要正文"),
+        "摘要正文不应作为 prompt 泄露: {cleaned}"
+    );
+    assert!(cleaned.is_empty(), "整体包裹时应剥成空串: {cleaned}");
+}
+
+#[test]
+fn test_strip_system_reminder_removes_multiple_blocks() {
+    let raw = "前\n<system-reminder>\nA\n</system-reminder>\n中\n<system-reminder>\nB\n</system-reminder>\n后";
+    let cleaned = super::strip_system_reminder(raw);
+    assert!(
+        !cleaned.contains("system-reminder"),
+        "多个标签都应剥离: {cleaned}"
+    );
+    assert!(
+        !cleaned.contains('A') && !cleaned.contains('B'),
+        "提醒正文应剥离"
+    );
+    assert!(cleaned.contains("前") && cleaned.contains("中") && cleaned.contains("后"));
+}
+
+#[test]
+fn test_strip_system_reminder_unclosed_tag() {
+    let raw = "用户输入\n<system-reminder>\n<background-task-completed>未闭合";
+    assert_eq!(super::strip_system_reminder(raw), "用户输入");
+}
+
+#[test]
+fn test_strip_system_reminder_plain_prompt_untouched() {
+    let raw = "普通提示词，含 <其它标签> 但无 system-reminder";
+    assert_eq!(
+        super::strip_system_reminder(raw),
+        raw,
+        "无标签时不得改动原文"
+    );
+}

@@ -818,6 +818,94 @@ fn test_human_message_with_system_reminder_detection() {
 }
 
 #[test]
+fn test_system_reminder_tag_in_middle_is_stripped() {
+    // 回归：agent_submit 会把后台通知拼在用户输入之后，标签位于文本中间。
+    // 旧的「首尾 replacen」剥不掉，导致 <system-reminder> 原文漏给界面。
+    let text = "帮我看看这个报错\n\n<system-reminder>\n<background-task-completed>\n<task-id>abc</task-id>\n<command>npm test</command>\n<status>completed (exit 0)</status>\n<output>/tmp/abc.output</output>\n</background-task-completed>\n</system-reminder>";
+    let msg = BaseMessage::human(text);
+    let vm = MessageViewModel::from_base_message(&msg, &[]);
+    match vm {
+        MessageViewModel::UserBubble {
+            system_reminder,
+            content,
+            ..
+        } => {
+            assert!(system_reminder, "应识别为系统提醒");
+            assert!(
+                !content.contains("system-reminder"),
+                "中间位置的标签也须剥离: {content}"
+            );
+            assert!(
+                content.contains("帮我看看这个报错"),
+                "用户输入应保留: {content}"
+            );
+        }
+        _ => panic!("应为 UserBubble"),
+    }
+}
+
+#[test]
+fn test_strip_system_reminder_multiple_blocks() {
+    let raw = "前\n<system-reminder>\nA\n</system-reminder>\n中\n<system-reminder>\nB\n</system-reminder>\n后";
+    let (cleaned, had) = utils::strip_system_reminder(raw);
+    assert!(had, "应判定为含提醒");
+    assert!(
+        !cleaned.contains("system-reminder"),
+        "多个标签都应剥离: {cleaned}"
+    );
+    assert!(
+        !cleaned.contains('A') && !cleaned.contains('B'),
+        "标签前有正文时（拼接形态）提醒正文也应切除"
+    );
+    assert!(cleaned.contains("前") && cleaned.contains("中") && cleaned.contains("后"));
+}
+
+#[test]
+fn test_strip_system_reminder_wrapped_summary_keeps_body() {
+    // 整体包裹形态（标签前无用户正文）：只剥标记，保留摘要正文——用户需要看到它。
+    let raw =
+        "<system-reminder>\n## Summary\nDone.\n[Context compacted; continue based on the summary]\n</system-reminder>";
+    let (cleaned, had) = utils::strip_system_reminder(raw);
+    assert!(had, "应判定为含提醒");
+    assert!(!cleaned.contains("system-reminder"), "标记应剥离");
+    assert!(cleaned.contains("## Summary"), "摘要正文应保留: {cleaned}");
+    assert!(
+        cleaned.contains("[Context compacted"),
+        "续接指令应保留: {cleaned}"
+    );
+}
+
+#[test]
+fn test_strip_system_reminder_unclosed_tag() {
+    // 流式渲染中途可能只收到开标签：标签前有正文，其后内容全属提醒正文，一并切除。
+    let raw = "用户输入\n<system-reminder>\n<background-task-completed>未闭合";
+    let (cleaned, had) = utils::strip_system_reminder(raw);
+    assert!(had, "应判定为含提醒");
+    assert_eq!(cleaned, "用户输入", "未闭合标签及其后内容都应剥离");
+}
+
+#[test]
+fn test_strip_system_reminder_unclosed_wrapped_tag_keeps_body() {
+    // 标签前无正文时，未闭合的提醒正文属用户可见内容，保留。
+    let raw = "<system-reminder>\n## Summary\n被截断";
+    let (cleaned, had) = utils::strip_system_reminder(raw);
+    assert!(had, "应判定为含提醒");
+    assert!(
+        !cleaned.contains("system-reminder"),
+        "标记应剥离: {cleaned}"
+    );
+    assert!(cleaned.contains("## Summary"), "正文应保留: {cleaned}");
+}
+
+#[test]
+fn test_strip_system_reminder_plain_text_untouched() {
+    let raw = "普通消息，含 <其它标签> 但无 system-reminder";
+    let (cleaned, had) = utils::strip_system_reminder(raw);
+    assert!(!had, "不应判定为含提醒");
+    assert_eq!(cleaned, raw, "无提醒时原文应原样返回");
+}
+
+#[test]
 fn test_human_background_shell_notification_renders_as_system_note() {
     let text = "<system-reminder>\n<background-task-completed>\n<task-id>abc</task-id>\n<command>npm test</command>\n<status>completed (exit 0)</status>\n<output>/tmp/abc.output</output>\n</background-task-completed>\n</system-reminder>";
     let msg = BaseMessage::human(text);
