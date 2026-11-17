@@ -13,6 +13,51 @@ enum Strategy {
     Cache,
     Virtual,
 }
+
+fn can_coalesce(current: &RenderEvent, next: &RenderEvent, consumed_revision: u64) -> bool {
+    match (current, next) {
+        (RenderEvent::Resize(_), RenderEvent::Resize(_))
+        | (RenderEvent::Viewport { .. }, RenderEvent::Viewport { .. }) => true,
+        (
+            RenderEvent::WithRelativeScroll {
+                viewport,
+                base_anchor,
+                prefix_rows,
+                base_prefix_visible,
+                full_height,
+                steps,
+                event,
+            },
+            RenderEvent::WithRelativeScroll {
+                viewport: next_viewport,
+                base_anchor: next_base,
+                prefix_rows: next_prefix,
+                base_prefix_visible: next_visible,
+                full_height: next_height,
+                steps: next_steps,
+                event: next_event,
+            },
+        ) => {
+            // 只跳过被最新累计步骤完整覆盖的纯滚动快照，模式与内容仍是保序边界。
+            matches!(event.as_ref(), RenderEvent::Viewport { .. })
+                && matches!(next_event.as_ref(), RenderEvent::Viewport { .. })
+                && viewport.scroll_revision <= next_viewport.scroll_revision
+                && viewport.trailing_rows == next_viewport.trailing_rows
+                && base_anchor == next_base
+                && prefix_rows == next_prefix
+                && base_prefix_visible == next_visible
+                && full_height == next_height
+                && steps
+                    .iter()
+                    .filter(|(revision, _)| *revision > consumed_revision)
+                    .eq(next_steps.iter().filter(|(revision, _)| {
+                        *revision > consumed_revision && *revision <= viewport.scroll_revision
+                    }))
+        }
+        _ => false,
+    }
+}
+
 pub(super) struct RenderWorker {
     task: RenderTask,
     layout: VirtualRenderer,
@@ -694,17 +739,14 @@ impl RenderWorker {
             };
             // 只合并连续同类事件。取出的第一条控制事件必须保留，而不是模式匹配失败后丢弃。
             loop {
-                if !matches!(event, RenderEvent::Resize(_) | RenderEvent::Viewport { .. }) {
+                if !matches!(event, RenderEvent::Resize(_) | RenderEvent::Viewport { .. })
+                    && !matches!(&event, RenderEvent::WithRelativeScroll { event, .. }
+                        if matches!(event.as_ref(), RenderEvent::Viewport { .. }))
+                {
                     break;
                 }
                 match rx.try_recv() {
-                    Ok(next)
-                        if matches!(
-                            (&event, &next),
-                            (RenderEvent::Resize(_), RenderEvent::Resize(_))
-                                | (RenderEvent::Viewport { .. }, RenderEvent::Viewport { .. })
-                        ) =>
-                    {
+                    Ok(next) if can_coalesce(&event, &next, self.consumed_scroll_revision) => {
                         event = next
                     }
                     Ok(next) => {

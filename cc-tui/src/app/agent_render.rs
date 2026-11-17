@@ -165,6 +165,23 @@ impl App {
         self.request_rebuild();
     }
 
+    /// 添加会话级 hook 行到本轮用户消息下方，随后请求一次重建。
+    ///
+    /// 与 [`push_hook_system_note`](Self::push_hook_system_note) 的区别只在落点：
+    /// 用于只在会话首轮触发一次的 SessionStart，产物必须紧贴首个用户消息。
+    pub fn push_hook_system_note_at_round_start(
+        &mut self,
+        content: String,
+        tone: crate::ui::message_view::NoteTone,
+        detail_only: bool,
+    ) {
+        self.session_mgr
+            .current_mut()
+            .messages
+            .push_hook_system_note_at_round_start(content, tone, detail_only);
+        self.request_rebuild();
+    }
+
     /// 将 PipelineAction 映射到 view_messages 更新 + RenderEvent 发送
     pub(crate) fn apply_pipeline_action(&mut self, action: PipelineAction) {
         match action {

@@ -120,6 +120,84 @@ fn make_steps(
     }
 }
 
+fn make_scroll_viewport(base: ViewportAnchor, deltas: &[isize]) -> RenderEvent {
+    make_steps(
+        base,
+        deltas,
+        0,
+        0,
+        0,
+        RenderEvent::Viewport {
+            top: 0,
+            height: 30,
+            trailing_rows: 0,
+            follow_tail: false,
+            anchor: None,
+            scroll_revision: deltas.len() as u64 + 1,
+        },
+    )
+}
+
+#[tokio::test]
+async fn test_relative_scroll_backlog_regression() {
+    let (tx, cache) = make_auto_history().await;
+    let version = cache.read().version;
+    let base = ViewportAnchor {
+        message_index: 1,
+        ..Default::default()
+    };
+    for deltas in [&[-3][..], &[-3, -3], &[-3, -3, 3]] {
+        tx.try_send(make_scroll_viewport(base, deltas)).unwrap();
+    }
+    make_barrier(&tx, 80).await;
+    let output = cache.read();
+    let resolved = output.scroll_anchor.unwrap();
+    assert_eq!(
+        (
+            resolved.position.message_index,
+            resolved.position.logical_line
+        ),
+        (0, 98),
+        "合批必须保留跨长消息边界和反向滚动的全部步骤"
+    );
+    assert_eq!(resolved.scroll_revision, 4);
+    assert_eq!(output.version, version + 1, "积压的旧窗口只能发布一次");
+}
+
+#[tokio::test]
+async fn test_relative_scroll_backlog_preserves_uncovered_steps_and_controls() {
+    let (tx, cache) = make_auto_history().await;
+    let version = cache.read().version;
+    let base = ViewportAnchor {
+        message_index: 1,
+        ..Default::default()
+    };
+    tx.try_send(make_scroll_viewport(base, &[-3])).unwrap();
+    let mut next = make_scroll_viewport(base, &[-3, -3]);
+    if let RenderEvent::WithRelativeScroll { steps, .. } = &mut next {
+        *steps = vec![(3, -3)].into();
+    }
+    tx.try_send(next).unwrap();
+    tx.try_send(make_scroll_viewport(base, &[-3, -3, 3]))
+        .unwrap();
+    tx.try_send(RenderEvent::ToggleDetail(true)).unwrap();
+    tx.try_send(make_scroll_viewport(base, &[-3, -3, 3, -3]))
+        .unwrap();
+    make_barrier(&tx, 80).await;
+    let output = cache.read();
+    let resolved = output.scroll_anchor.unwrap();
+    assert_eq!(
+        (
+            resolved.position.message_index,
+            resolved.position.logical_line
+        ),
+        (0, 95),
+        "未包含在后续快照中的步骤与模式边界前后的步骤不能丢失"
+    );
+    assert_eq!(resolved.scroll_revision, 5);
+    assert_eq!(output.version, version + 4, "只合并覆盖完整步骤的相邻视口");
+}
+
 #[tokio::test]
 async fn test_relative_steps_preserve_bursts_and_real_boundary_reversals() {
     for (deltas, index, line, follow, trailing) in [

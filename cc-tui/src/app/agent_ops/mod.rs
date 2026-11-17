@@ -589,6 +589,13 @@ impl App {
                 // 会话级同步事件（UserPromptSubmit / Stop / SessionStart …）：
                 // 同事件的多次上报（plugin + global 各一个 hook）合并成一行，
                 // 计数与耗时累加；不同事件各占一行（见 record_sync_hook）。
+                //
+                // SessionStart 例外：它只在会话首轮触发一次，产物属于「会话开场
+                // 信息」，语义上紧贴首个用户消息。若也走尾部可改写行，位置会随
+                // 事件到达时刻漂到首个工具块之后（对齐参考实现把它 prepend 进
+                // 初始消息数组的做法）。
+                let at_round_start =
+                    event == cc_middlewares::hooks::HookEvent::SessionStart.as_str();
                 if ran > 0 {
                     let update = self
                         .session_mgr
@@ -596,10 +603,10 @@ impl App {
                         .messages
                         .pipeline
                         .record_sync_hook(&event, ran, duration_ms, std::time::Instant::now());
-                    self.apply_hook_note(update);
+                    self.apply_hook_note(update, at_round_start);
                 }
                 for failure in &failures {
-                    self.push_hook_failure_note(&event, failure);
+                    self.push_hook_failure_note_at(&event, failure, at_round_start);
                 }
                 (true, false, false)
             }
@@ -731,7 +738,10 @@ impl App {
     /// 同一事件在一轮内多次上报时，管线返回的 `previous` 是上一次写进视图的文案，
     /// 此时就地改写那一行；首次到达则新增一行。两者都挂 `ephemeral_notes`，
     /// 随重建按锚点归位。
-    fn apply_hook_note(&mut self, update: HookNoteUpdate) {
+    ///
+    /// `at_round_start` 为真时新增行贴到本轮用户消息下方（SessionStart 用），
+    /// 改写路径不受影响——旧行本来就已经在正确位置。
+    fn apply_hook_note(&mut self, update: HookNoteUpdate, at_round_start: bool) {
         let messages = &mut self.session_mgr.current_mut().messages;
         let replaced = match &update.previous {
             Some(previous) => replace_hook_note_text(
@@ -743,11 +753,19 @@ impl App {
             None => false,
         };
         if !replaced {
-            messages.push_hook_system_note(
-                update.text,
-                crate::ui::message_view::NoteTone::Neutral,
-                true,
-            );
+            if at_round_start {
+                messages.push_hook_system_note_at_round_start(
+                    update.text,
+                    crate::ui::message_view::NoteTone::Neutral,
+                    true,
+                );
+            } else {
+                messages.push_hook_system_note(
+                    update.text,
+                    crate::ui::message_view::NoteTone::Neutral,
+                    true,
+                );
+            }
         }
         self.request_rebuild();
     }
@@ -760,17 +778,28 @@ impl App {
         event: &str,
         failure: &cc_agent::agent::events::HookFailureInfo,
     ) {
+        self.push_hook_failure_note_at(event, failure, false);
+    }
+
+    /// 写入一条会话级 hook 失败行，`at_round_start` 为真时贴到本轮用户消息下方。
+    fn push_hook_failure_note_at(
+        &mut self,
+        event: &str,
+        failure: &cc_agent::agent::events::HookFailureInfo,
+        at_round_start: bool,
+    ) {
         use crate::ui::message_view::NoteTone;
         use cc_agent::agent::events::HookFailureKind;
         let (verb, tone, detail_only) = match failure.kind {
             HookFailureKind::Block => ("blocked", NoteTone::Warning, false),
             HookFailureKind::Error => ("failed", NoteTone::Error, true),
         };
-        self.push_hook_system_note(
-            format!("{event} hook {verb}: {}", failure.reason),
-            tone,
-            detail_only,
-        );
+        let text = format!("{event} hook {verb}: {}", failure.reason);
+        if at_round_start {
+            self.push_hook_system_note_at_round_start(text, tone, detail_only);
+        } else {
+            self.push_hook_system_note(text, tone, detail_only);
+        }
     }
 }
 
