@@ -4,6 +4,20 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.285 — 2026-11-17
+
+### Fixes
+
+- **不再把 `<system-reminder>` 原文漏给 hook / 界面（#1071）**：桌面宠物组件 clawd 会把 hook 收到的用户提示词原样展示，而 `cc-tui` 在提交时把滞留的后台任务通知拼成 `{用户输入}\n\n<system-reminder>\n{通知}\n</system-reminder>` 一起入库，`cc-middlewares` 的 `before_agent` 又直接取整条 Human 消息作为 `UserPromptSubmit` hook 的 `prompt`，于是 XML 标签连同内部 `<task-id>`、`<output>` 路径一起显示在 clawd 上；界面侧本应剥离标签，但清洗用的是首尾各 `replacen` 一次，标签位于中间时剥不掉，只在消息视图层被判为「含提醒」后整条替换成摘要，中间文本仍会漏出。现两侧都改为按区间切除：`cc-middlewares` 新增 `strip_system_reminder`，只要出现开标签就切掉整段（含未闭合标签之后的全部内容），保证发给外部 hook 的 `prompt` 不含任何内部标记；`cc-tui-core` 的 `strip_system_reminder` 按「开标签前有无用户正文」区分形态——**拼接形态**（前面有用户输入）连同提醒正文一并切除，通知已由 `SystemNote` 单独呈现；**包裹形态**（如整条被标签包住的 compact 摘要）只剥标记、保留正文，用户仍能看到摘要。同时把后台通知的判定挪到剥离之后，避免拼接形态被提前截成纯 `SystemNote` 而丢掉用户输入气泡。改动文件：`cc-middlewares/src/hooks/middleware.rs`、`cc-tui-core/src/message_view/{utils.rs,mod.rs}` 及各自测试（新增包裹形态保留正文、未闭合包裹保留正文等回归）。验证：PR #1071 的 Rustfmt、ubuntu、macos、windows 四道 CI 全绿。
+
+- **Bash 前台阻塞 `sleep` 改为提示改用 Monitor / Sleep（#1070）**：模型常写 `sleep 30` 或 `sleep 5 && check` 来等待条件，这会占住整个 shell 进程，期间无法响应中断、也看不到任何输出，用户只能干等。现在前台 `Bash` 调用以 `sleep N`（N 取自首个以 sleep 开头且无后续管道的命令）开头且 `N >= 2` 时直接拒绝执行，返回提示引导模型改走：条件等待用 `Monitor`（后台起任务并返回 `taskId` + 输出文件）、单纯等待用 `Sleep`（`duration_seconds`，不占 shell 进程，可被 Ctrl+C 打断）。`sleep` 不足 2 秒属于限流写法，照常放行；`run_in_background` 与 `Monitor` 场景不受限。改动文件：新增 `MonitorTool`、`SleepTool`，`BashTool` / `PowerShellTool` 增加入参校验与配套提示词。影响：既有测试中依赖裸 `sleep N` 真实等待的用例改用循环等待命令。
+
+### Chores
+
+- **Write 工具折叠提示配色对齐 `⎿` 前缀（#1070）**：`… +N lines (ctrl+o to expand)` 此前用 `subtle` 色，比同为提示行的 `⎿ (timeout 5m)`（`inactive` 色）更暗，视觉上不统一。现统一改用 `inactive`。
+
+---
+
 ## v0.6.284 — 2026-11-16
 
 ### Chores

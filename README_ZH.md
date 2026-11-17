@@ -93,8 +93,13 @@ Kimi K2.6 是 Moonshot AI 开源的原生多模态 Agent 模型，专为长程�
 | **Git Worktree** | `--worktree` 在隔离 checkout 中启动会话，`EnterWorktree` / `ExitWorktree` 让 Agent 进出独立工作目录，后续 shell 与文件工具调用立即使用新目录；子 Agent 可用 `isolation: "worktree"` 获得独立 checkout |
 | **HITL 审批** | 敏感操作由 JEV 语义门拦截 —— 独立 LLM 判定，只在判不准时才弹窗 |
 | **双引擎文件搜索** | Grep/Glob 优先使用外部 ripgrep 二进制，回退到内置 Rust 引擎 |
+| **Monitor / Sleep 工具** | 等待条件用 `Monitor`（后台起任务 + 输出文件）、单纯等待用 `Sleep`（不占 shell 进程），前台裸 `sleep N` 会被拦截并给出指引 |
 
 ### v0.6.x 新增功能
+
+**不再把 `<system-reminder>` 原文漏给 hook 与界面（v0.6.285）：** hook 收到的用户提示词里，此前会带上 `cc-tui` 拼接后台任务通知用的 `<system-reminder>` 标签原文，桌面宠物 clawd 等外部组件会直接显示 XML。现在 `cc-middlewares` 在调用 `UserPromptSubmit` 前按区间切掉整段提醒；界面侧按「开标签前有无用户正文」区分形态——拼接在用户输入之后的提醒连同正文一并切除（通知本就由系统提示行单独呈现），整条被标签包住的 compact 摘要只剥标记、保留正文。详见 [CHANGELOG](./CHANGELOG.md)。
+
+**前台裸 `sleep` 改为引导使用 Monitor / Sleep（v0.6.285）：** 模型写 `sleep 30` 干等时会占住整个 shell，期间无法中断也看不到输出。现在前台 `Bash` 以 `sleep N`（N ≥ 2 秒）开头会直接拒绝，并提示改用 `Monitor` 等待条件、或用 `Sleep` 单纯等待（后者不占 shell 进程、可 Ctrl+C 打断）；不足 2 秒的限流写法与后台执行照常放行。详见 [CHANGELOG](./CHANGELOG.md)。
 
 **审批弹窗补描述行与文件级 diff 预览（v0.6.206）：** 工具入参带 `description` 时，弹窗在标题下方单独显示说明行；`Write`/`Edit` 审批改为文件级全文 diff 预览（新建文件走带行号与语法高亮的代码预览），文件读不到、超限或片段定位不到时回退片段 diff。弹窗布局与配色对齐参考实现：顶部满宽实线、内容区上下虚线、编号选项、底部固定快捷键提示，diff 主题随 `/theme` 切换生效。详见 [CHANGELOG](./CHANGELOG.md)。
 

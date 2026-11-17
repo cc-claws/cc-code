@@ -93,8 +93,13 @@ No credentials configured? The deterministic layer still runs and an LLM classif
 | **Git Worktrees** | `--worktree` starts the session in an isolated checkout, `EnterWorktree` / `ExitWorktree` let the agent enter and leave one, and subsequent shell and file calls use that directory immediately. `isolation: "worktree"` gives sub-agents their own checkout |
 | **HITL Approval** | Sensitive operations intercepted by the JEV semantic gate — a dedicated LLM judge that only prompts when it isn't sure |
 | **Dual-Engine File Search** | Grep/Glob prefer the external ripgrep binary, falling back to the built-in Rust engine |
+| **Monitor / Sleep Tools** | `Monitor` waits on a condition in the background with an output file, `Sleep` waits without occupying a shell — a foreground bare `sleep N` is rejected with guidance |
 
 ### v0.6.x New Features
+
+**No more raw `<system-reminder>` leaking into hooks and the UI (v0.6.285):** The prompt handed to hooks used to carry the raw `<system-reminder>` tags that `cc-tui` uses to append background-task notifications, so external components such as the clawd desktop pet displayed the XML verbatim. `cc-middlewares` now excises the whole block by range before invoking `UserPromptSubmit`, and the UI distinguishes two shapes by whether any user text precedes the opening tag — a reminder appended after user input is cut together with its body (the notification is already shown as a system note), while a summary wrapped entirely in tags keeps its body and only loses the markup. See [CHANGELOG](./CHANGELOG.md).
+
+**Foreground bare `sleep` now points at Monitor / Sleep (v0.6.285):** A model writing `sleep 30` blocks the whole shell — it can't be interrupted and produces no output. A foreground `Bash` call starting with `sleep N` (N ≥ 2 seconds) is now rejected outright with a hint to use `Monitor` for condition waiting or `Sleep` for a plain wait (the latter occupies no shell process and is Ctrl+C interruptible); sub-2-second rate-limit uses and background execution still pass. See [CHANGELOG](./CHANGELOG.md).
 
 **Approval dialogs with descriptions and full-file diffs (v0.6.206):** When a tool call carries a `description`, the approval dialog shows it on its own line under the title. `Write`/`Edit` approvals now preview the full before/after file diff (new files get a numbered, syntax-highlighted code preview instead), falling back to the fragment diff when the file can't be read, is over the limit, or the fragment can't be located on disk. The dialog layout and colors follow the reference implementation: full-width solid rule on top, dashed rules around the body, numbered options and a fixed shortcut hint. See [CHANGELOG](./CHANGELOG.md).
 
