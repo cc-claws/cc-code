@@ -1256,13 +1256,28 @@ impl MessagePipeline {
             }
         } else {
             // 非 SubAgent 工具：保存到 completed_tools，在 StateSnapshot 到达前显示
-            self.completed_tools.push(CompletedTool {
-                tool_call_id: tool_call_id.to_string(),
-                name: name.to_string(),
-                input,
-                output: output.to_string(),
-                is_error,
-            });
+            //
+            // 同一 tool_call_id 只保留一条：重发/重放的 ToolEnd（bili 的 acp-loop
+            // 会在压缩后 re-request，工具结果可能再报一次）若重复 push，
+            // build_tail_vms 的补挂分支会为同一调用生成两个 ToolBlock。
+            if let Some(existing) = self
+                .completed_tools
+                .iter_mut()
+                .find(|tool| tool.tool_call_id == tool_call_id)
+            {
+                existing.name = name.to_string();
+                existing.input = input;
+                existing.output = output.to_string();
+                existing.is_error = is_error;
+            } else {
+                self.completed_tools.push(CompletedTool {
+                    tool_call_id: tool_call_id.to_string(),
+                    name: name.to_string(),
+                    input,
+                    output: output.to_string(),
+                    is_error,
+                });
+            }
         }
     }
 

@@ -239,7 +239,23 @@ impl MessagePipeline {
         }
 
         // 追加 pending tool blocks（ToolStart 后、下一个 StateSnapshot 前的工具）
+        //
+        // 去重：reconcile 已从 `completed` 渲染过的 tool_call_id 不再由
+        // `pending_tools` / `completed_tools` 二次追加。两条路径都以同一个
+        // tool_call_id 为身份，同一轮内 StateSnapshot 先把 Tool 消息写进
+        // `completed`、而 ToolEnd 又把它留在 `completed_tools` 时，
+        // 补挂分支会再生成一个 ToolBlock，真机表现为同一行显示两遍。
+        let reconciled_tool_ids: std::collections::HashSet<String> = tail_vms
+            .iter()
+            .filter_map(|vm| match vm {
+                MessageViewModel::ToolBlock { tool_call_id, .. } => Some(tool_call_id.clone()),
+                _ => None,
+            })
+            .collect();
         for tc in &self.current_ai_tool_calls {
+            if reconciled_tool_ids.contains(&tc.id) {
+                continue;
+            }
             if let Some(pending) = self.pending_tools.get(&tc.id) {
                 if pending.name != "Agent" {
                     let mut vm = self.build_tool_start_vm(
