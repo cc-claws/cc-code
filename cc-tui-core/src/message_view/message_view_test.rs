@@ -855,18 +855,46 @@ fn test_strip_system_reminder_multiple_blocks() {
     );
     assert!(
         !cleaned.contains('A') && !cleaned.contains('B'),
-        "提醒正文应剥离"
+        "标签前有正文时（拼接形态）提醒正文也应切除"
     );
     assert!(cleaned.contains("前") && cleaned.contains("中") && cleaned.contains("后"));
 }
 
 #[test]
+fn test_strip_system_reminder_wrapped_summary_keeps_body() {
+    // 整体包裹形态（标签前无用户正文）：只剥标记，保留摘要正文——用户需要看到它。
+    let raw =
+        "<system-reminder>\n## Summary\nDone.\n[Context compacted; continue based on the summary]\n</system-reminder>";
+    let (cleaned, had) = utils::strip_system_reminder(raw);
+    assert!(had, "应判定为含提醒");
+    assert!(!cleaned.contains("system-reminder"), "标记应剥离");
+    assert!(cleaned.contains("## Summary"), "摘要正文应保留: {cleaned}");
+    assert!(
+        cleaned.contains("[Context compacted"),
+        "续接指令应保留: {cleaned}"
+    );
+}
+
+#[test]
 fn test_strip_system_reminder_unclosed_tag() {
-    // 流式渲染中途可能只收到开标签：其后内容全属提醒正文，一并剥离。
+    // 流式渲染中途可能只收到开标签：标签前有正文，其后内容全属提醒正文，一并切除。
     let raw = "用户输入\n<system-reminder>\n<background-task-completed>未闭合";
     let (cleaned, had) = utils::strip_system_reminder(raw);
     assert!(had, "应判定为含提醒");
     assert_eq!(cleaned, "用户输入", "未闭合标签及其后内容都应剥离");
+}
+
+#[test]
+fn test_strip_system_reminder_unclosed_wrapped_tag_keeps_body() {
+    // 标签前无正文时，未闭合的提醒正文属用户可见内容，保留。
+    let raw = "<system-reminder>\n## Summary\n被截断";
+    let (cleaned, had) = utils::strip_system_reminder(raw);
+    assert!(had, "应判定为含提醒");
+    assert!(
+        !cleaned.contains("system-reminder"),
+        "标记应剥离: {cleaned}"
+    );
+    assert!(cleaned.contains("## Summary"), "正文应保留: {cleaned}");
 }
 
 #[test]

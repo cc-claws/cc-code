@@ -882,8 +882,12 @@ impl MessageViewModel {
                     vm.recompute_hash();
                     return vm;
                 }
+                // 先剥 system-reminder 再做通知判定：agent_submit 会把后台通知拼在
+                // 用户输入之后，若先判定通知，拼接形态会被误判成纯通知消息（提前返回
+                // SystemNote），用户输入气泡就丢了。
+                let (display_text, system_reminder) = utils::strip_system_reminder(&raw);
                 if let Some(display) =
-                    crate::shell_notification::shell_notification_display_text(&raw)
+                    crate::shell_notification::shell_notification_display_text(&display_text)
                 {
                     let mut vm = MessageViewModel::SystemNote {
                         content: display.text,
@@ -897,7 +901,6 @@ impl MessageViewModel {
                     vm.recompute_hash();
                     return vm;
                 }
-                let (display_text, system_reminder) = utils::strip_system_reminder(&raw);
                 let doc = parse_markdown_default_rich(&display_text);
                 let mut image_ids = match content {
                     MessageContent::Blocks(blocks) => {
