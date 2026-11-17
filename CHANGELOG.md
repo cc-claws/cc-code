@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.288 — 2026-11-17
+
+### Fixes
+
+- **PermissionRequest hook 的裁决终于能被读到，HTTP hook 熔断不再静默（#1078, #1079）**：桌面宠物组件 clawd 这类外部审批方通过 HTTP hook 参与权限裁决时，peri 收到响应却当没看见——界面上只有一行 `1 PermissionRequest hook ran · 0ms`，既看不到裁决内容，也看不到任何失败原因。根因有两处。**其一，响应字段没接上**：`SyncHookResponse` 的 `hook_specific_output` 字段缺少 camelCase 重命名，serde 按 snake_case 找不到真实 JSON 里的 `hookSpecificOutput`，于是整个字段被静默丢弃——不只是 `PermissionRequest`，`PreToolUse` 的 `updatedInput` / `permissionDecision` 同样一直解析不出来（既有测试都是直接构造 Rust 结构体而非真实 JSON，把这个缺口盖住了）。现补 `#[serde(default, rename = "hookSpecificOutput", alias = "hook_specific_output")]`，并新增 `HookSpecificOutput::PermissionRequest` 变体与 `PermissionRequestDecision` 类型（`behavior` 为 `allow` / `deny`，allow 可带 `updatedInput`），解析后 allow 转成 `PermissionOverride{decision: Allow}` 跳过审批弹框、deny 转成 `PermissionOverride{decision: Deny}` 当场拒绝并带上原因——与参考实现的 `PermissionRequestHookSpecificOutputSchema` 口径一致。**其二，熔断期被当成「正常跑完」**：HTTP hook 连接失败会把端点熔断 300 秒，熔断期内 peri 直接短路返回 `Allow` 且一个包都不发，但这条短路只写了 debug 级日志，默认 `RUST_LOG=info` 下没有任何提示——上报时却按「ran=1、耗时 0ms」记账，于是凭空多出一条「PermissionRequest hook ran · 0ms」的假成功记录。实测日志里同一端点连续 37 次 `HTTP hook request failed, tripping circuit breaker for 300s`，之后每次触发都显示 0ms。现短路改回 `HookAction::Error`，理由写明「endpoint circuit breaker open (cooling down 300s)」，与参考实现「hook 失败产出一条可见的 non_blocking_error 记录、不阻断调用」的处理对齐。改动文件：`cc-middlewares/src/hooks/types.rs`、`cc-middlewares/src/hooks/output_parser.rs`、`cc-middlewares/src/hooks/executor.rs` 及对应测试（新增 4 项输出解析测试、2 项类型反序列化测试，并更新 2 处熔断断言）。影响：hook 失败不再伪装成成功；权限裁决被 hook 明确 allow/deny 时，行为与参考实现一致；`HookAction::Error` 依旧不阻断工具调用，审批回落到 peri 自身的 HITL 弹框。验证：`cargo test -p cc-middlewares -j 1 --lib -- hooks::` 196 项全过，`cargo clippy -p cc-middlewares --all-targets` 无告警，PR 的 Rustfmt 与三平台 Build CI 全绿。
+
+---
+
 ## v0.6.287 — 2026-11-17
 
 ### Fixes
