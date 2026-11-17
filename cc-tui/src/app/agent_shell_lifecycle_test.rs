@@ -133,7 +133,10 @@ async fn test_executor_hard_deadline_survives_every_background_mode() {
         );
         let invoke = tokio::spawn(async move {
             tool.invoke(serde_json::json!({
-                "command": "sleep 10; printf must-not-run", "execution_timeout": 300,
+                // 不能用裸 `sleep 10; ...`：首个子命令是整数秒 sleep 会被
+                // detect_blocked_sleep_pattern 拦截，进程不会启动，本用例验证的是
+                // 硬期限而非拦截。改用循环等待，语义等价且不触发拦截。
+                "command": "while true; do sleep 1; done; printf must-not-run", "execution_timeout": 300,
                 "timeout": if mode == "automatic" { 1 } else { 5000 },
                 "run_in_background": mode == "direct"
             }))
@@ -183,7 +186,8 @@ async fn test_executor_cancelled_foreground_tool_stops_process_owner() {
         Arc::new(AgentShellExecutor::new(tx, cwd, "cancel".into())),
     );
     let invoke = tokio::spawn(async move {
-        tool.invoke(serde_json::json!({"command": "sleep 30"}))
+        // 同上：裸 `sleep 30` 会被阻塞 sleep 拦截，进程不会注册，用例等不到句柄。
+        tool.invoke(serde_json::json!({"command": "while true; do sleep 1; done"}))
             .await
     });
     let reg = tokio::time::timeout(Duration::from_secs(5), rx.recv())
