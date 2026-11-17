@@ -72,6 +72,7 @@ pub(crate) fn merge_frozen_subagents(
         .collect();
 
     let mut matched_frozen = vec![false; frozen_vms.len()];
+    let mut matched_new = vec![false; new_vms.len()];
 
     // 第一轮：用 instance_id 精确匹配（frozen 有 instance_id，reconcile 可能有也可能没有）
     for (fi, frozen_vm) in frozen_vms.iter().enumerate() {
@@ -85,6 +86,9 @@ pub(crate) fn merge_frozen_subagents(
         {
             // 尝试在 new_vms 中找到 instance_id 匹配的 SubAgentGroup
             for &ni in &new_subagent_indices {
+                if matched_new[ni] {
+                    continue;
+                }
                 if let MessageViewModel::SubAgentGroup {
                     instance_id: Some(new_iid),
                     ..
@@ -93,6 +97,7 @@ pub(crate) fn merge_frozen_subagents(
                     if frozen_iid == new_iid {
                         new_vms[ni] = frozen_vm.clone();
                         matched_frozen[fi] = true;
+                        matched_new[ni] = true;
                         break;
                     }
                 }
@@ -111,13 +116,19 @@ pub(crate) fn merge_frozen_subagents(
         } = frozen_vm
         {
             for &ni in &new_subagent_indices {
+                if matched_new[ni] {
+                    continue;
+                }
                 if let MessageViewModel::SubAgentGroup {
-                    agent_id: new_aid, ..
+                    agent_id: new_aid,
+                    instance_id: None,
+                    ..
                 } = &new_vms[ni]
                 {
                     if frozen_aid == new_aid {
                         new_vms[ni] = frozen_vm.clone();
                         matched_frozen[fi] = true;
+                        matched_new[ni] = true;
                         break;
                     }
                 }
