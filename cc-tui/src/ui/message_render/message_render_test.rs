@@ -2273,8 +2273,8 @@ fn test_dim_markdown_lines_no_fg_span_set_dim() {
     for span in &result[0].spans {
         assert_eq!(
             span.style.fg,
-            Some(theme::thinking_body()),
-            "无前景色的 span 应设为思考正文色 theme::thinking_body()"
+            Some(theme::cur().inactive),
+            "无前景色的 span 应设为 INACTIVE 灰"
         );
     }
 }
@@ -2316,7 +2316,7 @@ fn test_dim_markdown_lines_multiline_keeps_structure() {
     assert_eq!(result.len(), 3, "应保留原始行数");
     for line in &result {
         assert_eq!(line.spans.len(), 1);
-        assert_eq!(line.spans[0].style.fg, Some(theme::thinking_body()));
+        assert_eq!(line.spans[0].style.fg, Some(theme::cur().inactive));
     }
 }
 
@@ -2330,13 +2330,13 @@ fn test_dim_markdown_lines_span() {
     let result = dim_markdown_lines(input);
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].spans.len(), 3);
-    assert_eq!(result[0].spans[0].style.fg, Some(theme::thinking_body()));
+    assert_eq!(result[0].spans[0].style.fg, Some(theme::cur().inactive));
     assert_eq!(result[0].spans[1].style.fg, Some(Color::Yellow));
     assert!(result[0].spans[1]
         .style
         .add_modifier
         .contains(Modifier::DIM));
-    assert_eq!(result[0].spans[2].style.fg, Some(theme::thinking_body()));
+    assert_eq!(result[0].spans[2].style.fg, Some(theme::cur().inactive));
 }
 
 #[test]
