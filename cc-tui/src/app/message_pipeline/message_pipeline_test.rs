@@ -1657,6 +1657,61 @@ fn test_frozen_subagent_vms_cleared_on_begin_round() {
     }
 }
 
+fn make_merge_subagent(instance: Option<&str>, result: &str) -> MessageViewModel {
+    let mut vm = MessageViewModel::subagent_group("explorer".into(), result.into());
+    if let MessageViewModel::SubAgentGroup {
+        instance_id,
+        is_running,
+        final_result,
+        ..
+    } = &mut vm
+    {
+        *instance_id = instance.map(str::to_string);
+        *is_running = false;
+        *final_result = Some(result.into());
+    }
+    vm.recompute_hash();
+    vm
+}
+
+#[test]
+fn test_merge_frozen_subagents_reused_slot_regression() {
+    let frozen = vec![
+        make_merge_subagent(Some("first"), "第一项完整结果"),
+        make_merge_subagent(Some("second"), "第二项完整结果"),
+    ];
+    let mut archived = vec![
+        make_merge_subagent(None, "第一项历史摘要"),
+        make_merge_subagent(None, "第二项历史摘要"),
+    ];
+    let unmatched = merge_frozen_subagents(&frozen, &mut archived);
+    assert!(
+        unmatched.is_empty(),
+        "同类型子 Agent 应按顺序各匹配一个历史卡片"
+    );
+    assert_eq!(archived, frozen, "同一历史卡片不能被两个冻结结果重复覆盖");
+}
+
+#[test]
+fn test_merge_frozen_subagents_preserves_explicit_identity() {
+    let frozen = vec![
+        make_merge_subagent(Some("first"), "第一项完整结果"),
+        make_merge_subagent(Some("second"), "第二项完整结果"),
+    ];
+    let mut archived = vec![
+        frozen[0].clone(),
+        make_merge_subagent(None, "第二项历史摘要"),
+    ];
+    let unmatched = merge_frozen_subagents(&frozen, &mut archived);
+    assert!(unmatched.is_empty());
+    assert_eq!(archived, frozen, "按身份匹配的卡片不能被同类型回退覆盖");
+    let mut other = vec![make_merge_subagent(Some("other"), "另一调用")];
+    let original = other.clone();
+    let unmatched = merge_frozen_subagents(&frozen[..1], &mut other);
+    assert_eq!(unmatched, vec![0], "不同身份的卡片不得按类型匹配");
+    assert_eq!(other, original, "明确身份不匹配时必须保留原卡片");
+}
+
 /// merge_frozen_subagents 在 frozen_vms 为空时不应修改 new_vms。
 #[test]
 fn test_merge_frozen_subagents_empty_is_noop() {
