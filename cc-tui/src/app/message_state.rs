@@ -255,6 +255,41 @@ impl MessageState {
         self.ephemeral_notes.push((anchor, vm.clone()));
         self.view_messages.push(vm);
     }
+
+    /// 添加会话级 hook 行到**本轮用户消息下方**（而非视图尾部）。
+    ///
+    /// 供只在首轮触发一次的事件（SessionStart）使用：这类事件的产物语义上属于
+    /// 「会话开场信息」，必须紧贴首个用户消息，而不是随事件到达时刻漂到工具块之后。
+    /// 已存在的同组 hook 行按到达顺序排在前，多条上报（plugin + global）依次递增
+    /// 锚点，保证 RebuildAll 归位时顺序不颠倒。
+    pub fn push_hook_system_note_at_round_start(
+        &mut self,
+        content: String,
+        tone: NoteTone,
+        detail_only: bool,
+    ) {
+        let vm = MessageViewModel::system_hook_line(content, tone, detail_only);
+        // 从本轮重建起点（用户消息之后的第一位）开始，跳过已经贴在这里的 hook 行
+        let mut pos = self.round_start_vm_idx.min(self.view_messages.len());
+        while matches!(
+            self.view_messages.get(pos),
+            Some(MessageViewModel::SystemNote {
+                branch_prefix: true,
+                ..
+            })
+        ) {
+            pos += 1;
+        }
+        // 中间插入会把 pos 之后的条目整体右移一位，已登记的锚点必须同步右移，
+        // 否则下一轮 RebuildAll 按旧锚点归位时这些条目会前移一位错位。
+        for (anchor, _) in self.ephemeral_notes.iter_mut() {
+            if *anchor >= pos {
+                *anchor += 1;
+            }
+        }
+        self.ephemeral_notes.push((pos, vm.clone()));
+        self.view_messages.insert(pos, vm);
+    }
 }
 
 #[cfg(test)]
