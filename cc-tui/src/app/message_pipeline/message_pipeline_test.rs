@@ -3464,13 +3464,11 @@ fn test_build_tail_vms_skips_tool_already_in_completed() {
         output: "content here".to_string(),
         is_error: false,
     });
-    pipeline
-        .current_ai_tool_calls
-        .push(ToolCallRequest::new(
-            "tc-both",
-            "Read",
-            json!({"file_path": "/tmp/test.txt"}),
-        ));
+    pipeline.current_ai_tool_calls.push(ToolCallRequest::new(
+        "tc-both",
+        "Read",
+        json!({"file_path": "/tmp/test.txt"}),
+    ));
 
     let vms = pipeline.build_tail_vms();
     let expected = tool_display::format_tool_name_with_input(
