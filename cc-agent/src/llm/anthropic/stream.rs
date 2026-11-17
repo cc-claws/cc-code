@@ -111,6 +111,8 @@ pub(super) async fn do_invoke_streaming(
     // Accumulators
     let mut text_content = String::new();
     let mut reasoning_content = String::new();
+    // 退化检测保留整次请求的累计思考，消息块只保存本段内容。
+    let mut reasoning_block_start = 0;
     // 当前 thinking 段起点（用于计算 duration_ms）
     let mut thinking_started_at: Option<std::time::Instant> = None;
     let mut repetition_detector = RepetitionDetector::new();
@@ -181,9 +183,8 @@ pub(super) async fn do_invoke_streaming(
 
                     match cb_type {
                         "thinking" => {
-                            if let Some(sig) = cb["signature"].as_str() {
-                                thinking_signature = Some(sig.to_string());
-                            }
+                            reasoning_block_start = reasoning_content.len();
+                            thinking_signature = cb["signature"].as_str().map(str::to_string);
                             // 记录本段 thinking 起点（用于 duration_ms）
                             thinking_started_at = Some(std::time::Instant::now());
                         }
@@ -243,7 +244,7 @@ pub(super) async fn do_invoke_streaming(
                         Some("thinking") => {
                             let mut block = json!({
                                 "type": "thinking",
-                                "thinking": &reasoning_content
+                                "thinking": &reasoning_content[reasoning_block_start..]
                             });
                             if let Some(ref sig) = thinking_signature {
                                 block["signature"] = json!(sig);
@@ -258,7 +259,7 @@ pub(super) async fn do_invoke_streaming(
                         Some("text") => {
                             accumulated_blocks.push(json!({
                                 "type": "text",
-                                "text": &text_content
+                                "text": std::mem::take(&mut text_content)
                             }));
                         }
                         Some("tool_use") => {
@@ -377,3 +378,7 @@ pub(super) async fn do_invoke_streaming(
         request_id: stream_request_id,
     })
 }
+
+#[cfg(test)]
+#[path = "stream_test.rs"]
+mod tests;
