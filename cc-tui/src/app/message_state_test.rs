@@ -147,3 +147,23 @@ fn test_render_mode_queue_retry_retains_atomic_viewport_and_coalesces_by_payload
         _ => panic!("队列满不能拆散重排与阅读位置"),
     }
 }
+
+#[test]
+fn test_push_hook_system_note_at_round_start_inserts_below_user_bubble() {
+    use crate::ui::message_view::NoteTone;
+    let (mut state, _receiver) = make_message_state();
+    state.push_system_note("q1".to_string());
+    state.round_start_vm_idx = state.view_messages.len();
+    state.push_hook_system_note_at_round_start("开场信息".to_string(), NoteTone::Neutral, true);
+    state.push_system_note("工具块".to_string());
+    assert_eq!(
+        state.view_messages.len(),
+        3,
+        "应有三条：用户消息 + hook 行 + 后续通知"
+    );
+    assert!(
+        matches!(&state.view_messages[1], MessageViewModel::SystemNote { content, branch_prefix: true, .. } if content == "开场信息"),
+        "hook 行应紧跟用户消息之后，实际: {:?}",
+        state.view_messages
+    );
+}
