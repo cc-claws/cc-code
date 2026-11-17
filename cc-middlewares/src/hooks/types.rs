@@ -274,7 +274,7 @@ pub struct SyncHookResponse {
     #[serde(default, rename = "systemMessage")]
     pub system_message: Option<String>,
     /// 事件特定输出
-    #[serde(default)]
+    #[serde(default, rename = "hookSpecificOutput", alias = "hook_specific_output")]
     pub hook_specific_output: Option<HookSpecificOutput>,
 }
 
@@ -320,6 +320,13 @@ pub enum HookSpecificOutput {
         #[serde(default, rename = "watchPaths")]
         watch_paths: Option<Vec<String>>,
     },
+    /// PermissionRequest 事件的裁决（对齐参考实现的 PermissionRequestHookSpecificOutput）
+    #[serde(rename = "PermissionRequest")]
+    PermissionRequest {
+        /// 裁决结果；缺省表示「不干预」，继续走原生审批弹框
+        #[serde(default)]
+        decision: Option<PermissionRequestDecision>,
+    },
 }
 
 /// 权限决策枚举（用于 PreToolUse hook 的 permissionDecision）
@@ -330,6 +337,27 @@ pub enum PermissionDecision {
     Deny,
     Allow,
     Passthrough,
+}
+
+/// PermissionRequest hook 的裁决结果（对齐参考实现的 decision schema）。
+///
+/// 与 `PermissionDecision` 的区别：这里用参考实现的 `behavior` 判别式
+/// （allow / deny），而不是 PreToolUse 的扁平 `permissionDecision` 字符串。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "behavior", rename_all = "lowercase")]
+pub enum PermissionRequestDecision {
+    /// 放行：可选地同时替换工具输入
+    Allow {
+        /// 放行时使用的工具输入（未给出则沿用原输入）
+        #[serde(default, rename = "updatedInput")]
+        updated_input: Option<serde_json::Value>,
+    },
+    /// 拒绝：可选地给出面向用户的原因
+    Deny {
+        /// 拒绝原因（展示给用户）
+        #[serde(default)]
+        message: Option<String>,
+    },
 }
 
 /// 内部处理后的 hook 动作

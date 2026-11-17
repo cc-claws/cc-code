@@ -163,6 +163,42 @@ fn test_hook_specific_output_session_start() {
 }
 
 #[test]
+fn test_hook_specific_output_permission_request_allow() {
+    let json = r#"{"hookEventName": "PermissionRequest", "decision": {"behavior": "allow", "updatedInput": {"key": "val"}}}"#;
+    let output: HookSpecificOutput = serde_json::from_str(json).unwrap();
+    match output {
+        HookSpecificOutput::PermissionRequest { decision } => {
+            let decision = decision.expect("PermissionRequest 裁决缺省");
+            match decision {
+                PermissionRequestDecision::Allow { updated_input } => {
+                    assert_eq!(updated_input, Some(serde_json::json!({"key": "val"})));
+                }
+                other => panic!("Expected Allow decision, got {other:?}"),
+            }
+        }
+        other => panic!("Expected PermissionRequest variant, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_hook_specific_output_permission_request_deny() {
+    let json = r#"{"hookEventName": "PermissionRequest", "decision": {"behavior": "deny", "message": "nope"}}"#;
+    let output: HookSpecificOutput = serde_json::from_str(json).unwrap();
+    match output {
+        HookSpecificOutput::PermissionRequest { decision } => {
+            let decision = decision.expect("PermissionRequest 裁决缺省");
+            match decision {
+                PermissionRequestDecision::Deny { message } => {
+                    assert_eq!(message.as_deref(), Some("nope"));
+                }
+                other => panic!("Expected Deny decision, got {other:?}"),
+            }
+        }
+        other => panic!("Expected PermissionRequest variant, got {other:?}"),
+    }
+}
+
+#[test]
 fn test_hooktype_getter_methods() {
     let hook: HookType = serde_json::from_str(
         r#"{"type": "command", "command": "echo", "once": true, "matcher": "Bash"}"#,

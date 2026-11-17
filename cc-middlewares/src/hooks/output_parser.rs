@@ -1,6 +1,9 @@
 use crate::hooks::{
     reason::{hook_error_reason, single_line_reason},
-    types::{HookAction, HookDecision, HookSpecificOutput, SyncHookResponse},
+    types::{
+        HookAction, HookDecision, HookSpecificOutput, PermissionDecision,
+        PermissionRequestDecision, SyncHookResponse,
+    },
 };
 
 /// 解析 command hook stdout 输出
@@ -144,6 +147,22 @@ fn hook_specific_to_action(specific: &HookSpecificOutput) -> HookAction {
             ..
         } => HookAction::AdditionalContext {
             context: ctx.clone(),
+        },
+        // PermissionRequest 裁决：allow 直接放行（可同时替换输入），
+        // deny 直接拒绝；无裁决（decision 缺省）不干预，继续走原生审批。
+        HookSpecificOutput::PermissionRequest {
+            decision: Some(PermissionRequestDecision::Allow { updated_input }),
+        } => HookAction::PermissionOverride {
+            decision: PermissionDecision::Allow,
+            reason: None,
+            new_input: updated_input.clone(),
+        },
+        HookSpecificOutput::PermissionRequest {
+            decision: Some(PermissionRequestDecision::Deny { message }),
+        } => HookAction::PermissionOverride {
+            decision: PermissionDecision::Deny,
+            reason: message.clone(),
+            new_input: None,
         },
         _ => HookAction::Allow,
     }
