@@ -64,5 +64,8 @@ async fn sleeps_for_requested_duration() {
         started.elapsed()
     );
     assert!(output.contains("<sleep-result>"), "{output}");
-    assert!(output.contains("<interrupted>false</interrupted>"), "{output}");
+    assert!(
+        output.contains("<interrupted>false</interrupted>"),
+        "{output}"
+    );
 }

@@ -79,7 +79,10 @@ fn does_not_match_extra_sleep_args() {
 #[test]
 fn blocked_message_points_to_alternatives() {
     let message = blocked_sleep_message("standalone sleep 45");
-    assert!(message.starts_with("Blocked: standalone sleep 45."), "{message}");
+    assert!(
+        message.starts_with("Blocked: standalone sleep 45."),
+        "{message}"
+    );
     // 三条替代路径都要出现，否则模型不知道往哪走。
     assert!(message.contains("until-loop"), "{message}");
     assert!(message.contains("run_in_background"), "{message}");
@@ -96,7 +99,9 @@ async fn invoke_rejects_blocking_sleep_in_foreground() {
         .await
         .expect_err("前台阻塞 sleep 应被拒绝");
     assert!(
-        error.to_string().starts_with("Blocked: standalone sleep 45"),
+        error
+            .to_string()
+            .starts_with("Blocked: standalone sleep 45"),
         "实际: {error}"
     );
 }
