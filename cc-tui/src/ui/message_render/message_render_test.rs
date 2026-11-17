@@ -1729,6 +1729,45 @@ fn test_user_bubble_background_fills_full_viewport_width() {
     );
 }
 
+/// 用户消息正文前景色随投递状态翻转：未送出（排队等待）为 MUTED，
+/// 已送出给 agent 后为亮白 TEXT。与 queued_messages 队列预览色保持同一口径，
+/// 提交瞬间形成「灰 → 白」的转正反馈。
+#[test]
+fn test_user_bubble_body_color_follows_dispatched_state() {
+    let mut vm = MessageViewModel::user("帮我看看这个 bug".to_string());
+
+    let pending_lines = render_view_model(&vm, Some(1), 80, false, 0);
+    let pending_body = pending_lines[0]
+        .spans
+        .iter()
+        .find(|s| s.content.contains("帮我"))
+        .expect("首行应包含消息正文");
+    assert_eq!(
+        pending_body.style.fg,
+        Some(crate::ui::theme::cur().inactive),
+        "未送出时正文应为 MUTED 灰（排队外观）"
+    );
+
+    vm.mark_dispatched();
+    let sent_lines = render_view_model(&vm, Some(1), 80, false, 0);
+    let sent_body = sent_lines[0]
+        .spans
+        .iter()
+        .find(|s| s.content.contains("帮我"))
+        .expect("首行应包含消息正文");
+    assert_eq!(
+        sent_body.style.fg,
+        Some(crate::ui::theme::cur().text),
+        "送出后正文应翻为亮白 TEXT"
+    );
+
+    // 翻亮必须改变内容 hash，否则渲染线程会命中缓存行、停在灰字
+    let mut same = MessageViewModel::user("帮我看看这个 bug".to_string());
+    let before = same.content_hash();
+    same.mark_dispatched();
+    assert_ne!(before, same.content_hash(), "dispatched 必须参与 hash");
+}
+
 /// 多行用户消息（含预折行续行）每一行都要铺满底色。
 #[test]
 fn test_user_bubble_background_fills_every_wrapped_line() {
@@ -1785,6 +1824,7 @@ fn test_render_user_bubble_link_hit_aligns_with_prefixed_line() {
         image_ids: Vec::new(),
         content_hash: 0,
         system_reminder: false,
+        dispatched: true,
         expanded_content: None,
     };
 
@@ -1996,8 +2036,8 @@ fn test_bash_toolblock_error_keeps_name_neutral_color() {
     );
     assert_eq!(
         header.spans.get(2).and_then(|s| s.style.fg),
-        Some(crate::ui::theme::cur().text_soft),
-        "报错时工具名字母应保持中性灰，不得变红"
+        Some(crate::ui::theme::cur().text),
+        "报错时工具名字母应保持亮白 TEXT，不得变红"
     );
 }
 
@@ -2033,8 +2073,8 @@ fn test_non_bash_toolblock_error_keeps_name_neutral_color() {
     );
     assert_eq!(
         lines[0].spans.get(2).and_then(|s| s.style.fg),
-        Some(crate::ui::theme::cur().text_soft),
-        "非 Bash 工具报错时名字也应保持中性灰"
+        Some(crate::ui::theme::cur().text),
+        "非 Bash 工具报错时名字也应保持亮白 TEXT"
     );
 }
 
@@ -2071,8 +2111,8 @@ fn test_toolcallgroup_detail_header_uses_unified_indicator_and_color() {
     );
     assert_eq!(
         ok_header.spans[2].style.fg,
-        Some(crate::ui::theme::cur().text_soft),
-        "工具名应为中性灰"
+        Some(crate::ui::theme::cur().text),
+        "工具名应为亮白 TEXT"
     );
     let failed_header = lines
         .iter()
@@ -2085,8 +2125,8 @@ fn test_toolcallgroup_detail_header_uses_unified_indicator_and_color() {
     );
     assert_eq!(
         failed_header.spans[2].style.fg,
-        Some(crate::ui::theme::cur().text_soft),
-        "失败条目工具名也应为中性灰"
+        Some(crate::ui::theme::cur().text),
+        "失败条目工具名也应为亮白 TEXT"
     );
 }
 
@@ -2233,8 +2273,8 @@ fn test_dim_markdown_lines_no_fg_span_set_dim() {
     for span in &result[0].spans {
         assert_eq!(
             span.style.fg,
-            Some(theme::cur().subtle),
-            "无前景色的 span 应设为 theme::cur().subtle"
+            Some(theme::thinking_body()),
+            "无前景色的 span 应设为思考正文色 theme::thinking_body()"
         );
     }
 }
@@ -2276,7 +2316,7 @@ fn test_dim_markdown_lines_multiline_keeps_structure() {
     assert_eq!(result.len(), 3, "应保留原始行数");
     for line in &result {
         assert_eq!(line.spans.len(), 1);
-        assert_eq!(line.spans[0].style.fg, Some(theme::cur().subtle));
+        assert_eq!(line.spans[0].style.fg, Some(theme::thinking_body()));
     }
 }
 
@@ -2290,13 +2330,13 @@ fn test_dim_markdown_lines_span() {
     let result = dim_markdown_lines(input);
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].spans.len(), 3);
-    assert_eq!(result[0].spans[0].style.fg, Some(theme::cur().subtle));
+    assert_eq!(result[0].spans[0].style.fg, Some(theme::thinking_body()));
     assert_eq!(result[0].spans[1].style.fg, Some(Color::Yellow));
     assert!(result[0].spans[1]
         .style
         .add_modifier
         .contains(Modifier::DIM));
-    assert_eq!(result[0].spans[2].style.fg, Some(theme::cur().subtle));
+    assert_eq!(result[0].spans[2].style.fg, Some(theme::thinking_body()));
 }
 
 #[test]
@@ -2702,6 +2742,7 @@ fn test_render_user_bubble_wrapped_link_hit_across_segments() {
         image_ids: Vec::new(),
         content_hash: 0,
         system_reminder: false,
+        dispatched: true,
         expanded_content: None,
     };
 
@@ -2745,6 +2786,7 @@ fn test_render_two_wrapped_links_do_not_cross_lines() {
         image_ids: Vec::new(),
         content_hash: 0,
         system_reminder: false,
+        dispatched: true,
         expanded_content: None,
     };
 

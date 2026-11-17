@@ -255,6 +255,10 @@ fn header_args_width(width: usize, prefix_width: usize, detail_mode: bool) -> us
 ///
 /// 保留 syntect 语法高亮的色相，但统一降亮度，
 /// 使 reasoning 内容在视觉层级上低于正文。
+///
+/// 无前景色的 span（占绝大多数正文）取 `inactive` 而非 `subtle`：`subtle`
+/// 是 #505050，在深色底上几乎不可读；`inactive`（#999999）仍明显暗于正文，
+/// 层级关系不变，只是把思考正文从「几乎看不见」提到「柔和的次要文字」。
 fn dim_markdown_lines(text: Text<'static>) -> Vec<Line<'static>> {
     text.lines
         .into_iter()
@@ -265,11 +269,11 @@ fn dim_markdown_lines(text: Text<'static>) -> Vec<Line<'static>> {
                 .map(|span| {
                     let style = span.style;
                     // 如果 span 有前景色，保持色相但强制加 DIM 修饰
-                    // 如果无前景色（默认色），直接设为 DIM
+                    // 如果无前景色（默认色），直接设为思考正文色
                     let dim_style = if style.fg.is_some() {
                         style.add_modifier(Modifier::DIM)
                     } else {
-                        Style::default().fg(theme::cur().subtle)
+                        Style::default().fg(theme::thinking_body())
                     };
                     Span::styled(span.content, dim_style)
                 })
@@ -974,7 +978,7 @@ fn push_group_entry_header(
     } else {
         theme::cur().success
     };
-    // 与主路径（单条 ToolBlock）统一：状态只由 ● 表达，工具名恒为中性色
+    // 与主路径（单条 ToolBlock）统一：状态只由 ● 表达，工具名恒为亮白 TEXT
     // （此前失败用 ✗、名字为白色粗体，与主路径两套体系）
     let indicator = theme::SYMBOL_DOT;
     lines.push(Line::from(vec![
@@ -982,7 +986,7 @@ fn push_group_entry_header(
         Span::raw(" "),
         Span::styled(
             entry.display_name.clone(),
-            Style::default().fg(theme::cur().text_soft),
+            Style::default().fg(theme::cur().text),
         ),
     ]));
     let Some(args) = &entry.args_display else {
@@ -1812,6 +1816,7 @@ pub fn render_view_model_with_flags(
             image_paths,
             system_reminder,
             expanded_content,
+            dispatched,
             ..
         } => {
             if *system_reminder {
@@ -1840,6 +1845,15 @@ pub fn render_view_model_with_flags(
 
             // 普通 UserBubble — 原有渲染逻辑不变
             let user_bg: Color = theme::cur().user_message_background;
+            // 正文前景色按投递状态区分：已送出的消息用亮白 TEXT（与助手正文同色，
+            // 是「已在对话中」的内容）；尚未送出（排队等待 agent）用 MUTED 灰，
+            // 与 queued_messages 队列里的预览色一致，形成「灰 → 白」的转正反馈。
+            // 只补 fg，不覆盖已有前景色（行内代码、链接等自带色）。
+            let body_fg: Color = if *dispatched {
+                theme::cur().text
+            } else {
+                theme::cur().inactive
+            };
             // [TRAP] 同 AssistantBubble Text 路径：markdown 普通段落不预折行，
             // 需先按 content_width 预折行，防止 Paragraph::wrap 二次硬折行后续行丢掉 "  " 悬挂缩进
             let content_width = width.saturating_sub(2).max(20);
@@ -1861,7 +1875,11 @@ pub fn render_view_model_with_flags(
                                 .bg(user_bg),
                         )];
                         for span in &wline.spans {
-                            spans.push(span.clone().patch_style(Style::default().bg(user_bg)));
+                            let mut style = Style::default().bg(user_bg);
+                            if span.style.fg.is_none() {
+                                style = style.fg(body_fg);
+                            }
+                            spans.push(span.clone().patch_style(style));
                         }
                         // 补空格到视口整宽，让底色铺满整行（与 `shell_command_header` /
                         // `queued_messages` / `sticky_header` 的用户消息底色口径一致，
@@ -1873,7 +1891,11 @@ pub fn render_view_model_with_flags(
                         // 后续行（含预折行产生的续行）：2 空格悬挂缩进，带底色
                         let mut spans = vec![Span::styled("  ", Style::default().bg(user_bg))];
                         for span in &wline.spans {
-                            spans.push(span.clone().patch_style(Style::default().bg(user_bg)));
+                            let mut style = Style::default().bg(user_bg);
+                            if span.style.fg.is_none() {
+                                style = style.fg(body_fg);
+                            }
+                            spans.push(span.clone().patch_style(style));
                         }
                         push_bg_fill(&mut spans, width);
                         lines.push(Line::from(spans));
@@ -2003,10 +2025,10 @@ pub fn render_view_model_with_flags(
                             })
                             .unwrap_or_default();
                         let ellipsis = if active { "…" } else { "" };
-                        // 活跃与冻结同色（统一压暗）：冻结瞬间不再有亮度跳变。
+                        // 活跃与冻结同色：冻结瞬间不再有亮度跳变。
                         // 活跃态靠行首 `∴ ` 与末尾省略号区分，不靠颜色。
                         // 时长与动作计数里的数字单独加粗，扫一眼能抓到关键数值。
-                        let dim = theme::cur().inactive;
+                        let dim = theme::thinking_body();
                         let dim_style = Style::default().fg(dim);
                         let hot_style = dim_style.add_modifier(Modifier::BOLD);
                         let mut spans = vec![
@@ -2140,10 +2162,11 @@ pub fn render_view_model_with_flags(
                 indicator_color
             };
 
-            // 工具名配色统一为中性色：成败与运行状态语义全部由 ● 指示器承载，
+            // 工具名恒为亮白（TEXT）：成败与运行状态语义全部由 ● 指示器承载，
             // 工具名字母不随状态变色（此前 Bash 恒定灰、其他工具运行中青、报错红，
-            // 规则不一致且同一行出现多种颜色，易误读）。
-            let name_style = Style::default().fg(theme::cur().text_soft);
+            // 规则不一致且同一行出现多种颜色，易误读）；亮白让工具名成为行内视觉
+            // 锚点，是唯一被强调的固定字段，参数摘要仍保持较暗的中性色。
+            let name_style = Style::default().fg(theme::cur().text);
 
             let mut header_spans = vec![
                 Span::styled(indicator.to_string(), Style::default().fg(indicator_color)),
@@ -3233,9 +3256,9 @@ pub fn render_view_model_with_flags(
                     })
                     .unwrap_or_default();
                 let ellipsis = if active { "…" } else { "" };
-                // 活跃与冻结同色（统一压暗）：冻结瞬间不再有亮度跳变。
+                // 活跃与冻结同色：冻结瞬间不再有亮度跳变。
                 // 时长与动作计数里的数字单独加粗，与 AssistantBubble 思考行同款。
-                let dim = theme::cur().inactive;
+                let dim = theme::thinking_body();
                 let dim_style = Style::default().fg(dim);
                 let hot_style = dim_style.add_modifier(Modifier::BOLD);
                 let mut spans = vec![
