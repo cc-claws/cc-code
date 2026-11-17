@@ -59,6 +59,38 @@ impl App {
         self.apply_pipeline_action(action);
     }
 
+    /// 本轮 agent 首次产出正式内容（正文文本或工具调用）时，把本轮用户气泡
+    /// 从排队灰翻为亮白。
+    ///
+    /// 提交瞬间不翻白：`set_loading(true)` 之后、首个内容事件之前，气泡仍保持
+    /// 排队外观，与「agent 是否真的接下了这轮活」对齐。纯思考（AiReasoning）
+    /// 不算正式内容，不触发翻白。`mark_dispatched` 自身幂等，重复事件无副作用。
+    pub(crate) fn mark_turn_user_dispatched(&mut self) {
+        // 历史用户消息在重建时已置 `dispatched: true`，从尾部找到的未送出气泡
+        // 就是本轮刚入列的那条。
+        let changed = {
+            let vms = &mut self.session_mgr.current_mut().messages.view_messages;
+            match vms.iter_mut().rev().find(|vm| {
+                matches!(
+                    vm,
+                    MessageViewModel::UserBubble {
+                        dispatched: false,
+                        ..
+                    }
+                )
+            }) {
+                Some(vm) => {
+                    vm.mark_dispatched();
+                    true
+                }
+                None => false,
+            }
+        };
+        if changed {
+            self.render_rebuild();
+        }
+    }
+
     /// 用规范消息列表**全量**重建视图模型并安装（主题切换 / compact / rewind 共用）。
     ///
     /// 与 [`request_rebuild`](Self::request_rebuild) 的区别：后者只重建
@@ -130,6 +162,23 @@ impl App {
             .current_mut()
             .messages
             .push_hook_system_note(content, tone, detail_only);
+        self.request_rebuild();
+    }
+
+    /// 添加会话级 hook 行到本轮用户消息下方，随后请求一次重建。
+    ///
+    /// 与 [`push_hook_system_note`](Self::push_hook_system_note) 的区别只在落点：
+    /// 用于只在会话首轮触发一次的 SessionStart，产物必须紧贴首个用户消息。
+    pub fn push_hook_system_note_at_round_start(
+        &mut self,
+        content: String,
+        tone: crate::ui::message_view::NoteTone,
+        detail_only: bool,
+    ) {
+        self.session_mgr
+            .current_mut()
+            .messages
+            .push_hook_system_note_at_round_start(content, tone, detail_only);
         self.request_rebuild();
     }
 

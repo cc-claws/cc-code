@@ -238,17 +238,6 @@ pub fn cursor_style() -> ratatui::style::Style {
     ratatui::style::Style::default().fg(cur().thinking)
 }
 
-/// 思考正文（reasoning）的无着色文本色。
-///
-/// 取 `inactive` 向 `thinking` 插值 25%：保留紫调但整体明显暗于正文，
-/// 既比原先直接用的 `subtle`（#505050，几乎不可读）亮，又不抢正文的视觉重心。
-/// 派生而非新增调色板字段：八套主题自动跟随各自的 `inactive` / `thinking`，
-/// 不需要为新字段逐主题取值，也不会触发 `palettes_parity_test` 的字段锁定。
-pub fn thinking_body() -> ratatui::style::Color {
-    let p = cur();
-    cc_widgets::spinner::animation::blend_color(p.inactive, p.thinking, 0.25)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

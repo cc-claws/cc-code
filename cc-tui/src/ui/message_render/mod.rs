@@ -273,7 +273,7 @@ fn dim_markdown_lines(text: Text<'static>) -> Vec<Line<'static>> {
                     let dim_style = if style.fg.is_some() {
                         style.add_modifier(Modifier::DIM)
                     } else {
-                        Style::default().fg(theme::thinking_body())
+                        Style::default().fg(theme::cur().inactive)
                     };
                     Span::styled(span.content, dim_style)
                 })
@@ -2028,7 +2028,7 @@ pub fn render_view_model_with_flags(
                         // 活跃与冻结同色：冻结瞬间不再有亮度跳变。
                         // 活跃态靠行首 `∴ ` 与末尾省略号区分，不靠颜色。
                         // 时长与动作计数里的数字单独加粗，扫一眼能抓到关键数值。
-                        let dim = theme::thinking_body();
+                        let dim = theme::cur().inactive;
                         let dim_style = Style::default().fg(dim);
                         let hot_style = dim_style.add_modifier(Modifier::BOLD);
                         let mut spans = vec![
@@ -3258,7 +3258,7 @@ pub fn render_view_model_with_flags(
                 let ellipsis = if active { "…" } else { "" };
                 // 活跃与冻结同色：冻结瞬间不再有亮度跳变。
                 // 时长与动作计数里的数字单独加粗，与 AssistantBubble 思考行同款。
-                let dim = theme::thinking_body();
+                let dim = theme::cur().inactive;
                 let dim_style = Style::default().fg(dim);
                 let hot_style = dim_style.add_modifier(Modifier::BOLD);
                 let mut spans = vec![

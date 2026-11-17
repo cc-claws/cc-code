@@ -102,7 +102,7 @@
 |------|------|--------|------|
 | 用户消息 | `❯` | ACCENT + BOLD | USER_BG 底色，所有行带底色；正文色随投递状态翻转：已送出为 TEXT，尚未送出（排队）为 MUTED |
 | AI 回复 | `●` | TEXT (纯白) | 首行文本合并到 `●` 后，支持 markdown 渲染 |
-| 思考 (Reasoning) | — | — | 普通模式只看一行摘要（`Thought for Ns`）；`Ctrl+O` 详细模式展开正文，正文色 `thinking_body`（INACTIVE 向 THINKING 插值 25%） |
+| 思考 (Reasoning) | — | — | 普通模式只看一行摘要（`Thought for Ns`）；`Ctrl+O` 详细模式展开正文，正文色 INACTIVE（#999999，与摘要行同色） |
 | 工具调用 | `⏺` | SAGE (绿) | 工具名 TEXT，参数 DIM `(...)` |
 | 工具聚合组 | `⏺` | SAGE (绿) 前缀 + MUTED 汇总文字 | 仅一行汇总文本，不可展开 |
 | AskUserQuestion | `⏺` | SAGE (绿) | 标题 `User answered CC Code's questions:` + `⎿ · header → answer` |

@@ -338,6 +338,8 @@ impl App {
                     .dismiss_system_notice(std::time::Instant::now());
                 self.session_mgr.current_mut().agent.agent_replied = true;
                 self.session_mgr.current_mut().agent.tool_call_count += 1;
+                // agent 已产出正式内容（工具调用），本轮用户气泡此时翻白。
+                self.mark_turn_user_dispatched();
                 // 记录当前执行中的工具
                 {
                     let args_summary: String = super::tool_display::sanitize_display_text(&args)
@@ -465,7 +467,8 @@ impl App {
                     .agent
                     .dismiss_system_notice(std::time::Instant::now());
                 self.session_mgr.current_mut().agent.agent_replied = true;
-                // 跨切面：spinner
+                // agent 已产出正式内容（正文文本），本轮用户气泡此时翻白。
+                self.mark_turn_user_dispatched();
                 // 跨切面：spinner —— 思考段结束（开始输出文本）
                 // 方案 A：verb 整轮固定，此处只切模式不改词
                 self.session_mgr.current_mut().spinner_state.end_thinking();
