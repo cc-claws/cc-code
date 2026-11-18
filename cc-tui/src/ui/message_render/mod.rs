@@ -256,9 +256,9 @@ fn header_args_width(width: usize, prefix_width: usize, detail_mode: bool) -> us
 /// 保留 syntect 语法高亮的色相，但统一降亮度，
 /// 使 reasoning 内容在视觉层级上低于正文。
 ///
-/// 无前景色的 span（占绝大多数正文）取 `inactive` 而非 `subtle`：`subtle`
-/// 是 #505050，在深色底上几乎不可读；`inactive`（#999999）仍明显暗于正文，
-/// 层级关系不变，只是把思考正文从「几乎看不见」提到「柔和的次要文字」。
+/// 无前景色的 span（占绝大多数正文）取 `theme::thinking_body()`：它比同屏的
+/// MUTED 灰（`inactive`）再低一档，思考块成段出现时不会压过正文；也不能直接用
+/// `subtle`，那在深色底上几乎不可读。
 fn dim_markdown_lines(text: Text<'static>) -> Vec<Line<'static>> {
     text.lines
         .into_iter()
@@ -273,7 +273,7 @@ fn dim_markdown_lines(text: Text<'static>) -> Vec<Line<'static>> {
                     let dim_style = if style.fg.is_some() {
                         style.add_modifier(Modifier::DIM)
                     } else {
-                        Style::default().fg(theme::cur().inactive)
+                        Style::default().fg(theme::thinking_body())
                     };
                     Span::styled(span.content, dim_style)
                 })
@@ -486,7 +486,7 @@ pub(crate) fn wrap_line_spans(line: Line<'static>, max_width: usize) -> Vec<Line
 /// 正文为空（模型只回了耗时、没有可读思考）时不能只画一个孤零零的 `⎿`，
 /// 按 Bash 空输出 `(No output)` 的同款口径补 `(No content)`。
 fn push_thinking_body(lines: &mut Vec<Line<'static>>, text: &str, width: usize) {
-    let prefix_style = Style::default().fg(theme::cur().inactive);
+    let prefix_style = Style::default().fg(theme::thinking_body());
     if text.trim().is_empty() {
         lines.push(Line::from(vec![
             Span::styled(BranchPrefix::PREFIX, prefix_style),
@@ -978,7 +978,7 @@ fn push_group_entry_header(
     } else {
         theme::cur().success
     };
-    // 与主路径（单条 ToolBlock）统一：状态只由 ● 表达，工具名恒为亮白 TEXT
+    // 与主路径（单条 ToolBlock）统一：状态只由 ● 表达，工具名恒为工具名色
     // （此前失败用 ✗、名字为白色粗体，与主路径两套体系）
     let indicator = theme::SYMBOL_DOT;
     lines.push(Line::from(vec![
@@ -986,7 +986,7 @@ fn push_group_entry_header(
         Span::raw(" "),
         Span::styled(
             entry.display_name.clone(),
-            Style::default().fg(theme::cur().text),
+            Style::default().fg(theme::tool_name()),
         ),
     ]));
     let Some(args) = &entry.args_display else {
@@ -2039,7 +2039,7 @@ pub fn render_view_model_with_flags(
                         // 活跃与冻结同色：冻结瞬间不再有亮度跳变。
                         // 活跃态靠行首 `∴ ` 与末尾省略号区分，不靠颜色。
                         // 时长与动作计数里的数字单独加粗，扫一眼能抓到关键数值。
-                        let dim = theme::cur().inactive;
+                        let dim = theme::thinking_body();
                         let dim_style = Style::default().fg(dim);
                         let hot_style = dim_style.add_modifier(Modifier::BOLD);
                         let mut spans = vec![
@@ -2150,7 +2150,8 @@ pub fn render_view_model_with_flags(
             } else {
                 *collapsed
             };
-            let mut state = cc_widgets::ToolCallState::new(display_name.clone(), theme::cur().text);
+            let mut state =
+                cc_widgets::ToolCallState::new(display_name.clone(), theme::tool_name());
             state.status = status.clone();
             state.collapsed = effective_collapsed;
             state.is_error = *is_error || bash_failed;
@@ -2173,11 +2174,11 @@ pub fn render_view_model_with_flags(
                 indicator_color
             };
 
-            // 工具名恒为亮白（TEXT）：成败与运行状态语义全部由 ● 指示器承载，
-            // 工具名字母不随状态变色（此前 Bash 恒定灰、其他工具运行中青、报错红，
-            // 规则不一致且同一行出现多种颜色，易误读）；亮白让工具名成为行内视觉
-            // 锚点，是唯一被强调的固定字段，参数摘要仍保持较暗的中性色。
-            let name_style = Style::default().fg(theme::cur().text);
+            // 工具名恒为工具名色（比正文低一档的亮白）：成败与运行状态语义全部由
+            // ● 指示器承载，工具名字母不随状态变色（此前 Bash 恒定灰、其他工具运行中青、
+            // 报错红，规则不一致且同一行出现多种颜色，易误读）；亮白但非纯白让工具名
+            // 成为行内视觉锚点，又不至于长时间直视刺眼，参数摘要仍保持较暗的中性色。
+            let name_style = Style::default().fg(theme::tool_name());
 
             let mut header_spans = vec![
                 Span::styled(indicator.to_string(), Style::default().fg(indicator_color)),
@@ -3269,7 +3270,7 @@ pub fn render_view_model_with_flags(
                 let ellipsis = if active { "…" } else { "" };
                 // 活跃与冻结同色：冻结瞬间不再有亮度跳变。
                 // 时长与动作计数里的数字单独加粗，与 AssistantBubble 思考行同款。
-                let dim = theme::cur().inactive;
+                let dim = theme::thinking_body();
                 let dim_style = Style::default().fg(dim);
                 let hot_style = dim_style.add_modifier(Modifier::BOLD);
                 let mut spans = vec![

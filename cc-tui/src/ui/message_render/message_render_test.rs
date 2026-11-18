@@ -2036,8 +2036,8 @@ fn test_bash_toolblock_error_keeps_name_neutral_color() {
     );
     assert_eq!(
         header.spans.get(2).and_then(|s| s.style.fg),
-        Some(crate::ui::theme::cur().text),
-        "报错时工具名字母应保持亮白 TEXT，不得变红"
+        Some(crate::ui::theme::tool_name()),
+        "报错时工具名字母应保持工具名色，不得变红"
     );
 }
 
@@ -2073,8 +2073,8 @@ fn test_non_bash_toolblock_error_keeps_name_neutral_color() {
     );
     assert_eq!(
         lines[0].spans.get(2).and_then(|s| s.style.fg),
-        Some(crate::ui::theme::cur().text),
-        "非 Bash 工具报错时名字也应保持亮白 TEXT"
+        Some(crate::ui::theme::tool_name()),
+        "非 Bash 工具报错时名字也应保持工具名色"
     );
 }
 
@@ -2111,8 +2111,8 @@ fn test_toolcallgroup_detail_header_uses_unified_indicator_and_color() {
     );
     assert_eq!(
         ok_header.spans[2].style.fg,
-        Some(crate::ui::theme::cur().text),
-        "工具名应为亮白 TEXT"
+        Some(crate::ui::theme::tool_name()),
+        "工具名应为工具名色"
     );
     let failed_header = lines
         .iter()
@@ -2125,8 +2125,8 @@ fn test_toolcallgroup_detail_header_uses_unified_indicator_and_color() {
     );
     assert_eq!(
         failed_header.spans[2].style.fg,
-        Some(crate::ui::theme::cur().text),
-        "失败条目工具名也应为亮白 TEXT"
+        Some(crate::ui::theme::tool_name()),
+        "失败条目工具名也应为工具名色"
     );
 }
 
@@ -2273,8 +2273,8 @@ fn test_dim_markdown_lines_no_fg_span_set_dim() {
     for span in &result[0].spans {
         assert_eq!(
             span.style.fg,
-            Some(theme::cur().inactive),
-            "无前景色的 span 应设为 INACTIVE 灰"
+            Some(theme::thinking_body()),
+            "无前景色的 span 应设为思考正文色"
         );
     }
 }
@@ -2316,7 +2316,7 @@ fn test_dim_markdown_lines_multiline_keeps_structure() {
     assert_eq!(result.len(), 3, "应保留原始行数");
     for line in &result {
         assert_eq!(line.spans.len(), 1);
-        assert_eq!(line.spans[0].style.fg, Some(theme::cur().inactive));
+        assert_eq!(line.spans[0].style.fg, Some(theme::thinking_body()));
     }
 }
 
@@ -2330,13 +2330,13 @@ fn test_dim_markdown_lines_span() {
     let result = dim_markdown_lines(input);
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].spans.len(), 3);
-    assert_eq!(result[0].spans[0].style.fg, Some(theme::cur().inactive));
+    assert_eq!(result[0].spans[0].style.fg, Some(theme::thinking_body()));
     assert_eq!(result[0].spans[1].style.fg, Some(Color::Yellow));
     assert!(result[0].spans[1]
         .style
         .add_modifier
         .contains(Modifier::DIM));
-    assert_eq!(result[0].spans[2].style.fg, Some(theme::cur().inactive));
+    assert_eq!(result[0].spans[2].style.fg, Some(theme::thinking_body()));
 }
 
 #[test]
