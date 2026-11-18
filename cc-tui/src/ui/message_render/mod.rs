@@ -1801,6 +1801,7 @@ pub fn render_view_model_with_links(
 ///   VM 里的 hook 数据始终保留（开关切回来历史行恢复）；
 /// - `show_thinking`（配置 `thinking_ui`）：只控制思考**正文**是否渲染，
 ///   详细模式下关闭则整块不渲染，普通模式下关闭则摘要行不再挂展开提示。
+#[allow(clippy::too_many_arguments)]
 pub fn render_view_model_with_flags(
     vm: &MessageViewModel,
     _index: Option<usize>,
