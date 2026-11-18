@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.296 — 2026-11-18
+
+### Fixes
+
+- **重新发布 0.6.295 的内容，修复 linux-arm64 平台包无法落库**：0.6.295 发布时 `@cc-claw/code-linux-arm64@0.6.295` 在 npm 侧停在了半提交状态——首次 `npm publish` 返回成功并提示 "being processed"，但版本最终没有出现在 packument 里；此后重试一律返回 `409 Conflict - Cannot publish over previously staged version "0.6.295"`，而 `npm stage list` 又报告该包没有任何 staged 版本，`/-/package/@cc-claw%2fcode-linux-arm64/staged` 返回 404，即这个版本既不可覆盖也不可清理。`Verify platform packages are resolvable` 在轮询 15 分钟后因它超时失败，主包因此停在 0.6.294。按 npm 官方 workaround，bump 到 0.6.296 重新发布，包内容与 0.6.295 完全一致（思考摘要标题行改用 MUTED 色，见上一条），无任何代码改动。改动文件：`npm/package.json`（`version` 与 5 个 `optionalDependencies` 同步为 0.6.296）、`CHANGELOG.md`。
+
+---
+
 ## v0.6.295 — 2026-11-18
 
 ### Fixes
