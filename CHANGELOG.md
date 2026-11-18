@@ -4,6 +4,28 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.291 — 2026-11-18
+
+### Features
+
+- **详细模式思考改为 `∴` 单行渲染，并新增「思考展示」开关（#1091, #1092）**：Ctrl+O 详细模式下，思考此前渲染成两行——一行 `Thought for Ns` 摘要、一行折角 `⎿` 正文。同一段思考在组内活跃态却是 `∴ Thinking for N chars`，冻结展开后换成另一套形态，观感割裂；展开状态下耗时摘要与正文并列也属重复信息。现详细模式把思考压成以 `∴ ` 起头的连续正文：首行 `THINKING_PREFIX`（`"∴ "`）、续行 `THINKING_HANG`（`"  "`）悬挂缩进 2 格、宽度按 `thinking_content_width(width)` 计算，配色沿用 `theme::thinking_body()`，与摘要行同色；`AssistantBubble` 的 `ContentBlockView::Reasoning` 分支与 `MessageViewModel::ToolCallGroup` 的 `thinking` 分支在详细模式下直接渲染正文并 `continue`，**摘要行整行去掉**。同时新增 `AppConfig.thinking_ui: Option<bool>`（`thinking_ui_enabled()` 缺省 `true`，`merge_overrides` 支持 workspace 覆盖），命名与语义对齐已有的 `hooks_ui`——不复用 `ThinkingConfig`，那是传给 LLM 的推理参数。`/config` 新增「思考展示 / Thinking Display」行（`ROW_THINKING_DISPLAY`，插在「Hook 显示」之后，其后各行号顺延），渲染链路新增 `RenderTask.show_thinking` + `RenderEvent::ToggleThinking(bool)` + `thinking_sensitive()` 混入 `render_key`，保存配置后即时生效，与 `ToggleHookRows` 同款。行为：开关**开**（默认）时详细模式显示 `∴` 正文、无摘要行，普通模式照旧 `Thought for Ns (ctrl+o to expand)`；开关**关**时详细模式整块思考不渲染，普通模式保留摘要行但去掉 `(ctrl+o to expand)` 尾巴——展开后本就是空的，留着提示自相矛盾。只影响渲染，思考数据始终保留在 VM 中，开关切回来历史内容可恢复。改动文件：`cc-acp/src/provider/config.rs`、`cc-tui/src/ui/branch_prefix.rs`、`cc-tui/src/ui/message_render/{mod,message_render_test,bash_file_inspect_test}.rs`、`cc-tui/src/ui/render_thread.rs`、`cc-tui-core/src/ui_state.rs`、`cc-tui/src/app/{ui_state,chat_session,mod,config_panel}.rs`、`cc-tui/src/ui/main_ui/panels/config.rs`、`cc-tui-core/locales/{zh-CN,en}/main.ftl`。验证：`cargo check -p cc-tui --all-targets` 0 error，`cargo test -p cc-tui --lib message_render` 248 项全过，`rustfmt --check` 无差异。
+
+---
+
+## v0.6.290 — 2026-11-18
+
+### Refactors
+
+- **移除 Monitor / Sleep 工具，保留阻塞 `sleep` 拦截（#1089, #1090）**：v0.6.285 为「别用 `sleep N` 占住 shell」这个目标新增了 `MonitorTool` 与 `SleepTool` 两个独立工具，并给 `Bash` 加了前台阻塞拦截。实际用下来两个工具的存在感远大于收益——等待条件本就是 `run_in_background` 的职责，多两个工具只是让工具列表更长、模型更容易选错。现整体删除 `cc-tools/src/tools/{monitor,monitor_test,sleep,sleep_test}.rs` 四个文件，`TerminalMiddleware::build_tools` 回到只返回 `Bash`，`tool_names()` 回到 `vec!["Bash"]`，`cc-tools/src/lib.rs` 移除对应导出。**拦截逻辑与替代路径全部保留**：`BLOCKED_SLEEP_MIN_SECONDS = 2`、`split_shell_subcommands`、`parse_sleep_seconds`、`detect_blocked_sleep_pattern` 与 invoke 中的拦截调用均未动，只是 `blocked_sleep_message()` 删掉了「改用 Sleep tool」那句话，保留「条件等待用 `run_in_background: true` 后台起任务并等完成通知」与 until-loop 两条替代路径。改动文件：`cc-tools/src/{lib,bash/mod,bash/sleep_guard_test}.rs`（删除 4 个源文件 + 调整 3 个）。验证：`cargo test -p cc-tools --lib sleep_guard` 12 项全过，PR 的 Rustfmt 与三平台 Build CI 全绿。
+
+### Fixes
+
+- **Write 新建文件的折叠提示配色对齐 `⎿` 前缀（#1090）**：v0.6.285 曾把 `… +N lines (ctrl+o to expand)` 统一改用 `inactive` 色，但对 Write **新建文件**不生效——该场景的提示行不由 `push_visual_capped_output` 产生，而走 `cc-widgets/src/diff/renderer.rs` 的 `render_new_file_code`，其提示行硬编码 `Style::default().fg(theme.dim())`（`theme.dim` 取 `subtle` = #505050），比同为提示行的 `⎿ (timeout 5m)`（`inactive` 色）明显更暗。现 `render_new_file_code` 新增第 6 个参数 `hint_color: Option<ratatui::style::Color>`，提示行改为 `hint_color.unwrap_or_else(|| theme.dim())`；`cc-tui` 工具块调用点传 `Some(theme::cur().inactive)`，`hitl_content.rs` 与 `diff_highlight_probe` 示例传 `None`（前者 `max_lines = usize::MAX`，提示行不会出现）。改动文件：`cc-widgets/src/diff/renderer.rs`、`cc-tui/src/ui/message_render/mod.rs`、`cc-tui/src/ui/main_ui/popups/hitl_content.rs`、`cc-widgets/examples/diff_highlight_probe.rs` 及对应测试。验证：`cargo test -p cc-widgets --features markdown-highlight --lib diff` 64 项全过，PR 的 Rustfmt 与三平台 Build CI 全绿。
+
+- **工具名降至 `#F2F2F2`、思考正文降至 `#666666`（#1088）**：v0.6.287 把工具名提到纯白 `#FFFFFF`、思考正文交给 `inactive`（`#999999`），实际观感前者白得扎眼、后者在深色底上仍偏亮，两者都抢了正文的注意力。现新增两个派生色函数（沿用「派生而非新增调色板字段」的做法，绕开 `palettes_parity_test` 的字段锁定、八套主题自动跟随）：`theme::tool_name()` 对 `cur().text` 逐通道 `saturating_sub(TOOL_NAME_DIM = 13)`，默认主题下精确得 `#F2F2F2`，命名色原样返回；`theme::thinking_body()` 取 `blend_color(inactive, subtle, 0.7)`，默认主题下 `153×0.3 + 80×0.7 ≈ 102`，三通道同值得 `#666666`（取 0.7 而非 0.5 是因为思考块成段出现，只降半档仍偏亮，0.7 才与 hook 行、排队预览等 `inactive` 元素拉开层次）。着色点：`push_group_entry_header` 工具名 span、`ToolCallGroup` 的 `ToolCallState::new(display_name, ...)` 与 `name_style` 改走 `tool_name()`；`dim_markdown_lines` 无前景色 span、`push_thinking_body` 的 `prefix_style`、`AssistantBubble` 思考摘要行、`ToolCallGroup` 组内思考摘要行四处的 `= theme::cur().inactive` 改走 `thinking_body()`。`inactive` 本身未动——它还被 hook 汇总行、排队预览、Bash `⎿` 前缀等 60 余处共用。改动文件：`cc-tui-core/src/theme/mod.rs`、`cc-tui/src/ui/message_render/{mod,message_render_test}.rs`。验证：`cargo check -p cc-tui --all-targets` 通过，`cargo test -p cc-tui --lib message_render` 246 项全过，PR 的 Rustfmt 与三平台 Build CI 全绿。
+
+---
+
 ## v0.6.289 — 2026-11-17
 
 ### Fixes
