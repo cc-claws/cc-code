@@ -4952,6 +4952,78 @@ fn test_active_thinking_row_shows_char_count() {
     );
 }
 
+/// 思考摘要标题行（`Thought for 9s, read 1 file (ctrl+o to expand)`）取 MUTED
+/// （`inactive`，默认主题 #999999），与状态栏提示行同色；思考正文仍取更暗的
+/// `thinking_body()`，标题比正文亮一档。
+#[test]
+fn test_thinking_summary_row_uses_muted_title_color() {
+    // Arrange
+    let mut vm = MessageViewModel::assistant();
+    if let MessageViewModel::AssistantBubble { blocks, .. } = &mut vm {
+        blocks.push(ContentBlockView::Reasoning {
+            char_count: 3649,
+            duration_ms: Some(5000),
+            action_summary: Some("read 2 files".to_string()),
+            text: "x".repeat(3649),
+            active: false,
+            active_since: None,
+            hint: None,
+        });
+    }
+    // Act
+    let lines = render_view_model(&vm, None, 120, false, 0);
+    let title_span = lines
+        .iter()
+        .flat_map(|line| line.spans.iter())
+        .find(|span| span.content.contains("Thought for"))
+        .expect("应渲染思考摘要标题行");
+    // Assert
+    assert_eq!(
+        title_span.style.fg,
+        Some(theme::cur().inactive),
+        "标题行应取 MUTED（inactive）"
+    );
+    assert_ne!(
+        title_span.style.fg,
+        Some(theme::thinking_body()),
+        "标题行不应再取更暗的思考正文色"
+    );
+}
+
+#[test]
+fn test_tool_group_thinking_summary_row_uses_muted_title_color() {
+    use crate::ui::message_view::{GroupThinking, ToolCategory};
+    // Arrange
+    let vm = MessageViewModel::ToolCallGroup {
+        category: ToolCategory::Read,
+        tools: Vec::new(),
+        thinking: Some(GroupThinking {
+            text: "x".repeat(51),
+            duration_ms: Some(5000),
+            action_summary: Some("read 3 files".to_string()),
+            hint: None,
+            active: false,
+            active_since: None,
+        }),
+        collapsed: false,
+        standalone_action: None,
+        content_hash: 0,
+    };
+    // Act
+    let lines = render_view_model(&vm, None, 80, false, 0);
+    let title_span = lines
+        .iter()
+        .flat_map(|line| line.spans.iter())
+        .find(|span| span.content.contains("Thought for"))
+        .expect("应渲染组内思考摘要标题行");
+    // Assert
+    assert_eq!(
+        title_span.style.fg,
+        Some(theme::cur().inactive),
+        "组内思考标题行应取 MUTED（inactive）"
+    );
+}
+
 #[test]
 fn test_push_visual_capped_hint_remaining_override() {
     // issue #645：折叠态先截断后 items 只覆盖窗口，`… +N lines` 必须
