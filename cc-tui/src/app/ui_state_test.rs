@@ -2,7 +2,7 @@ use super::*;
 use std::time::Duration;
 
 fn make_ui() -> UiState {
-    UiState::new(TextArea::default(), "", false, false, false)
+    UiState::new(TextArea::default(), "", false, false, false, true)
 }
 
 #[test]

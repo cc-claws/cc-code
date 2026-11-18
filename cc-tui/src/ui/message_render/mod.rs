@@ -483,28 +483,31 @@ pub(crate) fn wrap_line_spans(line: Line<'static>, max_width: usize) -> Vec<Line
 
 /// 详细模式下渲染思考正文：markdown 解析 + DIM 压暗 + 折行，末尾补一行空行。
 ///
-/// 正文为空（模型只回了耗时、没有可读思考）时不能只画一个孤零零的 `⎿`，
+/// 前缀用 `∴ `（与活跃态摘要行同款符号）而非折角 `⎿`：详细模式下摘要行已被
+/// 正文取代，`∴` 起头让「这是思考」一眼可辨，续行悬挂缩进 2 格对齐正文。
+///
+/// 正文为空（模型只回了耗时、没有可读思考）时不能只画一个孤零零的 `∴`，
 /// 按 Bash 空输出 `(No output)` 的同款口径补 `(No content)`。
 fn push_thinking_body(lines: &mut Vec<Line<'static>>, text: &str, width: usize) {
     let prefix_style = Style::default().fg(theme::thinking_body());
     if text.trim().is_empty() {
         lines.push(Line::from(vec![
-            Span::styled(BranchPrefix::PREFIX, prefix_style),
+            Span::styled(BranchPrefix::THINKING_PREFIX, prefix_style),
             Span::styled("(No content)", prefix_style),
         ]));
         lines.push(Line::from(""));
         return;
     }
-    let content_width = BranchPrefix::content_width(width);
+    let content_width = BranchPrefix::thinking_content_width(width);
     let parsed = super::markdown::parse_markdown(text, content_width);
     for (i, line) in dim_markdown_lines(parsed).into_iter().enumerate() {
         // 折行：长段落按 content_width 切成多行，每行加分支前缀
         // 后不会超过 width，避免 Paragraph::wrap 二次折行使续行缺少缩进
         for (j, wline) in wrap_line_spans(line, content_width).into_iter().enumerate() {
             let prefix = if i == 0 && j == 0 {
-                BranchPrefix::PREFIX
+                BranchPrefix::THINKING_PREFIX
             } else {
-                BranchPrefix::HANG
+                BranchPrefix::THINKING_HANG
             };
             let mut spans = vec![Span::styled(prefix, prefix_style)];
             spans.extend(wline.spans);
@@ -1784,18 +1787,20 @@ pub fn render_view_model_with_links(
     detail_mode: bool,
     tick: u64,
 ) -> (Vec<Line<'static>>, Vec<cc_widgets::markdown::LinkHit>) {
-    render_view_model_with_flags(vm, index, width, detail_mode, false, true, tick)
+    render_view_model_with_flags(vm, index, width, detail_mode, false, true, true, tick)
 }
 
 /// 带完整渲染标志的入口。
 ///
-/// 三个标志语义不同，必须分开传：
+/// 四个标志语义不同，必须分开传：
 /// - `detail_mode`（Ctrl+O 详细模式）：控制 shell 输出行数、粘贴内容、reasoning、
 ///   工具折叠状态等**整页展开**行为；
 /// - `diff_visible`（配置 `diff_enabled`）：只控制**普通页面**是否内联显示 Write/Edit
 ///   的 diff 块，不影响上面任何一项（详细模式下 diff 恒可见）；
 /// - `hook_rows_visible`（配置 `hooks_ui`）：只控制 hook 结果行是否渲染，
-///   VM 里的 hook 数据始终保留（开关切回来历史行恢复）。
+///   VM 里的 hook 数据始终保留（开关切回来历史行恢复）；
+/// - `show_thinking`（配置 `thinking_ui`）：只控制思考**正文**是否渲染，
+///   详细模式下关闭则整块不渲染，普通模式下关闭则摘要行不再挂展开提示。
 pub fn render_view_model_with_flags(
     vm: &MessageViewModel,
     _index: Option<usize>,
@@ -1803,6 +1808,7 @@ pub fn render_view_model_with_flags(
     detail_mode: bool,
     diff_visible: bool,
     hook_rows_visible: bool,
+    show_thinking: bool,
     tick: u64,
 ) -> (Vec<Line<'static>>, Vec<cc_widgets::markdown::LinkHit>) {
     use unicode_segmentation::UnicodeSegmentation;
@@ -1998,8 +2004,17 @@ pub fn render_view_model_with_flags(
                         // 活跃态报本段已流式产出的思考字数（用户能看着数字涨），耗时只在冻结后
                         // 落成 `Thought for Ns`——同一段思考不出现两种单位。
                         let active = *block_active && !detail_mode;
-                        // Thought 标题：缩进 2 列对齐。活跃态没有可展开的正文，不给提示
-                        let hint = if detail_mode || active {
+                        // 详细模式下整行摘要被正文里的 `∴` 取代，不再渲染。
+                        // 关闭思考展示时，详细模式连正文都不出，整块跳过。
+                        if detail_mode {
+                            if show_thinking {
+                                push_thinking_body(&mut lines, text, width);
+                            }
+                            continue;
+                        }
+                        // Thought 标题：缩进 2 列对齐。活跃态没有可展开的正文，不给提示；
+                        // 关闭思考展示时展开也是空的，同样不挂提示。
+                        let hint = if active || !show_thinking {
                             ""
                         } else {
                             " (ctrl+o to expand)"
@@ -2051,13 +2066,8 @@ pub fn render_view_model_with_flags(
                         spans.push(Span::styled(format!("{ellipsis}{hint}"), dim_style));
                         lines.push(Line::from(spans));
                         // 普通模式：只留这一行摘要，**不渲染任何思考正文**。
-                        // 详细模式：显示完整 reasoning，走 markdown 解析 + DIM overlay
-                        if detail_mode {
-                            push_thinking_body(&mut lines, text, width);
-                        } else {
-                            // 无 tail 预览时，摘要行后加空行分隔
-                            lines.push(Line::from(""));
-                        }
+                        // 摘要行后加空行分隔。
+                        lines.push(Line::from(""));
                     }
                     ContentBlockView::ToolUse { .. } => {
                         // AI 消息不再显示工具调用行
@@ -2906,6 +2916,7 @@ pub fn render_view_model_with_flags(
                         detail_mode,
                         diff_visible,
                         hook_rows_visible,
+                        show_thinking,
                         tick,
                     )
                     .0;
@@ -3223,71 +3234,73 @@ pub fn render_view_model_with_flags(
             let mut lines = Vec::new();
 
             // 一等公民：组自带思考行（活跃 → Thinking，冻结 → Thought），不再依赖 AssistantBubble。
+            // 详细模式下摘要行被正文里的 `∴` 取代；关闭思考展示时整块跳过。
             if let Some(t) = thinking {
-                let active = t.active && !detail_mode;
-                // 普通模式只留摘要行：进行中报本段字数，结束后落成 `Thought for Ns`，不吐正文。
-                // 活跃态没有可展开的正文，不给展开提示
-                let hint = if detail_mode || active {
-                    ""
-                } else {
-                    " (ctrl+o to expand)"
-                };
-                // value 拆「加粗数值 + 常规单位」：`Ns` 整体加粗（紧凑时间写法），
-                // `N chars` 只数字加粗、单位词保持常规字重。
-                let (prefix, verb, value_num, value_unit) = if active {
-                    // 活跃态恒显 `∴ ` 前缀（不再做 500ms 显隐闪烁）
-                    (
-                        "∴ ",
-                        "Thinking for ",
-                        t.text.chars().count().to_string(),
-                        " chars",
-                    )
-                } else {
-                    // 冻结后不再带符号，只保留缩进（与活跃行对齐）
-                    (
-                        "  ",
-                        "Thought for ",
-                        match t.duration_ms {
-                            Some(ms) => format!("{}s", ms.div_ceil(1000).max(1)),
-                            None => t.text.chars().count().to_string(),
-                        },
-                        if t.duration_ms.is_some() {
-                            ""
-                        } else {
-                            " chars"
-                        },
-                    )
-                };
-                let actions = t
-                    .action_summary
-                    .as_deref()
-                    .map(|summary| {
-                        // 现在时只在真正活跃时用；留存窗口内已结束，计数回归过去时
-                        if active {
-                            format!(", {}", present_tense_summary(summary))
-                        } else {
-                            format!(", {summary}")
-                        }
-                    })
-                    .unwrap_or_default();
-                let ellipsis = if active { "…" } else { "" };
-                // 活跃与冻结同色：冻结瞬间不再有亮度跳变。
-                // 时长与动作计数里的数字单独加粗，与 AssistantBubble 思考行同款。
-                let dim = theme::thinking_body();
-                let dim_style = Style::default().fg(dim);
-                let hot_style = dim_style.add_modifier(Modifier::BOLD);
-                let mut spans = vec![
-                    Span::styled(format!("{prefix}{verb}"), dim_style),
-                    Span::styled(value_num, hot_style),
-                    Span::styled(value_unit.to_string(), dim_style),
-                ];
-                spans.extend(digit_accent_spans(&actions, dim_style, hot_style));
-                spans.push(Span::styled(format!("{ellipsis}{hint}"), dim_style));
-                lines.push(Line::from(spans));
-                // 详细模式：思考正文与 AssistantBubble 保持同一条渲染管线
-                // （markdown 解析 + DIM 压暗 + 折行），避免组内/组外观感不一致。
                 if detail_mode {
-                    push_thinking_body(&mut lines, &t.text, width);
+                    if show_thinking {
+                        push_thinking_body(&mut lines, &t.text, width);
+                    }
+                } else {
+                    let active = t.active;
+                    // 普通模式只留摘要行：进行中报本段字数，结束后落成 `Thought for Ns`，不吐正文。
+                    // 活跃态没有可展开的正文，不给提示；关闭思考展示时展开也是空的，同样不挂提示。
+                    let hint = if active || !show_thinking {
+                        ""
+                    } else {
+                        " (ctrl+o to expand)"
+                    };
+                    // value 拆「加粗数值 + 常规单位」：`Ns` 整体加粗（紧凑时间写法），
+                    // `N chars` 只数字加粗、单位词保持常规字重。
+                    let (prefix, verb, value_num, value_unit) = if active {
+                        // 活跃态恒显 `∴ ` 前缀（不再做 500ms 显隐闪烁）
+                        (
+                            "∴ ",
+                            "Thinking for ",
+                            t.text.chars().count().to_string(),
+                            " chars",
+                        )
+                    } else {
+                        // 冻结后不再带符号，只保留缩进（与活跃行对齐）
+                        (
+                            "  ",
+                            "Thought for ",
+                            match t.duration_ms {
+                                Some(ms) => format!("{}s", ms.div_ceil(1000).max(1)),
+                                None => t.text.chars().count().to_string(),
+                            },
+                            if t.duration_ms.is_some() {
+                                ""
+                            } else {
+                                " chars"
+                            },
+                        )
+                    };
+                    let actions = t
+                        .action_summary
+                        .as_deref()
+                        .map(|summary| {
+                            // 现在时只在真正活跃时用；留存窗口内已结束，计数回归过去时
+                            if active {
+                                format!(", {}", present_tense_summary(summary))
+                            } else {
+                                format!(", {summary}")
+                            }
+                        })
+                        .unwrap_or_default();
+                    let ellipsis = if active { "…" } else { "" };
+                    // 活跃与冻结同色：冻结瞬间不再有亮度跳变。
+                    // 时长与动作计数里的数字单独加粗，与 AssistantBubble 思考行同款。
+                    let dim = theme::thinking_body();
+                    let dim_style = Style::default().fg(dim);
+                    let hot_style = dim_style.add_modifier(Modifier::BOLD);
+                    let mut spans = vec![
+                        Span::styled(format!("{prefix}{verb}"), dim_style),
+                        Span::styled(value_num, hot_style),
+                        Span::styled(value_unit.to_string(), dim_style),
+                    ];
+                    spans.extend(digit_accent_spans(&actions, dim_style, hot_style));
+                    spans.push(Span::styled(format!("{ellipsis}{hint}"), dim_style));
+                    lines.push(Line::from(spans));
                 }
             }
 

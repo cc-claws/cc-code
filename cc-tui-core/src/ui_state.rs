@@ -74,6 +74,8 @@ pub struct UiStateCore {
     pub diff_visible: bool,
     /// hook 执行结果行是否可见（数据始终保留，只控制渲染）。
     pub hook_rows_visible: bool,
+    /// 思考正文是否可见（数据始终保留，只控制渲染）。
+    pub show_thinking: bool,
     /// Shell 命令输出详细模式（Ctrl+O 切换）。
     pub detail_mode: bool,
     /// 输入框中被占位符折叠展示的外部多行粘贴内容。
@@ -94,6 +96,7 @@ impl UiStateCore {
         detail_enabled: bool,
         diff_enabled: bool,
         hook_rows_visible: bool,
+        show_thinking: bool,
     ) -> Self {
         Self {
             loading: false,
@@ -131,6 +134,7 @@ impl UiStateCore {
             steer_foreground_grace: None,
             diff_visible: diff_enabled,
             hook_rows_visible,
+            show_thinking,
             detail_mode: detail_enabled,
             pasted_text_blocks: Vec::new(),
             next_pasted_text_id: 1,

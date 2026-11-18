@@ -310,6 +310,10 @@ impl App {
             .as_ref()
             .map(|c| c.config.hooks_ui_enabled())
             .unwrap_or(true);
+        let show_thinking = peri_config
+            .as_ref()
+            .map(|c| c.config.thinking_ui_enabled())
+            .unwrap_or(true);
         let detail_enabled = false;
 
         let initial_session = ChatSession::new(
@@ -320,6 +324,7 @@ impl App {
             detail_enabled,
             diff_enabled,
             hook_rows_visible,
+            show_thinking,
             peri_config.as_ref().map(|config| &config.config),
         );
 
@@ -444,6 +449,7 @@ impl App {
         let detail_mode = self.session_mgr.current_mut().ui.detail_mode;
         let diff_visible = self.session_mgr.current_mut().ui.diff_visible;
         let hook_rows_visible = self.session_mgr.current_mut().ui.hook_rows_visible;
+        let show_thinking = self.session_mgr.current_mut().ui.show_thinking;
         let session = ChatSession::new(
             self.services.cwd.clone(),
             command_registry,
@@ -452,6 +458,7 @@ impl App {
             detail_mode,
             diff_visible,
             hook_rows_visible,
+            show_thinking,
             self.services
                 .peri_config
                 .as_ref()

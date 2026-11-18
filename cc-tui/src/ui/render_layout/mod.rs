@@ -69,6 +69,7 @@ pub(super) struct LayoutMode {
     pub detail: bool,
     pub diff: bool,
     pub hook_rows: bool,
+    pub show_thinking: bool,
     pub theme: u64,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -408,6 +409,7 @@ impl VirtualRenderer {
             mode.width as usize,
             mode.diff,
             mode.hook_rows,
+            mode.show_thinking,
             mode.detail,
         );
         let mut lines = Vec::new();

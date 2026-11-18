@@ -234,6 +234,7 @@ impl ChatSession {
         detail_enabled: bool,
         diff_enabled: bool,
         hook_rows_visible: bool,
+        show_thinking: bool,
         render_config: Option<&crate::config::AppConfig>,
     ) -> Self {
         let (render_tx, render_cache, render_notify) =
@@ -267,6 +268,11 @@ impl ChatSession {
             let _ =
                 render_tx.try_send(crate::ui::render_thread::RenderEvent::ToggleHookRows(false));
         }
+        // 思考正文开关同款：渲染线程出生即为 true，只有配置显式关闭时才补发事件。
+        if !show_thinking {
+            let _ =
+                render_tx.try_send(crate::ui::render_thread::RenderEvent::ToggleThinking(false));
+        }
         Self {
             ui: UiState::new(
                 super::build_textarea(false),
@@ -274,6 +280,7 @@ impl ChatSession {
                 detail_enabled,
                 diff_enabled,
                 hook_rows_visible,
+                show_thinking,
             ),
             messages,
             session_panels: super::panel_manager::PanelManager::new(),

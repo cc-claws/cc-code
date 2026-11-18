@@ -411,8 +411,15 @@ async fn test_resize_coalesce_under_pressure() {
 fn full_wrap(vms: &[MessageViewModel], width: u16) -> (usize, Vec<super::WrappedLineInfo>) {
     let mut all_lines: Vec<Line<'static>> = Vec::new();
     for vm in vms {
-        let (mut lines, _) =
-            super::RenderTask::render_one(&mut vm.clone(), 0, width as usize, false, true, false);
+        let (mut lines, _) = super::RenderTask::render_one(
+            &mut vm.clone(),
+            0,
+            width as usize,
+            false,
+            true,
+            true,
+            false,
+        );
         all_lines.append(&mut lines);
     }
     // dedup 连续空行
@@ -898,6 +905,7 @@ fn test_refresh_running_tool_indicator_updates_cached_header() {
         show_tool_messages: false,
         diff_visible: false,
         hook_rows_visible: true,
+        show_thinking: true,
         detail_mode: false,
         theme_fingerprint: crate::ui::theme::fingerprint(),
         alt_lines: Vec::new(),
@@ -965,6 +973,7 @@ fn test_refresh_running_bash_toolblock_adds_control_b_hint_after_threshold() {
         show_tool_messages: false,
         diff_visible: false,
         hook_rows_visible: true,
+        show_thinking: true,
         detail_mode: false,
         theme_fingerprint: crate::ui::theme::fingerprint(),
         alt_lines: Vec::new(),
@@ -1047,6 +1056,7 @@ fn detail_mode_long_cmd_running_task(
         show_tool_messages: false,
         diff_visible: false,
         hook_rows_visible: true,
+        show_thinking: true,
         detail_mode: true,
         theme_fingerprint: crate::ui::theme::fingerprint(),
         alt_lines: Vec::new(),
@@ -1485,6 +1495,7 @@ fn exec_task(detail_mode: bool) -> RenderTask {
         show_tool_messages: false,
         diff_visible: false,
         hook_rows_visible: true,
+        show_thinking: true,
         detail_mode,
         alt_lines: Vec::new(),
         alt_links: Vec::new(),
@@ -1973,7 +1984,7 @@ fn test_bare_url_links_only_for_tool_and_shell_output() {
         *content = format!("Build fail 2m30s {url}");
     }
     tool.recompute_hash();
-    let (_, links) = RenderTask::render_one(&mut tool.clone(), 0, 100, false, true, false);
+    let (_, links) = RenderTask::render_one(&mut tool.clone(), 0, 100, false, true, true, false);
     assert_eq!(links.len(), 1, "工具结果里的裸 URL 应登记命中区");
     assert_eq!(links[0].url, url);
 
@@ -1992,13 +2003,14 @@ fn test_bare_url_links_only_for_tool_and_shell_output() {
         moved_to_background: false,
     };
     shell.recompute_hash();
-    let (_, links) = RenderTask::render_one(&mut shell.clone(), 0, 100, false, true, false);
+    let (_, links) = RenderTask::render_one(&mut shell.clone(), 0, 100, false, true, true, false);
     assert_eq!(links.len(), 1, "`!` 输出里的裸 URL 应登记命中区");
 
     // 正文（含代码块）：不得登记。
     let mut assistant = MessageViewModel::assistant();
     assistant.append_chunk(&format!("看这个 {url}\n\n```\ncurl {url}\n```\n"));
-    let (_, links) = RenderTask::render_one(&mut assistant.clone(), 0, 100, false, true, false);
+    let (_, links) =
+        RenderTask::render_one(&mut assistant.clone(), 0, 100, false, true, true, false);
     assert!(
         links.is_empty(),
         "正文与代码块里的裸 URL 不得变成链接，否则就是范围越界"
@@ -2006,7 +2018,7 @@ fn test_bare_url_links_only_for_tool_and_shell_output() {
 
     // 用户输入：不得登记。
     let user = MessageViewModel::user(format!("跑一下 echo {url}"));
-    let (_, links) = RenderTask::render_one(&mut user.clone(), 0, 100, false, true, false);
+    let (_, links) = RenderTask::render_one(&mut user.clone(), 0, 100, false, true, true, false);
     assert!(links.is_empty(), "用户输入不得变成链接");
 }
 
@@ -2025,7 +2037,7 @@ fn test_streaming_bubble_render_fills_rendered() {
     let mut vm = pipeline.build_streaming_bubble();
 
     // render_one 是关联函数，不依赖 RenderTask 实例
-    let (lines, _links) = RenderTask::render_one(&mut vm, 1, 80, false, true, false);
+    let (lines, _links) = RenderTask::render_one(&mut vm, 1, 80, false, true, true, false);
     let plain = lines
         .iter()
         .map(|l| {
@@ -2074,7 +2086,7 @@ fn test_image_attachment_rows_keep_layout_links_and_copy_coordinates_aligned() {
     .into_iter()
     .collect();
     message.set_image_paths(&paths);
-    let (lines, links) = RenderTask::render_one(&mut message, 0, 80, false, true, false);
+    let (lines, links) = RenderTask::render_one(&mut message, 0, 80, false, true, true, false);
     let (total, wrap) = RenderTask::build_message_wrap_map(&lines, 80, true);
     assert_eq!(total, 4, "正文、两张附件和消息分隔行应全部计入高度");
     assert_eq!(wrap[1].copy_prefix_graphemes, 5);
@@ -2169,6 +2181,7 @@ fn test_rebuild_produces_tool_path_links_in_cache() {
         show_tool_messages: false,
         diff_visible: false,
         hook_rows_visible: true,
+        show_thinking: true,
         detail_mode: false,
         theme_fingerprint: crate::ui::theme::fingerprint(),
         alt_lines: Vec::new(),
