@@ -238,6 +238,44 @@ pub fn cursor_style() -> ratatui::style::Style {
     ratatui::style::Style::default().fg(cur().thinking)
 }
 
+/// 思考正文（reasoning）的文本色：`inactive` 向 `subtle` 走 0.7。
+///
+/// 默认主题 `inactive` #999999 与 `subtle` #505050 插值后精确落在 #666666
+/// （RGB 102/102/102），比同屏的 MUTED 灰低一档，明确处于正文之下的视觉层级。
+/// 取 0.7 而非 0.5：思考块通常成段出现，只降半档仍偏亮，0.7 才拉开与 hook 行、
+/// 排队预览等其它 MUTED 元素的距离。
+///
+/// 派生而非新增调色板字段：八套主题各自跟随自己的 `inactive` / `subtle`
+/// （深色主题下调，浅色主题下变淡，方向都由 subtle 的相对亮度决定），
+/// 因此不触发 `palettes_parity_test` 的字段锁定与 default 保真锁定。
+pub fn thinking_body() -> ratatui::style::Color {
+    let p = cur();
+    cc_widgets::spinner::animation::blend_color(p.inactive, p.subtle, 0.7)
+}
+
+/// 工具名相对正文压低的每通道值：`#FFFFFF` → `#F2F2F2`。
+const TOOL_NAME_DIM: u8 = 13;
+
+/// 工具名前景色：比正文（TEXT）低一档的亮白，默认主题下为 `#F2F2F2`。
+///
+/// 工具名是工具行里唯一被强调的固定字段（状态语义由 ● 指示器承载），但纯白
+/// `#FFFFFF` 在深色底上长时间直视偏刺眼；降到 242 后仍显著亮于同行参数摘要
+/// （TEXT_SOFT `#D0D0D0`）与思考正文（MUTED `#999999`），层级关系不变。
+///
+/// 派生而非新增调色板字段：八套主题自动跟随各自的 `text`（浅色主题的黑色正文
+/// 经饱和减法仍为黑，ANSI 主题的命名色无法插值原样返回），因此不触发
+/// `palettes_parity_test` 的字段锁定与 default 保真锁定。
+pub fn tool_name() -> ratatui::style::Color {
+    match cur().text {
+        ratatui::style::Color::Rgb(r, g, b) => ratatui::style::Color::Rgb(
+            r.saturating_sub(TOOL_NAME_DIM),
+            g.saturating_sub(TOOL_NAME_DIM),
+            b.saturating_sub(TOOL_NAME_DIM),
+        ),
+        named => named,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
