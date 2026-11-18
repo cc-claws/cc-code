@@ -258,14 +258,13 @@ pub fn detect_blocked_sleep_pattern(command: &str) -> Option<String> {
 
 /// 命中阻塞 sleep 时返回给模型的拦截文案。
 ///
-/// 措辞对齐 peri 现有风格：先说明被拦的具体模式，再给出三条可执行的替代路径，
+/// 措辞对齐 peri 现有风格：先说明被拦的具体模式，再给出两条可执行的替代路径，
 /// 并显式堵住「拆成多个短 sleep 绕过」的做法（CC 文案同样强调这一点）。
 fn blocked_sleep_message(pattern: &str) -> String {
     format!(
         "Blocked: {pattern}. To wait for a condition, use an until-loop \
          (e.g. `until <check>; do sleep 2; done`) or run the blocking command with \
          `run_in_background: true` and wait for its completion notification. \
-         To wait without holding a shell, use the Sleep tool. \
          Do not chain shorter sleeps to work around this block. If you genuinely \
          need a delay (rate limiting, deliberate pacing), keep it under 2 seconds."
     )
@@ -560,9 +559,6 @@ impl TerminalMiddleware {
     }
 
     /// 构造 BashTool。executor 为 None 时使用默认 InlineShellExecutor。
-    ///
-    /// 同时提供 Monitor（流式后台监控）与 Sleep（不占 shell 的等待）两个配套工具：
-    /// 它们是 Bash 阻塞 sleep 拦截文案里指向的替代路径，缺一不可。
     pub fn build_tools(&self, cwd: &str) -> Vec<Box<dyn BaseTool>> {
         let executor = self
             .executor
@@ -573,20 +569,11 @@ impl TerminalMiddleware {
         if let Some(cwd) = &self.session_cwd {
             tool = tool.with_session_cwd(Arc::clone(cwd));
         }
-        // Monitor 与 Bash 共享同一 executor 和会话 cwd 句柄，保证后台通道与目录一致。
-        let mut monitor = crate::tools::monitor::MonitorTool::with_executor(cwd, executor);
-        if let Some(cwd) = &self.session_cwd {
-            monitor = monitor.with_session_cwd(Arc::clone(cwd));
-        }
-        vec![
-            Box::new(tool),
-            Box::new(monitor),
-            Box::new(crate::tools::sleep::SleepTool::new()),
-        ]
+        vec![Box::new(tool)]
     }
 
     pub fn tool_names() -> Vec<&'static str> {
-        vec!["Bash", "Monitor", "Sleep"]
+        vec!["Bash"]
     }
 }
 

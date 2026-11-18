@@ -37,7 +37,7 @@
 - **输出处理：** 输出过滤、截断落盘、Todo 解析
 - **Grep / Glob 的 `pattern` 语义歧义与零匹配兜底（v0.6.265，#986, #987）:** 向 `Grep` 传文件路径或 glob 形态的 `pattern`（如 `src/*.rs`）对 schema 完全合法，会被当作正则执行（`.` 通配、`*` 作量词）而合法地匹配不到任何内容，静默返回 `No files found`；既有的错配诊断、自动改道、失败熔断全挂在参数校验失败路径上，无一触发，易把零匹配误判为「该路径下确实没有这些文件」。现两侧 `pattern` 参数级描述写明各自接收何种输入并给出就地反例，零匹配且 `pattern` 含 glob 元字符时复用 Glob 的 `collect_files` 反查命中数、命中则追加 `💡 Did you mean to use 'Glob'?` 提示。三重收窄保证真阴性不出噪音：仅零匹配介入、仅含 `*` / `?` / `[` 才试探、仅 glob 确有命中才提示
 - **RTK 重写 `exit 3` 被采纳（v0.6.268，#999, #1000）:** Bash 工具执行前调 `rtk rewrite "<cmd>"` 获取 RTK 输出压缩，此前只接受 `exit code 0`，而 RTK 文档化的 `3`（打印了重写命令、但 allow 未全覆盖，含「未配置任何规则」的默认情形）被当作失败丢弃，导致 `git status` / `log` / `diff` 等常见命令的压缩从未生效。现新增 `rtk_rewrite_succeeded()` 认可 `0` / `3`、拒绝 `1` / `2` 及其余非文档化码；审批语义不变（调用点位于审批之后，HITL 门控仍用零子进程的纯字符串预测 `predict_rtk_rewrite`）
-- **Monitor / Sleep 等待工具（v0.6.285，#1070）:** 新增两个核心等待能力，替代用 `sleep` 干等的旧习惯。`Monitor` 在后台起条件等待任务并返回 `taskId` 与输出文件，主线程可继续做别的事；`Sleep` 按 `duration_seconds` 单纯等待，不占用 shell 进程且可被 Ctrl+C 打断。前台 `Bash` / `PowerShell` 调用若以 `sleep N`（N ≥ 2 秒、其后不接管道）开头则直接拒绝执行并返回改用提示——裸 `sleep` 会占住整个 shell，期间既无法响应中断也看不到任何输出；不足 2 秒的限流写法、`run_in_background` 与 `Monitor` 场景不受此限
+- **移除 Monitor / Sleep 工具，保留阻塞 sleep 拦截（#1089）:** v0.6.285 引入的 `Monitor` / `Sleep` 两个核心等待工具实际使用价值低且与既有能力重叠，现整体删除（源文件与单测一并移除，`TerminalMiddleware::build_tools` 只返回 `Bash`）。前台 `Bash` / `PowerShell` 调用若以 `sleep N`（N ≥ 2 秒、其后不接管道）开头仍直接拒绝执行——裸 `sleep` 会占住整个 shell，期间既无法响应中断也看不到任何输出；拦截文案收窄为两条替代路径：until-loop 与 `run_in_background: true` 后台化。不足 2 秒的限流写法不受此限
 - **边界：** 仅依赖 `cc-agent`；复合工具（Skill/AskUser/SubAgent/ToolSearch）依赖上层状态，仍保留在 cc-middlewares
 
 ## 输出压缩（cc-compress）
@@ -213,4 +213,4 @@
 - **终端色彩能力探测与输出降级（v0.6.223，#601）:** 自动根据 `NO_COLOR` 与终端环境变量四档降级色深输出
 
 ---
-*最后更新: 2026-11-17 — 补思考正文配色回退、用户气泡翻白时机与块边界空行条目（v0.6.289，#1082, #1084）；此前：2026-11-17 — 补 PermissionRequest 裁决解析与 HTTP hook 熔断条目（v0.6.288，#1078）；此前：2026-11-17 — 补工具名/思考正文/用户消息配色条目（v0.6.287，#1074）；此前：2026-11-17 — 补 Monitor / Sleep 等待工具条目（v0.6.285，#1070）；此前：2026-11-12 — 补 #772 草稿基线、输入封顶与光标规则；此前：2026-11-11 — 补 cc-compress 分组与独立基础库分组（cc-widgets / cc-lsp / langfuse-client），补 v0.6.251~v0.6.270 功能条目，修正只读 Bash 词法判定的归属描述；此前：2026-11-04 — 补充 cc-tools / cc-terminal / cc-tui-core 拆分后的 crate 分组；2026-11-03 — LLM baseUrl 自动容错清洗与友好提示（v0.6.227，#856, #857）*
+*最后更新: 2026-11-18 — 移除 Monitor / Sleep 工具并收窄 sleep 拦截文案（#1089）；此前：2026-11-17 — 补思考正文配色回退、用户气泡翻白时机与块边界空行条目（v0.6.289，#1082, #1084）；此前：2026-11-17 — 补 PermissionRequest 裁决解析与 HTTP hook 熔断条目（v0.6.288，#1078）；此前：2026-11-17 — 补工具名/思考正文/用户消息配色条目（v0.6.287，#1074）；此前：2026-11-17 — 补 Monitor / Sleep 等待工具条目（v0.6.285，#1070）；此前：2026-11-12 — 补 #772 草稿基线、输入封顶与光标规则；此前：2026-11-11 — 补 cc-compress 分组与独立基础库分组（cc-widgets / cc-lsp / langfuse-client），补 v0.6.251~v0.6.270 功能条目，修正只读 Bash 词法判定的归属描述；此前：2026-11-04 — 补充 cc-tools / cc-terminal / cc-tui-core 拆分后的 crate 分组；2026-11-03 — LLM baseUrl 自动容错清洗与友好提示（v0.6.227，#856, #857）*

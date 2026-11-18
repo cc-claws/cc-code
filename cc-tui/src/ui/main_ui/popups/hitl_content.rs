@@ -519,6 +519,8 @@ fn input_rows(
                     width.saturating_sub(1).max(20),
                     &theme::widgets_theme(),
                     usize::MAX,
+                    // 此前不截断，提示行不会出现，沿用默认暗色即可。
+                    None,
                 )),
             }
         }

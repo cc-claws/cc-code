@@ -9,15 +9,7 @@ pub mod worktree;
 
 pub mod tools {
     pub mod filesystem;
-    pub mod monitor;
-    #[cfg(test)]
-    #[path = "monitor_test.rs"]
-    mod monitor_test;
     pub mod output_filter;
     pub mod output_persist;
-    pub mod sleep;
-    #[cfg(test)]
-    #[path = "sleep_test.rs"]
-    mod sleep_test;
     pub mod todo;
 }

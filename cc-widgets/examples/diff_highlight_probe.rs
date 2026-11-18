@@ -74,7 +74,7 @@ fn time_diff(input: &DiffInput) -> Duration {
 
 fn time_new_file(path: &str, content: &str, max_lines: usize) -> Duration {
     let t = Instant::now();
-    let lines = render_new_file_code(path, content, WIDTH, &DarkTheme, max_lines);
+    let lines = render_new_file_code(path, content, WIDTH, &DarkTheme, max_lines, None);
     black_box(lines.len());
     t.elapsed()
 }
