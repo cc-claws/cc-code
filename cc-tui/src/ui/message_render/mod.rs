@@ -2063,8 +2063,10 @@ pub fn render_view_model_with_flags(
                         let ellipsis = if active { "…" } else { "" };
                         // 活跃与冻结同色：冻结瞬间不再有亮度跳变。
                         // 活跃态靠行首 `∴ ` 与末尾省略号区分，不靠颜色。
+                        // 标题行取 MUTED（`inactive`，默认主题 #999999），与状态栏提示行同色；
+                        // 思考正文仍用更暗的 `thinking_body()`，标题比正文亮一档才成为可扫读的行首。
                         // 时长与动作计数里的数字单独加粗，扫一眼能抓到关键数值。
-                        let dim = theme::thinking_body();
+                        let dim = theme::cur().inactive;
                         let dim_style = Style::default().fg(dim);
                         let hot_style = dim_style.add_modifier(Modifier::BOLD);
                         let mut spans = vec![
@@ -3299,8 +3301,10 @@ pub fn render_view_model_with_flags(
                         .unwrap_or_default();
                     let ellipsis = if active { "…" } else { "" };
                     // 活跃与冻结同色：冻结瞬间不再有亮度跳变。
-                    // 时长与动作计数里的数字单独加粗，与 AssistantBubble 思考行同款。
-                    let dim = theme::thinking_body();
+                    // 标题行取 MUTED（`inactive`），与 AssistantBubble 思考行、状态栏提示行同款；
+                    // 思考正文仍用更暗的 `thinking_body()`。
+                    // 时长与动作计数里的数字单独加粗。
+                    let dim = theme::cur().inactive;
                     let dim_style = Style::default().fg(dim);
                     let hot_style = dim_style.add_modifier(Modifier::BOLD);
                     let mut spans = vec![
