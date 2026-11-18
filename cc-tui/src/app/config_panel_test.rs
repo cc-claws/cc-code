@@ -33,6 +33,8 @@ fn test_config_panel_cursor_navigation() {
     panel.cursor_down();
     assert_eq!(panel.cursor, ROW_HOOKS_DISPLAY);
     panel.cursor_down();
+    assert_eq!(panel.cursor, ROW_THINKING_DISPLAY);
+    panel.cursor_down();
     assert_eq!(panel.cursor, ROW_DETAIL_RENDER_STRATEGY);
     panel.cursor_down();
     assert_eq!(panel.cursor, ROW_STREAMING);
@@ -56,6 +58,8 @@ fn test_config_panel_cursor_navigation() {
     assert_eq!(panel.cursor, ROW_STREAMING);
     panel.cursor_up();
     assert_eq!(panel.cursor, ROW_DETAIL_RENDER_STRATEGY);
+    panel.cursor_up();
+    assert_eq!(panel.cursor, ROW_THINKING_DISPLAY);
     panel.cursor_up();
     assert_eq!(panel.cursor, ROW_HOOKS_DISPLAY);
     panel.cursor_up();
@@ -539,11 +543,13 @@ fn test_config_panel_cycle_detail_render_strategy() {
 fn test_config_panel_detail_render_strategy_screen_rows() {
     assert_eq!(screen_to_logical_row(11), Some(ROW_HOOKS_DISPLAY));
     assert_eq!(screen_to_logical_row(12), Some(ROW_HOOKS_DISPLAY));
-    assert_eq!(screen_to_logical_row(13), Some(ROW_DETAIL_RENDER_STRATEGY));
-    assert_eq!(screen_to_logical_row(14), Some(ROW_DETAIL_RENDER_STRATEGY));
-    assert_eq!(screen_to_logical_row(15), Some(ROW_STREAMING));
-    assert_eq!(screen_to_logical_row(24), Some(ROW_TONE));
-    assert_eq!(screen_to_logical_row(25), None);
+    assert_eq!(screen_to_logical_row(13), Some(ROW_THINKING_DISPLAY));
+    assert_eq!(screen_to_logical_row(14), Some(ROW_THINKING_DISPLAY));
+    assert_eq!(screen_to_logical_row(15), Some(ROW_DETAIL_RENDER_STRATEGY));
+    assert_eq!(screen_to_logical_row(16), Some(ROW_DETAIL_RENDER_STRATEGY));
+    assert_eq!(screen_to_logical_row(17), Some(ROW_STREAMING));
+    assert_eq!(screen_to_logical_row(26), Some(ROW_TONE));
+    assert_eq!(screen_to_logical_row(27), None);
 }
 
 #[test]
