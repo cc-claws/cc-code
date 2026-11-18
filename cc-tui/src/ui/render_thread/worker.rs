@@ -67,6 +67,7 @@ pub(super) struct RenderWorker {
     latched: bool,
     virtual_active: bool,
     sources: Vec<Arc<MessageViewModel>>,
+    has_live_sources: bool,
     resolved_scroll: Option<ScrollAnchor>,
     consumed_scroll_revision: u64,
 }
@@ -81,6 +82,7 @@ impl RenderWorker {
             latched: false,
             virtual_active: false,
             sources: Vec::new(),
+            has_live_sources: false,
             resolved_scroll: None,
             consumed_scroll_revision: 0,
         }
@@ -350,28 +352,28 @@ impl RenderWorker {
                 anchor: Some(position),
                 scroll_revision: revision,
             };
-            let mut measured = self
+            let (mut total_lines, mut measured_anchor) = self
                 .layout
-                .render(&mut self.sources, mode, target, tick)
+                .measure_viewport(&mut self.sources, mode, target, tick)
                 .await;
             // 内容不足一屏时，向下滚也不能把欢迎卡从实际 max_scroll 之外藏掉。
             let visible_floor = full_height
-                .saturating_sub(measured.total_lines.saturating_add(trailing_rows))
+                .saturating_sub(total_lines.saturating_add(trailing_rows))
                 .min(prefix_rows);
             if prefix_visible < visible_floor {
                 prefix_visible = visible_floor;
                 target.height = full_height.saturating_sub(prefix_visible).max(1);
-                measured = self
+                (total_lines, measured_anchor) = self
                     .layout
-                    .render(&mut self.sources, mode, target, tick)
+                    .measure_viewport(&mut self.sources, mode, target, tick)
                     .await;
             }
-            if let Some(resolved) = measured.scroll_anchor {
+            if let Some(resolved) = measured_anchor {
                 position = resolved.position;
                 target.top = resolved.visual_row;
             }
             let max_scroll = prefix_rows
-                .saturating_add(measured.total_lines)
+                .saturating_add(total_lines)
                 .saturating_add(trailing_rows)
                 .saturating_sub(full_height);
             let offset = if prefix_visible > 0 {
@@ -438,6 +440,10 @@ impl RenderWorker {
                         .map_or_else(|| Arc::new(vm), Arc::clone)
                 })
                 .collect();
+            self.has_live_sources = self
+                .sources
+                .iter()
+                .any(|vm| crate::ui::render_layout::estimator::is_live(vm));
             self.task.last_messages = Vec::new();
             self.virtual_active = true;
             self.publish_virtual().await;
@@ -446,6 +452,7 @@ impl RenderWorker {
                 self.layout.release_products();
             }
             self.sources = Vec::new();
+            self.has_live_sources = false;
             self.virtual_active = false;
             self.task.rebuild_safe_with_anchor(
                 messages,
@@ -640,6 +647,7 @@ impl RenderWorker {
                 self.layout.clear();
                 self.resolved_scroll = None;
                 self.sources = Vec::new();
+                self.has_live_sources = false;
                 self.latched = false;
                 self.virtual_active = false;
                 self.published_viewport = None;
@@ -697,9 +705,7 @@ impl RenderWorker {
         let mut tick_deadline: Option<tokio::time::Instant> = None;
         loop {
             let live = if self.virtual_active {
-                self.sources
-                    .iter()
-                    .any(|vm| crate::ui::render_layout::estimator::is_live(vm))
+                self.has_live_sources
             } else {
                 self.task.has_running_tool_blocks()
             };

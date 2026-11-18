@@ -242,11 +242,14 @@ async fn test_worker_auto_promotes_anchored_rebuild_without_rendering_full_histo
             layout.diagnostics.estimated_segments >= 29,
             "历史应保持未物化"
         );
-        assert!(output.lines.len() < 80, "共享输出不得包含全量历史成品");
+        assert!(output.lines.len() <= 24, "共享输出应只发布锚点附近的行");
         assert!(output
             .lines
             .iter()
-            .any(|line| line.to_string().contains("tail line 39")));
+            .any(|line| line.to_string().contains("tail line 0")));
+        let anchor = output.scroll_anchor.expect("锚点应随窗口发布");
+        assert_eq!(anchor.position.message_index, 30);
+        assert_eq!(anchor.position.logical_line, 0);
     }
     let mut smaller = vec![MessageViewModel::system_with_detail(
         "history 0".to_owned(),

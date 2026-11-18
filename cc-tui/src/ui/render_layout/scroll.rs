@@ -1,7 +1,7 @@
 use super::{MessageViewModel, SegmentPayload, ViewportAnchor, VirtualRenderer};
 use std::sync::Arc;
 
-fn anchor_at_row(index: usize, payload: &SegmentPayload, row: usize) -> ViewportAnchor {
+pub(super) fn anchor_at_row(index: usize, payload: &SegmentPayload, row: usize) -> ViewportAnchor {
     let line = payload
         .wrap
         .partition_point(|line| line.visual_row_end <= row)

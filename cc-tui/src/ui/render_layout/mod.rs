@@ -4,8 +4,9 @@ use super::{
     render_thread::{RenderCache, RenderTask, ScrollAnchor, WrappedLineInfo},
 };
 use cc_widgets::markdown::LinkHit;
+use lru::LruCache;
 use ratatui::text::Line;
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 pub(super) mod estimator;
 mod interaction;
@@ -119,9 +120,10 @@ struct SegmentPayload {
     total: usize,
     bytes: usize,
 }
-struct Resident {
-    payload: Arc<SegmentPayload>,
-    used_at: u64,
+struct ResolvedWindow {
+    first: usize,
+    top: usize,
+    segments: Vec<Arc<SegmentPayload>>,
 }
 
 /// 点更新/前缀和/视觉位置定位均为 O(log N)，避免滚动扫描历史渲染行。
@@ -185,9 +187,9 @@ impl HeightIndex {
 pub(super) struct VirtualRenderer {
     metadata: Vec<MessageMeta>,
     heights: HeightIndex,
-    residents: HashMap<PayloadKey, Resident>,
+    residents: LruCache<PayloadKey, Arc<SegmentPayload>>,
     bytes: usize,
-    clock: u64,
+    measured_segments: usize,
     pub history_epoch: u64,
     mode: Option<LayoutMode>,
     tail: usize,
@@ -202,9 +204,9 @@ impl Default for VirtualRenderer {
         Self {
             metadata: Vec::new(),
             heights: HeightIndex::default(),
-            residents: HashMap::new(),
+            residents: LruCache::unbounded(),
             bytes: 0,
-            clock: 0,
+            measured_segments: 0,
             history_epoch: 1,
             mode: None,
             tail: 0,
@@ -278,13 +280,28 @@ impl VirtualRenderer {
                 }
             }
         }
-        self.residents.retain(|key, _| {
-            self.metadata
-                .get(key.index)
-                .is_some_and(|m| m.version == key.version)
-                && key.tail == (key.index >= self.tail)
-        });
-        self.bytes = self.residents.values().map(|r| r.payload.bytes).sum();
+        self.measured_segments = self
+            .metadata
+            .iter()
+            .filter(|meta| meta.measured.is_some())
+            .count();
+        let invalid: Vec<_> = self
+            .residents
+            .iter()
+            .filter_map(|(key, _)| {
+                (self
+                    .metadata
+                    .get(key.index)
+                    .is_none_or(|m| m.version != key.version)
+                    || key.tail != (key.index >= self.tail))
+                    .then_some(*key)
+            })
+            .collect();
+        for key in invalid {
+            if let Some(payload) = self.residents.pop(&key) {
+                self.bytes -= payload.bytes;
+            }
+        }
         self.version_snapshot = Arc::new(self.metadata.iter().map(|m| m.version).collect());
         if let Some(mode) = self.mode {
             self.reset_heights(mode);
@@ -326,6 +343,7 @@ impl VirtualRenderer {
         for meta in &mut self.metadata {
             meta.measured = None;
         }
+        self.measured_segments = 0;
         self.mode = Some(mode);
         self.reset_heights(mode);
     }
@@ -351,16 +369,9 @@ impl VirtualRenderer {
         messages: &mut [Arc<MessageViewModel>],
         tick: u64,
     ) -> Arc<SegmentPayload> {
-        self.clock = self.clock.wrapping_add(1);
         let key = self.key(index, messages, tick);
-        if let Some(resident) = self.residents.get_mut(&key) {
-            resident.used_at = self.clock;
-            let payload = Arc::clone(&resident.payload);
-            self.metadata[index].measured = Some(payload.total);
-            if self.heights.values[index] != payload.total {
-                self.offsets_dirty = true;
-            }
-            self.heights.set(index, payload.total);
+        if let Some(payload) = self.residents.get(&key).cloned() {
+            self.record_height(index, payload.total);
             return payload;
         }
         let mode = self.mode.expect("布局模式必须先初始化");
@@ -382,20 +393,32 @@ impl VirtualRenderer {
         }
         let payload = Arc::new(Self::render_payload(vm, index, mode, self.tail));
         self.largest_segment = self.largest_segment.max(payload.bytes);
-        self.metadata[index].measured = Some(payload.total);
-        if self.heights.values[index] != payload.total {
-            self.offsets_dirty = true;
+        self.record_height(index, payload.total);
+        self.bytes += payload.bytes;
+        self.residents.put(key, Arc::clone(&payload));
+        // 逐段淘汰，快速跨越历史时也遵守预算。超大段仅保留最新一份，避免同一窗口反复解析。
+        while self.bytes > DETAIL_CACHE_BUDGET && self.residents.len() > 1 {
+            let (_, evicted) = self.residents.pop_lru().expect("缓存至少有两个分段");
+            self.bytes -= evicted.bytes;
+            self.evictions += 1;
         }
-        self.heights.set(index, payload.total);
-        self.bytes = self.bytes.saturating_add(payload.bytes);
-        self.residents.insert(
-            key,
-            Resident {
-                payload: Arc::clone(&payload),
-                used_at: self.clock,
-            },
-        );
         payload
+    }
+
+    fn record_height(&mut self, index: usize, height: usize) {
+        if self.metadata[index].measured.replace(height).is_none() {
+            self.measured_segments += 1;
+        }
+        if self.heights.values[index] != height {
+            self.offsets_dirty = true;
+            self.heights.set(index, height);
+        }
+    }
+
+    fn clear_measurement(&mut self, index: usize) {
+        if self.metadata[index].measured.take().is_some() {
+            self.measured_segments -= 1;
+        }
     }
     fn render_payload(
         vm: &mut MessageViewModel,
@@ -435,7 +458,7 @@ impl VirtualRenderer {
                 origins.pop();
             }
         }
-        let links: Vec<_> = raw_links
+        let mut links: Vec<_> = raw_links
             .into_iter()
             .filter_map(|mut hit| {
                 let line = line_map.get(hit.line).copied().flatten()?;
@@ -446,12 +469,14 @@ impl VirtualRenderer {
                 Some(hit)
             })
             .collect();
+        links.sort_by_key(|hit| hit.line);
         let (total, wrap) = RenderTask::build_message_wrap_map(
             &lines,
             mode.width,
             matches!(vm, MessageViewModel::UserBubble { .. }),
         );
-        let mut bytes = lines.capacity() * std::mem::size_of::<Line<'static>>()
+        let mut bytes = std::mem::size_of::<SegmentPayload>()
+            + lines.capacity() * std::mem::size_of::<Line<'static>>()
             + wrap.capacity() * std::mem::size_of::<WrappedLineInfo>()
             + origins.capacity() * std::mem::size_of::<usize>()
             + links.capacity() * std::mem::size_of::<LinkHit>();
@@ -476,35 +501,16 @@ impl VirtualRenderer {
             bytes,
         }
     }
-    fn evict(&mut self, pinned: &[PayloadKey]) {
-        while self.bytes > DETAIL_CACHE_BUDGET {
-            let victim = self
-                .residents
-                .iter()
-                .filter(|(k, _)| !pinned.contains(k))
-                .min_by_key(|(_, v)| v.used_at)
-                .map(|(k, _)| *k);
-            let Some(victim) = victim else {
-                break;
-            };
-            if let Some(value) = self.residents.remove(&victim) {
-                self.bytes = self.bytes.saturating_sub(value.payload.bytes);
-                self.evictions += 1;
-            }
-        }
-    }
-    pub async fn render(
+    async fn resolve_window(
         &mut self,
         messages: &mut [Arc<MessageViewModel>],
         mode: LayoutMode,
         viewport: Viewport,
         tick: u64,
-    ) -> RenderCache {
+    ) -> Option<ResolvedWindow> {
         self.set_mode(mode);
-        let mut output = RenderCache::new();
-        output.width = mode.width;
         if messages.is_empty() {
-            return output;
+            return None;
         }
         if viewport.follow_tail {
             // 只有读取尾窗才物化尾部；阅读头部不能顺带渲染离屏巨型尾消息。
@@ -514,7 +520,7 @@ impl VirtualRenderer {
                     break;
                 }
                 self.tail -= 1;
-                self.metadata[self.tail].measured = None;
+                self.clear_measurement(self.tail);
             }
         }
         let height = viewport.height.max(1);
@@ -540,15 +546,14 @@ impl VirtualRenderer {
                 });
             }
         }
-        if let Some(a) = anchor {
-            self.payload(a.message_index, messages, tick);
-        }
         // 先固定实际可见内容；估算只参与定位，不能作为成品发布。
-        let mut first = 0usize;
-        let mut last = 0usize;
-        let mut top = 0usize;
+        let mut window = ResolvedWindow {
+            first: 0,
+            top: 0,
+            segments: Vec::new(),
+        };
         for _ in 0..messages.len().saturating_add(2) {
-            top = if viewport.follow_tail {
+            let top = if viewport.follow_tail {
                 self.heights
                     .total()
                     .saturating_add(viewport.trailing_rows)
@@ -575,19 +580,20 @@ impl VirtualRenderer {
                 )
             };
             // 尾部行没有消息段；仍保留正文末行，供精确尾部锚点定位。
-            first = self
+            let first = self
                 .heights
                 .locate(top.min(self.heights.total().saturating_sub(1)));
-            last = first;
+            window.first = first;
+            window.top = top;
+            window.segments.clear();
             let before = self.heights.total();
-            loop {
-                self.payload(last, messages, tick);
+            for last in first..messages.len() {
+                window.segments.push(self.payload(last, messages, tick));
                 if self.heights.prefix(last + 1) >= top.saturating_add(height)
                     || last + 1 == messages.len()
                 {
                     break;
                 }
-                last += 1;
                 tokio::task::yield_now().await;
             }
             // 非 follow 视口也可能覆盖末尾隐藏组。仅利用已实测的零高度回退尾条，
@@ -598,7 +604,7 @@ impl VirtualRenderer {
             }
             let tail_changed = old_tail != self.tail;
             if tail_changed {
-                self.metadata[self.tail].measured = None;
+                self.clear_measurement(self.tail);
             }
             let new_top = if viewport.follow_tail {
                 self.heights
@@ -636,36 +642,101 @@ impl VirtualRenderer {
             }
             tokio::task::yield_now().await;
         }
-        let mut pinned = Vec::new();
+        Some(window)
+    }
+
+    pub async fn measure_viewport(
+        &mut self,
+        messages: &mut [Arc<MessageViewModel>],
+        mode: LayoutMode,
+        viewport: Viewport,
+        tick: u64,
+    ) -> (usize, Option<ScrollAnchor>) {
+        let window = self.resolve_window(messages, mode, viewport, tick).await;
+        let total = self.heights.total();
+        let anchor = window.as_ref().and_then(|window| {
+            let top = self.resolved_top(window, viewport);
+            let row = top.min(total.checked_sub(1)?);
+            let index = self.heights.locate(row);
+            let payload = window.segments.get(index.checked_sub(window.first)?)?;
+            let local = row.checked_sub(self.heights.prefix(index))?;
+            if local >= payload.total {
+                return None;
+            }
+            let mut position = scroll::anchor_at_row(index, payload, local);
+            position.after_body_rows = top - row;
+            Some(ScrollAnchor {
+                position,
+                visual_row: top,
+                scroll_revision: viewport.scroll_revision,
+                follow_tail: viewport.follow_tail,
+                prefix_visible: 0,
+            })
+        });
+        (total, anchor)
+    }
+
+    fn resolved_top(&self, window: &ResolvedWindow, viewport: Viewport) -> usize {
+        window.top.min(
+            self.heights
+                .total()
+                .saturating_add(viewport.trailing_rows)
+                .saturating_sub(viewport.height.max(1)),
+        )
+    }
+
+    pub async fn render(
+        &mut self,
+        messages: &mut [Arc<MessageViewModel>],
+        mode: LayoutMode,
+        viewport: Viewport,
+        tick: u64,
+    ) -> RenderCache {
+        let mut output = RenderCache::new();
+        output.width = mode.width;
+        let Some(window) = self.resolve_window(messages, mode, viewport, tick).await else {
+            return output;
+        };
+        output.total_lines = self.heights.total();
+        let resolved_top = self.resolved_top(&window, viewport);
+        // 每侧保留最多一屏已测量行，供下一次滚动复用。折行的逻辑行保持完整。
+        let height = viewport.height.max(1);
+        let start = resolved_top
+            .saturating_sub(height)
+            .min(output.total_lines.saturating_sub(1));
+        let end = resolved_top.saturating_add(height.saturating_mul(2));
         let mut origins = Vec::new();
-        for i in first..=last {
-            let payload = self.payload(i, messages, tick);
-            pinned.push(self.key(i, messages, tick));
+        for (offset, payload) in window.segments.iter().enumerate() {
+            let i = window.first + offset;
             let line_base = output.lines.len();
             let visual_base = self.heights.prefix(i);
-            output.lines.extend(payload.lines.iter().cloned());
-            origins.extend(payload.origins.iter().map(|line| (i, *line)));
-            output.wrap_map.extend(payload.wrap.iter().map(|w| {
-                let mut w = w.clone();
-                w.line_idx += line_base;
-                w.visual_row_start += visual_base;
-                w.visual_row_end += visual_base;
-                w
-            }));
-            output.links.extend(payload.links.iter().map(|hit| {
-                let mut hit = hit.clone();
-                hit.line += line_base;
-                hit
-            }));
-        }
-        self.evict(&pinned);
-        output.total_lines = self.heights.total();
-        let resolved_top = top.min(
+            let from = payload
+                .wrap
+                .partition_point(|w| w.visual_row_end <= start.saturating_sub(visual_base));
+            let to = payload
+                .wrap
+                .partition_point(|w| w.visual_row_start < end.saturating_sub(visual_base));
+            output.lines.extend_from_slice(&payload.lines[from..to]);
+            origins.extend(payload.origins[from..to].iter().map(|line| (i, *line)));
             output
-                .total_lines
-                .saturating_add(viewport.trailing_rows)
-                .saturating_sub(height),
-        );
+                .wrap_map
+                .extend(payload.wrap[from..to].iter().map(|w| {
+                    let mut w = w.clone();
+                    w.line_idx = line_base + (w.line_idx - from);
+                    w.visual_row_start += visual_base;
+                    w.visual_row_end += visual_base;
+                    w
+                }));
+            let first_link = payload.links.partition_point(|hit| hit.line < from);
+            let end_link = payload.links.partition_point(|hit| hit.line < to);
+            output
+                .links
+                .extend(payload.links[first_link..end_link].iter().map(|hit| {
+                    let mut hit = hit.clone();
+                    hit.line = line_base + (hit.line - from);
+                    hit
+                }));
+        }
         // 兼容字段仅含窗口局部下标，所有全局定位必须使用 snapshot 的视觉前缀。
         if self.offsets_dirty {
             let mut offset = 0usize;
@@ -690,16 +761,12 @@ impl VirtualRenderer {
             line_origins: origins,
             message_versions: Arc::clone(&self.version_snapshot),
             history_epoch: self.history_epoch,
-            window_start: self.heights.prefix(first),
+            window_start: output.wrap_map.first().map_or(0, |w| w.visual_row_start),
             diagnostics: VirtualRenderStats {
                 resident_segments: self.residents.len(),
                 resident_bytes: self.bytes,
                 budget_bytes: DETAIL_CACHE_BUDGET,
-                estimated_segments: self
-                    .metadata
-                    .iter()
-                    .filter(|m| m.measured.is_none())
-                    .count(),
+                estimated_segments: self.metadata.len() - self.measured_segments,
                 evictions: self.evictions,
                 largest_segment_bytes: self.largest_segment,
             },
