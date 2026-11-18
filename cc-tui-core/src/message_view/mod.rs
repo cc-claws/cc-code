@@ -89,7 +89,7 @@ impl HookRowKind {
     }
 }
 
-/// 某次工具调用触发的 hook 执行结果，挂在 `ToolBlock` 上按需渲染。
+/// 附在工具块或用户消息上的 hook 执行结果。
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HookRow {
     /// 已完成渲染文案（如 `2 PostToolUse hooks ran · 34ms`）
@@ -186,6 +186,8 @@ pub enum MessageViewModel {
         image_paths: Vec<(usize, std::path::PathBuf)>,
         /// 真正随本条消息提交的图片编号；手写占位符只能显示降级行。
         image_ids: Vec<usize>,
+        /// 会话启动时紧贴本条用户消息显示的 hook 行。空列表用于锚定尚未完成的异步 hook。
+        session_start_hook_rows: Option<Vec<HookRow>>,
         /// 预计算的语义 hash（构造/变更时更新，rebuild 直接读取避免重算）
         content_hash: u64,
         /// 是否为 <system-reminder> 包裹的系统提醒消息（compact summary 等）
@@ -347,6 +349,7 @@ impl PartialEq for MessageViewModel {
                     system_reminder: a_sr,
                     image_paths: a_paths,
                     image_ids: a_ids,
+                    session_start_hook_rows: a_hooks,
                     ..
                 },
                 MessageViewModel::UserBubble {
@@ -354,9 +357,12 @@ impl PartialEq for MessageViewModel {
                     system_reminder: b_sr,
                     image_paths: b_paths,
                     image_ids: b_ids,
+                    session_start_hook_rows: b_hooks,
                     ..
                 },
-            ) => a == b && a_sr == b_sr && a_paths == b_paths && a_ids == b_ids,
+            ) => {
+                a == b && a_sr == b_sr && a_paths == b_paths && a_ids == b_ids && a_hooks == b_hooks
+            }
             (
                 MessageViewModel::AssistantBubble { blocks: a, .. },
                 MessageViewModel::AssistantBubble { blocks: b, .. },
@@ -559,6 +565,7 @@ impl Hash for MessageViewModel {
                 system_reminder,
                 image_paths,
                 image_ids,
+                session_start_hook_rows,
                 dispatched,
                 ..
             } => {
@@ -567,6 +574,7 @@ impl Hash for MessageViewModel {
                 system_reminder.hash(state);
                 image_paths.hash(state);
                 image_ids.hash(state);
+                session_start_hook_rows.hash(state);
                 // dispatched 改变前景色（排队灰 → 已提交亮白），必须进 hash
                 dispatched.hash(state);
             }
@@ -938,6 +946,7 @@ impl MessageViewModel {
                     rendered_links: doc.links,
                     image_paths: Vec::new(),
                     image_ids,
+                    session_start_hook_rows: None,
                     content_hash: 0,
                     system_reminder,
                     // 历史消息来自会话快照 = 已经送出，按亮白显示
@@ -1325,6 +1334,7 @@ impl MessageViewModel {
             rendered_links: doc.links,
             image_paths: Vec::new(),
             image_ids: Vec::new(),
+            session_start_hook_rows: None,
             content_hash: 0,
             system_reminder: false,
             dispatched: false,
@@ -1357,6 +1367,7 @@ impl MessageViewModel {
             rendered_links: doc.links,
             image_paths: Vec::new(),
             image_ids: Vec::new(),
+            session_start_hook_rows: None,
             content_hash: 0,
             system_reminder: false,
             dispatched: false,

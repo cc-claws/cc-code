@@ -339,8 +339,17 @@ pub(super) struct RenderTask {
 fn detail_sensitive(vm: &MessageViewModel) -> bool {
     match vm {
         MessageViewModel::UserBubble {
-            expanded_content, ..
-        } => expanded_content.is_some(),
+            expanded_content,
+            session_start_hook_rows,
+            ..
+        } => {
+            expanded_content.is_some()
+                || session_start_hook_rows
+                    .as_deref()
+                    .unwrap_or_default()
+                    .iter()
+                    .any(|row| row.detail_only())
+        }
         MessageViewModel::AssistantBubble { blocks, .. } => blocks
             .iter()
             .any(|b| matches!(b, super::message_view::ContentBlockView::Reasoning { .. })),
@@ -372,6 +381,12 @@ fn diff_sensitive(vm: &MessageViewModel) -> bool {
 /// 工具有 hook 行时敏感；组（工具组 / 子 Agent）内嵌渲染子 VM，可能带 hook 行，一并视为敏感。
 fn hook_rows_sensitive(vm: &MessageViewModel) -> bool {
     match vm {
+        MessageViewModel::UserBubble {
+            session_start_hook_rows,
+            ..
+        } => session_start_hook_rows
+            .as_ref()
+            .is_some_and(|rows| !rows.is_empty()),
         MessageViewModel::ToolBlock { hook_rows, .. } => !hook_rows.is_empty(),
         // 会话级 hook 行本身就是 SystemNote（`branch_prefix = true`）。
         MessageViewModel::SystemNote { branch_prefix, .. } => *branch_prefix,

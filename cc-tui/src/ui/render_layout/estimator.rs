@@ -47,10 +47,25 @@ pub(super) fn summarize(vm: &MessageViewModel) -> LayoutSummary {
         MessageViewModel::UserBubble {
             content,
             expanded_content,
+            session_start_hook_rows,
             ..
         } => {
             let expanded = expanded_content.as_deref().unwrap_or(content);
-            (rows(expanded) + 2, rows(content) + 2, expanded.len(), true)
+            let session_start_hook_rows = session_start_hook_rows.as_deref().unwrap_or_default();
+            let compact_hooks = session_start_hook_rows
+                .iter()
+                .filter(|row| !row.detail_only())
+                .count();
+            let hook_bytes = session_start_hook_rows
+                .iter()
+                .map(|row| row.text.len())
+                .sum::<usize>();
+            (
+                rows(expanded) + 2 + session_start_hook_rows.len(),
+                rows(content) + 2 + compact_hooks,
+                expanded.len() + hook_bytes,
+                true,
+            )
         }
         MessageViewModel::AssistantBubble { blocks, .. } => {
             let mut detail = 2;

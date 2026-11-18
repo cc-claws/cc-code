@@ -11,6 +11,7 @@ use super::{
     message_pipeline::{HookExec, HookNoteUpdate},
     *,
 };
+use crate::ui::message_view::HookRow;
 mod acp_bridge;
 mod lifecycle;
 mod output_refresh;
@@ -543,7 +544,11 @@ impl App {
             } => {
                 // 异步 hook 运行状态只进 spinner 行（`Async hook X running…`），完成即消失；
                 // 不写消息区占位行，避免高频工具调用下占位闪现闪没。
-                self.session_mgr.current_mut().start_async_hook(&event);
+                let session = self.session_mgr.current_mut();
+                if event == cc_middlewares::hooks::HookEvent::SessionStart.as_str() {
+                    session.messages.mark_session_start_user();
+                }
+                session.start_async_hook(&event);
                 self.request_rebuild();
                 (true, false, false)
             }
@@ -562,12 +567,14 @@ impl App {
                     .current_mut()
                     .agent
                     .dedup_hook_failures(&event, failures);
+                let session_start =
+                    event == cc_middlewares::hooks::HookEvent::SessionStart.as_str();
                 if is_async {
                     // 异步 hook 成功静默：从 spinner 行移除登记即完成展示。
                     // 失败/阻断由失败行承载（可见性不降）。
                     self.session_mgr.current_mut().finish_async_hook(&event);
                     for failure in &failures {
-                        self.push_hook_failure_note(&event, failure);
+                        self.push_hook_failure_note(&event, failure, session_start, true);
                     }
                     return (true, false, false);
                 }
@@ -594,8 +601,6 @@ impl App {
                 // 信息」，语义上紧贴首个用户消息。若也走尾部可改写行，位置会随
                 // 事件到达时刻漂到首个工具块之后（对齐参考实现把它 prepend 进
                 // 初始消息数组的做法）。
-                let at_round_start =
-                    event == cc_middlewares::hooks::HookEvent::SessionStart.as_str();
                 if ran > 0 {
                     let update = self
                         .session_mgr
@@ -603,10 +608,10 @@ impl App {
                         .messages
                         .pipeline
                         .record_sync_hook(&event, ran, duration_ms, std::time::Instant::now());
-                    self.apply_hook_note(update, at_round_start);
+                    self.apply_hook_note(update, session_start);
                 }
                 for failure in &failures {
-                    self.push_hook_failure_note_at(&event, failure, at_round_start);
+                    self.push_hook_failure_note(&event, failure, session_start, false);
                 }
                 (true, false, false)
             }
@@ -743,6 +748,12 @@ impl App {
     /// 改写路径不受影响——旧行本来就已经在正确位置。
     fn apply_hook_note(&mut self, update: HookNoteUpdate, at_round_start: bool) {
         let messages = &mut self.session_mgr.current_mut().messages;
+        if at_round_start
+            && messages.attach_session_start_hook_row(HookRow::summary(&update.text), false)
+        {
+            self.request_rebuild();
+            return;
+        }
         let replaced = match &update.previous {
             Some(previous) => replace_hook_note_text(
                 &mut messages.view_messages,
@@ -777,28 +788,31 @@ impl App {
         &mut self,
         event: &str,
         failure: &cc_agent::agent::events::HookFailureInfo,
+        session_start: bool,
+        is_async: bool,
     ) {
-        self.push_hook_failure_note_at(event, failure, false);
-    }
-
-    /// 写入一条会话级 hook 失败行，`at_round_start` 为真时贴到本轮用户消息下方。
-    fn push_hook_failure_note_at(
-        &mut self,
-        event: &str,
-        failure: &cc_agent::agent::events::HookFailureInfo,
-        at_round_start: bool,
-    ) {
-        use crate::ui::message_view::NoteTone;
         use cc_agent::agent::events::HookFailureKind;
-        let (verb, tone, detail_only) = match failure.kind {
-            HookFailureKind::Block => ("blocked", NoteTone::Warning, false),
-            HookFailureKind::Error => ("failed", NoteTone::Error, true),
+        let row = match failure.kind {
+            HookFailureKind::Block => {
+                HookRow::blocked(format!("{event} hook blocked: {}", failure.reason))
+            }
+            HookFailureKind::Error => {
+                HookRow::failed(format!("{event} hook failed: {}", failure.reason))
+            }
         };
-        let text = format!("{event} hook {verb}: {}", failure.reason);
-        if at_round_start {
-            self.push_hook_system_note_at_round_start(text, tone, detail_only);
+        let detail_only = row.detail_only();
+        if session_start
+            && self
+                .session_mgr
+                .current_mut()
+                .messages
+                .attach_session_start_hook_row(row.clone(), is_async)
+        {
+            self.request_rebuild();
+        } else if session_start && !is_async {
+            self.push_hook_system_note_at_round_start(row.text, row.tone, detail_only);
         } else {
-            self.push_hook_system_note(text, tone, detail_only);
+            self.push_hook_system_note(row.text, row.tone, detail_only);
         }
     }
 }

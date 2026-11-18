@@ -478,6 +478,122 @@ async fn test_session_hook_events_merge_into_single_row() {
     assert_eq!(texts[0], "2 UserPromptSubmit hooks ran · 8ms");
 }
 
+#[tokio::test]
+async fn test_session_start_hooks_render_directly_below_user_message() {
+    use crate::ui::message_view::MessageViewModel;
+    use crate::ui::render_thread::RenderEvent;
+    use cc_agent::agent::events::{HookFailureInfo, HookFailureKind};
+
+    let (mut app, _handle) = App::new_headless(100, 30).await;
+    let messages = &mut app.session_mgr.current_mut().messages;
+    messages
+        .view_messages
+        .push(MessageViewModel::user("查看 Git 日志".into()));
+    messages.round_start_vm_idx = messages.view_messages.len();
+    messages.push_system_note("后续消息".into());
+
+    let report = |failures| AgentEvent::HooksCompleted {
+        event: "SessionStart".into(),
+        ran: 1,
+        duration_ms: 4,
+        failures,
+        is_async: false,
+        tool_call_id: None,
+    };
+    app.handle_agent_event(report(vec![HookFailureInfo {
+        kind: HookFailureKind::Error,
+        reason: "exit 1".into(),
+    }]));
+    app.handle_agent_event(report(Vec::new()));
+
+    let messages = &app.session_mgr.current().messages;
+    let visible = vec![
+        "❯ 查看 Git 日志",
+        "  ⎿  2 SessionStart hooks ran · 8ms",
+        "  ⎿  SessionStart hook failed: exit 1",
+        "",
+    ];
+    let hidden = vec!["❯ 查看 Git 日志", ""];
+    for (event, expected) in [
+        (RenderEvent::ToggleDetail(true), &visible),
+        (RenderEvent::ToggleDetail(false), &hidden),
+        (RenderEvent::ToggleDetail(true), &visible),
+        (RenderEvent::ToggleHookRows(false), &hidden),
+        (RenderEvent::ToggleHookRows(true), &visible),
+    ] {
+        messages.send_render_event(event).unwrap();
+        let (done, ready) = tokio::sync::oneshot::channel();
+        messages
+            .send_render_event(RenderEvent::ResizeAndWait(100, done))
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), ready)
+            .await
+            .expect("render timeout")
+            .expect("render task stopped");
+        let cache = messages.render_cache.read();
+        let lines: Vec<String> = cache
+            .lines
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_owned()
+            })
+            .collect();
+        assert_eq!(&lines[..expected.len()], expected.as_slice());
+        assert!(lines[expected.len()].contains("后续消息"), "{lines:?}");
+    }
+}
+
+#[tokio::test]
+async fn test_async_session_start_hook_failure_stays_with_original_user() {
+    use crate::ui::message_view::MessageViewModel;
+    use cc_agent::agent::events::{HookFailureInfo, HookFailureKind};
+
+    let (mut app, _handle) = App::new_headless(100, 30).await;
+    let session = app.session_mgr.current_mut();
+    session
+        .messages
+        .view_messages
+        .push(MessageViewModel::user("首条消息".into()));
+    session.messages.round_start_vm_idx = 1;
+    app.handle_agent_event(AgentEvent::HooksStarted {
+        event: "SessionStart".into(),
+        tool_call_id: None,
+    });
+
+    let session = app.session_mgr.current_mut();
+    assert_eq!(session.running_async_hooks(), ["SessionStart"]);
+    session
+        .messages
+        .view_messages
+        .push(MessageViewModel::user("后续消息".into()));
+    session.messages.round_start_vm_idx = 2;
+    app.handle_agent_event(AgentEvent::HooksCompleted {
+        event: "SessionStart".into(),
+        ran: 0,
+        duration_ms: 10,
+        failures: vec![HookFailureInfo {
+            kind: HookFailureKind::Error,
+            reason: "late failure".into(),
+        }],
+        is_async: true,
+        tool_call_id: None,
+    });
+
+    let session = app.session_mgr.current();
+    assert!(session.running_async_hooks().is_empty());
+    assert!(matches!(
+        session.messages.view_messages.as_slice(),
+        [MessageViewModel::UserBubble { session_start_hook_rows: Some(rows), .. },
+         MessageViewModel::UserBubble { session_start_hook_rows: None, .. }]
+        if rows.len() == 1 && rows[0].text == "SessionStart hook failed: late failure"
+    ));
+}
+
 /// 异步 hook 生命周期只更新 spinner 登记：开始登记、完成移除、成功静默（无尾行）。
 #[tokio::test]
 async fn test_async_hook_lifecycle_updates_running_state() {

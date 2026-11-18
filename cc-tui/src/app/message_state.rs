@@ -11,7 +11,7 @@ use parking_lot::RwLock;
 use tokio::sync::{mpsc, Notify};
 
 use crate::ui::{
-    message_view::{MessageViewModel, NoteTone},
+    message_view::{HookRow, HookRowKind, MessageViewModel, NoteTone},
     render_thread::{RenderCache, RenderEvent, ViewportAnchor},
 };
 
@@ -254,6 +254,68 @@ impl MessageState {
         let vm = MessageViewModel::system_hook_line(content, tone, detail_only);
         self.ephemeral_notes.push((anchor, vm.clone()));
         self.view_messages.push(vm);
+    }
+
+    fn round_user_message(&mut self) -> Option<&mut MessageViewModel> {
+        let index = self.round_start_vm_idx.checked_sub(1)?;
+        self.view_messages.get_mut(index)
+    }
+
+    /// 异步开场 hook 可能跨轮完成，开始时在发起它的用户气泡上建立锚点。
+    pub(super) fn mark_session_start_user(&mut self) {
+        let Some(user) = self.round_user_message() else {
+            return;
+        };
+        if let MessageViewModel::UserBubble {
+            session_start_hook_rows,
+            system_reminder: false,
+            ..
+        } = user
+        {
+            if session_start_hook_rows.is_none() {
+                *session_start_hook_rows = Some(Vec::new());
+                user.recompute_hash();
+            }
+        }
+    }
+
+    /// 将开场 hook 行合并到发起它的用户气泡，使用气泡自身的消息间距。
+    pub(super) fn attach_session_start_hook_row(&mut self, row: HookRow, is_async: bool) -> bool {
+        let user = if is_async {
+            self.view_messages.iter_mut().rev().find(|vm| {
+                matches!(
+                    vm,
+                    MessageViewModel::UserBubble {
+                        session_start_hook_rows: Some(_),
+                        ..
+                    }
+                )
+            })
+        } else {
+            self.round_user_message()
+        };
+        let Some(user) = user else {
+            return false;
+        };
+        let MessageViewModel::UserBubble {
+            session_start_hook_rows,
+            system_reminder: false,
+            ..
+        } = user
+        else {
+            return false;
+        };
+
+        let rows = session_start_hook_rows.get_or_insert_with(Vec::new);
+        if let Some(summary) = rows.iter_mut().find(|existing| {
+            existing.kind == HookRowKind::Summary && row.kind == HookRowKind::Summary
+        }) {
+            *summary = row;
+        } else {
+            rows.push(row);
+        }
+        user.recompute_hash();
+        true
     }
 
     /// 添加会话级 hook 行到**本轮用户消息下方**（而非视图尾部）。

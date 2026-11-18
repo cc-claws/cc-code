@@ -1824,6 +1824,7 @@ pub fn render_view_model_with_flags(
             system_reminder,
             expanded_content,
             dispatched,
+            session_start_hook_rows,
             ..
         } => {
             if *system_reminder {
@@ -1917,6 +1918,14 @@ pub fn render_view_model_with_flags(
                 width,
                 super::osc8::enabled(),
             );
+            if let Some(rows) = session_start_hook_rows
+                .as_ref()
+                .filter(|_| hook_rows_visible)
+            {
+                for row in rows.iter().filter(|row| detail_mode || !row.detail_only()) {
+                    push_hook_line(&mut lines, &row.text, hook_row_color(row.tone), width);
+                }
+            }
             (lines, link_hits)
         }
         MessageViewModel::AssistantBubble { blocks, .. } => {
