@@ -12,6 +12,7 @@ fn make_renderer(messages: Vec<MessageViewModel>) -> (VirtualRenderer, Vec<Arc<M
         detail: false,
         diff: false,
         hook_rows: true,
+        show_thinking: true,
         theme: crate::ui::theme::fingerprint(),
     });
     (renderer, messages.into_iter().map(Arc::new).collect())

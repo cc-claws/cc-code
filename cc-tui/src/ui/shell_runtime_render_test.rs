@@ -12,6 +12,7 @@ fn make_task() -> RenderTask {
         show_tool_messages: false,
         diff_visible: false,
         hook_rows_visible: true,
+        show_thinking: true,
         detail_mode: false,
         theme_fingerprint: crate::ui::theme::fingerprint(),
         alt_lines: Vec::new(),

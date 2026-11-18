@@ -105,6 +105,7 @@ impl RenderWorker {
             detail: self.task.detail_mode,
             diff: self.task.diff_visible,
             hook_rows: self.task.hook_rows_visible,
+            show_thinking: self.task.show_thinking,
             theme: theme::fingerprint(),
         };
         let result = AssertUnwindSafe(self.layout.render(

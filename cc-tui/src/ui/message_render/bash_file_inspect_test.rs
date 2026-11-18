@@ -304,8 +304,7 @@ fn test_render_bash_inspect_group_expanded_snapshot() {
         actual,
         format!(
             concat!(
-                "  Thought for 19s, read 1 file, ran 3 shell commands\n",
-                "  ⎿  先检查文件。\n",
+                "∴ 先检查文件。\n",
                 "\n",
                 "● Bash(ls src)\n",
                 "  ⎿  lib.rs\n",
@@ -323,7 +322,7 @@ fn test_render_bash_inspect_group_expanded_snapshot() {
             ),
             read_path = read_path
         ),
-        "详细态必须逐条恢复命令、输出、错误头和思考正文，且不显示展开提示"
+        "详细态必须逐条恢复命令、输出、错误头和思考正文（思考以 ∴ 起头、不再有摘要行），且不显示展开提示"
     );
 }
 

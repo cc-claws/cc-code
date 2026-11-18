@@ -18,6 +18,14 @@ impl BranchPrefix {
     /// 一级占用显示宽度
     pub const WIDTH: usize = 5;
 
+    /// 思考正文前缀（`∴` + 空格 = 2 列），与活跃态 `∴ Thinking for N chars` 同款符号。
+    /// 详细模式下思考不再用折角 `⎿`，改用与摘要行一致的 `∴` 起头。
+    pub const THINKING_PREFIX: &'static str = "∴ ";
+    /// 思考正文悬挂缩进（2 空格，与 `THINKING_PREFIX` 等宽）
+    pub const THINKING_HANG: &'static str = "  ";
+    /// 思考正文前缀占用显示宽度
+    pub const THINKING_WIDTH: usize = 2;
+
     /// 二级嵌套折角（前 5 空格 + ⎿ + 后 2 空格 = 8 列）
     pub const NESTED_PREFIX: &'static str = "     ⎿  ";
     /// 二级嵌套悬挂缩进（8 空格）
@@ -51,6 +59,12 @@ impl BranchPrefix {
     #[inline]
     pub fn content_width(width: usize) -> usize {
         width.saturating_sub(Self::WIDTH).max(20)
+    }
+
+    /// 计算在总宽度 `width` 下，扣除思考正文前缀后的可用正文宽度
+    #[inline]
+    pub fn thinking_content_width(width: usize) -> usize {
+        width.saturating_sub(Self::THINKING_WIDTH).max(20)
     }
 
     /// 计算扣除二级嵌套前缀后的可用正文宽度

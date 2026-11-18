@@ -13,7 +13,8 @@ use crate::{
         config_panel::{
             ConfigPanel, ROW_AUTOCOMPACT, ROW_COUNT, ROW_DETAIL_RENDER_STRATEGY, ROW_DIFF,
             ROW_GENERAL_HEADER, ROW_HOOKS_DISPLAY, ROW_LANGUAGE, ROW_OVERRIDES_HEADER, ROW_PERSONA,
-            ROW_PROACTIVENESS, ROW_RECAP, ROW_SEPARATOR, ROW_STREAMING, ROW_THRESHOLD, ROW_TONE,
+            ROW_PROACTIVENESS, ROW_RECAP, ROW_SEPARATOR, ROW_STREAMING, ROW_THINKING_DISPLAY,
+            ROW_THRESHOLD, ROW_TONE,
         },
         App,
     },
@@ -29,6 +30,7 @@ fn field_label_key(row: usize) -> &'static str {
         ROW_LANGUAGE => "config-field-language",
         ROW_DIFF => "config-field-diff",
         ROW_HOOKS_DISPLAY => "config-field-hooks-display",
+        ROW_THINKING_DISPLAY => "config-field-thinking-display",
         ROW_DETAIL_RENDER_STRATEGY => "config-field-detail-render-strategy",
         ROW_STREAMING => "config-field-streaming",
         ROW_PERSONA => "config-field-persona",
@@ -247,6 +249,38 @@ pub(crate) fn render_config_panel(f: &mut Frame, panel: &ConfigPanel, app: &mut 
                 ]));
                 lines.push(Line::from(Span::styled(
                     format!("      {}", lc.tr("config-desc-hooks-display")),
+                    desc_style,
+                )));
+            }
+            ROW_THINKING_DISPLAY => {
+                let is_active = panel.cursor == row;
+                let label_style = active_or_text(is_active);
+                let active_style = Style::default()
+                    .fg(theme::cur().thinking)
+                    .add_modifier(Modifier::BOLD);
+                let inactive_style = Style::default().fg(theme::cur().inactive);
+                let desc_style = Style::default().fg(theme::cur().inactive);
+
+                let on_span = if panel.buf_thinking_display {
+                    Span::styled(format!("[{}]", lc.tr("config-value-on")), active_style)
+                } else {
+                    Span::styled(lc.tr("config-value-on"), inactive_style)
+                };
+                let off_span = if panel.buf_thinking_display {
+                    Span::styled(lc.tr("config-value-off"), inactive_style)
+                } else {
+                    Span::styled(format!("[{}]", lc.tr("config-value-off")), active_style)
+                };
+
+                lines.push(Line::from(vec![
+                    Span::styled("  ", Style::default()),
+                    Span::styled(format!("{:<14}", lc.tr(field_label_key(row))), label_style),
+                    on_span,
+                    Span::styled("  ", Style::default()),
+                    off_span,
+                ]));
+                lines.push(Line::from(Span::styled(
+                    format!("      {}", lc.tr("config-desc-thinking-display")),
                     desc_style,
                 )));
             }

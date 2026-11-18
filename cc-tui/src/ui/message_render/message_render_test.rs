@@ -992,11 +992,15 @@ fn test_tool_block_inline_diff_switch_controls_normal_page_only() {
         source_agent_id: None,
     };
 
-    let off =
-        rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, false, true, 0).0);
-    let on = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, true, true, 0).0);
-    let detail =
-        rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, true, false, true, 0).0);
+    let off = rendered_text(
+        &render_view_model_with_flags(&vm, Some(1), 80, false, false, true, true, 0).0,
+    );
+    let on = rendered_text(
+        &render_view_model_with_flags(&vm, Some(1), 80, false, true, true, true, 0).0,
+    );
+    let detail = rendered_text(
+        &render_view_model_with_flags(&vm, Some(1), 80, true, false, true, true, 0).0,
+    );
 
     assert!(!off.contains("new line"), "开关关闭时普通页面不显示 diff");
     assert!(
@@ -1046,8 +1050,9 @@ fn test_edit_diff_replaces_tool_result_line() {
         source_agent_id: None,
     };
 
-    let detail =
-        rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, true, false, true, 0).0);
+    let detail = rendered_text(
+        &render_view_model_with_flags(&vm, Some(1), 80, true, false, true, true, 0).0,
+    );
     assert!(
         !detail.contains("Replaced text"),
         "diff 渲染时不应再显示工具结果文本行: {detail}"
@@ -1058,8 +1063,9 @@ fn test_edit_diff_replaces_tool_result_line() {
     );
 
     // diff 未渲染（普通模式 + 开关关闭）时，工具结果文本仍作为唯一信息保留
-    let off =
-        rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, false, true, 0).0);
+    let off = rendered_text(
+        &render_view_model_with_flags(&vm, Some(1), 80, false, false, true, true, 0).0,
+    );
     assert!(
         off.contains("Replaced text"),
         "diff 未渲染时应保留工具结果文本: {off}"
@@ -1098,8 +1104,9 @@ fn test_write_create_keeps_tool_result_line() {
         source_agent_id: None,
     };
 
-    let detail =
-        rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, true, false, true, 0).0);
+    let detail = rendered_text(
+        &render_view_model_with_flags(&vm, Some(1), 80, true, false, true, true, 0).0,
+    );
     assert!(
         detail.contains("Wrote 2 lines"),
         "新建文件应保留 Wrote N lines 结果行: {detail}"
@@ -1140,11 +1147,15 @@ fn test_inline_diff_switch_does_not_expand_other_blocks() {
         source_agent_id: None,
     };
 
-    let off =
-        rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, false, true, 0).0);
-    let on = rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, false, true, true, 0).0);
-    let detail =
-        rendered_text(&render_view_model_with_flags(&vm, Some(1), 80, true, false, true, 0).0);
+    let off = rendered_text(
+        &render_view_model_with_flags(&vm, Some(1), 80, false, false, true, true, 0).0,
+    );
+    let on = rendered_text(
+        &render_view_model_with_flags(&vm, Some(1), 80, false, true, true, true, 0).0,
+    );
+    let detail = rendered_text(
+        &render_view_model_with_flags(&vm, Some(1), 80, true, false, true, true, 0).0,
+    );
 
     assert!(
         off.contains("… +3 lines (ctrl+o to expand)"),
@@ -4177,7 +4188,10 @@ fn test_group_thinking_hides_body_in_normal_mode() {
     );
     // Act：详细模式
     let detail = rendered_text(&render_view_model(&vm, None, 80, true, 0));
-    assert!(detail.contains("n13"), "详细模式应展示组内思考正文: {detail}");
+    assert!(
+        detail.contains("n13"),
+        "详细模式应展示组内思考正文: {detail}"
+    );
 }
 
 // ─── 空思考正文（与 Bash 空输出 `(No output)` 同款兜底）────────────────────
@@ -4211,13 +4225,13 @@ fn test_detail_mode_empty_reasoning_shows_placeholder() {
     // Act：详细模式
     let lines = render_view_model(&vm, None, 80, true, 0);
     let rendered = rendered_text(&lines);
-    // Assert：耗时摘要保留，正文位给出占位，而不是孤立的 `⎿`
+    // Assert：详细模式下摘要行已被 `∴` 正文取代，空正文给占位而不是孤立的 `∴`
     assert!(
-        rendered.contains("Thought for 1s"),
-        "应保留耗时摘要行: {rendered}"
+        !rendered.contains("Thought for 1s"),
+        "详细模式不应再渲染耗时摘要行: {rendered}"
     );
     assert!(
-        rendered.contains("(No content)"),
+        rendered.contains("∴ (No content)"),
         "空思考正文应有占位说明: {rendered}"
     );
     assert_no_lone_branch_prefix(&lines, &rendered);
@@ -4271,14 +4285,107 @@ fn test_detail_mode_empty_group_thinking_shows_placeholder() {
     let rendered = rendered_text(&lines);
     // Assert：组内思考走同一条渲染管线，空正文同样有占位
     assert!(
-        rendered.contains("Thought for 1s"),
-        "应保留耗时摘要行: {rendered}"
+        !rendered.contains("Thought for 1s"),
+        "详细模式不应再渲染耗时摘要行: {rendered}"
     );
     assert!(
-        rendered.contains("(No content)"),
+        rendered.contains("∴ (No content)"),
         "组内空思考正文应有占位说明: {rendered}"
     );
     assert_no_lone_branch_prefix(&lines, &rendered);
+}
+
+// ─── 思考展示开关（配置 thinking_ui，/config 的「思考展示」）──────────────
+
+/// 配置 `thinking_ui = false` 时：详细模式整段思考不渲染（连 `∴` 占位也不出），
+/// 普通模式摘要行保留但去掉 `(ctrl+o to expand)` 尾巴——展开后本来就是空的。
+#[test]
+fn test_thinking_hidden_when_thinking_display_disabled() {
+    let mut vm = MessageViewModel::assistant();
+    if let MessageViewModel::AssistantBubble { blocks, .. } = &mut vm {
+        blocks.push(ContentBlockView::Reasoning {
+            char_count: 5,
+            duration_ms: Some(1000),
+            action_summary: None,
+            text: "查看 watch 的结果。".to_string(),
+            active: false,
+            active_since: None,
+            hint: None,
+        });
+    }
+    // Act：详细模式关闭思考展示
+    let detail_off = rendered_text(
+        &render_view_model_with_flags(&vm, Some(1), 80, true, false, true, false, 0).0,
+    );
+    // Assert：详细模式连正文带摘要都不出
+    assert!(
+        !detail_off.contains("查看 watch 的结果。"),
+        "关闭后详细模式不应渲染思考正文: {detail_off}"
+    );
+    assert!(
+        !detail_off.contains("Thought for"),
+        "关闭后详细模式不应渲染摘要行: {detail_off}"
+    );
+    assert!(
+        !detail_off.contains("∴"),
+        "关闭后详细模式不应留下 ∴ 前缀: {detail_off}"
+    );
+    // Act：普通模式关闭思考展示
+    let normal_off = rendered_text(
+        &render_view_model_with_flags(&vm, Some(1), 80, false, false, true, false, 0).0,
+    );
+    // Assert：摘要行仍在，但不挂展开提示
+    assert!(
+        normal_off.contains("Thought for 1s"),
+        "普通模式摘要行应保留: {normal_off}"
+    );
+    assert!(
+        !normal_off.contains("ctrl+o to expand"),
+        "关闭后摘要行不应再挂展开提示: {normal_off}"
+    );
+}
+
+/// 详细模式开启思考展示时：首行 `∴ ` 起头，续行悬挂缩进 2 格，且不再有摘要行。
+#[test]
+fn test_detail_mode_thinking_uses_dotted_prefix_without_summary() {
+    let mut vm = MessageViewModel::assistant();
+    if let MessageViewModel::AssistantBubble { blocks, .. } = &mut vm {
+        blocks.push(ContentBlockView::Reasoning {
+            char_count: 11,
+            duration_ms: Some(2000),
+            action_summary: None,
+            text: "查看 watch 的结果。\n再看一眼日志。".to_string(),
+            active: false,
+            active_since: None,
+            hint: None,
+        });
+    }
+    // Act
+    let lines = render_view_model(&vm, None, 80, true, 0);
+    // Assert：首行以 ∴ 起头，续行缩进 2 格
+    let first = lines
+        .iter()
+        .find(|line| {
+            line.spans
+                .iter()
+                .any(|span| span.content.contains("查看 watch 的结果。"))
+        })
+        .expect("详细模式应渲染思考正文");
+    assert_eq!(first.spans[0].content.as_ref(), "∴ ");
+    let second = lines
+        .iter()
+        .find(|line| {
+            line.spans
+                .iter()
+                .any(|span| span.content.contains("再看一眼日志。"))
+        })
+        .expect("思考续行应被渲染");
+    assert_eq!(second.spans[0].content.as_ref(), "  ");
+    let rendered = rendered_text(&lines);
+    assert!(
+        !rendered.contains("Thought for 2s"),
+        "详细模式不应再渲染摘要行: {rendered}"
+    );
 }
 
 // ─── hook 执行行（spec/global/domains/hooks-display.md）────────────────────
@@ -4508,6 +4615,7 @@ fn test_hook_rows_hidden_when_hooks_display_disabled() {
         false,
         false,
         true,
+        true,
         0,
     );
     let hidden = render_view_model_with_flags(
@@ -4517,6 +4625,7 @@ fn test_hook_rows_hidden_when_hooks_display_disabled() {
         false,
         false,
         false,
+        true,
         0,
     );
     let shown = render_view_model_with_flags(
@@ -4525,6 +4634,7 @@ fn test_hook_rows_hidden_when_hooks_display_disabled() {
         80,
         false,
         false,
+        true,
         true,
         0,
     );
@@ -4690,7 +4800,11 @@ fn test_hook_rows_rendered_for_ask_user_question() {
     // Assert
     let ask_line = normal
         .iter()
-        .position(|line| line.spans.iter().any(|s| s.content.contains("User answered")))
+        .position(|line| {
+            line.spans
+                .iter()
+                .any(|s| s.content.contains("User answered"))
+        })
         .expect("AskUserQuestion 头行应渲染");
     let answer_line = normal
         .iter()
@@ -4698,7 +4812,11 @@ fn test_hook_rows_rendered_for_ask_user_question() {
         .expect("问答内容应渲染");
     let hook_pos = normal
         .iter()
-        .position(|line| line.spans.iter().any(|s| s.content.contains("hook blocked")))
+        .position(|line| {
+            line.spans
+                .iter()
+                .any(|s| s.content.contains("hook blocked"))
+        })
         .expect("AskUserQuestion 路径不得吞掉 hook 行");
     assert!(
         hook_pos > ask_line && hook_pos > answer_line,

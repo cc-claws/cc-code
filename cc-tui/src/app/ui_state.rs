@@ -85,6 +85,7 @@ impl UiState {
         detail_enabled: bool,
         diff_enabled: bool,
         hook_rows_visible: bool,
+        show_thinking: bool,
     ) -> Self {
         let _ = cwd; // 历史路径已迁移至 ~/.cc-code/，cwd 保留用于未来扩展
         Self {
@@ -93,6 +94,7 @@ impl UiState {
                 detail_enabled,
                 diff_enabled,
                 hook_rows_visible,
+                show_thinking,
             ),
             textarea,
             pending_relative_scroll: None,

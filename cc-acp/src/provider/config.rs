@@ -183,6 +183,12 @@ pub struct AppConfig {
     /// 开关切回来历史行能恢复。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hooks_ui: Option<bool>,
+    /// 详细模式（Ctrl+O）展开后是否展示思考正文（缺省 = 展示）
+    ///
+    /// 只影响渲染：思考数据始终在 `ContentBlockView::Reasoning` / `ToolCallGroup.thinking` 中，
+    /// 开关切回来历史内容能恢复。
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "thinkingUi")]
+    pub thinking_ui: Option<bool>,
     /// 详情渲染策略：auto（默认）/ cache / virtual；未知值按 auto 处理
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail_render_strategy: Option<String>,
@@ -257,6 +263,11 @@ impl AppConfig {
         self.hooks_ui.unwrap_or(true)
     }
 
+    /// 详细模式展开后是否展示思考正文（缺省 = 展示）。
+    pub fn thinking_ui_enabled(&self) -> bool {
+        self.thinking_ui.unwrap_or(true)
+    }
+
     /// 用 workspace 配置覆盖全局配置。
     /// workspace 中出现的字段替换全局对应字段，未出现的保留全局值。
     pub fn merge_overrides(&mut self, workspace: AppConfig) {
@@ -318,6 +329,9 @@ impl AppConfig {
         self.diff_enabled = workspace.diff_enabled;
         if workspace.hooks_ui.is_some() {
             self.hooks_ui = workspace.hooks_ui;
+        }
+        if workspace.thinking_ui.is_some() {
+            self.thinking_ui = workspace.thinking_ui;
         }
         if workspace.detail_render_strategy.is_some() {
             self.detail_render_strategy = workspace.detail_render_strategy;

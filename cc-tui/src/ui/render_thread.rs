@@ -203,6 +203,8 @@ pub enum RenderEvent {
     ToggleDiff(bool),
     /// 切换 hook 结果行的显示状态（数据保留，只影响渲染）
     ToggleHookRows(bool),
+    /// 切换思考正文的显示状态（数据保留，只影响渲染）
+    ToggleThinking(bool),
     /// 切换详细模式（shell 输出、粘贴内容、reasoning 展开/折叠）
     ToggleDetail(bool),
 }
@@ -258,6 +260,7 @@ impl RenderEvent {
             Self::ToggleDetail(value) => Self::ToggleDetail(*value),
             Self::ToggleDiff(value) => Self::ToggleDiff(*value),
             Self::ToggleHookRows(value) => Self::ToggleHookRows(*value),
+            Self::ToggleThinking(value) => Self::ToggleThinking(*value),
             Self::ToggleToolMessages(value) => Self::ToggleToolMessages(*value),
             _ => return None,
         })
@@ -306,6 +309,8 @@ pub(super) struct RenderTask {
     diff_visible: bool,
     /// hook 结果行是否可见（配置 `hooks_ui`，缺省可见）
     hook_rows_visible: bool,
+    /// 思考正文是否可见（配置 `thinking_ui`，缺省可见）
+    show_thinking: bool,
     detail_mode: bool,
     /// 上次渲染时的主题指纹。主题切换后 markdown 的 `rendered` 快照与内容 hash
     /// 都不变，必须靠它强制放弃缓存行复用。
@@ -376,6 +381,23 @@ fn hook_rows_sensitive(vm: &MessageViewModel) -> bool {
     }
 }
 
+/// 该消息的渲染结果是否随 `show_thinking` 变化。
+///
+/// 思考只出现在 `AssistantBubble` 的 Reasoning block 与 `ToolCallGroup` 自带
+/// thinking 上；子 Agent 组内嵌渲染子 VM（内部 AssistantBubble 会被跳过），无需敏感。
+fn thinking_sensitive(vm: &MessageViewModel) -> bool {
+    match vm {
+        MessageViewModel::AssistantBubble { blocks, .. } => blocks.iter().any(|b| {
+            matches!(
+                b,
+                crate::ui::message_view::ContentBlockView::Reasoning { .. }
+            )
+        }),
+        MessageViewModel::ToolCallGroup { thinking, .. } => thinking.is_some(),
+        _ => false,
+    }
+}
+
 /// 渲染键（#626）= 内容 hash ⊕（仅当该消息对相应标志敏感时）当前 detail/diff 标志。
 /// 键相等的消息在当前标志组合下渲染结果必然与缓存一致，可直接复用或跨变体交换；
 /// 不敏感的消息切换标志时键不变，这是 Ctrl+O 反复切换不再全量重渲染的关键。
@@ -417,7 +439,13 @@ fn live_thinking_elapsed_ms(vm: &MessageViewModel) -> Option<u64> {
     })
 }
 
-fn render_key(vm: &MessageViewModel, detail: bool, diff: bool, hook_rows: bool) -> u64 {
+fn render_key(
+    vm: &MessageViewModel,
+    detail: bool,
+    diff: bool,
+    hook_rows: bool,
+    show_thinking: bool,
+) -> u64 {
     let mut h = DefaultHasher::new();
     vm.content_hash().hash(&mut h);
     if let Some(ms) = live_thinking_elapsed_ms(vm) {
@@ -432,6 +460,9 @@ fn render_key(vm: &MessageViewModel, detail: bool, diff: bool, hook_rows: bool) 
     }
     if hook_rows_sensitive(vm) {
         hook_rows.hash(&mut h);
+    }
+    if thinking_sensitive(vm) {
+        show_thinking.hash(&mut h);
     }
     h.finish()
 }
@@ -528,6 +559,7 @@ impl RenderTask {
         width: usize,
         diff_visible: bool,
         hook_rows_visible: bool,
+        show_thinking: bool,
         detail_mode: bool,
     ) -> (Vec<Line<'static>>, Vec<LinkHit>) {
         let tick = current_tool_indicator_tick();
@@ -566,7 +598,8 @@ impl RenderTask {
         // detail_mode 控制 shell 输出、粘贴内容、reasoning 的展开/折叠
         // diff_visible 只控制普通页面是否内联显示 Write/Edit 的 diff（详细模式下恒显示）
         // hook_rows_visible 只控制 hook 结果行是否渲染（数据保留，切回来即恢复）
-        // 三者语义不同，必须分开传：并成一个标志会让「内联 Diff」顺带打开整页展开
+        // show_thinking 只控制思考正文是否渲染（数据保留，普通模式的摘要行仍在）
+        // 四者语义不同，必须分开传：并成一个标志会让「内联 Diff」顺带打开整页展开
         let (mut lines, mut links) = render_view_model_with_flags(
             vm,
             Some(index),
@@ -574,6 +607,7 @@ impl RenderTask {
             detail_mode,
             diff_visible,
             hook_rows_visible,
+            show_thinking,
             tick,
         );
         // 裸 URL 只对工具结果与 `!` 命令输出登记命中区：Markdown 正文/代码块里的
@@ -735,6 +769,7 @@ impl RenderTask {
                     self.detail_mode,
                     self.diff_visible,
                     self.hook_rows_visible,
+                    self.show_thinking,
                 )
             })
             .collect();
@@ -844,6 +879,7 @@ impl RenderTask {
                 width,
                 self.diff_visible,
                 self.hook_rows_visible,
+                self.show_thinking,
                 self.detail_mode,
             );
             self.message_lines[i] = lines;
@@ -1628,6 +1664,15 @@ impl RenderTask {
                     self.rebuild_safe_with_anchor(messages, scroll_anchor);
                 }
             }
+            RenderEvent::ToggleThinking(show) => {
+                self.show_thinking = show;
+                // 渲染键包含思考标志（仅对带思考内容的消息敏感），切换后按
+                // 键复用/交换变体即可；思考数据始终在 VM 里，只影响渲染。
+                if !self.last_messages.is_empty() {
+                    let messages = std::mem::take(&mut self.last_messages);
+                    self.rebuild_safe_with_anchor(messages, scroll_anchor);
+                }
+            }
         }
     }
 
@@ -1691,6 +1736,7 @@ pub fn spawn_render_thread(
         show_tool_messages: false,
         diff_visible: false,
         hook_rows_visible: true,
+        show_thinking: true,
         detail_mode: false,
         theme_fingerprint: crate::ui::theme::fingerprint(),
         alt_lines: Vec::new(),
