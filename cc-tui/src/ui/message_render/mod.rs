@@ -2686,6 +2686,9 @@ pub fn render_view_model_with_flags(
                             diff_width,
                             &widget_theme,
                             max_code_lines,
+                            // 折叠提示与同行 `⎿` 折角同色（inactive），
+                            // 与 push_visual_capped_output 的 Write 分支保持一致。
+                            Some(theme::cur().inactive),
                         );
                         for line in rendered {
                             let mut prefixed = line;

@@ -934,6 +934,9 @@ fn render_word_diff_spans(
 /// 超过 `max_lines` 源行数时截断并追加 `… +N lines (ctrl+o to expand)` 提示
 /// （`max_lines == usize::MAX` 表示全量）。
 ///
+/// `hint_color` 控制截断提示行的前景色，`None` 沿用 `theme.dim()`；
+/// 调用方可用它把提示对齐到同行的 `⎿` 折角色，避免比折角暗一档。
+///
 /// 超宽行按显示宽度折行（与 diff 行口径一致，续行行号位补空格），
 /// 语言无法识别时回退纯文本。
 pub fn render_new_file_code(
@@ -942,6 +945,7 @@ pub fn render_new_file_code(
     width: usize,
     theme: &dyn Theme,
     max_lines: usize,
+    hint_color: Option<ratatui::style::Color>,
 ) -> Vec<Line<'static>> {
     // 对齐 CC `FileWriteTool`：空内容显示 "(No content)" 占位
     let body = if content.is_empty() {
@@ -1000,7 +1004,7 @@ pub fn render_new_file_code(
                 "… +{hidden} line{} (ctrl+o to expand)",
                 if hidden == 1 { "" } else { "s" }
             ),
-            Style::default().fg(theme.dim()),
+            Style::default().fg(hint_color.unwrap_or_else(|| theme.dim())),
         )));
     }
 

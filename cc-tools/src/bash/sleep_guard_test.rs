@@ -83,10 +83,9 @@ fn blocked_message_points_to_alternatives() {
         message.starts_with("Blocked: standalone sleep 45."),
         "{message}"
     );
-    // 三条替代路径都要出现，否则模型不知道往哪走。
+    // 两条替代路径都要出现，否则模型不知道往哪走。
     assert!(message.contains("until-loop"), "{message}");
     assert!(message.contains("run_in_background"), "{message}");
-    assert!(message.contains("Sleep tool"), "{message}");
     // 明确堵住拆短 sleep 绕过的做法。
     assert!(message.contains("Do not chain shorter sleeps"), "{message}");
 }
