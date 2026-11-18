@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.295 — 2026-11-18
+
+### Fixes
+
+- **思考摘要标题行改用 MUTED 色，与状态栏提示行对齐（#1101, #1102）**：消息区的 `Thought for 15s, read 2 files, ran 4 shell commands (ctrl+o to expand)` 标题行此前取 `theme::thinking_body()`（`inactive` 向 `subtle` 插值 0.7，默认主题得 `#666666`），而状态栏底部语义相同的提示行取 `MUTED`（`#999999`）——两处同属一个提示层级，却差一档明暗，标题行显得比状态栏更沉。现 `cc-tui/src/ui/message_render/mod.rs` 中两处摘要行（`AssistantBubble` 的 `ContentBlockView::Reasoning` 分支、`ToolCallGroup` 的 `thinking` 分支）的 `dim` 由 `theme::thinking_body()` 改为 `theme::cur().inactive`：默认主题精确落在 `#999999`，与状态栏 `MUTED` 同色；非默认主题跟随各自调色板的 `inactive`。**思考展开后的正文 body 一律不动**，仍是更暗的 `theme::thinking_body()`，标题与正文保持一档明暗差，`dim_markdown_lines` 与 `push_thinking_body` 的着色点也未改。另新增两条测试 `test_thinking_summary_row_uses_muted_title_color` 与 `test_tool_group_thinking_summary_row_uses_muted_title_color`，断言标题 span 前景色为 `theme::cur().inactive` 且不再是 `theme::thinking_body()`。改动文件：`cc-tui/src/ui/message_render/{mod,message_render_test}.rs`、`TUI-STYLE.md`。验证：`cargo test -p cc-tui --lib muted_title_color` 2 项、`thinking` 27 项、`message_render` 250 项全过，`cargo clippy -p cc-tui --all-targets` 无 issue，PR 的 Rustfmt 与三平台 Build CI 全绿。
+
+---
+
 ## v0.6.294 — 2026-11-18
 
 ### Performance
