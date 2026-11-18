@@ -45,7 +45,7 @@ impl Command for GcCommand {
         let md_cache = cc_widgets::markdown::cache::MarkdownCache::global().stats();
 
         // ── 渲染线程缓存 / diff 缓存（此前未纳入统计，是「未识别」的主要盲区）──
-        let (render_cache_bytes, render_lines, wrap_entries, virtual_stats) = {
+        let (published_render_bytes, render_lines, wrap_entries, virtual_stats) = {
             let rc = active.messages.render_cache.read();
             (
                 estimate_render_cache_heap(&rc),
@@ -56,6 +56,11 @@ impl Command for GcCommand {
                     .map(|layout| layout.diagnostics.clone()),
             )
         };
+        // 发布窗口拥有独立的行与换行数据，驻留分段只计入渲染总量一次。
+        let render_cache_bytes = published_render_bytes
+            + virtual_stats
+                .as_ref()
+                .map_or(0, |stats| stats.resident_bytes);
         let diff_stats = diff_cache_stats();
         let render_stats = render_cache_stats();
 
@@ -206,7 +211,7 @@ impl Command for GcCommand {
             &[
                 ("lines".into(), render_lines.to_string().into()),
                 ("wraps".into(), wrap_entries.to_string().into()),
-                ("bytes".into(), fmt_bytes(render_cache_bytes).into()),
+                ("bytes".into(), fmt_bytes(published_render_bytes).into()),
             ],
         ));
         if let Some(stats) = virtual_stats {

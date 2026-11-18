@@ -642,6 +642,7 @@ dependencies = [
  "image",
  "libc",
  "libmimalloc-sys",
+ "lru 0.18.0",
  "mimalloc",
  "parking_lot",
  "png",

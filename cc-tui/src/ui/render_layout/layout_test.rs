@@ -276,6 +276,69 @@ async fn test_virtual_metadata_is_shared_on_unchanged_viewport() {
 }
 
 #[tokio::test]
+async fn test_virtual_large_message_publishes_only_window_with_exact_anchors_and_links() {
+    let mut message = make_tool(0, 0);
+    if let MessageViewModel::ToolBlock { content, .. } = &mut message {
+        *content = (0..10_000)
+            .map(|line| format!("日志 {line:05} https://example.invalid/{line}\n"))
+            .collect();
+    }
+    message.recompute_hash();
+    let messages = vec![message];
+    let (reference, _) = make_reference(&messages, true);
+    let mut renderer = VirtualRenderer::default();
+    renderer.sync_messages(&messages);
+    let mut sources: Vec<_> = messages.into_iter().map(Arc::new).collect();
+    let viewport = Viewport {
+        top: 4_000,
+        height: 40,
+        follow_tail: false,
+        anchor: Some(ViewportAnchor {
+            logical_line: 4_000,
+            ..Default::default()
+        }),
+        ..Viewport::default()
+    };
+    let mode = make_mode(true);
+    let (total, anchor) = renderer
+        .measure_viewport(&mut sources, mode, viewport, 0)
+        .await;
+    let output = renderer.render(&mut sources, mode, viewport, 0).await;
+    assert_eq!(output.total_lines, total);
+    assert_eq!(output.scroll_anchor, anchor);
+    let layout = output.virtual_layout.as_ref().expect("应有虚拟窗口");
+    assert_eq!(reference.len(), 10_001);
+    assert_eq!(output.lines.len(), 120);
+    assert_eq!(
+        output.lines,
+        reference[layout.window_start..layout.window_start + 120]
+    );
+    assert_eq!(output.links.len(), 120);
+    for hit in &output.links {
+        assert!(output.wrap_map[hit.line].plain_text.contains(&hit.url));
+    }
+
+    let trailing = Viewport {
+        height: 2,
+        trailing_rows: 8,
+        follow_tail: true,
+        ..Viewport::default()
+    };
+    let (_, trailing_anchor) = renderer
+        .measure_viewport(&mut sources, mode, trailing, 0)
+        .await;
+    let output = renderer.render(&mut sources, mode, trailing, 0).await;
+    assert_eq!(output.scroll_anchor, trailing_anchor);
+    assert_eq!(
+        trailing_anchor
+            .expect("应保留尾部锚点")
+            .position
+            .after_body_rows,
+        7
+    );
+}
+
+#[tokio::test]
 async fn test_virtual_copy_exports_evicted_region_from_frozen_source() {
     let messages = vec![make_tool(0, 20), MessageViewModel::user("尾部中文".into())];
     let mut renderer = VirtualRenderer::default();
@@ -399,7 +462,7 @@ async fn test_virtual_detail_toggle_reuses_both_variants_with_shared_budget() {
         .render(&mut sources, make_mode(true), Viewport::default(), 0)
         .await;
     let key = renderer.key(0, &sources, 0);
-    let original = Arc::clone(&renderer.residents[&key].payload);
+    let original = Arc::clone(renderer.residents.peek(&key).expect("详情应驻留"));
     let _ = renderer
         .render(&mut sources, make_mode(false), Viewport::default(), 0)
         .await;
@@ -407,11 +470,14 @@ async fn test_virtual_detail_toggle_reuses_both_variants_with_shared_budget() {
         .render(&mut sources, make_mode(true), Viewport::default(), 0)
         .await;
     assert!(
-        Arc::ptr_eq(&original, &renderer.residents[&key].payload),
+        Arc::ptr_eq(
+            &original,
+            renderer.residents.peek(&key).expect("详情应驻留")
+        ),
         "热切换不得重新渲染仍驻留的详情"
     );
     assert_eq!(detail.lines, hot.lines);
-    assert!(renderer.residents.keys().any(|key| !key.detail));
+    assert!(renderer.residents.iter().any(|(key, _)| !key.detail));
     assert!(
         renderer.bytes <= DETAIL_CACHE_BUDGET,
         "两种模式必须共用而非各占一份预算"
@@ -424,6 +490,20 @@ async fn test_virtual_lru_budget_and_copy_after_actual_eviction() {
     let mut renderer = VirtualRenderer::default();
     renderer.sync_messages(&messages);
     let mut sources: Vec<_> = messages.into_iter().map(Arc::new).collect();
+    renderer.set_mode(make_mode(true));
+    let end = renderer.resolve_relative_anchor(
+        &mut sources,
+        ViewportAnchor {
+            relative_rows: isize::MAX,
+            ..Default::default()
+        },
+        0,
+    );
+    assert_eq!(end.message_index, sources.len() - 1);
+    assert!(
+        renderer.evictions > 0 && renderer.bytes <= DETAIL_CACHE_BUDGET,
+        "横跨历史的单次滚动必须在发布前按预算淘汰"
+    );
     for index in 0..sources.len() {
         let top = renderer.heights.prefix(index);
         let output = renderer
@@ -447,7 +527,7 @@ async fn test_virtual_lru_budget_and_copy_after_actual_eviction() {
                 0,
             )
             .await;
-        assert!(output.lines.len() < 450, "共享成品不得随累计访问历史增长");
+        assert!(output.lines.len() <= 36, "共享成品最多发布三屏已测量行");
         assert!(
             renderer.bytes <= DETAIL_CACHE_BUDGET,
             "普通消息驻留必须保持预算"
@@ -455,7 +535,7 @@ async fn test_virtual_lru_budget_and_copy_after_actual_eviction() {
     }
     assert!(renderer.evictions > 0, "测试必须真正超过预算并发生淘汰");
     assert!(
-        !renderer.residents.keys().any(|key| key.index == 0),
+        !renderer.residents.iter().any(|(key, _)| key.index == 0),
         "最早的消息应已淘汰"
     );
     let before = renderer.bytes;
@@ -509,7 +589,7 @@ async fn test_virtual_reading_head_does_not_materialize_offscreen_tail() {
         .await;
     assert!(output.lines.len() < 60, "头窗不应包含离屏长消息");
     assert!(
-        renderer.residents.keys().all(|key| key.index == 0),
+        renderer.residents.iter().all(|(key, _)| key.index == 0),
         "不能为了确定尾高度而顺带渲染巨型尾条"
     );
     assert!(
