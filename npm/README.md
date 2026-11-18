@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.296：**重新发布 0.6.295 的内容，修复 linux-arm64 平台包无法落库**。0.6.295 发布时 `@cc-claw/code-linux-arm64@0.6.295` 停在 npm 的半提交状态——首次 `npm publish` 提示 "being processed" 后版本未出现在 packument，重试返回 `409 Conflict - Cannot publish over previously staged version`，而 `npm stage list` 又报告无 staged 版本，既不可覆盖也不可清理，导致 `Verify platform packages are resolvable` 轮询 15 分钟后超时、主包停在 0.6.294。按 npm 官方 workaround bump 到 0.6.296 重发，内容与 0.6.295 完全一致（思考摘要标题行改用 MUTED，与状态栏提示行对齐），无代码改动。
+
 v0.6.295：**思考摘要标题行改用 MUTED，与状态栏提示行对齐**。消息流的 `Thought for 15s, read 2 files, ran 4 shell commands (ctrl+o to expand)` 标题行此前取 `theme::thinking_body()`（`inactive` 向 `subtle` 插值 0.7，默认主题得 `#666666`），而状态栏底部同语义的提示行取 `MUTED`（`#999999`），一档明暗之差让标题显得比状态栏更沉。现在两处摘要行（助手气泡的 `Reasoning` 分支、`ToolCallGroup` 的 `thinking` 分支）改用 `theme::cur().inactive`，默认主题精确 `#999999`、与 `MUTED` 一致，其余主题各随自身调色板；**思考正文不动**，仍是更暗的 `theme::thinking_body()`，标题与内容保持一档差（#1101, #1102）。
 
 v0.6.294：**长日志滚动不再构造整条消息的渲染成品**。虚拟渲染此前把「测量」和「发布」耦在一起——滚进长消息中部时先按整条消息构造一份渲染成品再丢掉，发布视口时又整条复制一次，跨消息快速翻页还会把已装载的分段一路累积、直到发布阶段才开始淘汰，进程工作集随之抬升。现把两者解耦：`measure_viewport` 只做滚动定位与高度测量、不复制渲染行，`render` 只发布视口范围（40 行视口滚进 10,001 行日志中部只发布 120 行，与整条渲染逐行等价），滚动锚点与链接命中保持精确；分段驻留改用 `lru` 的 `LruCache`，装载即按字节淘汰，普通分段共享 16 MiB 估算预算。`/gc` 的渲染内存合计计入虚拟驻留分段，`RenderWorker` 缓存 `has_live_sources`、不再每轮扫描全部源消息（#1098, #1099）。
