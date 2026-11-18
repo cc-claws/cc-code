@@ -627,7 +627,8 @@ fn test_render_new_file_code_truncates_with_hint() {
 #[test]
 fn test_render_new_file_code_full_mode_no_truncation() {
     let content: String = (1..=15).map(|i| format!("line {i}\n")).collect();
-    let lines = crate::diff::render_new_file_code("main.rs", &content, 80, &DarkTheme, usize::MAX, None);
+    let lines =
+        crate::diff::render_new_file_code("main.rs", &content, 80, &DarkTheme, usize::MAX, None);
     assert_eq!(lines.len(), 15, "全量模式应渲染全部 15 行");
     assert!(
         !lines
@@ -642,7 +643,8 @@ fn test_render_new_file_code_full_mode_no_truncation() {
 #[test]
 fn test_render_new_file_code_applies_syntax_highlight() {
     let theme = MonokaiTestTheme;
-    let lines = crate::diff::render_new_file_code("main.rs", "fn main() {}\n", 80, &theme, 10, None);
+    let lines =
+        crate::diff::render_new_file_code("main.rs", "fn main() {}\n", 80, &theme, 10, None);
     let fn_span = lines[0]
         .spans
         .iter()
@@ -881,7 +883,8 @@ fn content_fgs(line: &Line<'static>, skip_first: bool) -> Vec<Option<Color>> {
 fn test_render_new_file_code_matches_diff_line_highlight() {
     let theme = MonokaiTestTheme;
     let content = "/*\n * comment line two\n */\nfn main() {}\n";
-    let preview = crate::diff::render_new_file_code("probe.rs", content, 80, &theme, usize::MAX, None);
+    let preview =
+        crate::diff::render_new_file_code("probe.rs", content, 80, &theme, usize::MAX, None);
     let input = DiffInput {
         file_path: "probe.rs".to_string(),
         old_content: String::new(),
@@ -1035,7 +1038,8 @@ fn test_render_diff_ansi_theme_resets_background() {
 #[test]
 fn test_render_new_file_code_has_line_number_gutter() {
     let content = "fn a() {}\nfn b() {}\nfn c() {}\n";
-    let lines = crate::diff::render_new_file_code("main.rs", content, 80, &DarkTheme, usize::MAX, None);
+    let lines =
+        crate::diff::render_new_file_code("main.rs", content, 80, &DarkTheme, usize::MAX, None);
     assert_eq!(lines.len(), 3);
     for (i, line) in lines.iter().enumerate() {
         assert_eq!(
@@ -1109,8 +1113,14 @@ fn test_render_new_file_code_wraps_long_line_with_blank_continuation_gutter() {
 #[test]
 fn test_render_new_file_code_md_falls_back_to_plain_text() {
     let content = "# 标题\n\n普通段落文字\n\n**粗体**\n";
-    let md =
-        crate::diff::render_new_file_code("notes.md", content, 80, &MonokaiTestTheme, usize::MAX, None);
+    let md = crate::diff::render_new_file_code(
+        "notes.md",
+        content,
+        80,
+        &MonokaiTestTheme,
+        usize::MAX,
+        None,
+    );
     for line in &md {
         assert!(
             content_fgs(line, true).iter().all(|fg| fg.is_none()),
@@ -1118,8 +1128,14 @@ fn test_render_new_file_code_md_falls_back_to_plain_text() {
             content_fgs(line, true)
         );
     }
-    let txt =
-        crate::diff::render_new_file_code("notes.txt", content, 80, &MonokaiTestTheme, usize::MAX, None);
+    let txt = crate::diff::render_new_file_code(
+        "notes.txt",
+        content,
+        80,
+        &MonokaiTestTheme,
+        usize::MAX,
+        None,
+    );
     assert_eq!(
         md.iter().map(joined_text).collect::<Vec<_>>(),
         txt.iter().map(joined_text).collect::<Vec<_>>(),
