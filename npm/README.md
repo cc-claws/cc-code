@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.298：**屏幕选区跟着消息区走，弹窗撑开时不再盖进弹窗**。拖选一段内容后不动鼠标，agent 此时弹出提问/审批弹窗，底部面板撑高、消息区整体上移，而屏幕选区存的是绝对坐标、只在鼠标事件时重算，于是高亮停在旧行号上——压在弹窗之上，复制出来的也还是旧行号所在的内容（即弹窗底下的文字）。现在每帧布局 `Layout::split` 之后、绘制之前，按消息区 `y` 的差值把选区两端一起平移；某端落到被遮挡的行则整段作废，避免只留半截高亮让复制内容与显示对不上（#1108）。本版还补齐了结果正文的 `text_soft` 配色（`(No output)` / `Done` / Search 命中行），并把后台 sleep 的拦截提示写清楚是「拒绝执行」而非警告、讲明原因（#1107）；`⎿` 折角配色保持原样。
+
 v0.6.297：**工具摘要行与正文同色，消除同屏两种灰**。Read 工具折叠后的摘要 `⎿ Read 32 lines` 与 Glob 摘要此前取 `inactive`（默认主题 `#999999`），而相邻的 Bash 输出正文取 `text_soft`（`#D0D0D0`），一屏之内出现两档不同的灰，看着像渲染不一致。现在三处摘要行（助手气泡折叠态的 Read 摘要、`ToolCallGroup` 组内的 Read 摘要、组内 Glob 摘要与内容行）统一改为 `text_soft`；`⎿` 折角前缀仍为 `inactive`，「前缀暗、内容亮」的层级不变，展开正文、Bash 输出与主题调色板均未改动（#1105）。
 
 v0.6.296：**重新发布 0.6.295 的内容，修复 linux-arm64 平台包无法落库**。0.6.295 发布时 `@cc-claw/code-linux-arm64@0.6.295` 停在 npm 的半提交状态——首次 `npm publish` 提示 "being processed" 后版本未出现在 packument，重试返回 `409 Conflict - Cannot publish over previously staged version`，而 `npm stage list` 又报告无 staged 版本，既不可覆盖也不可清理，导致 `Verify platform packages are resolvable` 轮询 15 分钟后超时、主包停在 0.6.294。按 npm 官方 workaround bump 到 0.6.296 重发，内容与 0.6.295 完全一致（思考摘要标题行改用 MUTED，与状态栏提示行对齐），无代码改动。
