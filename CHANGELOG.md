@@ -4,6 +4,15 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.298 — 2026-11-19
+
+### Fixes
+
+- **屏幕选区随消息区位移，弹窗撑开时不再盖进弹窗（#1108）**：拖选一段内容后不动鼠标，agent 此时弹出提问/审批弹窗，底部面板被撑高、消息区整体上移若干行，而 `ScreenSelection` 存的是绝对屏幕坐标且只在鼠标事件时重算，于是高亮仍画在旧行号上——压在弹窗之上，复制出来的也还是旧行号所在的内容（即弹窗底下的文字）。现新增 `ScreenSelection::shift_rows(rows, remap)`：在 `cc-tui/src/ui/main_ui/mod.rs` 每帧 `Layout::split` 之后、任何绘制之前，用消息区上下边 `y` 的差值把选区两端行号一起平移；`remap` 返回 `None` 表示该行已被遮挡/裁掉，此时整段选区作废（`clear`）——只留半截高亮会让「复制内容」与高亮对不上。消息行内的 `TextSelection` 走内容锚点（`anchor_start`/`anchor_end`）逐帧重算，不受影响。改动文件：`cc-tui/src/app/text_selection.rs`、`cc-tui/src/ui/main_ui/mod.rs`、`cc-tui/src/app/screen_selection_shift_test.rs`（新增 7 项测试）。验证：PR 的 Rustfmt、ubuntu 与 macOS Build CI 全绿（ubuntu 1658 项测试全过），Windows 平台未等待完成即合并发版。
+- **补齐剩余结果正文的 `text_soft` 配色，并重写后台 sleep 拦截提示（#1107）**：接续上一条同屏两档灰的修复，`render_group_bash_body` 的 `(No output)` 兜底、`ToolBlock` 详细/折叠态的 `(No output)` / `Done`、以及 `ToolCallGroup` 详细模式下 Search 命中这类通用结果正文，此前仍是 `inactive`，现一并改为 `text_soft`。**`⎿` 折角配色与判定条件完全保持原样**（仍按 `entry.is_error` 取 `error`/`inactive`），只有正文改色。另把 `cc-tools/src/bash/mod.rs` 的 `blocked_sleep_message` 重写为完整说明：明确这是 `return Err` 拒绝执行而非警告，并说清原因（前台 `sleep` 期间整个 shell 被占住且无法响应中断），不再引导 until-loop / `run_in_background` / 拆短 sleep 这类会被别处拦掉或并不由提示决定的做法；该文案面向模型，按工具错误文案惯例固定英文（`cc-tools` 为叶子 crate，取不到 `cc-tui-core::i18n`）。改动文件：`cc-tui/src/ui/message_render/{mod,bash_status_test,bash_file_inspect_test}.rs`、`cc-tools/src/bash/{mod,sleep_guard_test}.rs`。验证：`cargo test -p cc-tools --lib sleep_guard` 12 项全过，PR 的 Rustfmt 与三平台 Build CI 全绿。
+
+---
+
 ## v0.6.297 — 2026-11-19
 
 ### Fixes
