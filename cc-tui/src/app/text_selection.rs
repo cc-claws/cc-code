@@ -628,7 +628,8 @@ impl ScreenSelection {
         let (Some(start), Some(end)) = (self.start, self.end) else {
             return;
         };
-        let map_row = |row: u16| -> Option<u16> {
+        // 闭包捕获 `remap` 的可变借用，必须自身也可变。
+        let mut map_row = |row: u16| -> Option<u16> {
             let shifted = i32::from(row).checked_add(rows)?;
             let clamped = u16::try_from(shifted.clamp(0, i32::from(u16::MAX))).ok()?;
             remap(clamped)
