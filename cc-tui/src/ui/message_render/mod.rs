@@ -2589,12 +2589,14 @@ pub fn render_view_model_with_flags(
                 ));
             }
             // Read 工具折叠态：显示行数或记忆召回摘要
+            // 摘要行与展开后的正文同取 text_soft：同屏里 Bash 输出已是 text_soft，
+            // 摘要留在 inactive 会让 `⎿ Read 32 lines` 比相邻结果行暗一档，像两种灰混用。
             if state.collapsed && tool_name == "Read" && !result_lines.is_empty() {
                 let is_mem = format_display_path_for_memory(&state.args_summary).is_some();
                 if let Some(summary) = read_summary(content, is_mem) {
                     lines.push(Line::from(vec![
                         BranchPrefix::span(false),
-                        Span::styled(summary, Style::default().fg(theme::cur().inactive)),
+                        Span::styled(summary, Style::default().fg(theme::cur().text_soft)),
                     ]));
                 }
             }
@@ -3400,10 +3402,11 @@ pub fn render_view_model_with_flags(
                             .as_deref()
                             .and_then(format_display_path_for_memory)
                             .is_some();
+                        // 摘要与组内正文同取 text_soft，避免同屏两种灰（见折叠态注释）
                         if let Some(summary) = read_summary(&entry.content, is_mem) {
                             lines.push(Line::from(vec![
                                 BranchPrefix::span(entry.is_error),
-                                Span::styled(summary, Style::default().fg(theme::cur().inactive)),
+                                Span::styled(summary, Style::default().fg(theme::cur().text_soft)),
                             ]));
                         }
                     } else if entry.tool_name == "Glob"
@@ -3413,7 +3416,7 @@ pub fn render_view_model_with_flags(
                         if let Some(summary) = glob_summary(&entry.content) {
                             lines.push(Line::from(vec![
                                 BranchPrefix::span(false),
-                                Span::styled(summary, Style::default().fg(theme::cur().inactive)),
+                                Span::styled(summary, Style::default().fg(theme::cur().text_soft)),
                             ]));
                         }
                         for line in entry.content.lines() {
@@ -3421,8 +3424,8 @@ pub fn render_view_model_with_flags(
                                 &mut lines,
                                 line,
                                 BranchPrefix::HANG,
-                                Style::default().fg(theme::cur().inactive),
-                                Style::default().fg(theme::cur().inactive),
+                                Style::default().fg(theme::cur().text_soft),
+                                Style::default().fg(theme::cur().text_soft),
                                 BranchPrefix::content_width(width),
                             );
                         }
