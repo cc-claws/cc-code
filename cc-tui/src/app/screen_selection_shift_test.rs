@@ -6,18 +6,24 @@
 use super::*;
 
 fn selection(start: (u16, u16), end: (u16, u16)) -> ScreenSelection {
-    let mut sel = ScreenSelection::start_drag(start.0, start.1);
+    let mut sel = ScreenSelection::default();
+    sel.start_drag(start.0, start.1);
     sel.update_drag(end.0, end.1);
     sel.end_drag();
     sel.set_selected_text(Some("picked".into()));
     sel
 }
 
+/// 「这一行仍可见」的 remap：原样返回行号，便于只验证平移本身。
+fn all_visible(row: u16) -> Option<u16> {
+    Some(row)
+}
+
 #[test]
 fn shift_rows_moves_selection_up_when_popup_opens() {
     // 消息区顶边从第 3 行被压到第 1 行：选区整体上移 2 行。
     let mut sel = selection((10, 4), (12, 8));
-    sel.shift_rows(-2, Some);
+    sel.shift_rows(-2, all_visible);
     assert_eq!(sel.start, Some((8, 4)));
     assert_eq!(sel.end, Some((10, 8)));
     assert!(sel.is_active(), "平移后高亮应继续存在");
@@ -26,7 +32,7 @@ fn shift_rows_moves_selection_up_when_popup_opens() {
 #[test]
 fn shift_rows_moves_selection_down_when_popup_closes() {
     let mut sel = selection((8, 4), (10, 8));
-    sel.shift_rows(2, Some);
+    sel.shift_rows(2, all_visible);
     assert_eq!(sel.start, Some((10, 4)));
     assert_eq!(sel.end, Some((12, 8)));
 }
@@ -34,7 +40,7 @@ fn shift_rows_moves_selection_down_when_popup_closes() {
 #[test]
 fn shift_rows_keeps_columns() {
     let mut sel = selection((5, 0), (5, 30));
-    sel.shift_rows(-1, Some);
+    sel.shift_rows(-1, all_visible);
     assert_eq!(sel.start, Some((4, 0)));
     assert_eq!(sel.end, Some((4, 30)));
 }
@@ -74,9 +80,10 @@ fn shift_rows_on_inactive_selection_is_noop() {
 #[test]
 fn shift_rows_keeps_dragging_state_when_remap_accepts() {
     // 拖拽进行中用户同时触发弹窗：位移后仍应保持 dragging，鼠标继续拖能接上。
-    let mut sel = ScreenSelection::start_drag(6, 2);
+    let mut sel = ScreenSelection::default();
+    sel.start_drag(6, 2);
     sel.update_drag(9, 5);
-    sel.shift_rows(-1, Some);
+    sel.shift_rows(-1, all_visible);
     assert!(sel.dragging);
     assert_eq!(sel.start, Some((5, 2)));
     assert_eq!(sel.end, Some((8, 5)));
