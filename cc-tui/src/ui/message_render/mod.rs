@@ -3445,12 +3445,12 @@ pub fn render_view_model_with_flags(
                             // 结果正文（Search 命中等）与 Bash/Glob/Read 的正文同取
                             // text_soft：留在 inactive 会让 `Search(pattern: …)` 下的
                             // 命中行比相邻 `⎿ Read N lines` 暗一档，又是同屏两种灰。
-                            // `⎿` 折角仍为 inactive，保留「前缀暗、内容亮」的层级。
+                            // `⎿` 折角配色保持原样，不随正文改色而变。
                             push_prefixed_text(
                                 &mut lines,
                                 line,
                                 first_prefix,
-                                Style::default().fg(if entry_is_error {
+                                Style::default().fg(if entry.is_error {
                                     theme::cur().error
                                 } else {
                                     theme::cur().inactive

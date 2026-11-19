@@ -294,9 +294,11 @@ fn test_grep_group_body_uses_text_soft() {
         standalone_action: None,
     };
     let lines = render_view_model(&group, None, 120, true, 0);
+    // 标题行 `● Search(SALES_DEPT_THREE)` 同样含 pattern，必须先排除掉，
+    // 否则断言打的是绿色工具头而不是结果正文行。
     let hit = lines
         .iter()
-        .find(|line| line.to_string().contains("SALES_DEPT_THREE"))
+        .find(|line| line.to_string().contains("app/a.php:56"))
         .expect("应渲染出命中行");
     let body = hit.spans.last().expect("命中行应有正文 span");
     assert_eq!(
@@ -304,10 +306,17 @@ fn test_grep_group_body_uses_text_soft() {
         Some(theme::cur().text_soft),
         "Search 命中行应取 text_soft: {hit:?}"
     );
+    // 折角配色保持原样（本次不碰前缀，只改正文）：
+    // 前缀 span 内容为 `  ⎿  `，按内容查找而非固定下标，避开前导空白 span。
+    let prefix = hit
+        .spans
+        .iter()
+        .find(|span| span.content.contains(BranchPrefix::SYMBOL))
+        .expect("命中行应有 `⎿` 折角");
     assert_eq!(
-        hit.spans[0].style.fg,
+        prefix.style.fg,
         Some(theme::cur().inactive),
-        "`⎿` 折角仍为 inactive，保留前缀暗、内容亮的层级"
+        "`⎿` 折角应保持原本的 inactive"
     );
 }
 
