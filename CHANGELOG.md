@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.297 — 2026-11-19
+
+### Fixes
+
+- **工具摘要行统一改用 `text_soft`，消除同屏两种灰（#1105）**：Read 工具的折叠摘要 `⎿ Read 32 lines` 与 Glob 摘要此前取 `inactive`（默认主题 `#999999`），而同屏相邻的 Bash 输出正文取 `text_soft`（`#D0D0D0`），一屏之内出现两档不同的灰，被误认为渲染不一致。现 `cc-tui/src/ui/message_render/mod.rs` 三处摘要行统一改为 `text_soft`：`AssistantBubble` 折叠态的 Read 摘要、`ToolCallGroup` 组内的 Read 摘要、组内 Glob 摘要与其内容行。**`⎿` 折角前缀仍为 `inactive`**，「前缀暗、内容亮」的层级关系不变；展开后的正文与 Bash 输出颜色均未改动，主题调色板也未调整，其他使用 `inactive` 的位置（状态栏、占位符、分隔线、折叠提示）不受影响。改动文件：`cc-tui/src/ui/message_render/mod.rs`。验证：改动仅替换颜色取值，无逻辑变更，本地 `cargo test -p cc-tui --lib` 因构建机磁盘空间不足未完成，依赖 CI 验证。
+
+---
+
 ## v0.6.296 — 2026-11-18
 
 ### Fixes
