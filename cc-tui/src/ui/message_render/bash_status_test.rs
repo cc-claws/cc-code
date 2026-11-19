@@ -67,6 +67,46 @@ fn test_tool_phase_finished_with_empty_output_shows_done() {
     }
 }
 
+/// 取渲染结果中包含 `needle` 的那一行的正文 span 颜色。
+fn body_fg_of(text: &MessageViewModel, detail: bool, needle: &str) -> ratatui::style::Color {
+    let lines = render_view_model(text, None, 100, detail, 4);
+    lines
+        .iter()
+        .find(|line| {
+            line.spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<String>()
+                .contains(needle)
+        })
+        .and_then(|line| line.spans.last())
+        .unwrap_or_else(|| panic!("未找到包含 {needle:?} 的行"))
+        .style
+        .fg
+        .expect("正文 span 应带前景色")
+}
+
+#[test]
+fn test_bash_empty_output_body_uses_text_soft() {
+    // `(No output)` / `Done` 是结果正文位，必须与有输出时的结果行同为 text_soft，
+    // 否则同屏 `⎿ Done` 与相邻 `⎿ <输出>` 会呈现两种灰。
+    let empty = make_bash(ToolPhase::Finished, "");
+    assert_eq!(
+        body_fg_of(&empty, true, "(No output)"),
+        crate::ui::theme::cur().text_soft
+    );
+    assert_eq!(
+        body_fg_of(&empty, false, "⎿  Done"),
+        crate::ui::theme::cur().text_soft
+    );
+    // 有输出的结果行本身就是 text_soft，两者应完全一致。
+    let filled = make_bash(ToolPhase::Finished, "hello");
+    assert_eq!(
+        body_fg_of(&filled, false, "hello"),
+        crate::ui::theme::cur().text_soft
+    );
+}
+
 #[test]
 fn test_shell_running_text_includes_timeout_with_dot() {
     assert_eq!(

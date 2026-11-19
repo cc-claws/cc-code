@@ -275,6 +275,52 @@ fn test_grep_failed_group_collapsed_keeps_tool_header_and_truncated_summary() {
 }
 
 #[test]
+fn test_grep_group_body_uses_text_soft() {
+    // Search 命中行是结果正文，必须与 Read 行数摘要 / Bash 输出同为 text_soft；
+    // 只有 `⎿` 折角保留 inactive。
+    let group = MessageViewModel::ToolCallGroup {
+        thinking: None,
+        category: ToolCategory::Search,
+        tools: vec![ToolEntry {
+            tool_name: "Grep".into(),
+            display_name: "Search".into(),
+            args_display: Some("SALES_DEPT_THREE".into()),
+            content: "app/a.php:56: SALES_DEPT_THREE".into(),
+            is_error: false,
+            file_inspect: false,
+        }],
+        collapsed: true,
+        content_hash: 0,
+        standalone_action: None,
+    };
+    let lines = render_view_model(&group, None, 120, true, 0);
+    // 标题行 `● Search(SALES_DEPT_THREE)` 同样含 pattern，必须先排除掉，
+    // 否则断言打的是绿色工具头而不是结果正文行。
+    let hit = lines
+        .iter()
+        .find(|line| line.to_string().contains("app/a.php:56"))
+        .expect("应渲染出命中行");
+    let body = hit.spans.last().expect("命中行应有正文 span");
+    assert_eq!(
+        body.style.fg,
+        Some(theme::cur().text_soft),
+        "Search 命中行应取 text_soft: {hit:?}"
+    );
+    // 折角配色保持原样（本次不碰前缀，只改正文）：
+    // 前缀 span 内容为 `  ⎿  `，按内容查找而非固定下标，避开前导空白 span。
+    let prefix = hit
+        .spans
+        .iter()
+        .find(|span| span.content.contains(BranchPrefix::SYMBOL))
+        .expect("命中行应有 `⎿` 折角");
+    assert_eq!(
+        prefix.style.fg,
+        Some(theme::cur().inactive),
+        "`⎿` 折角应保持原本的 inactive"
+    );
+}
+
+#[test]
 fn test_render_bash_inspect_group_collapsed_snapshot() {
     let (messages, _) = make_inspection_messages();
     let views = make_restored_views(&messages);
