@@ -48,8 +48,10 @@ fn shift_rows_keeps_columns() {
 #[test]
 fn shift_rows_clears_selection_when_any_endpoint_is_covered() {
     // 选区的结尾被压到消息区可见范围之外：不能只留半截高亮继续复制屏幕外内容。
+    // 原选区 (10,4)..(12,8) 上移 2 行后落在 8..=10，把可见范围卡到 8..=9，
+    // 结尾行 10 就被遮挡了。
     let mut sel = selection((10, 4), (12, 8));
-    let visible = 8..=11;
+    let visible = 8..=9;
     sel.shift_rows(-2, |row| visible.contains(&row).then_some(row));
     assert!(!sel.is_active(), "端点被遮挡时必须整段作废");
     assert_eq!(sel.start, None);
