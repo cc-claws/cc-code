@@ -7,6 +7,8 @@
 
 ## 最近更新
 
+v0.6.297：**工具摘要行与正文同色，消除同屏两种灰**。Read 工具折叠后的摘要 `⎿ Read 32 lines` 与 Glob 摘要此前取 `inactive`（默认主题 `#999999`），而相邻的 Bash 输出正文取 `text_soft`（`#D0D0D0`），一屏之内出现两档不同的灰，看着像渲染不一致。现在三处摘要行（助手气泡折叠态的 Read 摘要、`ToolCallGroup` 组内的 Read 摘要、组内 Glob 摘要与内容行）统一改为 `text_soft`；`⎿` 折角前缀仍为 `inactive`，「前缀暗、内容亮」的层级不变，展开正文、Bash 输出与主题调色板均未改动（#1105）。
+
 v0.6.296：**重新发布 0.6.295 的内容，修复 linux-arm64 平台包无法落库**。0.6.295 发布时 `@cc-claw/code-linux-arm64@0.6.295` 停在 npm 的半提交状态——首次 `npm publish` 提示 "being processed" 后版本未出现在 packument，重试返回 `409 Conflict - Cannot publish over previously staged version`，而 `npm stage list` 又报告无 staged 版本，既不可覆盖也不可清理，导致 `Verify platform packages are resolvable` 轮询 15 分钟后超时、主包停在 0.6.294。按 npm 官方 workaround bump 到 0.6.296 重发，内容与 0.6.295 完全一致（思考摘要标题行改用 MUTED，与状态栏提示行对齐），无代码改动。
 
 v0.6.295：**思考摘要标题行改用 MUTED，与状态栏提示行对齐**。消息流的 `Thought for 15s, read 2 files, ran 4 shell commands (ctrl+o to expand)` 标题行此前取 `theme::thinking_body()`（`inactive` 向 `subtle` 插值 0.7，默认主题得 `#666666`），而状态栏底部同语义的提示行取 `MUTED`（`#999999`），一档明暗之差让标题显得比状态栏更沉。现在两处摘要行（助手气泡的 `Reasoning` 分支、`ToolCallGroup` 的 `thinking` 分支）改用 `theme::cur().inactive`，默认主题精确 `#999999`、与 `MUTED` 一致，其余主题各随自身调色板；**思考正文不动**，仍是更暗的 `theme::thinking_body()`，标题与内容保持一档差（#1101, #1102）。
