@@ -77,17 +77,28 @@ fn does_not_match_extra_sleep_args() {
 }
 
 #[test]
-fn blocked_message_points_to_alternatives() {
+fn blocked_message_states_rejection_reason() {
     let message = blocked_sleep_message("standalone sleep 45");
     assert!(
         message.starts_with("Blocked: standalone sleep 45."),
         "{message}"
     );
-    // 两条替代路径都要出现，否则模型不知道往哪走。
-    assert!(message.contains("until-loop"), "{message}");
-    assert!(message.contains("run_in_background"), "{message}");
-    // 明确堵住拆短 sleep 绕过的做法。
-    assert!(message.contains("Do not chain shorter sleeps"), "{message}");
+    // 这是拒绝执行（invoke 直接 return Err），文案必须写明命令不会跑，
+    // 否则模型会以为「只是警告」，原样重试。
+    assert!(message.contains("does not run"), "{message}");
+    assert!(message.contains("occupy the whole shell"), "{message}");
+    assert!(
+        !message.to_lowercase().contains("warning"),
+        "拒绝执行不是警告，不能写 warning: {message}"
+    );
+    // 不得指向会被别处拦掉的路径：until 轮询在模型侧有 autonomous_loop 硬拦截，
+    // run_in_background 由执行器按能力决定，拆短 sleep 也不该由文案教唆。
+    for dead_end in ["until-loop", "run_in_background", "Do not chain"] {
+        assert!(
+            !message.contains(dead_end),
+            "拦截文案不应包含 {dead_end}: {message}"
+        );
+    }
 }
 
 #[tokio::test]

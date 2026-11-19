@@ -275,6 +275,43 @@ fn test_grep_failed_group_collapsed_keeps_tool_header_and_truncated_summary() {
 }
 
 #[test]
+fn test_grep_group_body_uses_text_soft() {
+    // Search 命中行是结果正文，必须与 Read 行数摘要 / Bash 输出同为 text_soft；
+    // 只有 `⎿` 折角保留 inactive。
+    let group = MessageViewModel::ToolCallGroup {
+        thinking: None,
+        category: ToolCategory::Search,
+        tools: vec![ToolEntry {
+            tool_name: "Grep".into(),
+            display_name: "Search".into(),
+            args_display: Some("SALES_DEPT_THREE".into()),
+            content: "app/a.php:56: SALES_DEPT_THREE".into(),
+            is_error: false,
+            file_inspect: false,
+        }],
+        collapsed: true,
+        content_hash: 0,
+        standalone_action: None,
+    };
+    let lines = render_view_model(&group, None, 120, true, 0);
+    let hit = lines
+        .iter()
+        .find(|line| line.to_string().contains("SALES_DEPT_THREE"))
+        .expect("应渲染出命中行");
+    let body = hit.spans.last().expect("命中行应有正文 span");
+    assert_eq!(
+        body.style.fg,
+        Some(theme::cur().text_soft),
+        "Search 命中行应取 text_soft: {hit:?}"
+    );
+    assert_eq!(
+        hit.spans[0].style.fg,
+        Some(theme::cur().inactive),
+        "`⎿` 折角仍为 inactive，保留前缀暗、内容亮的层级"
+    );
+}
+
+#[test]
 fn test_render_bash_inspect_group_collapsed_snapshot() {
     let (messages, _) = make_inspection_messages();
     let views = make_restored_views(&messages);

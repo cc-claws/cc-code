@@ -256,17 +256,19 @@ pub fn detect_blocked_sleep_pattern(command: &str) -> Option<String> {
     })
 }
 
-/// 命中阻塞 sleep 时返回给模型的拦截文案。
+/// 命中阻塞 sleep 时返回给模型的**拒绝执行**文案（invoke 里直接 `return Err`，
+/// 命令不会被执行，所以文案不能写成「警告」或讲怎么在放行后规避）。
 ///
-/// 措辞对齐 peri 现有风格：先说明被拦的具体模式，再给出两条可执行的替代路径，
-/// 并显式堵住「拆成多个短 sleep 绕过」的做法（CC 文案同样强调这一点）。
+/// 说清三件事：被拦的是哪段、以及为什么拦（占住整个 shell、无输出、不响应中断）。
+/// 不附带指引：`until` 轮询在模型侧有 `autonomous_loop` 硬拦截，
+/// `run_in_background` 由执行器按能力决定，拆短 sleep 也不该由文案教唆。
+/// 文案面向模型（工具错误即模型输入），故固定英文；`cc-tools` 是叶子 crate，
+/// 拿不到 `cc-tui-core::i18n`，且这不是界面文案。
 fn blocked_sleep_message(pattern: &str) -> String {
     format!(
-        "Blocked: {pattern}. To wait for a condition, use an until-loop \
-         (e.g. `until <check>; do sleep 2; done`) or run the blocking command with \
-         `run_in_background: true` and wait for its completion notification. \
-         Do not chain shorter sleeps to work around this block. If you genuinely \
-         need a delay (rate limiting, deliberate pacing), keep it under 2 seconds."
+        "Blocked: {pattern}. Leading `sleep` in the foreground does not run: it \
+         would occupy the whole shell with no output until it ends and would not \
+         observe interruption while waiting. Remove the sleep before running."
     )
 }
 
@@ -405,8 +407,7 @@ impl BaseTool for BashTool {
         };
         let run_in_background = input["run_in_background"].as_bool().unwrap_or(false);
 
-        // 阻塞轮询拦截：`sleep N`（N ≥ 2）作为首个子命令时直接拒绝执行，
-        // 引导模型改用 until-loop / run_in_background / Sleep 工具。
+        // 阻塞轮询拦截：`sleep N`（N ≥ 2）作为首个子命令时直接拒绝执行。
         // 显式要求后台运行时放行——此时 shell 不会被纯等待占住。
         if !run_in_background {
             if let Some(pattern) = detect_blocked_sleep_pattern(command) {

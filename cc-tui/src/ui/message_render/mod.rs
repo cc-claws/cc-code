@@ -1058,9 +1058,11 @@ fn render_group_bash_body(
     let empty_output = entry.content.trim().is_empty()
         || (!entry_is_error && strip_exit_code_suffix(&entry.content).is_empty());
     if empty_output && !entry_is_error {
+        // 与组内 Bash 结果行同取 text_soft：同屏里 `⎿ (No output)` 留在 inactive
+        // 会比相邻 `⎿ <输出>` 暗一档，又变成两种灰（同 #1105 的折叠摘要问题）。
         lines.push(Line::from(vec![
             BranchPrefix::span(false),
-            Span::styled("(No output)", Style::default().fg(theme::cur().inactive)),
+            Span::styled("(No output)", Style::default().fg(theme::cur().text_soft)),
         ]));
         return lines;
     }
@@ -2671,12 +2673,14 @@ pub fn render_view_model_with_flags(
                     ]));
                 }
             }
+            // `(No output)` / `Done` 是 Bash 结果正文位，与有输出时的结果行同为
+            // text_soft；状态类文案（Running… / Waiting… / 后台提示）才留 inactive。
             if !is_running && empty_output && !*is_error {
                 lines.push(Line::from(vec![
                     BranchPrefix::span(false),
                     Span::styled(
                         if detail_mode { "(No output)" } else { "Done" },
-                        Style::default().fg(theme::cur().inactive),
+                        Style::default().fg(theme::cur().text_soft),
                     ),
                 ]));
             }
@@ -3438,16 +3442,24 @@ pub fn render_view_model_with_flags(
                             } else {
                                 BranchPrefix::HANG
                             };
+                            // 结果正文（Search 命中等）与 Bash/Glob/Read 的正文同取
+                            // text_soft：留在 inactive 会让 `Search(pattern: …)` 下的
+                            // 命中行比相邻 `⎿ Read N lines` 暗一档，又是同屏两种灰。
+                            // `⎿` 折角仍为 inactive，保留「前缀暗、内容亮」的层级。
                             push_prefixed_text(
                                 &mut lines,
                                 line,
                                 first_prefix,
-                                Style::default().fg(if entry.is_error {
+                                Style::default().fg(if entry_is_error {
                                     theme::cur().error
                                 } else {
                                     theme::cur().inactive
                                 }),
-                                Style::default().fg(theme::cur().inactive),
+                                Style::default().fg(if entry_is_error {
+                                    theme::cur().error
+                                } else {
+                                    theme::cur().text_soft
+                                }),
                                 BranchPrefix::content_width(width),
                             );
                         }
