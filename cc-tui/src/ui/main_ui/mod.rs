@@ -52,6 +52,39 @@ pub fn render(f: &mut Frame, app: &mut App) {
     render_session_column(f, app, area);
 }
 
+/// 让屏幕选区跟随消息区在屏幕上的位移。
+///
+/// 屏幕选区（`ScreenSelection`）与它的 Buffer 快照都用**绝对屏幕坐标**记录：
+/// 只有用户在动鼠标（拖拽/移动）时才会重算，agent 这边弹出审批或提问弹窗时
+/// 鼠标是不动的，于是底部分块一旦撑开 `panel_height`，消息区顶边被冻结的行数
+/// 就变了，而选区还停在旧行号上——高亮覆盖到弹窗里，复制出来的也是弹窗下面那
+/// 一段「原本在旧行号上」的内容。两者都不该出现：
+///
+/// - 选区整体随消息区平移，指向的仍是用户当初选中的那段文字；
+/// - 被压出可见区的行不再可见，整段选区作废（`shift_rows` 内部 `clear`），
+///   而不是留下半截高亮继续复制屏幕外的东西。
+///
+/// 上一帧的消息区顶边存在 `ui.messages_area`（`render_messages` 每帧刷新）。
+fn sync_screen_selection_to_layout(app: &mut App, messages_area: Rect) {
+    let session = app.session_mgr.current_mut();
+    let Some(previous) = session.ui.messages_area else {
+        return;
+    };
+    if !session.ui.screen_selection.is_active() && session.ui.pending_screen_start.is_none() {
+        return;
+    }
+    let delta = i32::from(messages_area.y) - i32::from(previous.y);
+    if delta == 0 {
+        return;
+    }
+    let top = messages_area.y;
+    let bottom = messages_area.bottom().saturating_sub(1);
+    session
+        .ui
+        .screen_selection
+        .shift_rows(delta, |row| (top..=bottom).contains(&row).then_some(row));
+}
+
 /// 渲染单个 session 列（含垂直布局拆分）
 fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
     f.render_widget(Clear, area);
@@ -110,6 +143,11 @@ fn render_session_column(f: &mut Frame, app: &mut App, area: Rect) {
             Constraint::Length(bg_bar_height_val),
         ])
         .split(area);
+
+    // 屏幕选区是绝对坐标，底部弹窗/面板一撑开，消息区就被往上压：
+    // 不同步的话高亮会留在旧行号上，直接盖到弹窗边框里，复制也还在复制弹窗底下的旧内容。
+    // 渲染任何内容之前先按消息区的位移把选区搬到新位置，被压出可见区的行则整段作废。
+    sync_screen_selection_to_layout(app, chunks[1]);
 
     message_area::render_messages(f, app, chunks[0], chunks[1]);
 

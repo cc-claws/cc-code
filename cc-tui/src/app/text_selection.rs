@@ -615,6 +615,32 @@ impl ScreenSelection {
             _ => None,
         }
     }
+
+    /// 把选区整体在屏幕上平移 `rows` 行（正数下移），并交给 `remap` 重映射每一行。
+    ///
+    /// 屏幕选区是绝对坐标：布局一变（弹窗占走底部若干行、视口增长），同一段文字就
+    /// 落到了别的行号上。若只是原样保留坐标，高亮会停在旧位置——覆盖到弹窗上，或
+    /// 在消息区里压到另一段文字。复制时的 Buffer 快照同理，必须跟着一起搬。
+    ///
+    /// `remap` 返回 `None` 表示该行已被遮挡/裁掉，此时整段选区作废（`clear`）：
+    /// 只保留半截选区会让「复制到的内容」和高亮对不上。
+    pub fn shift_rows(&mut self, rows: i32, mut remap: impl FnMut(u16) -> Option<u16>) {
+        let (Some(start), Some(end)) = (self.start, self.end) else {
+            return;
+        };
+        let map_row = |row: u16| -> Option<u16> {
+            let shifted = i32::from(row).checked_add(rows)?;
+            let clamped = u16::try_from(shifted.clamp(0, i32::from(u16::MAX))).ok()?;
+            remap(clamped)
+        };
+        match (map_row(start.0), map_row(end.0)) {
+            (Some(sr), Some(er)) => {
+                self.start = Some((sr, start.1));
+                self.end = Some((er, end.1));
+            }
+            _ => self.clear(),
+        }
+    }
 }
 
 /// 拼接一行内 `[col_start, col_end)` 列的文本，按 symbol 显示宽度推进列游标。
@@ -704,3 +730,7 @@ pub fn extract_snapshot_text(
 #[cfg(test)]
 #[path = "text_selection_test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "screen_selection_shift_test.rs"]
+mod screen_selection_shift_tests;
