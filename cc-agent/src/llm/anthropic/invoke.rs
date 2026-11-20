@@ -491,6 +491,12 @@ pub(super) async fn send_anthropic_request(
     if let Some(sid) = session_id {
         req = req.header("x-session-id", sid);
     }
+    if crate::llm::is_opencode_endpoint(&chat_url) {
+        // OpenCode Console/Go 的 Anthropic 端点按 Bearer token 鉴权（对应 Claude Code 的
+        // ANTHROPIC_AUTH_TOKEN）。同时保留 x-api-key，两者取值一致，便于网关任选其一校验。
+        req = req.bearer_auth(&adapter.api_key);
+    }
+    req = crate::llm::apply_opencode_session_header(req, session_id);
 
     tracing::debug!(
         provider = "anthropic",
