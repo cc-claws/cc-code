@@ -3424,11 +3424,14 @@ pub fn render_view_model_with_flags(
                             ]));
                         }
                         for line in entry.content.lines() {
+                            // `⎿` 折角取 inactive，与 Grep 走的通用分支一致（正文才是
+                            // text_soft）。#1105 把这里的前缀一起改成了 text_soft，
+                            // 同屏 Glob / Grep 两种 Search 结果的折角一白一灰。
                             push_prefixed_text(
                                 &mut lines,
                                 line,
                                 BranchPrefix::HANG,
-                                Style::default().fg(theme::cur().text_soft),
+                                Style::default().fg(theme::cur().inactive),
                                 Style::default().fg(theme::cur().text_soft),
                                 BranchPrefix::content_width(width),
                             );
