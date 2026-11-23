@@ -321,6 +321,64 @@ fn test_grep_group_body_uses_text_soft() {
 }
 
 #[test]
+fn test_glob_group_branch_uses_inactive_prefix_like_grep() {
+    // Glob 走专用分支、Grep 走通用分支：两者的 `⎿` 折角必须同为 inactive，
+    // 否则同屏两种 Search 结果的折角一白一灰（#1105 误改 Glob 前缀）。
+    let glob_group = MessageViewModel::ToolCallGroup {
+        thinking: None,
+        category: ToolCategory::Glob,
+        tools: vec![ToolEntry {
+            tool_name: "Glob".into(),
+            display_name: "Search".into(),
+            args_display: Some("pattern: \"**/*Newegg*\"".into()),
+            content: "Found 2 files\napp/A.php\napp/B.php".into(),
+            is_error: false,
+            file_inspect: false,
+        }],
+        collapsed: true,
+        content_hash: 0,
+        standalone_action: None,
+    };
+    let lines = render_view_model(&glob_group, None, 120, true, 0);
+    // 摘要行 `Found N files`：前缀 inactive、正文 text_soft。
+    let summary = lines
+        .iter()
+        .find(|line| line.to_string().contains("Found 2 files"))
+        .expect("应渲染出 Glob 摘要行");
+    let summary_prefix = summary
+        .spans
+        .iter()
+        .find(|span| span.content.contains(BranchPrefix::SYMBOL))
+        .expect("摘要行应有 `⎿` 折角");
+    assert_eq!(
+        summary_prefix.style.fg,
+        Some(theme::cur().inactive),
+        "Glob 摘要行折角应为 inactive: {summary:?}"
+    );
+    // 内容行：前缀 inactive、正文 text_soft，与 Grep 通用分支口径一致。
+    let path_line = lines
+        .iter()
+        .find(|line| line.to_string().contains("app/A.php"))
+        .expect("应渲染出 Glob 内容行");
+    let path_prefix = path_line
+        .spans
+        .iter()
+        .find(|span| span.content.contains(BranchPrefix::SYMBOL))
+        .expect("内容行应有 `⎿` 折角");
+    assert_eq!(
+        path_prefix.style.fg,
+        Some(theme::cur().inactive),
+        "Glob 内容行折角应为 inactive（与 Grep 一致）: {path_line:?}"
+    );
+    let path_body = path_line.spans.last().expect("内容行应有正文 span");
+    assert_eq!(
+        path_body.style.fg,
+        Some(theme::cur().text_soft),
+        "Glob 内容行正文应为 text_soft: {path_line:?}"
+    );
+}
+
+#[test]
 fn test_render_bash_inspect_group_collapsed_snapshot() {
     let (messages, _) = make_inspection_messages();
     let views = make_restored_views(&messages);
