@@ -4,6 +4,23 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.300 — 2026-11-23
+
+### Features
+
+- **支持 OpenCode Go 网关的会话头与鉴权（#1110, #1111）**：把 provider 的 base URL 配置为 OpenCode Go（`opencode.ai`）推理端点后，请求会被网关以 400 拒绝（`Request is missing x-opencode-session and cannot be routed efficiently`）——该网关按会话路由并聚合 prompt cache，缺少稳定的会话头就无法受理，端点实际不可用；Anthropic 端点还要求 Bearer token 鉴权。`cc-agent/src/llm/mod.rs` 新增 `apply_opencode_session_header()`：按会话 ID 注入 `x-opencode-session`（ACP 会话 ID 透传，跨轮次稳定）；**该头不按 host 过滤**——base URL 可能经自建中转指向 OpenCode，过滤会漏发，对不识别该头的 provider 它只是被忽略的额外请求头，与既有 `x-session-id`、`metadata.session_id` 的无过滤透传策略一致。`cc-agent/src/llm/url_util.rs` 新增 `is_opencode_endpoint()` 按 host 判定 `opencode.ai` / `*.opencode.ai`（覆盖 `opencode.ai.evil.com` 伪造反例）；`anthropic/invoke.rs` 对 OpenCode 端点改用 `bearer_auth` 同时保留 `x-api-key`；OpenAI 非流式（`openai/invoke.rs`）与流式（`openai/stream.rs`）路径均注入会话头。`build_reqwest_client()` 同时显式声明 `User-Agent: cc-code/<版本>`，避免被网关判定为通用 SDK 流量。改动文件：`cc-agent/src/llm/{mod,url_util,url_util_test}.rs`、`cc-agent/src/llm/anthropic/invoke.rs`、`cc-agent/src/llm/openai/{invoke,stream}.rs`（新增 5 个测试用例）。验证：原 PR 的 `cargo test -p cc-agent --lib` 708 项全过、三平台 Build CI 全绿。贡献者：ywsy。
+
+---
+
+## v0.6.299 — 2026-11-23
+
+### Fixes
+
+- **折叠态独立动作行的计数数字补加粗，与 Thought 摘要行字重对齐（#1112, #1113）**：同一屏内两类折叠摘要行承载的是同一份动作计数数据（均出自 `readonly_action_summary_ext`），但渲染走了两条路径——带前置思考的摘要行（`AssistantBubble` 的 `Reasoning` 分支、`ToolCallGroup` 的 `thinking` 分支）经 `digit_accent_spans` 把数字拆成独立 span 加粗，而前面无思考的独立只读组折叠行（`ToolCallGroup.standalone_action`）是整行单个 `Span::styled` 常规字重，导致 `Thought for 7s, read 2 files` 的数字加粗、独立的 `Read 2 files` / `Searched for 1 pattern` 数字不加粗，扫读时重点值忽强忽弱。现折叠态 `standalone_action` 分支的整串文案（首字母大写 + `(ctrl+o to expand)` 提示）改走同一套 `digit_accent_spans`：数字加粗、其余文字（含提示串）保持常规字重，颜色仍为 `inactive`（MUTED），文案、缩进、首字母大写行为均不变。改动文件：`cc-tui/src/ui/message_render/mod.rs`、`message_render_test.rs`（新增回归测试 `test_standalone_action_summary_bolds_count_digits`）。验证：PR 的 Rustfmt 与三平台 Build CI 全绿（本机因内存限制未编译，验证全部由 CI 完成）。
+- **组内 Glob 结果折角前缀还原 `inactive`，与 Grep 口径一致（#1114, #1115）**：同一屏两种 Search 结果的 `⎿` 折角前缀一白一灰——#1105 把 Glob 结果正文改 `text_soft` 时把前缀折角也一起改了，而 Grep 通用分支折角仍是 `inactive`；#1107 修通用分支时只动正文，未回补 Glob 分支的前缀。现 `cc-tui/src/ui/message_render/mod.rs` 组内 Glob 分支的内容行折角前缀 `text_soft` → `inactive`，与 Grep 成功态一致；摘要行 `Found N files` 与内容行正文维持 `text_soft` 不变，仅折角前缀颜色变化，文案/缩进不动。改动文件：`cc-tui/src/ui/message_render/{mod,bash_file_inspect_test}.rs`（新增测试 `test_glob_group_branch_uses_inactive_prefix_like_grep`）。验证：PR 的三平台 Build CI 全绿。
+
+---
+
 ## v0.6.298 — 2026-11-19
 
 ### Fixes
