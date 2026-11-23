@@ -322,8 +322,10 @@ fn test_grep_group_body_uses_text_soft() {
 
 #[test]
 fn test_glob_group_branch_uses_inactive_prefix_like_grep() {
-    // Glob 走专用分支、Grep 走通用分支：两者的 `⎿` 折角必须同为 inactive，
+    // Glob 走专用分支、Grep 走通用分支：两者的前缀折角必须同为 inactive，
     // 否则同屏两种 Search 结果的折角一白一灰（#1105 误改 Glob 前缀）。
+    // content 是 Glob 工具的真实输出形态：纯路径列表，`Found N files` 头
+    // 由渲染层 glob_summary 按非空行数生成，不能手工塞头（会双计）。
     let glob_group = MessageViewModel::ToolCallGroup {
         thinking: None,
         category: ToolCategory::Glob,
@@ -331,7 +333,7 @@ fn test_glob_group_branch_uses_inactive_prefix_like_grep() {
             tool_name: "Glob".into(),
             display_name: "Search".into(),
             args_display: Some("pattern: \"**/*Newegg*\"".into()),
-            content: "Found 2 files\napp/A.php\napp/B.php".into(),
+            content: "app/A.php\napp/B.php".into(),
             is_error: false,
             file_inspect: false,
         }],
@@ -340,7 +342,7 @@ fn test_glob_group_branch_uses_inactive_prefix_like_grep() {
         standalone_action: None,
     };
     let lines = render_view_model(&glob_group, None, 120, true, 0);
-    // 摘要行 `Found N files`：前缀 inactive、正文 text_soft。
+    // 摘要行 `Found N files`：`⎿` 折角 inactive、正文 text_soft。
     let summary = lines
         .iter()
         .find(|line| line.to_string().contains("Found 2 files"))
@@ -355,20 +357,21 @@ fn test_glob_group_branch_uses_inactive_prefix_like_grep() {
         Some(theme::cur().inactive),
         "Glob 摘要行折角应为 inactive: {summary:?}"
     );
-    // 内容行：前缀 inactive、正文 text_soft，与 Grep 通用分支口径一致。
+    // 内容行前缀是 HANG（5 空格，无 `⎿` 符号）：断言空格前缀 inactive、
+    // 正文 text_soft，与 Grep 通用分支的悬挂行口径一致。
     let path_line = lines
         .iter()
         .find(|line| line.to_string().contains("app/A.php"))
         .expect("应渲染出 Glob 内容行");
-    let path_prefix = path_line
+    let hang = path_line
         .spans
         .iter()
-        .find(|span| span.content.contains(BranchPrefix::SYMBOL))
-        .expect("内容行应有 `⎿` 折角");
+        .find(|span| span.content.chars().all(|c| c == ' ') && !span.content.is_empty())
+        .expect("内容行应有 HANG 空格前缀");
     assert_eq!(
-        path_prefix.style.fg,
+        hang.style.fg,
         Some(theme::cur().inactive),
-        "Glob 内容行折角应为 inactive（与 Grep 一致）: {path_line:?}"
+        "Glob 内容行悬挂前缀应为 inactive（与 Grep 一致）: {path_line:?}"
     );
     let path_body = path_line.spans.last().expect("内容行应有正文 span");
     assert_eq!(
