@@ -1545,6 +1545,60 @@ fn test_standalone_action_summary_capitalizes_first_char() {
 }
 
 #[test]
+fn test_standalone_action_summary_bolds_count_digits() {
+    use crate::app::MessageViewModel;
+    use crate::ui::message_view::{ToolCategory, ToolEntry};
+    use ratatui::style::Modifier;
+    // 独立成行的动作摘要数字必须与 `Thought for 7s, read 2 files` 同字重（加粗），
+    // 否则同一屏内 `Read 2 files` 与 `Thought for 7s, read 2 files` 的计数一粗一细。
+    let vm = MessageViewModel::ToolCallGroup {
+        thinking: None,
+        category: ToolCategory::Read,
+        tools: vec![ToolEntry {
+            tool_name: "Read".to_string(),
+            display_name: "Read".to_string(),
+            args_display: Some("foo.txt".to_string()),
+            content: String::new(),
+            is_error: false,
+            file_inspect: false,
+        }],
+        collapsed: true,
+        content_hash: 0,
+        standalone_action: Some("read 2 files, searched for 1 pattern".to_string()),
+    };
+    let lines = render_view_model(&vm, Some(1), 80, false, 0);
+    let digits: Vec<_> = lines
+        .iter()
+        .flat_map(|line| line.spans.iter())
+        .filter(|s| s.content.chars().all(|c| c.is_ascii_digit()) && !s.content.is_empty())
+        .collect();
+    assert_eq!(
+        digits.len(),
+        2,
+        "两个计数数字应各自成独立 span: {:?}",
+        digits.iter().map(|s| &s.content).collect::<Vec<_>>()
+    );
+    for d in &digits {
+        assert!(
+            d.style.add_modifier.contains(Modifier::BOLD),
+            "独立动作行的数字应加粗: {:?}",
+            d.content
+        );
+    }
+    // 提示串与单位词保持常规字重，不随数字一起加粗
+    let hint = lines
+        .iter()
+        .flat_map(|line| line.spans.iter())
+        .find(|s| s.content.contains("(ctrl+o to expand)"))
+        .expect("应保留展开提示");
+    assert!(
+        !hint.style.add_modifier.contains(Modifier::BOLD),
+        "展开提示不应加粗: {:?}",
+        hint.content
+    );
+}
+
+#[test]
 fn test_uppercase_first_char_preserves_rest() {
     assert_eq!(super::uppercase_first_char("read 1 file"), "Read 1 file");
     assert_eq!(
