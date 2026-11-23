@@ -3473,10 +3473,17 @@ pub fn render_view_model_with_flags(
                     // 该行独立成行、行首无符号，首字母必须大写才与同族的
                     // `Thought for 3s` / `Brewed for 1m` 摘要行一致；
                     // 文案层因续写场景需要仍是小写 `read N file`，故在此处转换。
-                    lines.push(Line::from(Span::styled(
-                        format!("  {} (ctrl+o to expand)", uppercase_first_char(summary)),
-                        Style::default().fg(theme::cur().inactive),
-                    )));
+                    //
+                    // 数字必须与 `Thought for 9s, read 1 file` 摘要行同字重：独立动作行
+                    // 的计数同样来自 action_summary，若此处整行单 span 常规字重，
+                    // 同一屏内「Read 1 file」与「Thought for 7s, read 1 file」的数字
+                    // 一粗一细。因此整串（首字母大写 + 展开提示）交给 digit_accent_spans
+                    // 统一拆 span，行为与末尾 `… +N lines` 提示一致。
+                    let dim = theme::cur().inactive;
+                    let dim_style = Style::default().fg(dim);
+                    let hot_style = dim_style.add_modifier(Modifier::BOLD);
+                    let text = format!("  {} (ctrl+o to expand)", uppercase_first_char(summary));
+                    lines.push(Line::from(digit_accent_spans(&text, dim_style, hot_style)));
                 }
                 for entry in tools {
                     if !tool_entry_is_error(entry) || entry.content.is_empty() {
