@@ -256,6 +256,29 @@ fn test_filter_prefix_wildcard_respects_disallowed() {
 }
 
 #[test]
+fn test_filter_agent_excluded_case_insensitively() {
+    let parent_tools = vec![
+        make_tool("Read"),
+        make_tool("Agent"),
+        make_tool("agent"),
+        make_tool("AGENT"),
+    ];
+    let filtered = filter_tools(
+        &parent_tools,
+        &ToolsValue::List(vec!["*".to_string()]),
+        &ToolsValue::Empty,
+    );
+    let names: Vec<&str> = filtered.iter().map(|t| t.name()).collect();
+
+    assert!(names.contains(&"Read"));
+    assert_eq!(
+        names.len(),
+        1,
+        "Agent must be excluded under any casing to prevent recursion: {names:?}"
+    );
+}
+
+#[test]
 fn test_filter_empty_parent_tools() {
     let filtered = filter_tools(&[], &ToolsValue::Empty, &ToolsValue::Empty);
     assert!(filtered.is_empty());

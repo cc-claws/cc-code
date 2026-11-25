@@ -64,7 +64,9 @@ pub fn filter_tools(
         .filter(|tool| {
             let name = tool.name();
             let name_key = canonical_lower(name);
-            if name == TOOL_AGENT {
+            // 与 tool_is_visible 同一口径：忽略大小写，否则 agent.md 写小写 `agent`
+            // 会漏过递归排除，子 Agent 仍能继续派生。
+            if name_key.eq_ignore_ascii_case(TOOL_AGENT) {
                 return false;
             }
             if !allowed_matches(&allowed_list, &name_key) {
