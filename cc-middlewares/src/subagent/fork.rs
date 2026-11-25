@@ -17,6 +17,31 @@ fn canonical_lower(name: &str) -> String {
     canonical_tool_name(name).unwrap_or(name).to_lowercase()
 }
 
+/// Pattern 命中判定：支持整表 `*`、精确名、以及尾部 `*` 的前缀通配。
+///
+/// 前缀通配是为 `mcp__server__*` 这类「按 server 批量授权」准备的：MCP 工具名不由
+/// 任一内核管辖（`should_hide` 对它们一律放行），只能靠白名单前缀表达范围。
+/// `mcp__srv__*` 去掉尾部 `*` 后是 `mcp__srv__`，因此不会命中裸名 `mcp__srv`。
+pub(crate) fn pattern_matches(pattern: &str, name_key: &str) -> bool {
+    if pattern == "*" {
+        return true;
+    }
+    match pattern.strip_suffix('*') {
+        Some(prefix) => name_key.starts_with(&canonical_lower(prefix)),
+        None => canonical_lower(pattern) == name_key,
+    }
+}
+
+/// 白名单整体判定：空列表 = 不限；否则任一条 pattern 命中即可。
+pub(crate) fn allowed_matches(allowed: &[String], name_key: &str) -> bool {
+    allowed.is_empty() || allowed.iter().any(|p| pattern_matches(p, name_key))
+}
+
+/// 禁用列表判定：任一条 pattern 命中即禁用。
+pub(crate) fn disallowed_matches(disallowed: &[String], name_key: &str) -> bool {
+    disallowed.iter().any(|p| pattern_matches(p, name_key))
+}
+
 /// Filter tools from parent set based on agent definition's tools/disallowedTools fields.
 ///
 /// Rules:
@@ -24,7 +49,8 @@ fn canonical_lower(name: &str) -> String {
 /// - `tools` has value -> only keep tools in the list (also exclude `Agent`)
 /// - then remove tools listed in `disallowed_tools` from the result
 ///
-/// Matching is case-insensitive (users often write PascalCase in agent.md).
+/// Matching is case-insensitive (users often write PascalCase in agent.md), and
+/// a trailing `*` grants prefix wildcard matching (e.g. `mcp__server__*`).
 pub fn filter_tools(
     parent_tools: &[Arc<dyn BaseTool>],
     allowed: &ToolsValue,
@@ -32,22 +58,21 @@ pub fn filter_tools(
 ) -> Vec<Box<dyn BaseTool>> {
     let allowed_list = allowed.to_vec();
     let disallowed_list = disallowed.to_vec();
-    let is_wildcard = allowed_list.len() == 1 && allowed_list[0] == "*";
-    let allowed_keys: Vec<String> = allowed_list.iter().map(|n| canonical_lower(n)).collect();
-    let disallowed_keys: Vec<String> = disallowed_list.iter().map(|n| canonical_lower(n)).collect();
 
     parent_tools
         .iter()
         .filter(|tool| {
             let name = tool.name();
             let name_key = canonical_lower(name);
-            if name == TOOL_AGENT {
+            // 与 tool_is_visible 同一口径：忽略大小写，否则 agent.md 写小写 `agent`
+            // 会漏过递归排除，子 Agent 仍能继续派生。
+            if name_key.eq_ignore_ascii_case(TOOL_AGENT) {
                 return false;
             }
-            if !is_wildcard && !allowed_list.is_empty() && !allowed_keys.contains(&name_key) {
+            if !allowed_matches(&allowed_list, &name_key) {
                 return false;
             }
-            if disallowed_keys.contains(&name_key) {
+            if disallowed_matches(&disallowed_list, &name_key) {
                 return false;
             }
             true

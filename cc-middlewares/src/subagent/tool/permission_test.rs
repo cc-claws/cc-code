@@ -293,6 +293,29 @@ async fn test_child_deferred_classifier_receives_actual_target_and_parameters() 
 }
 
 #[tokio::test]
+async fn test_child_definition_prefix_wildcard_admits_matching_server_tools() {
+    let (parent, _, _) = make_parent(Some(Classification::Allow), None);
+    let mut child = make_permission(&parent);
+    let mut state = AgentState::new("permission-test");
+    child.allowed = vec!["mcp__service__*".to_string()];
+    assert!(
+        child
+            .before_tool(&mut state, &make_call("mcp__service__write", json!({})))
+            .await
+            .is_ok(),
+        "前缀通配应放行该 server 下的工具"
+    );
+    child.allowed = vec!["mcp__other__*".to_string()];
+    assert!(
+        child
+            .before_tool(&mut state, &make_call("mcp__service__write", json!({})))
+            .await
+            .is_err(),
+        "前缀通配不得放行其它 server 的工具"
+    );
+}
+
+#[tokio::test]
 async fn test_child_deferred_targets_obey_definition_allow_and_deny_lists() {
     let (parent, _, _) = make_parent(Some(Classification::Allow), None);
     let mut child = make_permission(&parent);

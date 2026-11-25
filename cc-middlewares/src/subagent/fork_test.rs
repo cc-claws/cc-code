@@ -189,6 +189,96 @@ fn test_filter_case_insensitive() {
 }
 
 #[test]
+fn test_filter_prefix_wildcard_mcp_server() {
+    let parent_tools = vec![
+        make_tool("Read"),
+        make_tool("mcp__nt-query-mcp__nt-order-query"),
+        make_tool("mcp__other-server__some-tool"),
+    ];
+    let filtered = filter_tools(
+        &parent_tools,
+        &ToolsValue::List(vec!["Read".to_string(), "mcp__nt-query-mcp__*".to_string()]),
+        &ToolsValue::Empty,
+    );
+    let names: Vec<&str> = filtered.iter().map(|t| t.name()).collect();
+
+    assert!(
+        names.contains(&"Read"),
+        "plain tool in allowlist should be kept"
+    );
+    assert!(
+        names.contains(&"mcp__nt-query-mcp__nt-order-query"),
+        "prefix wildcard must match tools of the target MCP server"
+    );
+    assert!(
+        !names.contains(&"mcp__other-server__some-tool"),
+        "prefix wildcard must not match other MCP servers"
+    );
+}
+
+#[test]
+fn test_filter_prefix_wildcard_does_not_match_bare_prefix() {
+    let parent_tools = vec![make_tool("mcp__srv"), make_tool("mcp__srv__tool")];
+    let filtered = filter_tools(
+        &parent_tools,
+        &ToolsValue::List(vec!["mcp__srv__*".to_string()]),
+        &ToolsValue::Empty,
+    );
+    let names: Vec<&str> = filtered.iter().map(|t| t.name()).collect();
+
+    assert!(names.contains(&"mcp__srv__tool"));
+    assert!(
+        !names.contains(&"mcp__srv"),
+        "prefix with trailing __ must not match the bare server name"
+    );
+}
+
+#[test]
+fn test_filter_prefix_wildcard_respects_disallowed() {
+    let parent_tools = vec![
+        make_tool("mcp__srv__read"),
+        make_tool("mcp__srv__write"),
+        make_tool("mcp__srv__delete"),
+    ];
+    let filtered = filter_tools(
+        &parent_tools,
+        &ToolsValue::List(vec!["mcp__srv__*".to_string()]),
+        &ToolsValue::List(vec!["mcp__srv__delete".to_string()]),
+    );
+    let names: Vec<&str> = filtered.iter().map(|t| t.name()).collect();
+
+    assert!(names.contains(&"mcp__srv__read"));
+    assert!(names.contains(&"mcp__srv__write"));
+    assert!(
+        !names.contains(&"mcp__srv__delete"),
+        "disallowedTools must still win over prefix wildcard"
+    );
+}
+
+#[test]
+fn test_filter_agent_excluded_case_insensitively() {
+    let parent_tools = vec![
+        make_tool("Read"),
+        make_tool("Agent"),
+        make_tool("agent"),
+        make_tool("AGENT"),
+    ];
+    let filtered = filter_tools(
+        &parent_tools,
+        &ToolsValue::List(vec!["*".to_string()]),
+        &ToolsValue::Empty,
+    );
+    let names: Vec<&str> = filtered.iter().map(|t| t.name()).collect();
+
+    assert!(names.contains(&"Read"));
+    assert_eq!(
+        names.len(),
+        1,
+        "Agent must be excluded under any casing to prevent recursion: {names:?}"
+    );
+}
+
+#[test]
 fn test_filter_empty_parent_tools() {
     let filtered = filter_tools(&[], &ToolsValue::Empty, &ToolsValue::Empty);
     assert!(filtered.is_empty());
