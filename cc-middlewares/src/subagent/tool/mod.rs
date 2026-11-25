@@ -16,17 +16,11 @@ fn tool_is_visible(
     name: &str,
 ) -> bool {
     let key = cc_agent::kernel::canonical_tool_name(name).unwrap_or(name);
-    let matches = |candidate: &String| {
-        cc_agent::kernel::canonical_tool_name(candidate)
-            .unwrap_or(candidate)
-            .eq_ignore_ascii_case(key)
-    };
+    let key_lower = key.to_lowercase();
     !kernel.should_hide(name)
         && !key.eq_ignore_ascii_case("Agent")
-        && (allowed.is_empty()
-            || (allowed.len() == 1 && allowed[0] == "*")
-            || allowed.iter().any(matches))
-        && !disallowed.iter().any(matches)
+        && crate::subagent::fork::allowed_matches(allowed, &key_lower)
+        && !crate::subagent::fork::disallowed_matches(disallowed, &key_lower)
 }
 
 /// 构造 SubAgent 标准中间件链
