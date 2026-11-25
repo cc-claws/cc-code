@@ -4,6 +4,14 @@ Perihelion Agent 版本变更记录。
 
 ---
 
+## v0.6.301 — 2026-11-25
+
+### Fixes
+
+- **`tools` 白名单支持前缀通配，统一三处可见性与权限判定（#1117, #1118）**：`agent.md` 的 `tools` 只认整表 `*` 和精确名，`mcp__nt-query-mcp__*` 被当作字面量做精确比较，与 `mcp__nt-query-mcp__nt-order-query` 永不相等，该 server 下全部 MCP 工具被 `filter_tools` 剔除。子 agent 因此拿不到 MCP 工具，实际退回用 `Bash` + `curl` 手工走 `initialize` / `tools/list` / `tools/call`，白名单本应是最小权限边界，结果既没生效也没被察觉。同一套「空 / 唯一 `*` / 精确匹配」判定散落在 `subagent/fork.rs` 的 `filter_tools`、`subagent/tool/mod.rs` 的 `tool_is_visible`、`subagent/tool/permission.rs` 的 `resolve_call` 三处，只改其一会造成「filter 放行、permission 拒绝」的错位，故抽出 `pattern_matches` / `allowed_matches` / `disallowed_matches` 统一复用并 accept 尾部 `*` 的前缀通配。语义上：前缀通配去掉尾部 `*` 后按前缀比较，`mcp__srv__*` 不会命中裸名 `mcp__srv`；`disallowedTools` 优先级不变，仍可精确禁用前缀通配放行的工具；精确名与整表 `*` 语义及大小写不敏感行为均保持。顺带修掉一个相邻缺陷：`filter_tools` 用原始名 `name == "Agent"` 排除递归，而 `tool_is_visible` 用规范名忽略大小写比较，实测写小写 `agent` 时排除失效（`FILTERED: ["Read", "agent"]`），子 agent 仍可拿到 Agent 工具继续派生，现统一为 `eq_ignore_ascii_case`。改动文件：`cc-middlewares/src/subagent/{fork,fork_test}.rs`、`cc-middlewares/src/subagent/tool/{mod,permission,permission_test}.rs`（新增 8 个测试用例）。验证：`cargo test -p cc-middlewares --lib` 1155 项全过、`cargo clippy -p cc-middlewares --all-targets -- -D warnings` 无告警、`rustfmt --check` 通过，PR 的 Rustfmt 与三平台 Build CI 全绿。**未覆盖**：issue 评论提到的「被授予 `Bash` 的子 agent 可从 `.mcp.json` 读取 Bearer 令牌、用 curl 绕过 MCP 工具级权限」这条路径本次未处理。
+
+---
+
 ## v0.6.300 — 2026-11-23
 
 ### Features
